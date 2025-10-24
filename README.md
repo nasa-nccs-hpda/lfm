@@ -216,10 +216,10 @@ If you reference or use the codebase in your research, please cite:
 
 ```
 @misc{2024dinov2_lora_seg,
-      title={Finetuning DINOv2, DINOv3 with LoRA for Image Segmentation},
-      author={Rob van Gastel},
-      year={2024}
-    }
+    title={Finetuning DINOv2 and DINOv3 with LoRA for Image Segmentation},
+    author = {Van Gastel, Rob},
+    year={2024}
+}
 ```
 
 ## References
