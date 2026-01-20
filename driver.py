@@ -5,6 +5,7 @@ Supports training, evaluation, and checkpoint resumption.
 """
 
 import os
+import time
 
 import torch
 from torch.optim import AdamW
@@ -502,13 +503,14 @@ def main(
             - 'combined': CrossEntropy + Dice (recommended)
             - 'full': CrossEntropy + Dice + Boundary (unstable)
         device: torch device (if None, will use cuda if available)
-        mode (str): Operation mode - 'train', 'eval', or 'both' (default: 'both')
+        mode (str): Operation mode - 'train', 'eval', or 'both' (default both)
         checkpoint_path (str): Path to checkpoint file for loading/resuming
 
     Returns:
         train_losses (list): Training losses per epoch (None if mode='eval')
         val_losses (list): Validation losses per epoch (None if mode='eval')
     """
+
     # Validate arguments
     if mode not in ["train", "eval", "both"]:
         raise ValueError(
@@ -587,7 +589,13 @@ def main(
 
     print_model_summary(model)
 
+    # Start timing
+    training_start_time = time.time()
+    epoch_times = []
+
     for epoch in range(start_epoch, num_epochs + 1):
+        epoch_start_time = time.time()
+
         print(f"\n{'='*60}")
         print(f"Epoch {epoch}/{num_epochs}")
         print(f"{'='*60}")
@@ -617,11 +625,16 @@ def main(
         scheduler.step()
         current_lr = scheduler.get_last_lr()[0]
 
+        # Calculate epoch time
+        epoch_time = time.time() - epoch_start_time
+        epoch_times.append(epoch_time)
+
         # Print epoch summary
         print(f"\nEpoch {epoch} Summary:")
         print(f"  Train Loss: {train_loss:.4f}")
         print(f"  Val Loss:   {val_loss:.4f}")
         print(f"  LR:         {current_lr:.6f}")
+        print(f"  Time:       {epoch_time:.2f}s")
 
         # Save best model
         if val_loss < best_val_loss:
@@ -660,35 +673,49 @@ def main(
                 model, val_loader, device, visualization_dir, epoch
             )
 
+    # Calculate total training time
+    total_training_time = time.time() - training_start_time
+    avg_epoch_time = np.mean(epoch_times)
+
     print(f"\n{'='*60}")
     print("Training completed!")
     print(f"Best validation loss: {best_val_loss:.4f}")
+    print(
+        f"Total training time: {total_training_time:.2f}s "
+        f"({total_training_time/60:.2f}m)"
+    )
+    print(f"Average time per epoch: {avg_epoch_time:.2f}s")
     print(f"{'='*60}\n")
 
     # Save final model
-    if mode != "eval":
-        final_path = os.path.join(checkpoint_dir, "final_model.pt")
-        save_checkpoint(
-            model,
-            optimizer,
-            scheduler,
-            num_epochs,
-            train_losses,
-            val_losses,
-            final_path,
-        )
-        print(f"Saved final model to: {final_path}")
+    final_path = os.path.join(checkpoint_dir, "final_model.pt")
+    save_checkpoint(
+        model,
+        optimizer,
+        scheduler,
+        num_epochs,
+        train_losses,
+        val_losses,
+        final_path,
+    )
+    print(f"Saved final model to: {final_path}")
 
+    # Print training summary (only if we have losses)
+    if len(train_losses) > 0 and len(val_losses) > 0:
         print("\n" + "=" * 60)
-        print("Training complete!")
+        print("TRAINING SUMMARY")
         print("=" * 60)
         print(f"Final train loss: {train_losses[-1]:.4f}")
         print(f"Final val loss: {val_losses[-1]:.4f}")
         print(f"Best val loss: {min(val_losses):.4f}")
+        print(
+            f"Total training time: {total_training_time:.2f}s ({total_training_time/60:.2f}m)"
+        )
+        print(f"Average time per epoch: {avg_epoch_time:.2f}s")
         print(f"\nOutputs saved to: {output_dir}")
-        print(f"  - Checkpoints: {output_dir}/checkpoints/")
-        print(f"  - Visualizations: {output_dir}/visualizations/")
-        print(f"  - Training history: {output_dir}/training_history.png")
+        print(f"  - Checkpoints: {checkpoint_dir}")
+        print(f"  - Visualizations: {visualization_dir}")
+        print("=" * 60)
 
     return train_losses, val_losses
 
