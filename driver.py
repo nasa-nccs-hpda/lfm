@@ -468,7 +468,7 @@ def evaluate_model(model, val_loader, output_dir, device):
     print(f"{'='*60}\n")
 
 
-def main(
+def train_model(
     model,
     train_loader,
     val_loader,
