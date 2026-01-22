@@ -12,6 +12,7 @@ To test one of the example crater segmentation workflows:
 2. Navigate to a folder where you would like to run the example workflow. 
 3. Open a Terminal from JupyterHub.
 4. Download the Notebook with
+
    ```wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/finetune_dinov3.ipynb```.
 6. Run the Notebook.
 
