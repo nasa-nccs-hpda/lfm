@@ -11,8 +11,9 @@ To test one of the example crater segmentation workflows:
    2. From the top right corner, click the text that says Python [...]. Select "Python [conda env: ilab-pytorch]" from the dropdown.
 2. Navigate to a folder where you would like to run the example workflow. 
 3. Open a Terminal from JupyterHub.
-4. Download the Notebook with `wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/finetune_dinov3.ipynb`.
-5. Run the Notebook.
+4. Download the Notebook with
+   ```wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/finetune_dinov3.ipynb```.
+6. Run the Notebook.
 
 ## Full Repository usage
 
