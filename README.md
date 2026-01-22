@@ -20,8 +20,8 @@ To use this Repo, you will need a fine-grained access token:
    3. Confirm token creation: click "generate token" in green at the bottom of the screen. A screen will pop up to confirm your choice.
    4. Copy and paste the token, keep it somewhere secure like a password manager. This will be used instead of your password to login to github when using the CLI. 
 3. Clone the lfm repo: 
-   1. Verify you have access to the repo at this URL: https://github.com/nasa-nccs-hpda/lfm. If you don't have access, let Sandy know.  
-   2. Go to an ADAPT terminal window; navigate to the lfm project space: cd /explore/nobackup/projects/lfm
+   1. Verify you have access to the repo at this URL: ```https://github.com/nasa-nccs-hpda/lfm```. If you don't have access, let Sandy know.  
+   2. Go to an ADAPT terminal window; navigate to the lfm project space: ```cd /explore/nobackup/projects/lfm```
    3. Create your own subdirectory in the lfm space: ```mkdir <dir_name>```
    4. Enter your new directory: ```cd <dir_name>```  
    5. To retrieve the code from the git repo, run: ```git clone https://github.com/nasa-nccs-hpda/lfm.git```. This should fetch the LFM code into your new directory. 
