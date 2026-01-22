@@ -7,6 +7,29 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import sys
+import os
+import subprocess
+
+def install_termcolor_locally():
+    # Get the user's home directory
+    home_dir = os.path.expanduser("~")
+    
+    # Get Python version (e.g., "3.12")
+    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    
+    # Construct the target path
+    target_path = os.path.join(home_dir, ".local", "lib", f"python{python_version}", "site-packages")
+    
+    # Run the pip install command
+    subprocess.check_call([
+        sys.executable, "-m", "pip", "install",
+        f"--target={target_path}",
+        "termcolor", "--force-reinstall", "--no-deps"
+    ])
+    
+    print(f"Termcolor installed to: {target_path}")
+
 
 class FocalLoss(nn.Module):
     """
