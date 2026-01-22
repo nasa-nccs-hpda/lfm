@@ -2,6 +2,7 @@ Working repo for LFM project. See finetuning notebook for an example workflow.
 
 To use this Repo, you will need a fine-grained access token: 
 
+# Repo usage
 1. Create an account: 
    1. Create an account on github: https://github.com/signup. Connecting to Google account is usually pretty easy/convenient. 
    2. After creating the account, sign in.
@@ -32,3 +33,20 @@ To use this Repo, you will need a fine-grained access token:
       - **INPUT_DIR**: if you want to load your own data. By default this path points to the data Sandy created in the LFM space. Data must be preprocessed to be the proper dimensions if loaded into the model. 
       - **OUTPUT_DIR**: change this if you want to have the output of the workflow be somewhere specific.
    10. Click on the button on the top of the screen that looks like the "fast forward button" (restart kernel and run all cells". This will run the workflow!
+
+# Model and data specifications
+
+## Model specifications
+The SAT-493M ViT-L/16 distilled DinoV3 encoder was used (trained on Satellite data). All encoder parameters were unfrozen for fine-tuning. See the [DinoV3 repo](https://github.com/facebookresearch/dinov3) for more info. 
+
+### Input data specifications
+The vis data, (hosted at /explore/nobackup/projects/lfm/rawdata/Lunar/LowRes_MLDataset_v1_bilinear), was preprocessed by extracting the following bands and normalizing values to [0,1] range: [643, 566, 415]. Data was saved in (3, 300, 300) shape .npy files under the LFM project space (explore/nobackup/projects/lfm/vis_chips). 
+
+### Label specifications
+Labels were processed from the annotations JSON file. Annotations were sorted by corresponding filename, then all labels for a given filename were saved single composite (300, 300) shape .npy images under the LFM project space (explore/nobackup/projects/lfm/vis_chips). 
+
+### Input/label matching
+Labels and inputs were matched by asset ID, as well as tile row/column ID. 
+
+### Training specifications
+Model was trained on 500 input/label pairs for 50 epochs, using a PRISM JupyterHub job on 4 V100 GPUs (1 V100 will also work, but will be slower). The parameters used were: "combined" loss function (Dice loss + Binary CE), 1e-4 LR, AdamW optimizer, and Cosine Annealing LR scheduling. A train/val split of 80/20% was used as well.
