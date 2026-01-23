@@ -3,6 +3,7 @@ model.py
 Simple DINO encoder with UNet decoder for segmentation.
 """
 
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
