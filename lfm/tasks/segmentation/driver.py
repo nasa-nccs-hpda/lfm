@@ -14,7 +14,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 from .utils import get_loss_function
 
