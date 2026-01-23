@@ -132,6 +132,7 @@ def load_dinov3_encoder(weights_local_checkpoint, device, model='dinov3_vitl16')
             weights=weights_local_checkpoint
         ).to(device)
         print("Encoder loaded with pretrained weights.")
+        return encoder
     else:
         try:
             encoder = torch.hub.load(
@@ -141,6 +142,7 @@ def load_dinov3_encoder(weights_local_checkpoint, device, model='dinov3_vitl16')
                 weights=weights_URL
             ).to(device)
             print("Encoder loaded with pretrained weights.")
+            return encoder
         except Exception as e:
             if isinstance(e, HTTPError) and e.code == 403:
                 raise RuntimeError(
@@ -150,3 +152,4 @@ def load_dinov3_encoder(weights_local_checkpoint, device, model='dinov3_vitl16')
                     "to obtain a new download URL for your own use: https://ai.meta.com/resources/models-and-libraries/dinov3-downloads/."
                 ) from e
             raise
+    
