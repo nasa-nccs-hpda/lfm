@@ -12,23 +12,27 @@ import os
 import subprocess
 
 def install_termcolor_locally():
-    # Get the user's home directory
-    home_dir = os.path.expanduser("~")
-    
-    # Get Python version (e.g., "3.12")
-    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-    
-    # Construct the target path
-    target_path = os.path.join(home_dir, ".local", "lib", f"python{python_version}", "site-packages")
-    
-    # Run the pip install command
-    subprocess.check_call([
-        sys.executable, "-m", "pip", "install",
-        f"--target={target_path}",
-        "termcolor", "--force-reinstall", "--no-deps"
-    ])
-    
-    print(f"Termcolor installed to: {target_path}")
+    # First, try standard pip install
+    try:
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install", "termcolor"
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("Termcolor installed successfully using standard pip install")
+        return
+    except subprocess.CalledProcessError:
+        print("Standard pip install failed, attempting local installation...")
+        
+        # If standard install fails, fall back to local installation
+        home_dir = os.path.expanduser("~")
+        python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+        target_path = os.path.join(home_dir, ".local", "lib", f"python{python_version}", "site-packages")
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install",
+            f"--target={target_path}",
+            "termcolor", "--force-reinstall", "--no-deps"
+        ])
+        
+        print(f"Termcolor installed to: {target_path}")
 
 
 class FocalLoss(nn.Module):
