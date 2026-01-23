@@ -122,7 +122,7 @@ class DINOSegmentation(nn.Module):
         """Load model state (encoder + decoder)."""
         self.load_state_dict(torch.load(filename))
 
-def load_dinov3_encoder(weights_local_checkpoint, model='dinov3_vitl16'):
+def load_dinov3_encoder(weights_local_checkpoint, device, model='dinov3_vitl16'):
     if os.path.exists(weights_local_checkpoint):
         print(f'Loading model from {weights_local_checkpoint}')
         encoder = torch.hub.load(
