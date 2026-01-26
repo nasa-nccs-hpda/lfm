@@ -6,12 +6,11 @@ Working repo for LFM project. See finetuning notebook for an example workflow.
 
 To test one of the example crater segmentation workflows:
 
-1. Open an ADAPT terminal, and run this command: 
+1. Open an ADAPT terminal, and run these commands: 
 ```bash
-module load mamba && \
-mamba activate /explore/nobackup/projects/lfm/env && \
-python -m ipykernel install --user --name=lfm_env --display-name="LFM_ENV" && \
-echo "Kernel installed! Refresh your JupyterHub session to see it."
+module load mamba
+mamba activate /explore/nobackup/projects/lfm/env
+python -m ipykernel install --user --name=lfm_env --display-name="LFM_ENV"
 ```
 2. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov`.
    1. Select the ILAB session for 6 hours with 1 V100 GPU.
