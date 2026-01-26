@@ -4,8 +4,6 @@ Working repo for LFM project. See finetuning notebook for an example workflow.
 
 ## Quickstart
 
-TEST TEST TEST (remove later)
-
 To test one of the example crater segmentation workflows:
 
 1. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov`.
