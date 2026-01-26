@@ -34,7 +34,7 @@ To fully utilize this Repo, you will need a fine-grained access token:
       1. Name your token using the "note" field, set an expiration date as long as you would like (shorter is considered more secure).
       2. Scroll down to "select scopes".
       3. Check the main "repo" checkbox -- this allows you to modify repos.
-      4. Scroll down further until you see "admin:org"; don't check this box, but do check "read" and "write" org options under this box. This allows you to access the lfm repo, which is part of a nasa organization.
+      4. Scroll down further until you see "admin:org"; don't check this box, but do check "read" org option under this box. This allows you to access the lfm repo, which is part of a nasa organization.
    3. Confirm token creation: click "generate token" in green at the bottom of the screen. A screen will pop up to confirm your choice.
    4. Copy and paste the token, keep it somewhere secure like a password manager. This will be used instead of your password to login to github when using the CLI.
 3. Clone the lfm repo:
