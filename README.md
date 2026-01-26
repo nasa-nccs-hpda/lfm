@@ -6,12 +6,19 @@ Working repo for LFM project. See finetuning notebook for an example workflow.
 
 To test one of the example crater segmentation workflows:
 
-1. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov`.
+1. Open an ADAPT terminal, and run this command: 
+```bash
+module load mamba && \
+mamba activate /explore/nobackup/projects/lfm/env && \
+python -m ipykernel install --user --name=lfm_env --display-name="LFM_ENV" && \
+echo "Kernel installed! Refresh your JupyterHub session to see it."
+```
+2. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov`.
    1. Select the ILAB session for 6 hours with 1 V100 GPU.
    2. From the top right corner, click the text that says Python [...]. Select "Python [conda env: ilab-pytorch]" from the dropdown.
-2. Navigate to a folder where you would like to run the example workflow.
-3. Open a Terminal from JupyterHub.
-4. Download the Notebook with
+3. Navigate to a folder where you would like to run the example workflow.
+4. Open a Terminal from JupyterHub.
+5. Download the Notebook with
 
    ```wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/finetune_dinov3.ipynb```.
 6. Run the Notebook.
