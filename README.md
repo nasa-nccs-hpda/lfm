@@ -25,16 +25,16 @@ To fully utilize this Repo, you will need a fine-grained access token:
    2. After creating the account, sign in.
 2. Create an access token: this will be needed to do things like "git clone" in the command-line. 
    1. Generating a token:
-      1. Go to the profile picture in the top right, click settings (2/3 of the way down the dropdown). 
+      1. Click on your profile picture in the top right, click settings (2/3 of the way down the dropdown). 
       2. On the settings page, note the different options on the left (public profile, account, etc). Scroll down all the way until you see "Developer Settings" in this left-hand menu. 
       3. Click on developer settings. 
-      4. Click on personal access tokens, then select "fine-grained" tokens. 
+      4. Click on personal access tokens, then select "tokens (classic)". 
       5. Click "generate new token".
    2. Configuring the token:
-      1. Name your token, set an expiration date as long as you would like. Generally a shorter duration is considered more secure, I usually go with 30 days.
-      2. Scroll down to "repository access", click "all repositories". 
-      3. Scroll down to "permissions", click "add permissions". 
-      4. Search for "contents" and click the checkbox: an option for contents will pop up, select "read and write" from the dropdown. Don't worry about the "metadata" option.
+      1. Name your token using the "note" field, set an expiration date as long as you would like (shorter is considered more secure). 
+      2. Scroll down to "select scopes".
+      3. Check the main "repo" checkbox -- this allows you to modify repos. 
+      4. Scroll down further until you see "admin:org"; don't check this box, but do check "read" and "write" org options under this box. This allows you to access the lfm repo, which is part of a nasa organization.
    3. Confirm token creation: click "generate token" in green at the bottom of the screen. A screen will pop up to confirm your choice.
    4. Copy and paste the token, keep it somewhere secure like a password manager. This will be used instead of your password to login to github when using the CLI. 
 3. Clone the lfm repo: 
