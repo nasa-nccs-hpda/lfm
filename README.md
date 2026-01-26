@@ -9,7 +9,11 @@ To test one of the example crater segmentation workflows:
 1. Open an ADAPT terminal, and run these commands: 
 ```bash
 module load mamba
+```
+```bash
 mamba activate /explore/nobackup/projects/lfm/env
+```
+```bash
 python -m ipykernel install --user --name=lfm_env --display-name="LFM_ENV"
 ```
 2. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov`.
