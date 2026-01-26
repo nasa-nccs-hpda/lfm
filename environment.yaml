@@ -1,0 +1,35 @@
+name: lfm
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.11
+  
+  # PyTorch ecosystem with CUDA support
+  - pytorch
+  - torchvision
+  - pytorch-cuda=11.8
+  - torchmetrics
+  
+  # Core scientific computing
+  - numpy
+  - matplotlib
+  
+  # Machine learning and utilities
+  - scikit-learn
+  - tqdm
+  
+  # Jupyter support
+  - ipykernel
+  
+  # pip dependencies (packages not available or better via pip)
+  - pip
+  - pip:
+    - ftfy
+    - omegaconf
+    - regex
+    - submitit
+    - termcolor
