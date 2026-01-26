@@ -19,9 +19,11 @@ python -m ipykernel install --user --name=lfm_env --display-name="LFM_ENV"
 4. Open a Terminal from JupyterHub.
 5. Download the Notebook with
 
-   ```wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/finetune_dinov3.ipynb```.
-6. Navigate to the top right where it says "Python 3 (ipykernel)" or something similar. Click on this, and select  ```LFM_ENV``` from the dropdown list.
-7. Run the Notebook.
+   ```bash
+   wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/finetune_dinov3.ipynb
+   ```
+7. Navigate to the top right where it says "Python 3 (ipykernel)" or something similar. Click on this, and select  ```LFM_ENV``` from the dropdown list.
+8. Run the Notebook.
 
 ## Full Repository usage
 
