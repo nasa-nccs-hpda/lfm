@@ -1,6 +1,7 @@
 """
 utils.py
 Loss functions for crater segmentation training.
+Channel-agnostic - works with any number of input image channels.
 """
 
 import torch
@@ -39,6 +40,9 @@ class FocalLoss(nn.Module):
     """
     Focal Loss for addressing class imbalance.
     Focuses on hard-to-classify examples (small craters).
+    
+    Note: Operates on output logits (class predictions), independent of 
+    input image channels. Works with any number of input channels.
 
     Args:
         alpha (float): Weighting factor for class balance
@@ -52,6 +56,14 @@ class FocalLoss(nn.Module):
         self.ce = nn.CrossEntropyLoss(reduction="none")
 
     def forward(self, logits, targets):
+        """
+        Args:
+            logits: Model output logits (B, num_classes, H, W)
+            targets: Ground truth labels (B, H, W)
+        
+        Returns:
+            Focal loss value
+        """
         ce_loss = self.ce(logits, targets)
         pt = torch.exp(-ce_loss)
         focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
@@ -62,6 +74,9 @@ class DiceLoss(nn.Module):
     """
     Dice Loss for segmentation.
     Better for handling imbalanced classes and boundary detection.
+    
+    Note: Operates on output logits (class predictions), independent of 
+    input image channels. Works with any number of input channels.
 
     Args:
         smooth (float): Smoothing factor to avoid division by zero
@@ -72,6 +87,14 @@ class DiceLoss(nn.Module):
         self.smooth = smooth
 
     def forward(self, logits, targets):
+        """
+        Args:
+            logits: Model output logits (B, num_classes, H, W)
+            targets: Ground truth labels (B, H, W)
+        
+        Returns:
+            Dice loss value
+        """
         # Get probabilities for crater class (class 1)
         probs = torch.softmax(logits, dim=1)[:, 1]  # (B, H, W)
         targets_one_hot = (targets == 1).float()  # (B, H, W)
@@ -88,6 +111,9 @@ class BoundaryLoss(nn.Module):
     """
     Boundary Loss to penalize blob predictions.
     Encourages discrete crater boundaries by comparing edge gradients.
+    
+    Note: Operates on output logits (class predictions), independent of 
+    input image channels. Works with any number of input channels.
 
     Args:
         weight (float): Weight for boundary loss component
@@ -113,6 +139,14 @@ class BoundaryLoss(nn.Module):
         )
 
     def forward(self, logits, targets):
+        """
+        Args:
+            logits: Model output logits (B, num_classes, H, W)
+            targets: Ground truth labels (B, H, W)
+        
+        Returns:
+            Boundary loss value
+        """
         # Get predicted crater mask
         probs = torch.softmax(logits, dim=1)[:, 1:2]  # (B, 1, H, W)
         targets_mask = (targets == 1).unsqueeze(1).float()  # (B, 1, H, W)
@@ -136,6 +170,9 @@ class CombinedLoss(nn.Module):
     """
     Combined Loss: CrossEntropy + Dice Loss.
     Balances pixel-wise classification with region overlap.
+    
+    Note: Operates on output logits (class predictions), independent of 
+    input image channels. Works with any number of input channels.
 
     Args:
         ce_weight (float): Weight for cross-entropy component
@@ -150,6 +187,14 @@ class CombinedLoss(nn.Module):
         self.dice = DiceLoss()
 
     def forward(self, logits, targets):
+        """
+        Args:
+            logits: Model output logits (B, num_classes, H, W)
+            targets: Ground truth labels (B, H, W)
+        
+        Returns:
+            Combined loss value
+        """
         ce_loss = self.ce(logits, targets)
         dice_loss = self.dice(logits, targets)
         return self.ce_weight * ce_loss + self.dice_weight * dice_loss
@@ -159,6 +204,9 @@ class FullLoss(nn.Module):
     """
     Full Loss: CrossEntropy + Dice + Boundary Loss.
     Most comprehensive loss for crater detection with discrete boundaries.
+    
+    Note: Operates on output logits (class predictions), independent of 
+    input image channels. Works with any number of input channels.
 
     Args:
         ce_weight (float): Weight for cross-entropy
@@ -176,6 +224,14 @@ class FullLoss(nn.Module):
         self.boundary = BoundaryLoss(weight=1.0)  # Weight handled externally
 
     def forward(self, logits, targets):
+        """
+        Args:
+            logits: Model output logits (B, num_classes, H, W)
+            targets: Ground truth labels (B, H, W)
+        
+        Returns:
+            Total loss value
+        """
         ce_loss = self.ce(logits, targets)
         dice_loss = self.dice(logits, targets)
         boundary_loss = self.boundary(logits, targets)
@@ -191,14 +247,18 @@ class FullLoss(nn.Module):
 def get_loss_function(loss_type="cross_entropy"):
     """
     Factory function to get loss function by name.
+    
+    All loss functions operate on model output logits and are independent
+    of input image channels. They work with grayscale, RGB, multispectral,
+    or any other multi-channel input format.
 
     Args:
         loss_type (str): Type of loss function. Options:
             - 'cross_entropy': Standard CrossEntropyLoss
             - 'focal': Focal Loss for class imbalance
             - 'dice': Dice Loss for segmentation
-            - 'combined': CrossEntropy + Dice
-            - 'full': CrossEntropy + Dice + Boundary (recommended for craters)
+            - 'combined': CrossEntropy + Dice (recommended)
+            - 'full': CrossEntropy + Dice + Boundary (best for crater boundaries)
 
     Returns:
         nn.Module: Loss function module

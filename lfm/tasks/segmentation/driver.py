@@ -2,6 +2,7 @@
 driver.py
 Training driver for DINO segmentation with configurable loss functions.
 Supports training, evaluation, and checkpoint resumption.
+Handles images with any number of channels (grayscale, RGB, multispectral, etc.).
 """
 
 import os
@@ -44,11 +45,92 @@ def calculate_f1_score(pred, label):
     return f1
 
 
+def prepare_image_for_display(img):
+    """
+    Prepare multi-channel image for matplotlib display.
+    
+    Args:
+        img: Image array with shape (H, W, C) where C can be any number
+        
+    Returns:
+        img_vis: Image ready for display (H, W) or (H, W, 3)
+        display_note: String describing how the image was prepared
+    """
+    num_channels = img.shape[2]
+    
+    # Denormalize image for visualization
+    # Scale to 0-1 range for display
+    img_normalized = (img - img.min()) / (img.max() - img.min() + 1e-8)
+    img_normalized = np.clip(img_normalized, 0, 1)
+    
+    if num_channels == 1:
+        # Grayscale - squeeze channel dimension
+        img_vis = img_normalized[:, :, 0]
+        display_note = "Grayscale"
+        
+    elif num_channels == 3:
+        # RGB - display as-is
+        img_vis = img_normalized
+        display_note = "RGB"
+        
+    else:
+        # Multi-channel (>3): display first 3 channels as RGB
+        img_vis = img_normalized[:, :, :3]
+        display_note = f"{num_channels}ch (showing first 3)"
+    
+    return img_vis, display_note
+
+
+def create_overlay_image(img_vis, pred_mask):
+    """
+    Create overlay of prediction mask on image.
+    Handles grayscale and color images.
+    
+    Args:
+        img_vis: Base image (H, W) for grayscale or (H, W, 3) for color
+        pred_mask: Binary prediction mask (H, W)
+        
+    Returns:
+        blended: Blended image with yellow overlay on predictions
+    """
+    # Ensure img_vis is 3-channel for overlay
+    if img_vis.ndim == 2:
+        # Convert grayscale to RGB
+        img_vis_rgb = np.stack([img_vis] * 3, axis=2)
+    else:
+        img_vis_rgb = img_vis
+    
+    # Create RGBA image for proper alpha blending
+    combined = np.zeros((pred_mask.shape[0], pred_mask.shape[1], 4))
+    combined[:, :, :3] = img_vis_rgb
+    combined[:, :, 3] = 1.0  # Full opacity for base
+
+    # Create overlay image with yellow predictions
+    overlay = np.zeros((pred_mask.shape[0], pred_mask.shape[1], 4))
+    overlay[:, :, :3] = img_vis_rgb  # Start with image
+
+    # Where prediction is 1, set to yellow with transparency
+    mask_bool = pred_mask == 1
+    overlay[mask_bool, 0] = 1.0  # Red channel
+    overlay[mask_bool, 1] = 1.0  # Green channel
+    overlay[mask_bool, 2] = 0.0  # Blue channel (0 = yellow)
+    overlay[:, :, 3] = np.where(
+        mask_bool, 0.5, 1.0
+    )  # 50% transparent where pred=1
+
+    # Blend images
+    alpha = overlay[:, :, 3:4]
+    blended = overlay[:, :, :3] * alpha + combined[:, :, :3] * (1 - alpha)
+    
+    return np.clip(blended, 0, 1)
+
+
 def visualize_predictions(
     model, dataloader, device, output_dir, epoch, n_samples=5
 ):
     """
     Visualize model predictions and save to output directory.
+    Handles images with any number of channels.
 
     Args:
         model: Trained model
@@ -101,6 +183,9 @@ def visualize_predictions(
     all_labels = torch.cat(labels_list, dim=0)[:n_samples]
     all_preds = torch.cat(preds_list, dim=0)[:n_samples]
 
+    # Get number of channels from first image
+    num_channels = all_images.shape[1]
+
     # Create 4 row viz: img, pred, img/pred composite, ground truth
     batch_size = min(n_samples, len(all_images))
     fig, axes = plt.subplots(4, batch_size, figsize=(4 * batch_size, 16))
@@ -114,6 +199,9 @@ def visualize_predictions(
 
     # Calculate F1 scores for each sample
     f1_scores = []
+    
+    # Track display mode for figure title
+    display_mode = None
 
     for i in tqdm(range(batch_size), desc="Plotting predictions"):
         img = all_images[i].numpy().transpose(1, 2, 0)  # (H, W, C)
@@ -124,13 +212,16 @@ def visualize_predictions(
         f1 = calculate_f1_score(pred, label)
         f1_scores.append(f1)
 
-        # Denormalize image for visualization (approximate)
-        # Scale to 0-1 range for display
-        img_vis = (img - img.min()) / (img.max() - img.min() + 1e-8)
-        img_vis = np.clip(img_vis, 0, 1)
+        # Prepare image for display (handles any number of channels)
+        img_vis, display_note = prepare_image_for_display(img)
+        if display_mode is None:
+            display_mode = display_note
+
+        # Determine colormap for grayscale images
+        cmap_image = 'gray' if img_vis.ndim == 2 else None
 
         # Row 0: Original image with F1 score
-        axes[0, i].imshow(img_vis)
+        axes[0, i].imshow(img_vis, cmap=cmap_image)
         axes[0, i].set_title(
             f"Image {i}\nF1: {f1:.3f}", fontsize=16, fontweight="bold"
         )
@@ -142,31 +233,8 @@ def visualize_predictions(
         axes[1, i].axis("off")
 
         # Row 2: Combined overlay - image with yellow pred overlay
-        # Create RGBA image for proper alpha blending (pred is translucent)
-        combined = np.zeros((pred.shape[0], pred.shape[1], 4))
-
-        # Set base image (RGB channels)
-        combined[:, :, :3] = img_vis
-        combined[:, :, 3] = 1.0  # Full opacity for base
-
-        # Create overlay image with yellow predictions
-        overlay = np.zeros((pred.shape[0], pred.shape[1], 4))
-        overlay[:, :, :3] = img_vis  # Start with image
-
-        # Where prediction is 1, set to yellow with transparency
-        mask_bool = pred == 1
-        overlay[mask_bool, 0] = 1.0  # Red channel
-        overlay[mask_bool, 1] = 1.0  # Green channel
-        overlay[mask_bool, 2] = 0.0  # Blue channel (0 = yellow)
-        overlay[:, :, 3] = np.where(
-            mask_bool, 0.5, 1.0
-        )  # 50% transparent where pred=1
-
-        # Blend images
-        alpha = overlay[:, :, 3:4]
-        blended = overlay[:, :, :3] * alpha + combined[:, :, :3] * (1 - alpha)
-
-        axes[2, i].imshow(np.clip(blended, 0, 1))
+        blended = create_overlay_image(img_vis, pred)
+        axes[2, i].imshow(blended)
         axes[2, i].set_title(f"Prediction Overlay {i}", fontsize=14)
         axes[2, i].axis("off")
 
@@ -175,10 +243,11 @@ def visualize_predictions(
         axes[3, i].set_title(f"Ground Truth {i}", fontsize=14)
         axes[3, i].axis("off")
 
-    # Add overall F1 score as figure title
+    # Add overall F1 score and channel info as figure title
     mean_f1 = np.mean(f1_scores)
     fig.suptitle(
-        f"Epoch {epoch} - Mean F1 Score: {mean_f1:.3f}",
+        f"Epoch {epoch} - Mean F1 Score: {mean_f1:.3f} | "
+        f"Input: {num_channels}ch ({display_mode})",
         fontsize=20,
         fontweight="bold",
         y=0.995,
@@ -485,6 +554,7 @@ def train_model(
 ):
     """
     Main training/evaluation loop for DINO segmentation.
+    Supports images with any number of channels.
 
     Args:
         model: Segmentation model
@@ -723,5 +793,5 @@ def train_model(
 if __name__ == "__main__":
     # This allows the driver to be run as a script or imported
     print(
-        "Import this module and call main() with your model and dataloaders."
+        "Import this module and call train_model() with your model and dataloaders."
     )

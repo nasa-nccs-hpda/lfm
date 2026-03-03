@@ -1,6 +1,7 @@
 """
 dataset.py
 Dataset class for DINO LoRA fine-tuning on lunar crater detection.
+Supports images with any number of channels (grayscale, RGB, multispectral, etc.).
 """
 
 import os
@@ -18,23 +19,25 @@ from tqdm import tqdm
 def calculate_dataset_statistics(image_dir: str):
     """
     Calculate mean and standard deviation for a dataset of .npy images.
+    Automatically detects the number of channels from the first valid image.
 
     Args:
         image_dir (str): Directory containing .npy image files
 
     Returns:
-        mean (np.ndarray): Mean per channel (RGB)
-        std (np.ndarray): Standard deviation per channel (RGB)
+        mean (np.ndarray): Mean per channel (shape: [num_channels])
+        std (np.ndarray): Standard deviation per channel (shape: [num_channels])
     """
     npy_paths = glob(os.path.join(image_dir, "*.npy"))
 
     if len(npy_paths) == 0:
         raise ValueError(f"No .npy files found in {image_dir}")
 
-    pixel_sum = np.zeros(3)
-    pixel_sq_sum = np.zeros(3)
+    pixel_sum = None
+    pixel_sq_sum = None
     pixel_count = 0
     valid_images = 0
+    num_channels = None
 
     for npy_path in tqdm(npy_paths, desc="Computing dataset statistics"):
         if not os.path.exists(npy_path):
@@ -44,24 +47,38 @@ def calculate_dataset_statistics(image_dir: str):
         try:
             img = np.load(npy_path).astype(np.float64)
 
-            # Debug: Check the first image
-            if valid_images == 0:
-                print(f"First image shape: {img.shape}, dtype: {img.dtype}")
-                print(f"Value range: min={img.min()}, max={img.max()}")
-
-            # Handle different shapes: (H, W, C) or (C, H, W)
+            # Handle different shapes: (H, W, C), (C, H, W), or (H, W)
             if img.ndim == 3:
-                if img.shape[0] == 3:  # (C, H, W) format
+                # Determine format: if first dimension is smallest, assume (C, H, W)
+                if img.shape[0] < min(img.shape[1], img.shape[2]):
                     img = img.transpose(1, 2, 0)  # Convert to (H, W, C)
-                elif img.shape[2] != 3:
-                    print(
-                        f"Warning: Unexpected shape {img.shape} for {npy_path}"
-                    )
-                    continue
+                # Otherwise, assume already in (H, W, C) format
+                
+            elif img.ndim == 2:
+                # Handle grayscale images without explicit channel dimension
+                img = img[:, :, np.newaxis]  # Shape: (H, W, 1)
+                
             else:
                 print(
                     f"Warning: Image has {img.ndim} dimensions, "
-                    f"expected 3. Skipping {npy_path}"
+                    f"expected 2 or 3. Skipping {npy_path}"
+                )
+                continue
+
+            # Initialize statistics arrays on first valid image
+            if valid_images == 0:
+                num_channels = img.shape[2]
+                pixel_sum = np.zeros(num_channels)
+                pixel_sq_sum = np.zeros(num_channels)
+                print(f"First image shape: {img.shape}, dtype: {img.dtype}")
+                print(f"Detected {num_channels} channel(s)")
+                print(f"Value range: min={img.min()}, max={img.max()}")
+
+            # Verify consistent number of channels
+            if img.shape[2] != num_channels:
+                print(
+                    f"Warning: Inconsistent channels. Expected {num_channels}, "
+                    f"got {img.shape[2]} for {npy_path}. Skipping."
                 )
                 continue
 
@@ -87,21 +104,22 @@ def calculate_dataset_statistics(image_dir: str):
     print(
         f"Processed {valid_images} valid images out of {len(npy_paths)} total"
     )
-    print(f"Mean (RGB): {mean}")
-    print(f"Std (RGB): {std}")
+    print(f"Mean per channel: {mean}")
+    print(f"Std per channel: {std}")
 
     return mean, std
 
 
 class LunarCraterDataset(Dataset):
     """
-    Dataset for RGB images and segmentation masks.
+    Dataset for multi-channel images and segmentation masks.
+    Supports images with any number of channels (1=grayscale, 3=RGB, 4=RGBA, etc.).
 
     Args:
-        image_dir: Directory with .npy RGB images (300, 300, 3)
-        label_dir: Directory with .npy label masks (300, 300)
-        mean: Mean values for RGB normalization
-        std: Standard deviation for RGB normalization
+        image_dir: Directory with .npy images (H, W, C) or (C, H, W)
+        label_dir: Directory with .npy label masks (H, W)
+        mean: Mean values per channel for normalization (shape: [num_channels])
+        std: Standard deviation per channel for normalization (shape: [num_channels])
         target_size: Target size for model input. Default: (304, 304)
         max_samples: Max samples to use. None uses all samples.
     """
@@ -122,6 +140,7 @@ class LunarCraterDataset(Dataset):
         # Store mean and std as float32 for consistency
         self.mean = mean.astype(np.float32)
         self.std = std.astype(np.float32)
+        self.num_channels = len(mean)
 
         # Glob all images and labels
         self.image_paths = sorted(glob(os.path.join(image_dir, "*.npy")))
@@ -165,6 +184,7 @@ class LunarCraterDataset(Dataset):
             print(f"Limited to {max_samples} samples")
 
         print(f"Found {len(self.valid_image_paths)} matched image-label pairs")
+        print(f"Dataset configured for {self.num_channels} channel(s)")
 
         if len(self.valid_image_paths) == 0:
             raise ValueError(
@@ -185,25 +205,42 @@ class LunarCraterDataset(Dataset):
         img_path = self.valid_image_paths[idx]
         label_path = self.valid_label_paths[idx]
 
-        image = np.load(img_path).astype(
-            np.float32
-        )  # (300, 300, 3) or (3, 300, 300)
-        label = np.load(label_path).astype(np.int64)  # (300, 300)
+        image = np.load(img_path).astype(np.float32)  # (H, W, C) or (C, H, W)
+        label = np.load(label_path).astype(np.int64)  # (H, W)
 
-        # Handle different image shapes: (H, W, C) or (C, H, W)
-        if image.shape[0] == 3:  # (C, H, W) format
-            image = image.transpose(1, 2, 0)  # Convert to (H, W, C)
+        # Handle different image shapes: (H, W, C), (C, H, W), or (H, W)
+        if image.ndim == 3:
+            # Determine format: if first dimension is smallest, assume (C, H, W)
+            if image.shape[0] < min(image.shape[1], image.shape[2]):
+                image = image.transpose(1, 2, 0)  # Convert to (H, W, C)
+            # Otherwise, assume already in (H, W, C) format
+            
+        elif image.ndim == 2:
+            # Handle grayscale images without explicit channel dimension
+            image = image[:, :, np.newaxis]  # Shape: (H, W, 1)
+        else:
+            raise ValueError(
+                f"Unexpected image dimensions: {image.shape} for {img_path}"
+            )
 
-        # Now image is guaranteed to be (H, W, C) format
+        # Verify channel count matches expected
+        if image.shape[2] != self.num_channels:
+            raise ValueError(
+                f"Channel mismatch: expected {self.num_channels}, "
+                f"got {image.shape[2]} for {img_path}"
+            )
+
         # Normalize image with dataset statistics
-        # Reshape mean and std to (1, 1, 3) for broadcasting with (H, W, 3)
-        mean_reshaped = self.mean.reshape(1, 1, 3)
-        std_reshaped = self.std.reshape(1, 1, 3)
+        # Reshape mean and std to (1, 1, C) for broadcasting with (H, W, C)
+        mean_reshaped = self.mean.reshape(1, 1, self.num_channels)
+        std_reshaped = self.std.reshape(1, 1, self.num_channels)
         image = (image - mean_reshaped) / std_reshaped
 
         # Convert to torch tensors
-        image = torch.from_numpy(image).permute(2, 0, 1)  # (3, 300, 300)
-        label = torch.from_numpy(label)  # (300, 300)
+        image = torch.from_numpy(image).permute(
+            2, 0, 1
+        )  # (C, H, W) where C = num_channels
+        label = torch.from_numpy(label)  # (H, W)
 
         # Resize image to target size for model
         image = F.interpolate(
@@ -213,7 +250,7 @@ class LunarCraterDataset(Dataset):
             align_corners=False,
         ).squeeze(
             0
-        )  # (3, 304, 304)
+        )  # (C, target_H, target_W)
 
         # Resize label using nearest neighbor to preserve class indices
         # Labels are NOT transformed, only resized
@@ -226,7 +263,7 @@ class LunarCraterDataset(Dataset):
             .squeeze(0)
             .squeeze(0)
             .long()
-        )  # (304, 304)
+        )  # (target_H, target_W)
 
         return image, label
 
@@ -245,9 +282,10 @@ def get_dataloaders(
     """
     Create train/val dataloaders with automatic statistics calculation.
     Statistics are used to z-score normalize inputs upon dataloader creation.
+    Automatically handles images with any number of channels.
 
     Args:
-        image_dir: Directory with RGB images
+        image_dir: Directory with multi-channel images
         label_dir: Directory with label masks
         batch_size: Batch size for dataloaders
         train_split: Fraction of data for training
@@ -275,8 +313,8 @@ def get_dataloaders(
             print("Loading existing dataset statistics...")
             mean = np.load(mean_path)
             std = np.load(std_path)
-            print(f"Mean (RGB): {mean}")
-            print(f"Std (RGB): {std}")
+            print(f"Mean per channel: {mean}")
+            print(f"Std per channel: {std}")
 
     # Calculate statistics if not loaded
     if mean is None or std is None:
