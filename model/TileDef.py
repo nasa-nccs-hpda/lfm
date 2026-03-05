@@ -18,7 +18,6 @@ class TileDef():
     CUR_FILE_PARENT: pathlib.Path = pathlib.Path(__file__).resolve().parent
     TMS_DIR: pathlib.Path = CUR_FILE_PARENT / 'TMS' / 'RG'
     
-    
     # ------------------------------------------------------------------------
     # __init__
     # ------------------------------------------------------------------------

@@ -9,6 +9,18 @@ class Conversions():
     
     LUNAR_LAT_LON_PROJ4 = '+proj=longlat +R=1737400 +no_defs'
     
+    LUNAR_LAT_LON_WKT = 'GEOGCRS["Moon (2015) - Sphere / Ocentric", ' + \
+        'DATUM["Moon (2015) - Sphere", ELLIPSOID["Moon (2015) -' + \
+        ' Sphere",1737400,0, LENGTHUNIT["metre",1]]], PRIMEM["Reference' + \
+        ' Meridian",0, ANGLEUNIT["degree",0.0174532925199433]],' + \
+        ' CS[ellipsoidal,2], AXIS["geodetic latitude (Lat)",north,' + \
+        ' ORDER[1], ANGLEUNIT["degree",0.0174532925199433]],' + \
+        ' AXIS["geodetic longitude (Lon)",east, ORDER[2],' + \
+        ' ANGLEUNIT["degree",0.0174532925199433]], ID["IAU",30100,2015],' + \
+        ' REMARK["Source of IAU Coordinate systems:' + \
+        ' https://doi.org/10.1007/s10569-017-9805-5"]]'
+    
+    
     # ----------------------------------------------------------------------------
     # latLonToLTM
     # ----------------------------------------------------------------------------
