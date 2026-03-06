@@ -3,6 +3,8 @@ from pathlib import Path
 
 from osgeo import osr
 
+from model.Conversion import Conversion
+
 
 # ----------------------------------------------------------------------------
 # Class TileDef
