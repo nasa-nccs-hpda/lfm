@@ -132,7 +132,7 @@ class Pipeline:
     def run(self, tileIndex: tuple[float, float]) -> Path:
         
         # Get the tile corners in LTM.
-        ll, ur = self._tileIndex.getTileBbox(tileIndex)
+        ll, ur = self._tileDef.getTileBbox(tileIndex)
     
         # Query
         llLatLon, urLatLon = Conversions.ltmToLatLon(self._tileDef.zone(), 

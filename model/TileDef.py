@@ -1,9 +1,10 @@
 
+import json
 from pathlib import Path
 
 from osgeo import osr
 
-from model.Conversion import Conversion
+from model.Conversions import Conversions
 
 
 # ----------------------------------------------------------------------------
@@ -19,8 +20,8 @@ class TileDef:
     TILE_MATRICES = 'tileMatrices'
     TILE_WIDTH = 'tileWidth'
     
-    CUR_FILE_PARENT: Path = Path(__file__).resolve().parent
-    TMS_DIR: Path = CUR_FILE_PARENT / 'TMS' / 'RG'
+    CUR_FILE_PARENT: Path = Path(__file__).resolve().parent.parent
+    TMS_DIR: Path = CUR_FILE_PARENT / 'TMS'
     JSON_DIR: Path = TMS_DIR / 'RG'
     DB_PATH: Path = TMS_DIR / 'somedbname.gpkg'
     
@@ -30,7 +31,7 @@ class TileDef:
     def __init__(self, zone: str, zoomLevel: int):
         
         tmsFileName = 'tms_LTM_' + zone + 'RG.json'
-        tmsPath = Conversion.TMS_DIR / tmsFileName
+        tmsPath = TileDef.JSON_DIR / tmsFileName
 
         with open(tmsPath, 'r') as f:
             tms = json.load(f)
@@ -39,10 +40,10 @@ class TileDef:
         # If we made it here, we must have the correct zone, etc.  No need 
         # to validate.
         # ---
-        zoomLevels: list = tms[Conversion.TILE_MATRICES]
+        zoomLevels: list = tms[TileDef.TILE_MATRICES]
         
         tileDef = [zl for zl in zoomLevels \
-            if int(zl[Conversion.ID]) == zoomLevel][0]
+            if int(zl[TileDef.ID]) == zoomLevel][0]
 
         if len(tileDef) == 0:
         
@@ -51,7 +52,7 @@ class TileDef:
                                ' in ' + 
                                str(tmsPath))
 
-        tileDef[Conversion.CRS] = tms[Conversion.CRS]
+        tileDef[TileDef.CRS] = tms[TileDef.CRS]
         
         self._tileDef: dict = tileDef
         self._zone: str = zone
@@ -63,7 +64,7 @@ class TileDef:
     @property
     def cellSize(self) -> float:
         
-        return self._tileDef[Conversion.CELL_SIZE]
+        return self._tileDef[TileDef.CELL_SIZE]
         
     # -----------------------------------------------------------------------
     # getTileBbox
@@ -116,7 +117,7 @@ class TileDef:
     @property
     def pointOfOrigin(self) -> tuple[float, float]:
         
-        return self._tileDef[Conversion.POINT_OF_ORIGIN]
+        return self._tileDef[TileDef.POINT_OF_ORIGIN]
 
     # -----------------------------------------------------------------------
     # srs
@@ -125,7 +126,7 @@ class TileDef:
     def srs(self) -> osr.SpatialReference:
         
         ltmSRS = osr.SpatialReference()
-        ltmSRS.ImportFromWkt(self._tileDef[Conversion.CRS])
+        ltmSRS.ImportFromWkt(self._tileDef[TileDef.CRS])
         return ltmSRS
         
     # ------------------------------------------------------------------------
@@ -134,7 +135,7 @@ class TileDef:
     @property
     def tileHeight(self) -> int:
         
-        return self._tileDef[Conversion.TILE_HEIGHT]
+        return self._tileDef[TileDef.TILE_HEIGHT]
 
     # ------------------------------------------------------------------------
     # tileWidth
@@ -142,7 +143,7 @@ class TileDef:
     @property
     def tileWidth(self) -> int:
         
-        return self._tileDef[Conversion.TILE_WIDTH]
+        return self._tileDef[TileDef.TILE_WIDTH]
 
     # ------------------------------------------------------------------------
     # zone
