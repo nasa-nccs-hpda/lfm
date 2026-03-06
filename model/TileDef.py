@@ -1,11 +1,13 @@
 
 from pathlib import Path
 
+from osgeo import osr
+
 
 # ----------------------------------------------------------------------------
 # Class TileDef
 # ----------------------------------------------------------------------------
-class TileDef():
+class TileDef:
     
     CELL_SIZE = 'cellSize'
     CRS = 'crs'
@@ -15,13 +17,13 @@ class TileDef():
     TILE_MATRICES = 'tileMatrices'
     TILE_WIDTH = 'tileWidth'
     
-    CUR_FILE_PARENT: pathlib.Path = pathlib.Path(__file__).resolve().parent
-    TMS_DIR: pathlib.Path = CUR_FILE_PARENT / 'TMS' / 'RG'
+    CUR_FILE_PARENT: Path = Path(__file__).resolve().parent
+    TMS_DIR: Path = CUR_FILE_PARENT / 'TMS' / 'RG'
     
     # ------------------------------------------------------------------------
     # __init__
     # ------------------------------------------------------------------------
-    def __init__(self, tmsDir: Path, zone: str, zoomLevel: int):
+    def __init__(self, zone: str, zoomLevel: int):
         
         tmsFileName = 'tms_LTM_' + zone + 'RG.json'
         tmsPath = Conversion.TMS_DIR / tmsFileName
@@ -48,10 +50,13 @@ class TileDef():
         tileDef[Conversion.CRS] = tms[Conversion.CRS]
         
         self._tileDef: dict = tileDef
+        self._zone: str = zone
+        self._zoomLevel: int = zoomLevel
         
     # ------------------------------------------------------------------------
     # cellSize
     # ------------------------------------------------------------------------
+    @property
     def cellSize(self) -> float:
         
         return self._tileDef[Conversion.CELL_SIZE]
@@ -104,13 +109,25 @@ class TileDef():
     # ------------------------------------------------------------------------
     # pointOfOrigin
     # ------------------------------------------------------------------------
+    @property
     def pointOfOrigin(self) -> tuple[float, float]:
         
         return self._tileDef[Conversion.POINT_OF_ORIGIN]
 
+    # -----------------------------------------------------------------------
+    # srs
+    # ------------------------------------------------------------------------
+    @property
+    def srs(self) -> osr.SpatialReference:
+        
+        ltmSRS = osr.SpatialReference()
+        ltmSRS.ImportFromWkt(self._tileDef[Conversion.CRS])
+        return ltmSRS
+        
     # ------------------------------------------------------------------------
     # tileHeight
     # ------------------------------------------------------------------------
+    @property
     def tileHeight(self) -> int:
         
         return self._tileDef[Conversion.TILE_HEIGHT]
@@ -118,6 +135,23 @@ class TileDef():
     # ------------------------------------------------------------------------
     # tileWidth
     # ------------------------------------------------------------------------
+    @property
     def tileWidth(self) -> int:
         
         return self._tileDef[Conversion.TILE_WIDTH]
+
+    # ------------------------------------------------------------------------
+    # zone
+    # ------------------------------------------------------------------------
+    @property
+    def zone(self) -> int:
+        
+        return self._zone
+
+    # ------------------------------------------------------------------------
+    # zoomLevel
+    # ------------------------------------------------------------------------
+    @property
+    def zoomLevel(self) -> int:
+        
+        return self._zoomLevel
