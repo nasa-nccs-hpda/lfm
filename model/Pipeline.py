@@ -5,6 +5,7 @@ import numpy as np
 
 from osgeo import gdal
 from osgeo import ogr
+from osgeo import osr
 
 from model.TileDef import TileDef
 
@@ -17,9 +18,8 @@ class Pipeline:
     # ------------------------------------------------------------------------
     # __init__
     # ------------------------------------------------------------------------
-    def __init(self, dbPath: Path, outDir: Path, zone: int, zoomLevel: int):
+    def __init__(self, outDir: Path, zone: int, zoomLevel: int):
         
-        self._dbPath: Path = dbPath
         self._outDir: Path = outDir
         self._tileDef: dict = TileDef(zone, zoomLevel)
         
@@ -140,7 +140,7 @@ class Pipeline:
                                                      ur, 
                                                      self._tileDef.srs())
             
-        layer: ogr.Layer = self._query(self._dbPath, llLatLon, urLatLon)
+        layer: ogr.Layer = self._query(TileDef.DB_PATH, llLatLon, urLatLon)
 
         cubeFile: Path = None
     

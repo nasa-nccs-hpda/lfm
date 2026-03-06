@@ -19,6 +19,8 @@ class TileDef:
     
     CUR_FILE_PARENT: Path = Path(__file__).resolve().parent
     TMS_DIR: Path = CUR_FILE_PARENT / 'TMS' / 'RG'
+    JSON_DIR: Path = TMS_DIR / 'RG'
+    DB_PATH: Path = TMS_DIR / 'somedbname.gpkg'
     
     # ------------------------------------------------------------------------
     # __init__
