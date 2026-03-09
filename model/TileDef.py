@@ -23,13 +23,18 @@ class TileDef:
     CUR_FILE_PARENT: Path = Path(__file__).resolve().parent.parent
     TMS_DIR: Path = CUR_FILE_PARENT / 'TMS'
     JSON_DIR: Path = TMS_DIR / 'RG'
-    DB_PATH: Path = TMS_DIR / 'somedbname.gpkg'
+    DB_PATH: Path = JSON_DIR / 'tile_database.gpkg'
     
     # ------------------------------------------------------------------------
     # __init__
     # ------------------------------------------------------------------------
     def __init__(self, zone: str, zoomLevel: int):
         
+        if not TileDef.DB_PATH.exists():
+            
+            msg = 'Invalid tile DB path: ' + str(TileDef.DB_PATH)
+            raise ValueError(msg)
+            
         tmsFileName = 'tms_LTM_' + zone + 'RG.json'
         tmsPath = TileDef.JSON_DIR / tmsFileName
 
@@ -69,15 +74,12 @@ class TileDef:
     # -----------------------------------------------------------------------
     # getTileBbox
     # ------------------------------------------------------------------------
-    def getTileBbox(self, tileIndex: tuple) -> tuple:
+    def getTileBbox(self, tileX: int, tileY: int) -> tuple:
 
-        tileX = tileIndex[0]
-        tileY = tileIndex[1]
-
-        gridOrigin = self.pointOfOrigin()
-        cellSize = self.cellSize()
-        width = self.tileWidth()
-        height = self.tileHeight()
+        gridOrigin = self.pointOfOrigin
+        cellSize = self.cellSize
+        width = self.tileWidth
+        height = self.tileHeight
 
         ulx = gridOrigin[0] + tileX * width * cellSize
         uly = gridOrigin[1] - tileY * height * cellSize
@@ -97,10 +99,10 @@ class TileDef:
     def ltmToTileIndex(self, easting: float, northing: float) -> tuple[int, int]:
 
         # Extract TMS grid parameters
-        originX, originY = self.pointOfOrigin()
-        cellSize = self.cellSize()
-        tileWidth = self.tileWidth()
-        tileHeight = self.tileHeight()
+        originX, originY = self.pointOfOrigin
+        cellSize = self.cellSize
+        tileWidth = self.tileWidth
+        tileHeight = self.tileHeight
         
         # Calculate tile size in meters
         tileSize = tileWidth * cellSize

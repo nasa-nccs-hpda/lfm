@@ -1,12 +1,16 @@
 
 from pathlib import Path
+from typing import List
 
 import numpy as np
 
 from osgeo import gdal
+from osgeo import gdal_array
+from osgeo import gdalconst
 from osgeo import ogr
 from osgeo import osr
 
+from model.Conversions import Conversions
 from model.TileDef import TileDef
 
 
@@ -18,15 +22,17 @@ class Pipeline:
     # ------------------------------------------------------------------------
     # __init__
     # ------------------------------------------------------------------------
-    def __init__(self, outDir: Path, zone: int, zoomLevel: int):
+    def __init__(self, tileDbPath: Path, outDir: Path):
         
         self._outDir: Path = outDir
-        self._tileDef: dict = TileDef(zone, zoomLevel)
+        self._tileDbPath: Path = tileDbPath
+        self._tileDef: dict = None
         
     # ------------------------------------------------------------------------
     # clip
     # ------------------------------------------------------------------------
-    def _clip(ll: tuple, 
+    def _clip(self,
+              ll: tuple, 
               ur: tuple, 
               outSRS: osr.SpatialReference,
               ds: gdal.Dataset,
@@ -69,12 +75,12 @@ class Pipeline:
                                          gdalconst.GA_ReadOnly)
 
             # Verify data type.  Is is ndarray or Dataset?
-            clipDs: np.ndarray = _clip(ll, 
-                                       ur, 
-                                       self._tileDef.srs(), 
-                                       ds, 
-                                       self._tileDef.width(), 
-                                       self._tileDef.height())
+            clipDs: np.ndarray = self._clip(ll, 
+                                            ur, 
+                                            self._tileDef.srs, 
+                                            ds, 
+                                            self._tileDef.tileWidth, 
+                                            self._tileDef.tileHeight)
     
             raster: np.ndarray = clipDs.ReadAsArray()
 
@@ -102,13 +108,10 @@ class Pipeline:
     # ------------------------------------------------------------------------
     # query
     # ------------------------------------------------------------------------
-    def _query(self, 
-               dbPath: Path, 
-               llLatLon: tuple, 
-               urLatLon: tuple) -> ogr.Layer:
+    def _query(self, llLatLon: tuple, urLatLon: tuple) -> ogr.Layer:
 
         driver: ogr.Driver = ogr.GetDriverByName('ESRI Shapefile')
-        ds: ogr.Dataset = driver.Open(str(dbPath), 0)
+        ds: ogr.Dataset = driver.Open(str(self._tileDbPath), 0)
         layer: ogr.Layer = ds.GetLayer()
         
         layer.SetSpatialFilterRect(llLatLon[0], 
@@ -127,20 +130,69 @@ class Pipeline:
         return layer
 
     # ------------------------------------------------------------------------
-    # run
+    # queryTMS
     # ------------------------------------------------------------------------
-    def run(self, tileIndex: tuple[float, float]) -> Path:
+    def _queryTMS(self, 
+                  llLatLon: tuple, 
+                  urLatLon: tuple, 
+                  zoomLevel: int) -> List[dict]:
+
+        driver: ogr.Driver = ogr.GetDriverByName('GPKG')
+        ds: ogr.Dataset = driver.Open(str(TileDef.DB_PATH), 0)
+        layer: ogr.Layer = ds.GetLayer()
+        layer.SetAttributeFilter('zoom_level = ' + str(zoomLevel))
+
+        layer.SetSpatialFilterRect(llLatLon[0], 
+                                   llLatLon[1], 
+                                   urLatLon[0], 
+                                   urLatLon[1])
+
+        indexes = []
         
+        for feature in layer:
+            
+            index = {'tileY': feature.GetField('tile_row'),
+                     'tileX': feature.GetField('tile_col'),
+                     'zone': feature.GetField('zone_name'),
+                     'zoomLevel': feature.GetField('zoom_level')}
+                     
+            indexes.append(index)
+             
+        # ---
+        # When you return an ogr.Layer object from a function, the underlying 
+        # DataSource that owns the layer may be getting garbage collected, 
+        # making the layer invalid.  Attach the datasource to the layer to
+        # prevent garbage collection
+        # ---
+        layer._ds = ds
+    
+        return indexes
+
+    # ------------------------------------------------------------------------
+    # runTileIndex
+    # ------------------------------------------------------------------------
+    def runTileIndex(self, 
+                     tileX: int,
+                     tileY: int,
+                     zone: int, 
+                     zoomLevel: int) -> Path:
+        
+        print('Processing (' + str(tileX) + ', ' + str(tileY) + \
+              ') / zone ' + str(zone) + \
+              ' / zoom ' + str(zoomLevel))
+        
+        self._tileDef: dict = TileDef(zone, zoomLevel)
+
         # Get the tile corners in LTM.
-        ll, ur = self._tileDef.getTileBbox(tileIndex)
+        ll, ur = self._tileDef.getTileBbox(tileX, tileY)
     
         # Query
-        llLatLon, urLatLon = Conversions.ltmToLatLon(self._tileDef.zone(), 
+        llLatLon, urLatLon = Conversions.ltmToLatLon(self._tileDef.zone, 
                                                      ll, 
                                                      ur, 
-                                                     self._tileDef.srs())
+                                                     self._tileDef.srs)
             
-        layer: ogr.Layer = self._query(TileDef.DB_PATH, llLatLon, urLatLon)
+        layer: ogr.Layer = self._query(llLatLon, urLatLon)
 
         cubeFile: Path = None
     
@@ -153,15 +205,95 @@ class Pipeline:
             # Create the data cube.
             cube: np.ndarray = self._createCube(layer, ll, ur)
         
-            # ---
             # Write the data cube as a CoG.
-            # ---
-            cubeFile = self._writeCube(self._outDir, 
-                                       self._tileDef.zone(), 
-                                       self._tileDef.zoomLevel(), 
-                                       tileIndex, 
-                                       cube)
+            cubeFile = self._writeCube((tileX, tileY), cube)
 
         return cubeFile
+
+    # ------------------------------------------------------------------------
+    # run
+    # ------------------------------------------------------------------------
+    def run(self, 
+            upperLeft: tuple[float, float], 
+            lowerRight: tuple[float, float],
+            zoomLevel: int) -> List[Path]:
         
+        # Query the AoI with the TMS GeoPackage.
+        tileIndexes: List[tuple[int, int]] = self._queryTMS(upperLeft, 
+                                                            lowerRight, 
+                                                            zoomLevel)
+               
+        cubeFiles = []
         
+        for idx in tileIndexes:
+            
+            cubeFiles.append(self.runTileIndex(idx['tileX'],
+                                               idx['tileY'],
+                                               idx['zone'], 
+                                               idx['zoomLevel']))
+        
+        return cubeFiles
+        
+    # ------------------------------------------------------------------------
+    # writeCube
+    # ------------------------------------------------------------------------
+    def _writeCube(self, 
+                   tileIndex: tuple[int, int], 
+                   cube: np.ndarray) -> Path:
+
+        outName = 'Cube-LTM' + self._tileDef.zone + \
+                  '_Zoom-' + str(self._tileDef.zoomLevel) + \
+                  '_Tile-' + str(tileIndex[0]) + '-' + str(tileIndex[1]) + \
+                  '.tif'
+    
+        outFile = self._outDir / outName
+
+        # ---
+        # First create a temporary in-memory dataset
+        # ---
+        dataType = gdal_array.NumericTypeCodeToGDALTypeCode(cube.dtype)
+        memDriver = gdal.GetDriverByName('MEM')
+    
+        memDs = memDriver.Create('', 
+                                 cube.shape[1],    # width
+                                 cube.shape[2],    # height  
+                                 cube.shape[0],    # bands
+                                 dataType)
+    
+        if memDs is None:
+            raise RuntimeError('Failed to create dataset in memory.')
+    
+        memDs.SetSpatialRef(self._tileDef.srs)
+        
+        geotransform = [
+            self._tileDef.pointOfOrigin[0],  # X-coordinate of ul corner
+            self._tileDef.cellSize,          # Pixel width (west-east res)
+            0,                               # Rotation (usually 0)
+            self._tileDef.pointOfOrigin[1],  # Y-coordinate of ul corner  
+            0,                               # Rotation (usually 0)
+            -self._tileDef.cellSize          # Pixel height (north-south res)
+        ]
+    
+        memDs.SetGeoTransform(geotransform)
+
+        # ---
+        # Write data to temporary dataset
+        # ---
+        for bandIndex in range(cube.shape[0]):
+        
+            band = memDs.GetRasterBand(bandIndex + 1)
+            band.WriteArray(cube[bandIndex])
+
+        # ---
+        # Now create COG using CreateCopy.
+        # ---
+        cogDriver = gdal.GetDriverByName('COG')
+    
+        cogDs = cogDriver.CreateCopy(str(outFile),
+                                     memDs,
+                                     options=['BIGTIFF=YES', 'COMPRESS=LZW'])
+    
+        tempDs = None
+        cogDs = None
+
+        return outFile
