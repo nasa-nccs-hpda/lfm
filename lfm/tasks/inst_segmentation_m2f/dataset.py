@@ -391,7 +391,7 @@ def get_dataloaders(
         label_dir=label_dir,
         mean=mean,
         std=std,
-        image_processor=image_processor
+        image_processor=image_processor,
         target_size=target_size,
         max_samples=max_samples,
         norm_to_one=norm_to_one,
@@ -415,7 +415,7 @@ def get_dataloaders(
         shuffle=True,
         num_workers=num_workers,
         pin_memory=True,
-        collate_fn=collate_fn
+        collate_fn=collate_fn,
     )
 
     # Create val dataloader
@@ -425,7 +425,7 @@ def get_dataloaders(
         shuffle=False,
         num_workers=num_workers,
         pin_memory=True,
-        collate_fn=collate_fn
+        collate_fn=collate_fn,
     )
 
     print(f"Train samples: {len(train_dataset)}")
