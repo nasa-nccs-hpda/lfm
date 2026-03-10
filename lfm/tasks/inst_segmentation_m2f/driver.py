@@ -473,45 +473,42 @@ def visualize_predictions(
 # ============================================================================
 
 
-def train_epoch(
-    model, dataloader, criterion, optimizer, device, desc="Training"
-):
+def train_epoch(model, dataloader, optimizer, device, desc="Training"):
     """
-    Train for one epoch.
+    Train for one epoch using Mask2Former (no criterion needed).
 
     Args:
-        model: Model to train
+        model: Mask2Former model to train
         dataloader: Training dataloader
-        criterion: Loss function (handles dict outputs)
         optimizer: Optimizer
         device: torch device
         desc: Description for progress bar
 
     Returns:
         avg_loss: Average loss for the epoch
-        loss_components: Dict of average loss components
     """
     model.train()
     total_loss = 0.0
     n_batches = 0
 
-    # Track loss components if available
-    loss_components = {}
-
     progress_bar = tqdm(dataloader, desc=desc)
 
-    for images, labels in progress_bar:
-        images = images.to(device)
-        labels = labels.to(device)
+    for batch in progress_bar:
+        # Move batch to device
+        pixel_values = batch["pixel_values"].to(device)
+        mask_labels = [labels.to(device) for labels in batch["mask_labels"]]
+        class_labels = [labels.to(device) for labels in batch["class_labels"]]
 
-        # Forward pass
+        # Forward pass - Mask2Former computes loss internally
         optimizer.zero_grad()
         outputs = model(
-            images
-        )  # Returns dict with 'semantic' and 'embeddings'
+            pixel_values=pixel_values,
+            mask_labels=mask_labels,
+            class_labels=class_labels,
+        )
 
-        # Compute loss (criterion handles dict)
-        loss = criterion(outputs, labels)
+        # Loss is part of outputs
+        loss = outputs.loss
 
         # Backward pass
         loss.backward()
@@ -521,24 +518,11 @@ def train_epoch(
         total_loss += loss.item()
         n_batches += 1
 
-        # Track loss components if available
-        if hasattr(criterion, "get_last_losses"):
-            last_losses = criterion.get_last_losses()
-            for key, value in last_losses.items():
-                if key not in loss_components:
-                    loss_components[key] = 0.0
-                loss_components[key] += value
-
         # Update progress bar
         progress_bar.set_postfix({"loss": loss.item()})
 
     avg_loss = total_loss / n_batches
-
-    # Average loss components
-    for key in loss_components:
-        loss_components[key] /= n_batches
-
-    return avg_loss, loss_components
+    return avg_loss
 
 
 def validate_epoch(model, dataloader, device, desc="Validation"):
@@ -881,12 +865,12 @@ def train_model(
 
     # Note: print_model_summary might not work correctly with Mask2Former
     # Comment out if it causes errors
-    try:
-        print_model_summary(model)
-    except:
-        print(
-            "(Skipping model summary - not compatible with Mask2Former structure)"
-        )
+    # try:
+    #     print_model_summary(model)
+    # except:
+    #     print(
+    #         "(Skipping model summary - not compatible with Mask2Former structure)"
+    #     )
 
     # Start timing
     training_start_time = time.time()
