@@ -1,8 +1,8 @@
 """
 driver.py
-Training driver for DINO segmentation with configurable loss functions.
+Training driver for DINO instance segmentation.
 Supports training, evaluation, and checkpoint resumption.
-Handles images with any number of channels (grayscale, RGB, multispectral, etc.).
+Handles images with any number of channels and instance-level predictions.
 """
 
 import os
@@ -15,28 +15,145 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
+from matplotlib.patches import Rectangle
 from tqdm import tqdm
 
 from .utils import get_loss_function
 
 
-def calculate_f1_score(pred, label):
+# ============================================================================
+# METRICS
+# ============================================================================
+
+def calculate_instance_metrics(pred_mask, gt_mask, iou_threshold=0.5):
     """
-    Calculate F1 score for binary segmentation.
+    Calculate instance-level metrics using IoU matching.
 
     Args:
-        pred: Predicted mask (numpy array)
-        label: Ground truth mask (numpy array)
+        pred_mask: Predicted instance mask (H, W) with unique IDs
+        gt_mask: Ground truth instance mask (H, W) with unique IDs
+        iou_threshold: IoU threshold for considering a match
+
+    Returns:
+        dict with precision, recall, F1, and per-instance IoUs
+    """
+    # Get unique instance IDs (excluding background=0)
+    pred_ids = np.unique(pred_mask)
+    pred_ids = pred_ids[pred_ids != 0]
+
+    gt_ids = np.unique(gt_mask)
+    gt_ids = gt_ids[gt_ids != 0]
+
+    num_pred = len(pred_ids)
+    num_gt = len(gt_ids)
+
+    if num_gt == 0 and num_pred == 0:
+        return {
+            'precision': 1.0,
+            'recall': 1.0,
+            'f1': 1.0,
+            'num_pred': 0,
+            'num_gt': 0,
+            'num_matched': 0,
+            'mean_iou': 0.0,
+        }
+
+    if num_gt == 0:
+        return {
+            'precision': 0.0,
+            'recall': 1.0,
+            'f1': 0.0,
+            'num_pred': num_pred,
+            'num_gt': 0,
+            'num_matched': 0,
+            'mean_iou': 0.0,
+        }
+
+    if num_pred == 0:
+        return {
+            'precision': 1.0,
+            'recall': 0.0,
+            'f1': 0.0,
+            'num_pred': 0,
+            'num_gt': num_gt,
+            'num_matched': 0,
+            'mean_iou': 0.0,
+        }
+
+    # Compute IoU matrix
+    iou_matrix = np.zeros((num_pred, num_gt))
+
+    for i, pred_id in enumerate(pred_ids):
+        pred_pixels = (pred_mask == pred_id)
+
+        for j, gt_id in enumerate(gt_ids):
+            gt_pixels = (gt_mask == gt_id)
+
+            # Compute IoU
+            intersection = np.logical_and(pred_pixels, gt_pixels).sum()
+            union = np.logical_or(pred_pixels, gt_pixels).sum()
+
+            if union > 0:
+                iou_matrix[i, j] = intersection / union
+
+    # Match predictions to ground truth (greedy matching by highest IoU)
+    matched_pred = set()
+    matched_gt = set()
+    ious = []
+
+    # Sort all IoUs in descending order
+    iou_pairs = []
+    for i in range(num_pred):
+        for j in range(num_gt):
+            if iou_matrix[i, j] >= iou_threshold:
+                iou_pairs.append((iou_matrix[i, j], i, j))
+
+    iou_pairs.sort(reverse=True)
+
+    # Greedy matching
+    for iou, i, j in iou_pairs:
+        if i not in matched_pred and j not in matched_gt:
+            matched_pred.add(i)
+            matched_gt.add(j)
+            ious.append(iou)
+
+    num_matched = len(matched_pred)
+
+    # Calculate metrics
+    precision = num_matched / num_pred if num_pred > 0 else 0.0
+    recall = num_matched / num_gt if num_gt > 0 else 0.0
+    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+    mean_iou = np.mean(ious) if len(ious) > 0 else 0.0
+
+    return {
+        'precision': precision,
+        'recall': recall,
+        'f1': f1,
+        'num_pred': num_pred,
+        'num_gt': num_gt,
+        'num_matched': num_matched,
+        'mean_iou': mean_iou,
+    }
+
+
+def calculate_semantic_f1(pred_mask, gt_mask):
+    """
+    Calculate binary F1 score for semantic segmentation.
+    Treats all instances as single class.
+
+    Args:
+        pred_mask: Predicted mask (any non-zero = positive)
+        gt_mask: Ground truth mask (any non-zero = positive)
 
     Returns:
         f1: F1 score
     """
-    pred = pred.flatten()
-    label = label.flatten()
+    pred_binary = (pred_mask > 0).astype(int).flatten()
+    gt_binary = (gt_mask > 0).astype(int).flatten()
 
-    tp = np.sum((pred == 1) & (label == 1))
-    fp = np.sum((pred == 1) & (label == 0))
-    fn = np.sum((pred == 0) & (label == 1))
+    tp = np.sum((pred_binary == 1) & (gt_binary == 1))
+    fp = np.sum((pred_binary == 1) & (gt_binary == 0))
+    fn = np.sum((pred_binary == 0) & (gt_binary == 1))
 
     precision = tp / (tp + fp + 1e-8)
     recall = tp / (tp + fn + 1e-8)
@@ -44,6 +161,10 @@ def calculate_f1_score(pred, label):
 
     return f1
 
+
+# ============================================================================
+# VISUALIZATION
+# ============================================================================
 
 def prepare_image_for_display(img):
     """
@@ -59,92 +180,86 @@ def prepare_image_for_display(img):
     num_channels = img.shape[2]
 
     # Denormalize image for visualization
-    # Scale to 0-1 range for display
     img_normalized = (img - img.min()) / (img.max() - img.min() + 1e-8)
     img_normalized = np.clip(img_normalized, 0, 1)
 
     if num_channels == 1:
-        # Grayscale - squeeze channel dimension
         img_vis = img_normalized[:, :, 0]
         display_note = "Grayscale"
-
     elif num_channels == 3:
-        # RGB - display as-is
         img_vis = img_normalized
         display_note = "RGB"
-
     else:
-        # Multi-channel (>3): display first 3 channels as RGB
         img_vis = img_normalized[:, :, :3]
         display_note = f"{num_channels}ch (showing first 3)"
 
     return img_vis, display_note
 
 
-def create_overlay_image(img_vis, pred_mask):
+def create_instance_overlay(img_vis, instance_mask, alpha=0.5, colormap='tab20'):
     """
-    Create overlay of prediction mask on image.
-    Handles grayscale and color images.
+    Create overlay of instance mask on image with unique colors per instance.
 
     Args:
         img_vis: Base image (H, W) for grayscale or (H, W, 3) for color
-        pred_mask: Binary prediction mask (H, W)
+        instance_mask: Instance mask (H, W) with unique IDs per instance
+        alpha: Transparency for overlay
+        colormap: Matplotlib colormap for instance colors
 
     Returns:
-        blended: Blended image with yellow overlay on predictions
+        blended: Blended image with colored instance overlays
     """
-    # Ensure img_vis is 3-channel for overlay
+    # Ensure img_vis is 3-channel
     if img_vis.ndim == 2:
-        # Convert grayscale to RGB
         img_vis_rgb = np.stack([img_vis] * 3, axis=2)
     else:
         img_vis_rgb = img_vis
 
-    # Create RGBA image for proper alpha blending
-    combined = np.zeros((pred_mask.shape[0], pred_mask.shape[1], 4))
-    combined[:, :, :3] = img_vis_rgb
-    combined[:, :, 3] = 1.0  # Full opacity for base
+    # Create colored instance mask
+    unique_instances = np.unique(instance_mask)
+    unique_instances = unique_instances[unique_instances != 0]  # Exclude background
 
-    # Create overlay image with yellow predictions
-    overlay = np.zeros((pred_mask.shape[0], pred_mask.shape[1], 4))
-    overlay[:, :, :3] = img_vis_rgb  # Start with image
+    if len(unique_instances) == 0:
+        return img_vis_rgb
 
-    # Where prediction is 1, set to yellow with transparency
-    mask_bool = pred_mask == 1
-    overlay[mask_bool, 0] = 1.0  # Red channel
-    overlay[mask_bool, 1] = 1.0  # Green channel
-    overlay[mask_bool, 2] = 0.0  # Blue channel (0 = yellow)
-    overlay[:, :, 3] = np.where(
-        mask_bool, 0.5, 1.0
-    )  # 50% transparent where pred=1
+    # Get colormap
+    cmap = plt.get_cmap(colormap)
 
-    # Blend images
-    alpha = overlay[:, :, 3:4]
-    blended = overlay[:, :, :3] * alpha + combined[:, :, :3] * (1 - alpha)
+    # Create overlay
+    overlay = img_vis_rgb.copy()
 
-    return np.clip(blended, 0, 1)
+    for idx, instance_id in enumerate(unique_instances):
+        mask = (instance_mask == instance_id)
+        color = np.array(cmap(idx / max(len(unique_instances), 1))[:3])  # RGB only
+
+        # Blend color into overlay where mask is True
+        overlay[mask] = overlay[mask] * (1 - alpha) + color * alpha
+
+    return np.clip(overlay, 0, 1)
 
 
 def visualize_predictions(
-    model, dataloader, device, output_dir, epoch, n_samples=5
+    model, dataloader, device, output_dir, epoch, n_samples=5,
+    semantic_threshold=0.5, min_pixels=10, distance_threshold=0.5
 ):
     """
-    Visualize model predictions and save to output directory.
-    Handles images with any number of channels.
+    Visualize instance segmentation predictions and save to output directory.
 
     Args:
         model: Trained model
         dataloader: DataLoader to sample from
         device: torch device
-        output_dir (str): Directory to save plots
-        epoch (int or str): Current epoch number or epoch label (e.g., "EVAL")
-        n_samples (int): Number of samples to visualize
+        output_dir: Directory to save plots
+        epoch: Current epoch number or label (e.g., "EVAL")
+        n_samples: Number of samples to visualize
+        semantic_threshold: Threshold for crater classification
+        min_pixels: Minimum pixels per instance
+        distance_threshold: Embedding distance threshold for clustering
     """
     model.eval()
-
     os.makedirs(output_dir, exist_ok=True)
 
-    # Get a batch of data
+    # Collect predictions
     images_list = []
     labels_list = []
     preds_list = []
@@ -152,110 +267,148 @@ def visualize_predictions(
     with torch.no_grad():
         for images, labels in dataloader:
             images = images.to(device)
-            labels = labels.to(device)
+            labels = labels.cpu().numpy()
 
-            # Forward pass
-            logits = model(images)
+            # Get instance predictions
+            instance_masks = model.predict_instances(
+                images,
+                semantic_threshold=semantic_threshold,
+                min_pixels=min_pixels,
+                distance_threshold=distance_threshold,
+                use_morphology=True
+            )
 
-            # Convert to probabilities and threshold
-            probs = torch.sigmoid(logits)  # [B, 2, H, W] or [B, 1, H, W]
-
-            # Get crater class only (class 1) if 2 channels
-            if probs.shape[1] == 2:
-                probs = probs[
-                    :, 1:2
-                ]  # Select class 1, keep channel dim [B, 1, H, W]
-
-            preds = (
-                (probs > 0.5).float().squeeze(1)
-            )  # [B, H, W] - squeeze channel dim
-
-            # Move to CPU for visualization
+            # Store results
             images_list.append(images.cpu())
-            labels_list.append(labels.cpu())
-            preds_list.append(preds.cpu())
+            labels_list.extend(labels)
+            preds_list.extend(instance_masks)
 
-            if sum(len(x) for x in images_list) >= n_samples:
+            if len(images_list) * images.shape[0] >= n_samples:
                 break
 
-    # Concatenate batches
+    # Concatenate and limit to n_samples
     all_images = torch.cat(images_list, dim=0)[:n_samples]
-    all_labels = torch.cat(labels_list, dim=0)[:n_samples]
-    all_preds = torch.cat(preds_list, dim=0)[:n_samples]
+    all_labels = labels_list[:n_samples]
+    all_preds = preds_list[:n_samples]
 
-    # Get number of channels from first image
     num_channels = all_images.shape[1]
+    batch_size = len(all_preds)
 
-    # Create 4 row viz: img, pred, img/pred composite, ground truth
-    batch_size = min(n_samples, len(all_images))
-    fig, axes = plt.subplots(4, batch_size, figsize=(4 * batch_size, 16))
+    # Create 5-row visualization:
+    # Row 0: Original image + metrics
+    # Row 1: Predicted instances (colored)
+    # Row 2: Prediction overlay on image
+    # Row 3: Ground truth instances (colored)
+    # Row 4: GT overlay on image
+    fig, axes = plt.subplots(5, batch_size, figsize=(4 * batch_size, 20))
 
-    # Handle single sample case
     if batch_size == 1:
         axes = axes.reshape(-1, 1)
 
-    cmap_black_yellow = ListedColormap(["black", "yellow"])
-    cmap_black_red = ListedColormap(["black", "red"])
-
-    # Calculate F1 scores for each sample
-    f1_scores = []
-
-    # Track display mode for figure title
-    display_mode = None
+    # Calculate metrics
+    instance_metrics = []
+    semantic_f1s = []
 
     for i in tqdm(range(batch_size), desc="Plotting predictions"):
         img = all_images[i].numpy().transpose(1, 2, 0)  # (H, W, C)
-        label = all_labels[i].numpy()
-        pred = all_preds[i].numpy()
+        gt_mask = all_labels[i]
+        pred_mask = all_preds[i]
 
-        # Calculate F1 score for this sample
-        f1 = calculate_f1_score(pred, label)
-        f1_scores.append(f1)
+        # Calculate metrics
+        inst_metrics = calculate_instance_metrics(pred_mask, gt_mask)
+        sem_f1 = calculate_semantic_f1(pred_mask, gt_mask)
 
-        # Prepare image for display (handles any number of channels)
+        instance_metrics.append(inst_metrics)
+        semantic_f1s.append(sem_f1)
+
+        # Prepare image for display
         img_vis, display_note = prepare_image_for_display(img)
-        if display_mode is None:
-            display_mode = display_note
-
-        # Determine colormap for grayscale images
         cmap_image = 'gray' if img_vis.ndim == 2 else None
 
-        # Row 0: Original image with F1 score
+        # Row 0: Original image with metrics
         axes[0, i].imshow(img_vis, cmap=cmap_image)
         axes[0, i].set_title(
-            f"Image {i}\nF1: {f1:.3f}", fontsize=16, fontweight="bold"
+            f"Image {i}\n"
+            f"Sem F1: {sem_f1:.3f}\n"
+            f"Inst F1: {inst_metrics['f1']:.3f}\n"
+            f"Pred: {inst_metrics['num_pred']} | GT: {inst_metrics['num_gt']}",
+            fontsize=12,
+            fontweight="bold"
         )
         axes[0, i].axis("off")
 
-        # Row 1: Predicted mask in black and yellow
-        axes[1, i].imshow(pred, cmap=cmap_black_yellow, vmin=0, vmax=1)
-        axes[1, i].set_title(f"Prediction {i}", fontsize=14)
+        # Row 1: Predicted instances (colored by ID)
+        num_pred = len(np.unique(pred_mask)) - 1  # Exclude background
+        pred_colored = create_instance_overlay(
+            np.ones_like(img_vis) * 0.2,  # Dark background
+            pred_mask,
+            alpha=1.0
+        )
+        axes[1, i].imshow(pred_colored)
+        axes[1, i].set_title(
+            f"Predicted ({num_pred} instances)\n"
+            f"Precision: {inst_metrics['precision']:.3f}",
+            fontsize=11
+        )
         axes[1, i].axis("off")
 
-        # Row 2: Combined overlay - image with yellow pred overlay
-        blended = create_overlay_image(img_vis, pred)
-        axes[2, i].imshow(blended)
-        axes[2, i].set_title(f"Prediction Overlay {i}", fontsize=14)
+        # Row 2: Prediction overlay on image
+        pred_overlay = create_instance_overlay(img_vis, pred_mask, alpha=0.5)
+        axes[2, i].imshow(pred_overlay)
+        axes[2, i].set_title(
+            f"Prediction Overlay\n"
+            f"Mean IoU: {inst_metrics['mean_iou']:.3f}",
+            fontsize=11
+        )
         axes[2, i].axis("off")
 
-        # Row 3: Ground truth mask in black and red
-        axes[3, i].imshow(label, cmap=cmap_black_red, vmin=0, vmax=1)
-        axes[3, i].set_title(f"Ground Truth {i}", fontsize=14)
+        # Row 3: Ground truth instances (colored by ID)
+        num_gt = len(np.unique(gt_mask)) - 1  # Exclude background
+        gt_colored = create_instance_overlay(
+            np.ones_like(img_vis) * 0.2,  # Dark background
+            gt_mask,
+            alpha=1.0
+        )
+        axes[3, i].imshow(gt_colored)
+        axes[3, i].set_title(
+            f"Ground Truth ({num_gt} instances)\n"
+            f"Recall: {inst_metrics['recall']:.3f}",
+            fontsize=11
+        )
         axes[3, i].axis("off")
 
-    # Add overall F1 score and channel info as figure title
-    mean_f1 = np.mean(f1_scores)
+        # Row 4: GT overlay on image
+        gt_overlay = create_instance_overlay(img_vis, gt_mask, alpha=0.5)
+        axes[4, i].imshow(gt_overlay)
+        axes[4, i].set_title(
+            f"Ground Truth Overlay\n"
+            f"Matched: {inst_metrics['num_matched']}",
+            fontsize=11
+        )
+        axes[4, i].axis("off")
+
+    # Calculate average metrics
+    avg_inst_f1 = np.mean([m['f1'] for m in instance_metrics])
+    avg_sem_f1 = np.mean(semantic_f1s)
+    avg_precision = np.mean([m['precision'] for m in instance_metrics])
+    avg_recall = np.mean([m['recall'] for m in instance_metrics])
+    avg_iou = np.mean([m['mean_iou'] for m in instance_metrics])
+
+    # Add overall metrics as figure title
     fig.suptitle(
-        f"Epoch {epoch} - Mean F1 Score: {mean_f1:.3f} | "
-        f"Input: {num_channels}ch ({display_mode})",
-        fontsize=20,
+        f"Epoch {epoch} - Instance Segmentation Results\n"
+        f"Semantic F1: {avg_sem_f1:.3f} | Instance F1: {avg_inst_f1:.3f} | "
+        f"Precision: {avg_precision:.3f} | Recall: {avg_recall:.3f} | "
+        f"Mean IoU: {avg_iou:.3f}\n"
+        f"Input: {num_channels}ch",
+        fontsize=16,
         fontweight="bold",
         y=0.995,
     )
 
     plt.tight_layout()
 
-    # Handle epoch formatting (can be "eval" or a number)
+    # Save figure
     if isinstance(epoch, int):
         epoch_str = f"{epoch:03d}"
     else:
@@ -264,11 +417,20 @@ def visualize_predictions(
     save_path = os.path.join(output_dir, f"predictions_epoch_{epoch_str}.png")
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close()
+
     print(f"Saved visualization to {save_path}")
-    print(f"Mean F1 Score: {mean_f1:.3f}")
+    print(f"Average Semantic F1: {avg_sem_f1:.3f}")
+    print(f"Average Instance F1: {avg_inst_f1:.3f}")
+    print(f"Average Precision: {avg_precision:.3f}")
+    print(f"Average Recall: {avg_recall:.3f}")
+    print(f"Average IoU: {avg_iou:.3f}")
 
     model.train()
 
+
+# ============================================================================
+# TRAINING
+# ============================================================================
 
 def train_epoch(
     model, dataloader, criterion, optimizer, device, desc="Training"
@@ -279,17 +441,21 @@ def train_epoch(
     Args:
         model: Model to train
         dataloader: Training dataloader
-        criterion: Loss function
+        criterion: Loss function (handles dict outputs)
         optimizer: Optimizer
         device: torch device
-        desc (str): Description for progress bar
+        desc: Description for progress bar
 
     Returns:
-        avg_loss (float): Average loss for the epoch
+        avg_loss: Average loss for the epoch
+        loss_components: Dict of average loss components
     """
     model.train()
     total_loss = 0.0
     n_batches = 0
+
+    # Track loss components if available
+    loss_components = {}
 
     progress_bar = tqdm(dataloader, desc=desc)
 
@@ -299,10 +465,10 @@ def train_epoch(
 
         # Forward pass
         optimizer.zero_grad()
-        outputs = model(images)  # Outputs is a dict for instance seg
+        outputs = model(images)  # Returns dict with 'semantic' and 'embeddings'
 
-        # Compute loss
-        loss = criterion(outputs, labels)  # Outputs is a dict for instance seg
+        # Compute loss (criterion handles dict)
+        loss = criterion(outputs, labels)
 
         # Backward pass
         loss.backward()
@@ -312,11 +478,24 @@ def train_epoch(
         total_loss += loss.item()
         n_batches += 1
 
+        # Track loss components if available
+        if hasattr(criterion, 'get_last_losses'):
+            last_losses = criterion.get_last_losses()
+            for key, value in last_losses.items():
+                if key not in loss_components:
+                    loss_components[key] = 0.0
+                loss_components[key] += value
+
         # Update progress bar
         progress_bar.set_postfix({"loss": loss.item()})
 
     avg_loss = total_loss / n_batches
-    return avg_loss
+
+    # Average loss components
+    for key in loss_components:
+        loss_components[key] /= n_batches
+
+    return avg_loss, loss_components
 
 
 def validate_epoch(model, dataloader, criterion, device, desc="Validation"):
@@ -328,14 +507,17 @@ def validate_epoch(model, dataloader, criterion, device, desc="Validation"):
         dataloader: Validation dataloader
         criterion: Loss function
         device: torch device
-        desc (str): Description for progress bar
+        desc: Description for progress bar
 
     Returns:
-        avg_loss (float): Average validation loss
+        avg_loss: Average validation loss
+        loss_components: Dict of average loss components
     """
     model.eval()
     total_loss = 0.0
     n_batches = 0
+
+    loss_components = {}
 
     progress_bar = tqdm(dataloader, desc=desc)
 
@@ -345,7 +527,7 @@ def validate_epoch(model, dataloader, criterion, device, desc="Validation"):
             labels = labels.to(device)
 
             # Forward pass
-            outputs = model(images)  # Outputs is a dict for instance seg
+            outputs = model(images)
 
             # Compute loss
             loss = criterion(outputs, labels)
@@ -354,26 +536,42 @@ def validate_epoch(model, dataloader, criterion, device, desc="Validation"):
             total_loss += loss.item()
             n_batches += 1
 
+            # Track loss components
+            if hasattr(criterion, 'get_last_losses'):
+                last_losses = criterion.get_last_losses()
+                for key, value in last_losses.items():
+                    if key not in loss_components:
+                        loss_components[key] = 0.0
+                    loss_components[key] += value
+
             # Update progress bar
             progress_bar.set_postfix({"loss": loss.item()})
 
     avg_loss = total_loss / n_batches
-    return avg_loss
 
+    # Average loss components
+    for key in loss_components:
+        loss_components[key] /= n_batches
+
+    return avg_loss, loss_components
+
+
+# ============================================================================
+# UTILITIES
+# ============================================================================
 
 def print_model_summary(model):
+    """Print model parameter summary."""
     encoder_trainable = sum(
         p.numel() for p in model.encoder.parameters() if p.requires_grad
     )
     encoder_total = sum(p.numel() for p in model.encoder.parameters())
 
-    # Calculate trainable parameters for decoder
     decoder_trainable = sum(
         p.numel() for p in model.decoder.parameters() if p.requires_grad
     )
     decoder_total = sum(p.numel() for p in model.decoder.parameters())
 
-    # Calculate trainable parameters for combined model
     trainable_params = sum(
         p.numel() for p in model.parameters() if p.requires_grad
     )
@@ -401,26 +599,9 @@ def print_model_summary(model):
 
 
 def save_checkpoint(
-    model,
-    optimizer,
-    scheduler,
-    epoch,
-    train_losses,
-    val_losses,
-    checkpoint_path,
+    model, optimizer, scheduler, epoch, train_losses, val_losses, checkpoint_path
 ):
-    """
-    Save full checkpoint including optimizer and scheduler state.
-
-    Args:
-        model: Model to save
-        optimizer: Optimizer
-        scheduler: Learning rate scheduler
-        epoch: Current epoch
-        train_losses: List of training losses
-        val_losses: List of validation losses
-        checkpoint_path: Path to save checkpoint
-    """
+    """Save full checkpoint."""
     checkpoint = {
         "epoch": epoch,
         "model_state_dict": model.state_dict(),
@@ -434,21 +615,7 @@ def save_checkpoint(
 
 
 def load_checkpoint(model, optimizer, scheduler, checkpoint_path, device):
-    """
-    Load checkpoint and restore training state.
-
-    Args:
-        model: Model to load weights into
-        optimizer: Optimizer to restore state
-        scheduler: Scheduler to restore state
-        checkpoint_path: Path to checkpoint file
-        device: Device to load checkpoint on
-
-    Returns:
-        start_epoch: Epoch to resume from
-        train_losses: Training loss history
-        val_losses: Validation loss history
-    """
+    """Load checkpoint and restore training state."""
     print(f"Loading checkpoint from: {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, map_location=device)
 
@@ -467,21 +634,10 @@ def load_checkpoint(model, optimizer, scheduler, checkpoint_path, device):
 
 
 def load_model_weights(model, checkpoint_path, device):
-    """
-    Load model weights from checkpoint, handling both old and new formats.
-
-    Args:
-        model: Model to load weights into
-        checkpoint_path: Path to checkpoint file
-        device: Device to load checkpoint on
-
-    Returns:
-        epoch: Epoch number if available, else None
-    """
+    """Load model weights from checkpoint."""
     print(f"Loading model weights from: {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, map_location=device)
 
-    # Check if it's the new format (dict with 'model_state_dict')
     if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
         model.load_state_dict(checkpoint["model_state_dict"])
         epoch = checkpoint.get("epoch", None)
@@ -490,34 +646,20 @@ def load_model_weights(model, checkpoint_path, device):
             print(f"Checkpoint was from epoch: {epoch}")
         return epoch
     else:
-        # Old format - directly load state dict or use model's load method
         try:
-            # Try loading as state_dict directly
             model.load_state_dict(checkpoint)
             print(f"Loaded model from checkpoint (old format - state_dict)")
         except:
-            # If model has custom load_parameters method (like DINOEncoderLoRA)
             if hasattr(model, "load_parameters"):
                 model.load_parameters(checkpoint_path)
                 print(f"Loaded model using model.load_parameters() method")
             else:
-                raise ValueError(
-                    "Unable to load checkpoint. Format not recognized and "
-                    "model doesn't have load_parameters() method."
-                )
+                raise ValueError("Unable to load checkpoint. Format not recognized.")
         return None
 
 
 def evaluate_model(model, val_loader, output_dir, device):
-    """
-    Evaluate model and generate visualizations.
-
-    Args:
-        model: Trained model
-        val_loader: Validation dataloader
-        output_dir: Directory to save visualizations
-        device: Device to run evaluation on
-    """
+    """Evaluate model and generate visualizations."""
     print(f"\n{'='*60}")
     print("EVALUATION MODE")
     print(f"{'='*60}\n")
@@ -537,6 +679,10 @@ def evaluate_model(model, val_loader, output_dir, device):
     print(f"{'='*60}\n")
 
 
+# ============================================================================
+# MAIN TRAINING FUNCTION
+# ============================================================================
+
 def train_model(
     model,
     train_loader,
@@ -547,45 +693,37 @@ def train_model(
     weight_decay=1e-4,
     checkpoint_every=10,
     visualize_every=10,
-    loss_type="cross_entropy",
+    loss_type="instance_combined",
     device=None,
     mode="both",
     checkpoint_path=None,
 ):
     """
-    Main training/evaluation loop for DINO segmentation.
-    Supports images with any number of channels.
+    Main training/evaluation loop for instance segmentation.
 
     Args:
-        model: Segmentation model
+        model: Instance segmentation model
         train_loader: Training dataloader
         val_loader: Validation dataloader
-        output_dir (str): Directory to save checkpoints and visualizations
-        num_epochs (int): Number of epochs to train
-        learning_rate (float): Learning rate
-        weight_decay (float): Weight decay for optimizer
-        checkpoint_every (int): Save checkpoint every N epochs
-        visualize_every (int): Visualize predictions every N epochs
-        loss_type (str): Type of loss function. Options:
-            - 'cross_entropy': Standard CrossEntropyLoss
-            - 'focal': Focal Loss for small craters
-            - 'dice': Dice Loss for segmentation
-            - 'combined': CrossEntropy + Dice (recommended)
-            - 'full': CrossEntropy + Dice + Boundary (unstable)
+        output_dir: Directory to save checkpoints and visualizations
+        num_epochs: Number of epochs to train
+        learning_rate: Learning rate
+        weight_decay: Weight decay for optimizer
+        checkpoint_every: Save checkpoint every N epochs
+        visualize_every: Visualize predictions every N epochs
+        loss_type: Type of loss function (use 'instance_combined' for instance seg)
         device: torch device (if None, will use cuda if available)
-        mode (str): Operation mode - 'train', 'eval', or 'both' (default both)
-        checkpoint_path (str): Path to checkpoint file for loading/resuming
+        mode: Operation mode - 'train', 'eval', or 'both'
+        checkpoint_path: Path to checkpoint file for loading/resuming
 
     Returns:
-        train_losses (list): Training losses per epoch (None if mode='eval')
-        val_losses (list): Validation losses per epoch (None if mode='eval')
+        train_losses: Training losses per epoch (None if mode='eval')
+        val_losses: Validation losses per epoch (None if mode='eval')
     """
 
     # Validate arguments
     if mode not in ["train", "eval", "both"]:
-        raise ValueError(
-            f"Invalid mode: {mode}. Must be 'train', 'eval', or 'both'"
-        )
+        raise ValueError(f"Invalid mode: {mode}. Must be 'train', 'eval', or 'both'")
 
     if mode == "eval" and checkpoint_path is None:
         raise ValueError("checkpoint_path must be provided when mode='eval'")
@@ -597,7 +735,7 @@ def train_model(
     print(f"Using device: {device}")
     model = model.to(device)
 
-    # Create output directory
+    # Create output directories
     os.makedirs(output_dir, exist_ok=True)
     checkpoint_dir = os.path.join(output_dir, "checkpoints")
     visualization_dir = os.path.join(output_dir, "visualizations")
@@ -606,22 +744,19 @@ def train_model(
 
     # EVALUATION ONLY MODE
     if mode == "eval":
-        # Load model weights (handles both old and new formats)
         load_model_weights(model, checkpoint_path, device)
-
-        # Run evaluation
         evaluate_model(model, val_loader, output_dir, device)
         return None, None
 
-    # TRAINING MODE (train or both)
+    # TRAINING MODE
 
-    # Loss function - get from utils based on loss_type
+    # Loss function
     criterion = get_loss_function(loss_type)
     criterion = criterion.to(device)
     print(f"Using loss function: {loss_type}")
     print(f"Loss function: {criterion.__class__.__name__}")
 
-    # Optimizer: only affect unfrozen model parameters
+    # Optimizer
     optimizer = AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=learning_rate,
@@ -637,7 +772,7 @@ def train_model(
     best_val_loss = float("inf")
     start_epoch = 1
 
-    # Load checkpoint if resuming training
+    # Load checkpoint if resuming
     if checkpoint_path is not None:
         start_epoch, train_losses, val_losses = load_checkpoint(
             model, optimizer, scheduler, checkpoint_path, device
@@ -648,14 +783,8 @@ def train_model(
 
     print(f"\nStarting training for {num_epochs} epochs...")
     print(f"Starting from epoch: {start_epoch}")
-    print(
-        f"Checkpoints will be saved every {checkpoint_every} epochs to: "
-        f"{checkpoint_dir}"
-    )
-    print(
-        f"Visualizations will be saved every {visualize_every} epochs to: "
-        f"{visualization_dir}"
-    )
+    print(f"Checkpoints will be saved every {checkpoint_every} epochs")
+    print(f"Visualizations will be saved every {visualize_every} epochs")
 
     print_model_summary(model)
 
@@ -671,7 +800,7 @@ def train_model(
         print(f"{'='*60}")
 
         # Train
-        train_loss = train_epoch(
+        train_loss, train_components = train_epoch(
             model,
             train_loader,
             criterion,
@@ -682,7 +811,7 @@ def train_model(
         train_losses.append(train_loss)
 
         # Validate
-        val_loss = validate_epoch(
+        val_loss, val_components = validate_epoch(
             model,
             val_loader,
             criterion,
@@ -706,6 +835,19 @@ def train_model(
         print(f"  LR:         {current_lr:.6f}")
         print(f"  Time:       {epoch_time:.2f}s")
 
+        # Print detailed loss components if available
+        if train_components:
+            print(f"\n  Train Loss Components:")
+            for key, value in train_components.items():
+                if key != 'total':
+                    print(f"    {key:15s}: {value:.4f}")
+
+        if val_components:
+            print(f"\n  Val Loss Components:")
+            for key, value in val_components.items():
+                if key != 'total':
+                    print(f"    {key:15s}: {value:.4f}")
+
         # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -719,7 +861,7 @@ def train_model(
                 val_losses,
                 best_path,
             )
-            print(f"  Saved best model (val_loss: {val_loss:.4f})")
+            print(f"\n  ✅ Saved best model (val_loss: {val_loss:.4f})")
 
         # Save checkpoint periodically
         if epoch % checkpoint_every == 0:
@@ -770,7 +912,7 @@ def train_model(
     )
     print(f"Saved final model to: {final_path}")
 
-    # Print training summary (only if we have losses)
+    # Print training summary
     if len(train_losses) > 0 and len(val_losses) > 0:
         print("\n" + "=" * 60)
         print("TRAINING SUMMARY")
@@ -779,7 +921,8 @@ def train_model(
         print(f"Final val loss: {val_losses[-1]:.4f}")
         print(f"Best val loss: {min(val_losses):.4f}")
         print(
-            f"Total training time: {total_training_time:.2f}s ({total_training_time/60:.2f}m)"
+            f"Total training time: {total_training_time:.2f}s "
+            f"({total_training_time/60:.2f}m)"
         )
         print(f"Average time per epoch: {avg_epoch_time:.2f}s")
         print(f"\nOutputs saved to: {output_dir}")
@@ -791,7 +934,6 @@ def train_model(
 
 
 if __name__ == "__main__":
-    # This allows the driver to be run as a script or imported
     print(
         "Import this module and call train_model() with your model and dataloaders."
     )
