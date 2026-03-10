@@ -268,17 +268,21 @@ def create_instance_colormap(
     h, w = instance_mask.shape
     colored_mask = np.zeros((h, w, 4), dtype=np.float32)
 
+    # Create background mask (where instance_mask == 0)
+    background_pixels = instance_mask == 0
+
     # Set background color based on mode
     if background_mode == "black":
-        colored_mask[..., :3] = 0  # RGB = black
-        colored_mask[..., 3] = alpha_background  # Alpha
+        colored_mask[background_pixels, :3] = 0  # RGB = black
+        colored_mask[background_pixels, 3] = alpha_background  # Alpha
     elif background_mode == "white":
-        colored_mask[..., :3] = 1  # RGB = white
-        colored_mask[..., 3] = alpha_background  # Alpha
+        colored_mask[background_pixels, :3] = 1  # RGB = white
+        colored_mask[background_pixels, 3] = alpha_background  # Alpha
     elif background_mode == "transparent":
-        colored_mask[..., 3] = 0  # Fully transparent
+        colored_mask[background_pixels, :3] = 0  # RGB doesn't matter
+        colored_mask[background_pixels, 3] = 0  # Fully transparent
 
-    # Get unique instances (excluding background)
+    # Get unique instances (excluding background with value 0)
     unique_instances = np.unique(instance_mask)
     unique_instances = unique_instances[unique_instances != 0]
 
@@ -290,7 +294,8 @@ def create_instance_colormap(
 
     # Color each instance with a unique color
     for idx, instance_id in enumerate(unique_instances):
-        mask = instance_mask == instance_id
+        instance_pixels = instance_mask == instance_id
+
         # Distribute colors evenly across colormap (skip red start/end in HSV)
         if colormap == "hsv":
             # Offset to avoid pure red at 0 and 1
@@ -299,8 +304,8 @@ def create_instance_colormap(
             color_idx = idx / max(len(unique_instances) - 1, 1)
 
         color = np.array(cmap(color_idx)[:3])
-        colored_mask[mask, :3] = color
-        colored_mask[mask, 3] = alpha_instances
+        colored_mask[instance_pixels, :3] = color
+        colored_mask[instance_pixels, 3] = alpha_instances
 
     return colored_mask
 
@@ -310,13 +315,14 @@ def create_instance_overlay_v2(
 ):
     """
     Create overlay of instance mask on image with proper transparency handling.
+    Pixels with instance_mask == 0 are treated as background.
 
     Args:
         img_vis: Base image (H, W) for grayscale or (H, W, 3) for color
-        instance_mask: Instance mask (H, W) with unique IDs per instance
+        instance_mask: Instance mask (H, W) with unique IDs per instance (0 = background)
         alpha: Transparency for instance overlays
         colormap: Matplotlib colormap for instance colors
-        black_background: If True, only show instances on black; if False, blend with image
+        black_background: If True, show instances on black; if False, blend with image
 
     Returns:
         overlay: (H, W, 3) RGB array with proper compositing
@@ -327,6 +333,12 @@ def create_instance_overlay_v2(
     else:
         img_vis_rgb = img_vis.copy()
 
+    # Ensure same shape
+    if img_vis_rgb.shape[:2] != instance_mask.shape:
+        raise ValueError(
+            f"Shape mismatch: image {img_vis_rgb.shape[:2]} vs mask {instance_mask.shape}"
+        )
+
     if black_background:
         # Pure black background with full-opacity colored instances
         colored_mask = create_instance_colormap(
@@ -334,10 +346,10 @@ def create_instance_overlay_v2(
             background_mode="black",
             colormap=colormap,
             alpha_instances=1.0,
-            alpha_background=1.0,  # Opaque black
+            alpha_background=1.0,
         )
-        # Return RGB only (background is already black)
-        return colored_mask[..., :3]
+        # Return RGB only (background pixels are already black)
+        return np.clip(colored_mask[..., :3], 0, 1)
     else:
         # Transparent background, blend instances with image
         colored_mask = create_instance_colormap(
@@ -345,14 +357,16 @@ def create_instance_overlay_v2(
             background_mode="transparent",
             colormap=colormap,
             alpha_instances=alpha,
-            alpha_background=0.0,  # Fully transparent background
+            alpha_background=0.0,
         )
 
         # Alpha compositing: blend colored instances over image
+        # Where mask == 0 (background), alpha = 0, so original image shows through
+        # Where mask != 0 (instances), alpha = alpha parameter, so colors blend
         alpha_mask = colored_mask[..., 3:4]  # (H, W, 1)
         rgb_mask = colored_mask[..., :3]
 
-        # Where alpha > 0, blend; where alpha = 0, show original image
+        # Standard alpha compositing formula
         overlay = img_vis_rgb * (1 - alpha_mask) + rgb_mask * alpha_mask
 
         return np.clip(overlay, 0, 1)
