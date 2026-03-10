@@ -132,10 +132,14 @@ class LunarCraterDataset(Dataset):
         std: np.ndarray,
         target_size: Tuple[int, int] = (304, 304),
         max_samples: Optional[int] = None,
+        norm_to_one: bool = False, 
     ):
         self.image_dir = image_dir
         self.label_dir = label_dir
         self.target_size = target_size
+
+        # If we want to normalize instances to 1
+        self.norm_to_one = norm_to_one
 
         # Store mean and std as float32 for consistency
         self.mean = mean.astype(np.float32)
@@ -265,6 +269,10 @@ class LunarCraterDataset(Dataset):
             .long()
         )  # (target_H, target_W)
 
+        # Used in mask2former architecture
+        if self.norm_to_one:
+            label[label > 0] = 1
+
         return image, label
 
 
@@ -278,6 +286,7 @@ def get_dataloaders(
     max_samples: Optional[int] = None,
     seed: int = 42,
     stats_save_dir: Optional[str] = None,
+    norm_to_one: bool = False
 ):
     """
     Create train/val dataloaders with automatic statistics calculation.
@@ -335,6 +344,7 @@ def get_dataloaders(
         std=std,
         target_size=target_size,
         max_samples=max_samples,
+        norm_to_one=norm_to_one
     )
 
     # Split into train/val
