@@ -245,63 +245,117 @@ def convert_binary_masks_to_instance_map(binary_masks):
     return instance_map
 
 
-def create_instance_overlay(
+def create_instance_colormap(
+    instance_mask,
+    background_mode="black",
+    colormap="hsv",
+    alpha_instances=1.0,
+    alpha_background=0.0,
+):
+    """
+    Create a colored instance mask with flexible background handling.
+
+    Args:
+        instance_mask: (H, W) array with unique IDs per instance (0 = background)
+        background_mode: 'black', 'white', or 'transparent'
+        colormap: Matplotlib colormap name for instance colors
+        alpha_instances: Alpha value for instance pixels (0-1)
+        alpha_background: Alpha value for background pixels (0-1)
+
+    Returns:
+        colored_mask: (H, W, 4) RGBA array with colored instances
+    """
+    h, w = instance_mask.shape
+    colored_mask = np.zeros((h, w, 4), dtype=np.float32)
+
+    # Set background color based on mode
+    if background_mode == "black":
+        colored_mask[..., :3] = 0  # RGB = black
+        colored_mask[..., 3] = alpha_background  # Alpha
+    elif background_mode == "white":
+        colored_mask[..., :3] = 1  # RGB = white
+        colored_mask[..., 3] = alpha_background  # Alpha
+    elif background_mode == "transparent":
+        colored_mask[..., 3] = 0  # Fully transparent
+
+    # Get unique instances (excluding background)
+    unique_instances = np.unique(instance_mask)
+    unique_instances = unique_instances[unique_instances != 0]
+
+    if len(unique_instances) == 0:
+        return colored_mask
+
+    # Get colormap
+    cmap = plt.get_cmap(colormap)
+
+    # Color each instance with a unique color
+    for idx, instance_id in enumerate(unique_instances):
+        mask = instance_mask == instance_id
+        # Distribute colors evenly across colormap (skip red start/end in HSV)
+        if colormap == "hsv":
+            # Offset to avoid pure red at 0 and 1
+            color_idx = (idx + 0.5) / max(len(unique_instances) + 1, 2)
+        else:
+            color_idx = idx / max(len(unique_instances) - 1, 1)
+
+        color = np.array(cmap(color_idx)[:3])
+        colored_mask[mask, :3] = color
+        colored_mask[mask, 3] = alpha_instances
+
+    return colored_mask
+
+
+def create_instance_overlay_v2(
     img_vis, instance_mask, alpha=0.5, colormap="hsv", black_background=False
 ):
     """
-    Create overlay of instance mask on image with unique colors per instance.
+    Create overlay of instance mask on image with proper transparency handling.
 
     Args:
         img_vis: Base image (H, W) for grayscale or (H, W, 3) for color
         instance_mask: Instance mask (H, W) with unique IDs per instance
-        alpha: Transparency for overlay
+        alpha: Transparency for instance overlays
         colormap: Matplotlib colormap for instance colors
-        black_background: If True, use black background instead of image
+        black_background: If True, only show instances on black; if False, blend with image
 
     Returns:
-        blended: Blended image with colored instance overlays
+        overlay: (H, W, 3) RGB array with proper compositing
     """
     # Ensure img_vis is 3-channel
     if img_vis.ndim == 2:
         img_vis_rgb = np.stack([img_vis] * 3, axis=2)
     else:
-        img_vis_rgb = img_vis
+        img_vis_rgb = img_vis.copy()
 
-    # Create colored instance mask
-    unique_instances = np.unique(instance_mask)
-    unique_instances = unique_instances[
-        unique_instances != 0
-    ]  # Exclude background
-
-    if len(unique_instances) == 0:
-        if black_background:
-            return np.zeros_like(img_vis_rgb)
-        else:
-            return img_vis_rgb
-
-    # Get colormap
-    cmap = plt.get_cmap(colormap)
-
-    # Create base - either black or the image
     if black_background:
-        overlay = np.zeros_like(img_vis_rgb)
+        # Pure black background with full-opacity colored instances
+        colored_mask = create_instance_colormap(
+            instance_mask,
+            background_mode="black",
+            colormap=colormap,
+            alpha_instances=1.0,
+            alpha_background=1.0,  # Opaque black
+        )
+        # Return RGB only (background is already black)
+        return colored_mask[..., :3]
     else:
-        overlay = img_vis_rgb.copy()
+        # Transparent background, blend instances with image
+        colored_mask = create_instance_colormap(
+            instance_mask,
+            background_mode="transparent",
+            colormap=colormap,
+            alpha_instances=alpha,
+            alpha_background=0.0,  # Fully transparent background
+        )
 
-    # Add colored instances
-    for idx, instance_id in enumerate(unique_instances):
-        mask = instance_mask == instance_id
-        # Use brighter, more saturated colors
-        color = np.array(cmap(idx / max(len(unique_instances), 1))[:3])
+        # Alpha compositing: blend colored instances over image
+        alpha_mask = colored_mask[..., 3:4]  # (H, W, 1)
+        rgb_mask = colored_mask[..., :3]
 
-        if black_background:
-            # Direct color assignment on black background (full brightness)
-            overlay[mask] = color
-        else:
-            # Blend color into image
-            overlay[mask] = overlay[mask] * (1 - alpha) + color * alpha
+        # Where alpha > 0, blend; where alpha = 0, show original image
+        overlay = img_vis_rgb * (1 - alpha_mask) + rgb_mask * alpha_mask
 
-    return np.clip(overlay, 0, 1)
+        return np.clip(overlay, 0, 1)
 
 
 def visualize_predictions(
@@ -506,14 +560,13 @@ def visualize_predictions(
 
         # Row 1: Predicted instances (colored by ID) - BLACK BACKGROUND
         unique_pred = np.unique(pred_mask)
-        num_pred = len(
-            unique_pred[unique_pred != 0]
-        )  # Explicitly filter out 0
-        pred_colored = create_instance_overlay(
-            img_vis,  # Not used when black_background=True, but needs same shape
+        num_pred = len(unique_pred[unique_pred != 0])
+        pred_colored = create_instance_overlay_v2(
+            img_vis,
             pred_mask,
             alpha=1.0,
-            black_background=True,  # NEW: Use black background with bright colors
+            colormap="hsv",
+            black_background=True,  # Pure black background, bright colors
         )
         axes[1, i].imshow(pred_colored)
         axes[1, i].set_title(
@@ -523,12 +576,13 @@ def visualize_predictions(
         )
         axes[1, i].axis("off")
 
-        # Row 2: Prediction overlay on image (normal blend)
-        pred_overlay = create_instance_overlay(
+        # Row 2: Prediction overlay on image (transparent background, blended instances)
+        pred_overlay = create_instance_overlay_v2(
             img_vis,
             pred_mask,
             alpha=0.5,
-            black_background=False,  # Blend with image
+            colormap="hsv",
+            black_background=False,  # Transparent background, blend with image
         )
         axes[2, i].imshow(pred_overlay)
         axes[2, i].set_title(
@@ -540,12 +594,13 @@ def visualize_predictions(
 
         # Row 3: Ground truth instances (colored by ID) - BLACK BACKGROUND
         unique_gt = np.unique(gt_mask)
-        num_gt = len(unique_gt[unique_gt != 0])  # Exclude background
-        gt_colored = create_instance_overlay(
-            img_vis,  # Not used when black_background=True
+        num_gt = len(unique_gt[unique_gt != 0])
+        gt_colored = create_instance_overlay_v2(
+            img_vis,
             gt_mask,
             alpha=1.0,
-            black_background=True,  # NEW: Use black background with bright colors
+            colormap="hsv",
+            black_background=True,  # Pure black background, bright colors
         )
         axes[3, i].imshow(gt_colored)
         axes[3, i].set_title(
@@ -555,12 +610,13 @@ def visualize_predictions(
         )
         axes[3, i].axis("off")
 
-        # Row 4: GT overlay on image (normal blend)
-        gt_overlay = create_instance_overlay(
+        # Row 4: GT overlay on image (transparent background, blended instances)
+        gt_overlay = create_instance_overlay_v2(
             img_vis,
             gt_mask,
             alpha=0.5,
-            black_background=False,  # Blend with image
+            colormap="hsv",
+            black_background=False,  # Transparent background, blend with image
         )
         axes[4, i].imshow(gt_overlay)
         axes[4, i].set_title(
