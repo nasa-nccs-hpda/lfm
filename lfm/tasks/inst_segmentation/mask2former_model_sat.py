@@ -104,7 +104,7 @@ class DinoV3WithAdapterBackbone(nn.Module):
         }
 
 
-def create_mask2former_dinov3_model(
+def create_mask2former_dinov3_model_sat(
     label2id: Dict[str, int],
     id2label: Dict[int, str],
     dinov3_model_name: str,
