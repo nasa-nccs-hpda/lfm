@@ -196,7 +196,7 @@ def prepare_image_for_display(img):
     return img_vis, display_note
 
 
-def create_instance_overlay(img_vis, instance_mask, alpha=0.5, colormap='tab20'):
+def create_instance_overlay(img_vis, instance_mask, alpha=0.5, colormap='hsv'):
     """
     Create overlay of instance mask on image with unique colors per instance.
 
