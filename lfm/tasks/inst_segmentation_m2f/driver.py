@@ -202,6 +202,37 @@ def prepare_image_for_display(img):
     return img_vis, display_note
 
 
+def convert_binary_masks_to_instance_map(binary_masks):
+    """
+    Convert binary masks to instance segmentation map.
+
+    Args:
+        binary_masks: numpy array or tensor of shape (num_instances, H, W)
+                     where each slice is a binary mask for one instance
+
+    Returns:
+        instance_map: numpy array of shape (H, W) where each pixel
+                     contains the instance ID (0 = background, 1+ = instances)
+    """
+    if isinstance(binary_masks, torch.Tensor):
+        binary_masks = binary_masks.cpu().numpy()
+
+    if binary_masks.ndim == 2:
+        # Already in correct format (H, W)
+        return binary_masks
+
+    # binary_masks shape: (num_instances, H, W)
+    num_instances, h, w = binary_masks.shape
+    instance_map = np.zeros((h, w), dtype=np.int32)
+
+    # Assign each instance a unique ID (1, 2, 3, ...)
+    for inst_id in range(num_instances):
+        mask = binary_masks[inst_id] > 0  # Binary mask for this instance
+        instance_map[mask] = inst_id + 1  # Assign instance ID (1-indexed)
+
+    return instance_map
+
+
 def create_instance_overlay(img_vis, instance_mask, alpha=0.5, colormap="hsv"):
     """
     Create overlay of instance mask on image with unique colors per instance.
@@ -324,6 +355,11 @@ def visualize_predictions(
                     instance_mask = result["segmentation"]
                     if isinstance(instance_mask, torch.Tensor):
                         instance_mask = instance_mask.cpu().numpy()
+
+                    # Convert from binary masks (num_instances, H, W) to instance map (H, W)
+                    instance_mask = convert_binary_masks_to_instance_map(
+                        instance_mask
+                    )
                     preds_list.append(instance_mask)
                 else:
                     # Alternative format - create mask from segments_info
@@ -339,7 +375,6 @@ def visualize_predictions(
                         for segment_idx, segment in enumerate(
                             result["segments_info"]
                         ):
-                            # This is a fallback - might not work perfectly
                             print(f"  Segment {segment_idx}: {segment}")
 
                     preds_list.append(instance_mask)
