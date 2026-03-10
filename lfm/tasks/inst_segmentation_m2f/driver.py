@@ -540,7 +540,7 @@ def visualize_predictions(
 
         # Row 3: Ground truth instances (colored by ID) - BLACK BACKGROUND
         unique_gt = np.unique(gt_mask)
-        num_gt = len(unique_pred[unique_gt != 0])  # Exclude background
+        num_gt = len(unique_gt[unique_gt != 0])  # Exclude background
         gt_colored = create_instance_overlay(
             img_vis,  # Not used when black_background=True
             gt_mask,
