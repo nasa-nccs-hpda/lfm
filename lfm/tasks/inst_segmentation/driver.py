@@ -202,7 +202,9 @@ def prepare_image_for_display(img):
     return img_vis, display_note
 
 
-def create_instance_overlay(img_vis, instance_mask, alpha=0.5, colormap="hsv"):
+def create_instance_overlay(
+    img_vis, instance_mask, alpha=0.5, colormap="tab20"
+):
     """
     Create overlay of instance mask on image with unique colors per instance.
 
@@ -251,25 +253,27 @@ def create_instance_overlay(img_vis, instance_mask, alpha=0.5, colormap="hsv"):
 def visualize_predictions(
     model,
     dataloader,
-    image_processor,
     device,
     output_dir,
     epoch,
     n_samples=5,
-    threshold=0.5,
+    semantic_threshold=0.5,
+    min_pixels=10,
+    distance_threshold=0.5,
 ):
     """
-    Visualize Mask2Former instance segmentation predictions.
+    Visualize instance segmentation predictions and save to output directory.
 
     Args:
-        model: Trained Mask2Former model
+        model: Trained model
         dataloader: DataLoader to sample from
-        image_processor: Image processor for post-processing
         device: torch device
         output_dir: Directory to save plots
         epoch: Current epoch number or label (e.g., "EVAL")
         n_samples: Number of samples to visualize
-        threshold: Confidence threshold for predictions
+        semantic_threshold: Threshold for crater classification
+        min_pixels: Minimum pixels per instance
+        distance_threshold: Embedding distance threshold for clustering
     """
     model.eval()
     os.makedirs(output_dir, exist_ok=True)
@@ -280,41 +284,25 @@ def visualize_predictions(
     preds_list = []
 
     with torch.no_grad():
-        for batch in dataloader:
-            pixel_values = batch["pixel_values"].to(device)
-            mask_labels = batch["mask_labels"]  # Keep on CPU for now
+        for images, labels in dataloader:
+            images = images.to(device)
+            labels = labels.cpu().numpy()
 
-            # Get original sizes for post-processing
-            if "original_size" in batch:
-                target_sizes = batch["original_size"]
-            else:
-                # Infer from mask_labels
-                target_sizes = [mask.shape[-2:] for mask in mask_labels]
-
-            # Forward pass (inference only - no labels)
-            outputs = model(pixel_values=pixel_values)
-
-            # Post-process to get instance masks
-            post_processed = (
-                image_processor.post_process_instance_segmentation(
-                    outputs,
-                    threshold=threshold,
-                    target_sizes=target_sizes,
-                    return_binary_maps=True,
-                )
+            # Get instance predictions
+            instance_masks = model.predict_instances(
+                images,
+                semantic_threshold=semantic_threshold,
+                min_pixels=min_pixels,
+                distance_threshold=distance_threshold,
+                use_morphology=True,
             )
 
-            # Convert to instance masks (numpy arrays)
-            for result in post_processed:
-                # result['segmentation'] is (H, W) with instance IDs
-                instance_mask = result["segmentation"].cpu().numpy()
-                preds_list.append(instance_mask)
+            # Store results
+            images_list.append(images.cpu())
+            labels_list.extend(labels)
+            preds_list.extend(instance_masks)
 
-            # Store images and labels
-            images_list.append(pixel_values.cpu())
-            labels_list.extend([label.cpu().numpy() for label in mask_labels])
-
-            if len(preds_list) >= n_samples:
+            if len(images_list) * images.shape[0] >= n_samples:
                 break
 
     # Concatenate and limit to n_samples
@@ -342,18 +330,7 @@ def visualize_predictions(
 
     for i in tqdm(range(batch_size), desc="Plotting predictions"):
         img = all_images[i].numpy().transpose(1, 2, 0)  # (H, W, C)
-
-        # GT mask: Convert from (num_instances, H, W) to (H, W) with instance IDs
-        gt_mask_tensor = all_labels[i]  # (num_instances, H, W)
-        if gt_mask_tensor.ndim == 3:
-            # Convert one-hot style masks to instance IDs
-            gt_mask = np.zeros(gt_mask_tensor.shape[1:], dtype=np.int32)
-            for inst_id in range(gt_mask_tensor.shape[0]):
-                gt_mask[gt_mask_tensor[inst_id] > 0] = inst_id + 1
-        else:
-            # Already in correct format
-            gt_mask = gt_mask_tensor
-
+        gt_mask = all_labels[i]
         pred_mask = all_preds[i]
 
         # Calculate metrics
@@ -541,54 +518,62 @@ def train_epoch(
     return avg_loss, loss_components
 
 
-def validate_epoch(model, dataloader, device, desc="Validation"):
+def validate_epoch(model, dataloader, criterion, device, desc="Validation"):
     """
-    Validate for one epoch using Mask2Former (no criterion needed).
+    Validate for one epoch.
 
     Args:
-        model: Mask2Former model to validate
+        model: Model to validate
         dataloader: Validation dataloader
+        criterion: Loss function
         device: torch device
         desc: Description for progress bar
 
     Returns:
         avg_loss: Average validation loss
+        loss_components: Dict of average loss components
     """
     model.eval()
     total_loss = 0.0
     n_batches = 0
 
+    loss_components = {}
+
     progress_bar = tqdm(dataloader, desc=desc)
 
     with torch.no_grad():
-        for batch in progress_bar:
-            # Move batch to device
-            pixel_values = batch["pixel_values"].to(device)
-            mask_labels = [
-                labels.to(device) for labels in batch["mask_labels"]
-            ]
-            class_labels = [
-                labels.to(device) for labels in batch["class_labels"]
-            ]
+        for images, labels in progress_bar:
+            images = images.to(device)
+            labels = labels.to(device)
 
             # Forward pass
-            outputs = model(
-                pixel_values=pixel_values,
-                mask_labels=mask_labels,
-                class_labels=class_labels,
-            )
+            outputs = model(images)
 
-            loss = outputs.loss
+            # Compute loss
+            loss = criterion(outputs, labels)
 
             # Track metrics
             total_loss += loss.item()
             n_batches += 1
 
+            # Track loss components
+            if hasattr(criterion, "get_last_losses"):
+                last_losses = criterion.get_last_losses()
+                for key, value in last_losses.items():
+                    if key not in loss_components:
+                        loss_components[key] = 0.0
+                    loss_components[key] += value
+
             # Update progress bar
             progress_bar.set_postfix({"loss": loss.item()})
 
     avg_loss = total_loss / n_batches
-    return avg_loss
+
+    # Average loss components
+    for key in loss_components:
+        loss_components[key] /= n_batches
+
+    return avg_loss, loss_components
 
 
 # ============================================================================
@@ -597,73 +582,41 @@ def validate_epoch(model, dataloader, device, desc="Validation"):
 
 
 def print_model_summary(model):
-    """
-    Print model parameter summary.
+    """Print model parameter summary."""
+    encoder_trainable = sum(
+        p.numel() for p in model.encoder.parameters() if p.requires_grad
+    )
+    encoder_total = sum(p.numel() for p in model.encoder.parameters())
 
-    Note: May not work correctly with Mask2Former's structure.
-    Use try/except when calling this function.
-    """
-    try:
-        # Try to access encoder/decoder (might not exist in Mask2Former)
-        if hasattr(model, "encoder") and hasattr(model, "decoder"):
-            encoder_trainable = sum(
-                p.numel()
-                for p in model.encoder.parameters()
-                if p.requires_grad
-            )
-            encoder_total = sum(p.numel() for p in model.encoder.parameters())
+    decoder_trainable = sum(
+        p.numel() for p in model.decoder.parameters() if p.requires_grad
+    )
+    decoder_total = sum(p.numel() for p in model.decoder.parameters())
 
-            decoder_trainable = sum(
-                p.numel()
-                for p in model.decoder.parameters()
-                if p.requires_grad
-            )
-            decoder_total = sum(p.numel() for p in model.decoder.parameters())
+    trainable_params = sum(
+        p.numel() for p in model.parameters() if p.requires_grad
+    )
+    total_params = sum(p.numel() for p in model.parameters())
 
-            print(f"\n{'='*60}")
-            print("MODEL PARAMETER SUMMARY")
-            print(f"{'='*60}")
-            print("Encoder:")
-            print(
-                f"  Trainable: {encoder_trainable:,} / {encoder_total:,} "
-                f"({100*encoder_trainable/encoder_total:.2f}%)"
-            )
-            print("\nDecoder:")
-            print(
-                f"  Trainable: {decoder_trainable:,} / {decoder_total:,} "
-                f"({100*decoder_trainable/decoder_total:.2f}%)"
-            )
-
-        # Total parameters (always works)
-        trainable_params = sum(
-            p.numel() for p in model.parameters() if p.requires_grad
-        )
-        total_params = sum(p.numel() for p in model.parameters())
-
-        print("\nTotal Model:")
-        print(
-            f"  Trainable: {trainable_params:,} / {total_params:,} "
-            f"({100*trainable_params/total_params:.2f}%)"
-        )
-        print(f"{'='*60}\n")
-
-    except Exception as e:
-        print(f"Could not generate detailed model summary: {e}")
-        print("Printing basic parameter count only...")
-
-        trainable_params = sum(
-            p.numel() for p in model.parameters() if p.requires_grad
-        )
-        total_params = sum(p.numel() for p in model.parameters())
-
-        print(f"\n{'='*60}")
-        print("MODEL PARAMETER SUMMARY")
-        print(f"{'='*60}")
-        print(
-            f"Trainable: {trainable_params:,} / {total_params:,} "
-            f"({100*trainable_params/total_params:.2f}%)"
-        )
-        print(f"{'='*60}\n")
+    print(f"\n{'='*60}")
+    print("MODEL PARAMETER SUMMARY")
+    print(f"{'='*60}")
+    print("Encoder:")
+    print(
+        f"  Trainable: {encoder_trainable:,} / {encoder_total:,} "
+        f"({100*encoder_trainable/encoder_total:.2f}%)"
+    )
+    print("\nDecoder:")
+    print(
+        f"  Trainable: {decoder_trainable:,} / {decoder_total:,} "
+        f"({100*decoder_trainable/decoder_total:.2f}%)"
+    )
+    print("\nCombined Model:")
+    print(
+        f"  Trainable: {trainable_params:,} / {total_params:,} "
+        f"({100*trainable_params/total_params:.2f}%)"
+    )
+    print(f"{'='*60}\n")
 
 
 def save_checkpoint(
@@ -734,17 +687,8 @@ def load_model_weights(model, checkpoint_path, device):
         return None
 
 
-def evaluate_model(model, val_loader, image_processor, output_dir, device):
-    """
-    Evaluate Mask2Former model and generate visualizations.
-
-    Args:
-        model: Trained Mask2Former model
-        val_loader: Validation dataloader
-        image_processor: Image processor for post-processing
-        output_dir: Directory to save outputs
-        device: torch device
-    """
+def evaluate_model(model, val_loader, output_dir, device):
+    """Evaluate model and generate visualizations."""
     print(f"\n{'='*60}")
     print("EVALUATION MODE")
     print(f"{'='*60}\n")
@@ -755,13 +699,7 @@ def evaluate_model(model, val_loader, image_processor, output_dir, device):
 
     print("Generating evaluation visualizations...")
     visualize_predictions(
-        model,
-        val_loader,
-        image_processor,
-        device,
-        visualization_dir,
-        epoch="EVAL",
-        n_samples=5,
+        model, val_loader, device, visualization_dir, epoch="EVAL", n_samples=5
     )
 
     print(f"\n{'='*60}")
@@ -779,31 +717,31 @@ def train_model(
     model,
     train_loader,
     val_loader,
-    image_processor,
     output_dir,
     num_epochs=50,
     learning_rate=1e-4,
     weight_decay=1e-4,
     checkpoint_every=10,
     visualize_every=10,
+    loss_type="instance_combined",
     device=None,
     mode="both",
     checkpoint_path=None,
 ):
     """
-    Main training/evaluation loop for Mask2Former instance segmentation.
+    Main training/evaluation loop for instance segmentation.
 
     Args:
-        model: Mask2Former instance segmentation model
+        model: Instance segmentation model
         train_loader: Training dataloader
         val_loader: Validation dataloader
-        image_processor: Image processor for post-processing
         output_dir: Directory to save checkpoints and visualizations
         num_epochs: Number of epochs to train
         learning_rate: Learning rate
         weight_decay: Weight decay for optimizer
         checkpoint_every: Save checkpoint every N epochs
         visualize_every: Visualize predictions every N epochs
+        loss_type: Type of loss function (use 'instance_combined' for instance seg)
         device: torch device (if None, will use cuda if available)
         mode: Operation mode - 'train', 'eval', or 'both'
         checkpoint_path: Path to checkpoint file for loading/resuming
@@ -839,15 +777,16 @@ def train_model(
     # EVALUATION ONLY MODE
     if mode == "eval":
         load_model_weights(model, checkpoint_path, device)
-        evaluate_model(model, val_loader, image_processor, output_dir, device)
+        evaluate_model(model, val_loader, output_dir, device)
         return None, None
 
     # TRAINING MODE
 
-    # NO CRITERION - Mask2Former computes loss internally!
-    print(
-        "Using Mask2Former's built-in loss (Hungarian matching + combined losses)"
-    )
+    # Loss function
+    criterion = get_loss_function(loss_type)
+    criterion = criterion.to(device)
+    print(f"Using loss function: {loss_type}")
+    print(f"Loss function: {criterion.__class__.__name__}")
 
     # Optimizer
     optimizer = AdamW(
@@ -879,14 +818,7 @@ def train_model(
     print(f"Checkpoints will be saved every {checkpoint_every} epochs")
     print(f"Visualizations will be saved every {visualize_every} epochs")
 
-    # Note: print_model_summary might not work correctly with Mask2Former
-    # Comment out if it causes errors
-    try:
-        print_model_summary(model)
-    except:
-        print(
-            "(Skipping model summary - not compatible with Mask2Former structure)"
-        )
+    print_model_summary(model)
 
     # Start timing
     training_start_time = time.time()
@@ -899,20 +831,22 @@ def train_model(
         print(f"Epoch {epoch}/{num_epochs}")
         print(f"{'='*60}")
 
-        # Train (no criterion)
-        train_loss = train_epoch(
+        # Train
+        train_loss, train_components = train_epoch(
             model,
             train_loader,
+            criterion,
             optimizer,
             device,
             desc=f"Epoch {epoch}/{num_epochs} [Train]",
         )
         train_losses.append(train_loss)
 
-        # Validate (no criterion)
-        val_loss = validate_epoch(
+        # Validate
+        val_loss, val_components = validate_epoch(
             model,
             val_loader,
+            criterion,
             device,
             desc=f"Epoch {epoch}/{num_epochs} [Val]",
         )
@@ -932,6 +866,19 @@ def train_model(
         print(f"  Val Loss:   {val_loss:.4f}")
         print(f"  LR:         {current_lr:.6f}")
         print(f"  Time:       {epoch_time:.2f}s")
+
+        # Print detailed loss components if available
+        if train_components:
+            print(f"\n  Train Loss Components:")
+            for key, value in train_components.items():
+                if key != "total":
+                    print(f"    {key:15s}: {value:.4f}")
+
+        if val_components:
+            print(f"\n  Val Loss Components:")
+            for key, value in val_components.items():
+                if key != "total":
+                    print(f"    {key:15s}: {value:.4f}")
 
         # Save best model
         if val_loss < best_val_loss:
@@ -967,12 +914,7 @@ def train_model(
         if epoch % visualize_every == 0:
             print("\n  Generating visualizations...")
             visualize_predictions(
-                model,
-                val_loader,
-                image_processor,
-                device,
-                visualization_dir,
-                epoch,
+                model, val_loader, device, visualization_dir, epoch
             )
 
     # Calculate total training time
