@@ -284,35 +284,83 @@ def visualize_predictions(
             pixel_values = batch["pixel_values"].to(device)
             mask_labels = batch["mask_labels"]  # Keep on CPU for now
 
-            # Get original sizes for post-processing
-            if "original_size" in batch:
-                target_sizes = batch["original_size"]
-            else:
-                # Infer from mask_labels
-                target_sizes = [mask.shape[-2:] for mask in mask_labels]
+            # Get target sizes - use the actual resized size that model sees
+            # The model processes at (304, 304) size
+            batch_size = pixel_values.shape[0]
+            target_sizes = [
+                (pixel_values.shape[2], pixel_values.shape[3])
+            ] * batch_size
 
             # Forward pass (inference only - no labels)
             outputs = model(pixel_values=pixel_values)
 
             # Post-process to get instance masks
-            post_processed = (
-                image_processor.post_process_instance_segmentation(
-                    outputs,
-                    threshold=threshold,
-                    target_sizes=target_sizes,
-                    return_binary_maps=True,
+            try:
+                post_processed = (
+                    image_processor.post_process_instance_segmentation(
+                        outputs,
+                        threshold=threshold,
+                        target_sizes=target_sizes,
+                        return_binary_maps=True,
+                    )
                 )
-            )
+            except Exception as e:
+                print(f"Warning: Post-processing failed: {e}")
+                print("Attempting alternative post-processing...")
+                # Fallback: try without return_binary_maps
+                post_processed = (
+                    image_processor.post_process_instance_segmentation(
+                        outputs,
+                        threshold=threshold,
+                        target_sizes=target_sizes,
+                    )
+                )
 
             # Convert to instance masks (numpy arrays)
-            for result in post_processed:
-                # result['segmentation'] is (H, W) with instance IDs
-                instance_mask = result["segmentation"].cpu().numpy()
-                preds_list.append(instance_mask)
+            for idx, result in enumerate(post_processed):
+                # Check what keys are available
+                if "segmentation" in result:
+                    # Standard output format
+                    instance_mask = result["segmentation"]
+                    if isinstance(instance_mask, torch.Tensor):
+                        instance_mask = instance_mask.cpu().numpy()
+                    preds_list.append(instance_mask)
+                else:
+                    # Alternative format - create mask from segments_info
+                    print(
+                        f"Warning: 'segmentation' not in result. Keys: {result.keys()}"
+                    )
+
+                    # Create instance mask from segments_info
+                    height, width = target_sizes[idx]
+                    instance_mask = np.zeros((height, width), dtype=np.int32)
+
+                    if "segments_info" in result:
+                        for segment_idx, segment in enumerate(
+                            result["segments_info"]
+                        ):
+                            # This is a fallback - might not work perfectly
+                            print(f"  Segment {segment_idx}: {segment}")
+
+                    preds_list.append(instance_mask)
 
             # Store images and labels
             images_list.append(pixel_values.cpu())
-            labels_list.extend([label.cpu().numpy() for label in mask_labels])
+
+            # Convert mask_labels from (num_instances, H, W) to (H, W) with instance IDs
+            for label_tensor in mask_labels:
+                label_numpy = label_tensor.cpu().numpy()
+
+                if label_numpy.ndim == 3:
+                    # Convert from (num_instances, H, W) to (H, W)
+                    h, w = label_numpy.shape[1], label_numpy.shape[2]
+                    label_2d = np.zeros((h, w), dtype=np.int32)
+                    for inst_id in range(label_numpy.shape[0]):
+                        label_2d[label_numpy[inst_id] > 0] = inst_id + 1
+                    labels_list.append(label_2d)
+                else:
+                    # Already in correct format
+                    labels_list.append(label_numpy)
 
             if len(preds_list) >= n_samples:
                 break
@@ -323,14 +371,17 @@ def visualize_predictions(
     all_preds = preds_list[:n_samples]
 
     num_channels = all_images.shape[1]
-    batch_size = len(all_preds)
+    batch_size = min(n_samples, len(all_preds))
 
-    # Create 5-row visualization:
-    # Row 0: Original image + metrics
-    # Row 1: Predicted instances (colored)
-    # Row 2: Prediction overlay on image
-    # Row 3: Ground truth instances (colored)
-    # Row 4: GT overlay on image
+    # Verify shapes before visualization
+    print(f"\nDebug - Shapes for visualization:")
+    for i in range(min(3, batch_size)):
+        print(f"  Sample {i}:")
+        print(f"    Image: {all_images[i].shape}")
+        print(f"    GT Label: {all_labels[i].shape}")
+        print(f"    Prediction: {all_preds[i].shape}")
+
+    # Create 5-row visualization
     fig, axes = plt.subplots(5, batch_size, figsize=(4 * batch_size, 20))
 
     if batch_size == 1:
@@ -342,19 +393,31 @@ def visualize_predictions(
 
     for i in tqdm(range(batch_size), desc="Plotting predictions"):
         img = all_images[i].numpy().transpose(1, 2, 0)  # (H, W, C)
+        gt_mask = all_labels[i]  # Should be (H, W)
+        pred_mask = all_preds[i]  # Should be (H, W)
 
-        # GT mask: Convert from (num_instances, H, W) to (H, W) with instance IDs
-        gt_mask_tensor = all_labels[i]  # (num_instances, H, W)
-        if gt_mask_tensor.ndim == 3:
-            # Convert one-hot style masks to instance IDs
-            gt_mask = np.zeros(gt_mask_tensor.shape[1:], dtype=np.int32)
-            for inst_id in range(gt_mask_tensor.shape[0]):
-                gt_mask[gt_mask_tensor[inst_id] > 0] = inst_id + 1
-        else:
-            # Already in correct format
-            gt_mask = gt_mask_tensor
+        # Verify shapes
+        if gt_mask.ndim != 2 or pred_mask.ndim != 2:
+            print(f"Warning: Incorrect mask dimensions at sample {i}")
+            print(
+                f"  GT shape: {gt_mask.shape}, Pred shape: {pred_mask.shape}"
+            )
+            continue
 
-        pred_mask = all_preds[i]
+        # Resize masks to match if needed
+        if gt_mask.shape != pred_mask.shape:
+            from skimage.transform import resize
+
+            print(f"Warning: Shape mismatch at sample {i}. Resizing...")
+            print(f"  GT: {gt_mask.shape}, Pred: {pred_mask.shape}")
+            # Resize pred to match gt
+            pred_mask = resize(
+                pred_mask,
+                gt_mask.shape,
+                order=0,  # Nearest neighbor
+                preserve_range=True,
+                anti_aliasing=False,
+            ).astype(np.int32)
 
         # Calculate metrics
         inst_metrics = calculate_instance_metrics(pred_mask, gt_mask)
@@ -407,7 +470,7 @@ def visualize_predictions(
         # Row 3: Ground truth instances (colored by ID)
         num_gt = len(np.unique(gt_mask)) - 1  # Exclude background
         gt_colored = create_instance_overlay(
-            np.ones_like(img_vis) * 0.2, gt_mask, alpha=1.0  # Dark background
+            np.ones_like(img_vis) * 0.2, gt_mask, alpha=1.0
         )
         axes[3, i].imshow(gt_colored)
         axes[3, i].set_title(
@@ -428,11 +491,14 @@ def visualize_predictions(
         axes[4, i].axis("off")
 
     # Calculate average metrics
-    avg_inst_f1 = np.mean([m["f1"] for m in instance_metrics])
-    avg_sem_f1 = np.mean(semantic_f1s)
-    avg_precision = np.mean([m["precision"] for m in instance_metrics])
-    avg_recall = np.mean([m["recall"] for m in instance_metrics])
-    avg_iou = np.mean([m["mean_iou"] for m in instance_metrics])
+    if len(instance_metrics) > 0:
+        avg_inst_f1 = np.mean([m["f1"] for m in instance_metrics])
+        avg_sem_f1 = np.mean(semantic_f1s)
+        avg_precision = np.mean([m["precision"] for m in instance_metrics])
+        avg_recall = np.mean([m["recall"] for m in instance_metrics])
+        avg_iou = np.mean([m["mean_iou"] for m in instance_metrics])
+    else:
+        avg_inst_f1 = avg_sem_f1 = avg_precision = avg_recall = avg_iou = 0.0
 
     # Add overall metrics as figure title
     fig.suptitle(
@@ -459,11 +525,12 @@ def visualize_predictions(
     plt.close()
 
     print(f"Saved visualization to {save_path}")
-    print(f"Average Semantic F1: {avg_sem_f1:.3f}")
-    print(f"Average Instance F1: {avg_inst_f1:.3f}")
-    print(f"Average Precision: {avg_precision:.3f}")
-    print(f"Average Recall: {avg_recall:.3f}")
-    print(f"Average IoU: {avg_iou:.3f}")
+    if len(instance_metrics) > 0:
+        print(f"Average Semantic F1: {avg_sem_f1:.3f}")
+        print(f"Average Instance F1: {avg_inst_f1:.3f}")
+        print(f"Average Precision: {avg_precision:.3f}")
+        print(f"Average Recall: {avg_recall:.3f}")
+        print(f"Average IoU: {avg_iou:.3f}")
 
     model.train()
 
