@@ -172,12 +172,13 @@ def calculate_semantic_f1(pred_mask, gt_mask):
 # ============================================================================
 
 
-def prepare_image_for_display(img):
+def prepare_image_for_display(img, fix_rgb_order=True):
     """
     Prepare multi-channel image for matplotlib display.
 
     Args:
         img: Image array with shape (H, W, C) where C can be any number
+        fix_rgb_order: If True, swap BGR to RGB (common issue with some data)
 
     Returns:
         img_vis: Image ready for display (H, W) or (H, W, 3)
@@ -186,17 +187,28 @@ def prepare_image_for_display(img):
     num_channels = img.shape[2]
 
     # Denormalize image for visualization
+    # Scale to 0-1 range for display
     img_normalized = (img - img.min()) / (img.max() - img.min() + 1e-8)
     img_normalized = np.clip(img_normalized, 0, 1)
 
     if num_channels == 1:
+        # Grayscale - squeeze channel dimension
         img_vis = img_normalized[:, :, 0]
         display_note = "Grayscale"
+
     elif num_channels == 3:
+        # RGB - fix band order if needed (BGR -> RGB)
         img_vis = img_normalized
+        if fix_rgb_order:
+            # Swap channels: [B, G, R] -> [R, G, B]
+            img_vis = img_vis[..., [2, 1, 0]]
         display_note = "RGB"
+
     else:
+        # Multi-channel (>3): display first 3 channels as RGB
         img_vis = img_normalized[:, :, :3]
+        if fix_rgb_order:
+            img_vis = img_vis[..., [2, 1, 0]]
         display_note = f"{num_channels}ch (showing first 3)"
 
     return img_vis, display_note
@@ -233,7 +245,9 @@ def convert_binary_masks_to_instance_map(binary_masks):
     return instance_map
 
 
-def create_instance_overlay(img_vis, instance_mask, alpha=0.5, colormap="hsv"):
+def create_instance_overlay(
+    img_vis, instance_mask, alpha=0.5, colormap="hsv", black_background=False
+):
     """
     Create overlay of instance mask on image with unique colors per instance.
 
@@ -242,6 +256,7 @@ def create_instance_overlay(img_vis, instance_mask, alpha=0.5, colormap="hsv"):
         instance_mask: Instance mask (H, W) with unique IDs per instance
         alpha: Transparency for overlay
         colormap: Matplotlib colormap for instance colors
+        black_background: If True, use black background instead of image
 
     Returns:
         blended: Blended image with colored instance overlays
@@ -259,22 +274,32 @@ def create_instance_overlay(img_vis, instance_mask, alpha=0.5, colormap="hsv"):
     ]  # Exclude background
 
     if len(unique_instances) == 0:
-        return img_vis_rgb
+        if black_background:
+            return np.zeros_like(img_vis_rgb)
+        else:
+            return img_vis_rgb
 
     # Get colormap
     cmap = plt.get_cmap(colormap)
 
-    # Create overlay
-    overlay = img_vis_rgb.copy()
+    # Create base - either black or the image
+    if black_background:
+        overlay = np.zeros_like(img_vis_rgb)
+    else:
+        overlay = img_vis_rgb.copy()
 
+    # Add colored instances
     for idx, instance_id in enumerate(unique_instances):
         mask = instance_mask == instance_id
-        color = np.array(
-            cmap(idx / max(len(unique_instances), 1))[:3]
-        )  # RGB only
+        # Use brighter, more saturated colors
+        color = np.array(cmap(idx / max(len(unique_instances), 1))[:3])
 
-        # Blend color into overlay where mask is True
-        overlay[mask] = overlay[mask] * (1 - alpha) + color * alpha
+        if black_background:
+            # Direct color assignment on black background (full brightness)
+            overlay[mask] = color
+        else:
+            # Blend color into image
+            overlay[mask] = overlay[mask] * (1 - alpha) + color * alpha
 
     return np.clip(overlay, 0, 1)
 
@@ -409,7 +434,7 @@ def visualize_predictions(
     batch_size = min(n_samples, len(all_preds))
 
     # Verify shapes before visualization
-    print(f"\nDebug - Shapes for visualization:")
+    print("\nDebug - Shapes for visualization:")
     for i in range(min(3, batch_size)):
         print(f"  Sample {i}:")
         print(f"    Image: {all_images[i].shape}")
@@ -462,7 +487,9 @@ def visualize_predictions(
         semantic_f1s.append(sem_f1)
 
         # Prepare image for display
-        img_vis, display_note = prepare_image_for_display(img)
+        img_vis, display_note = prepare_image_for_display(
+            img, fix_rgb_order=True
+        )
         cmap_image = "gray" if img_vis.ndim == 2 else None
 
         # Row 0: Original image with metrics
@@ -477,12 +504,16 @@ def visualize_predictions(
         )
         axes[0, i].axis("off")
 
-        # Row 1: Predicted instances (colored by ID)
-        num_pred = len(np.unique(pred_mask)) - 1  # Exclude background
+        # Row 1: Predicted instances (colored by ID) - BLACK BACKGROUND
+        unique_pred = np.unique(pred_mask)
+        num_pred = len(
+            unique_pred[unique_pred != 0]
+        )  # Explicitly filter out 0
         pred_colored = create_instance_overlay(
-            np.ones_like(img_vis) * 0.2,  # Dark background
+            img_vis,  # Not used when black_background=True, but needs same shape
             pred_mask,
             alpha=1.0,
+            black_background=True,  # NEW: Use black background with bright colors
         )
         axes[1, i].imshow(pred_colored)
         axes[1, i].set_title(
@@ -492,8 +523,13 @@ def visualize_predictions(
         )
         axes[1, i].axis("off")
 
-        # Row 2: Prediction overlay on image
-        pred_overlay = create_instance_overlay(img_vis, pred_mask, alpha=0.5)
+        # Row 2: Prediction overlay on image (normal blend)
+        pred_overlay = create_instance_overlay(
+            img_vis,
+            pred_mask,
+            alpha=0.5,
+            black_background=False,  # Blend with image
+        )
         axes[2, i].imshow(pred_overlay)
         axes[2, i].set_title(
             f"Prediction Overlay\n"
@@ -502,10 +538,14 @@ def visualize_predictions(
         )
         axes[2, i].axis("off")
 
-        # Row 3: Ground truth instances (colored by ID)
-        num_gt = len(np.unique(gt_mask)) - 1  # Exclude background
+        # Row 3: Ground truth instances (colored by ID) - BLACK BACKGROUND
+        unique_gt = np.unique(gt_mask)
+        num_gt = len(unique_pred[unique_gt != 0])  # Exclude background
         gt_colored = create_instance_overlay(
-            np.ones_like(img_vis) * 0.2, gt_mask, alpha=1.0
+            img_vis,  # Not used when black_background=True
+            gt_mask,
+            alpha=1.0,
+            black_background=True,  # NEW: Use black background with bright colors
         )
         axes[3, i].imshow(gt_colored)
         axes[3, i].set_title(
@@ -515,8 +555,13 @@ def visualize_predictions(
         )
         axes[3, i].axis("off")
 
-        # Row 4: GT overlay on image
-        gt_overlay = create_instance_overlay(img_vis, gt_mask, alpha=0.5)
+        # Row 4: GT overlay on image (normal blend)
+        gt_overlay = create_instance_overlay(
+            img_vis,
+            gt_mask,
+            alpha=0.5,
+            black_background=False,  # Blend with image
+        )
         axes[4, i].imshow(gt_overlay)
         axes[4, i].set_title(
             f"Ground Truth Overlay\n"
