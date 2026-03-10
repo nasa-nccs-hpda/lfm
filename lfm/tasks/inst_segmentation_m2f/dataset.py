@@ -250,13 +250,10 @@ class LunarCraterDatasetMask2Former(Dataset):
         # Build instance_id_to_semantic_id mapping
         # Get unique instance IDs (excluding background=0)
         unique_instances = np.unique(instance_mask)
-        unique_instances = unique_instances[unique_instances != 0]
-
-        # Map each instance to its semantic class
-        # For crater detection: all instances are class 1 (crater)
-        instance_to_semantic = {}
-        for inst_id in unique_instances:
-            instance_to_semantic[int(inst_id)] = 1  # All craters are class 1
+        instance_to_semantic = {
+            int(inst_id): (0 if inst_id == 0 else 1)
+            for inst_id in unique_instances
+        }
 
         # Apply image processor (handles resizing and format conversion)
         inputs = self.image_processor(
