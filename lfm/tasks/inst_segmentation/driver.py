@@ -25,6 +25,7 @@ from .utils import get_loss_function
 # METRICS
 # ============================================================================
 
+
 def calculate_instance_metrics(pred_mask, gt_mask, iou_threshold=0.5):
     """
     Calculate instance-level metrics using IoU matching.
@@ -49,45 +50,45 @@ def calculate_instance_metrics(pred_mask, gt_mask, iou_threshold=0.5):
 
     if num_gt == 0 and num_pred == 0:
         return {
-            'precision': 1.0,
-            'recall': 1.0,
-            'f1': 1.0,
-            'num_pred': 0,
-            'num_gt': 0,
-            'num_matched': 0,
-            'mean_iou': 0.0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "num_pred": 0,
+            "num_gt": 0,
+            "num_matched": 0,
+            "mean_iou": 0.0,
         }
 
     if num_gt == 0:
         return {
-            'precision': 0.0,
-            'recall': 1.0,
-            'f1': 0.0,
-            'num_pred': num_pred,
-            'num_gt': 0,
-            'num_matched': 0,
-            'mean_iou': 0.0,
+            "precision": 0.0,
+            "recall": 1.0,
+            "f1": 0.0,
+            "num_pred": num_pred,
+            "num_gt": 0,
+            "num_matched": 0,
+            "mean_iou": 0.0,
         }
 
     if num_pred == 0:
         return {
-            'precision': 1.0,
-            'recall': 0.0,
-            'f1': 0.0,
-            'num_pred': 0,
-            'num_gt': num_gt,
-            'num_matched': 0,
-            'mean_iou': 0.0,
+            "precision": 1.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "num_pred": 0,
+            "num_gt": num_gt,
+            "num_matched": 0,
+            "mean_iou": 0.0,
         }
 
     # Compute IoU matrix
     iou_matrix = np.zeros((num_pred, num_gt))
 
     for i, pred_id in enumerate(pred_ids):
-        pred_pixels = (pred_mask == pred_id)
+        pred_pixels = pred_mask == pred_id
 
         for j, gt_id in enumerate(gt_ids):
-            gt_pixels = (gt_mask == gt_id)
+            gt_pixels = gt_mask == gt_id
 
             # Compute IoU
             intersection = np.logical_and(pred_pixels, gt_pixels).sum()
@@ -122,17 +123,21 @@ def calculate_instance_metrics(pred_mask, gt_mask, iou_threshold=0.5):
     # Calculate metrics
     precision = num_matched / num_pred if num_pred > 0 else 0.0
     recall = num_matched / num_gt if num_gt > 0 else 0.0
-    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+    f1 = (
+        2 * (precision * recall) / (precision + recall)
+        if (precision + recall) > 0
+        else 0.0
+    )
     mean_iou = np.mean(ious) if len(ious) > 0 else 0.0
 
     return {
-        'precision': precision,
-        'recall': recall,
-        'f1': f1,
-        'num_pred': num_pred,
-        'num_gt': num_gt,
-        'num_matched': num_matched,
-        'mean_iou': mean_iou,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "num_pred": num_pred,
+        "num_gt": num_gt,
+        "num_matched": num_matched,
+        "mean_iou": mean_iou,
     }
 
 
@@ -166,6 +171,7 @@ def calculate_semantic_f1(pred_mask, gt_mask):
 # VISUALIZATION
 # ============================================================================
 
+
 def prepare_image_for_display(img):
     """
     Prepare multi-channel image for matplotlib display.
@@ -196,7 +202,7 @@ def prepare_image_for_display(img):
     return img_vis, display_note
 
 
-def create_instance_overlay(img_vis, instance_mask, alpha=0.5, colormap='hsv'):
+def create_instance_overlay(img_vis, instance_mask, alpha=0.5, colormap="hsv"):
     """
     Create overlay of instance mask on image with unique colors per instance.
 
@@ -217,7 +223,9 @@ def create_instance_overlay(img_vis, instance_mask, alpha=0.5, colormap='hsv'):
 
     # Create colored instance mask
     unique_instances = np.unique(instance_mask)
-    unique_instances = unique_instances[unique_instances != 0]  # Exclude background
+    unique_instances = unique_instances[
+        unique_instances != 0
+    ]  # Exclude background
 
     if len(unique_instances) == 0:
         return img_vis_rgb
@@ -229,8 +237,10 @@ def create_instance_overlay(img_vis, instance_mask, alpha=0.5, colormap='hsv'):
     overlay = img_vis_rgb.copy()
 
     for idx, instance_id in enumerate(unique_instances):
-        mask = (instance_mask == instance_id)
-        color = np.array(cmap(idx / max(len(unique_instances), 1))[:3])  # RGB only
+        mask = instance_mask == instance_id
+        color = np.array(
+            cmap(idx / max(len(unique_instances), 1))[:3]
+        )  # RGB only
 
         # Blend color into overlay where mask is True
         overlay[mask] = overlay[mask] * (1 - alpha) + color * alpha
@@ -239,8 +249,15 @@ def create_instance_overlay(img_vis, instance_mask, alpha=0.5, colormap='hsv'):
 
 
 def visualize_predictions(
-    model, dataloader, device, output_dir, epoch, n_samples=5,
-    semantic_threshold=0.5, min_pixels=10, distance_threshold=0.5
+    model,
+    dataloader,
+    device,
+    output_dir,
+    epoch,
+    n_samples=5,
+    semantic_threshold=0.5,
+    min_pixels=10,
+    distance_threshold=0.5,
 ):
     """
     Visualize instance segmentation predictions and save to output directory.
@@ -275,7 +292,7 @@ def visualize_predictions(
                 semantic_threshold=semantic_threshold,
                 min_pixels=min_pixels,
                 distance_threshold=distance_threshold,
-                use_morphology=True
+                use_morphology=True,
             )
 
             # Store results
@@ -323,7 +340,7 @@ def visualize_predictions(
 
         # Prepare image for display
         img_vis, display_note = prepare_image_for_display(img)
-        cmap_image = 'gray' if img_vis.ndim == 2 else None
+        cmap_image = "gray" if img_vis.ndim == 2 else None
 
         # Row 0: Original image with metrics
         axes[0, i].imshow(img_vis, cmap=cmap_image)
@@ -333,7 +350,7 @@ def visualize_predictions(
             f"Inst F1: {inst_metrics['f1']:.3f}\n"
             f"Pred: {inst_metrics['num_pred']} | GT: {inst_metrics['num_gt']}",
             fontsize=12,
-            fontweight="bold"
+            fontweight="bold",
         )
         axes[0, i].axis("off")
 
@@ -342,13 +359,13 @@ def visualize_predictions(
         pred_colored = create_instance_overlay(
             np.ones_like(img_vis) * 0.2,  # Dark background
             pred_mask,
-            alpha=1.0
+            alpha=1.0,
         )
         axes[1, i].imshow(pred_colored)
         axes[1, i].set_title(
             f"Predicted ({num_pred} instances)\n"
             f"Precision: {inst_metrics['precision']:.3f}",
-            fontsize=11
+            fontsize=11,
         )
         axes[1, i].axis("off")
 
@@ -358,22 +375,20 @@ def visualize_predictions(
         axes[2, i].set_title(
             f"Prediction Overlay\n"
             f"Mean IoU: {inst_metrics['mean_iou']:.3f}",
-            fontsize=11
+            fontsize=11,
         )
         axes[2, i].axis("off")
 
         # Row 3: Ground truth instances (colored by ID)
         num_gt = len(np.unique(gt_mask)) - 1  # Exclude background
         gt_colored = create_instance_overlay(
-            np.ones_like(img_vis) * 0.2,  # Dark background
-            gt_mask,
-            alpha=1.0
+            np.ones_like(img_vis) * 0.2, gt_mask, alpha=1.0  # Dark background
         )
         axes[3, i].imshow(gt_colored)
         axes[3, i].set_title(
             f"Ground Truth ({num_gt} instances)\n"
             f"Recall: {inst_metrics['recall']:.3f}",
-            fontsize=11
+            fontsize=11,
         )
         axes[3, i].axis("off")
 
@@ -383,16 +398,16 @@ def visualize_predictions(
         axes[4, i].set_title(
             f"Ground Truth Overlay\n"
             f"Matched: {inst_metrics['num_matched']}",
-            fontsize=11
+            fontsize=11,
         )
         axes[4, i].axis("off")
 
     # Calculate average metrics
-    avg_inst_f1 = np.mean([m['f1'] for m in instance_metrics])
+    avg_inst_f1 = np.mean([m["f1"] for m in instance_metrics])
     avg_sem_f1 = np.mean(semantic_f1s)
-    avg_precision = np.mean([m['precision'] for m in instance_metrics])
-    avg_recall = np.mean([m['recall'] for m in instance_metrics])
-    avg_iou = np.mean([m['mean_iou'] for m in instance_metrics])
+    avg_precision = np.mean([m["precision"] for m in instance_metrics])
+    avg_recall = np.mean([m["recall"] for m in instance_metrics])
+    avg_iou = np.mean([m["mean_iou"] for m in instance_metrics])
 
     # Add overall metrics as figure title
     fig.suptitle(
@@ -432,6 +447,7 @@ def visualize_predictions(
 # TRAINING
 # ============================================================================
 
+
 def train_epoch(
     model, dataloader, criterion, optimizer, device, desc="Training"
 ):
@@ -465,7 +481,9 @@ def train_epoch(
 
         # Forward pass
         optimizer.zero_grad()
-        outputs = model(images)  # Returns dict with 'semantic' and 'embeddings'
+        outputs = model(
+            images
+        )  # Returns dict with 'semantic' and 'embeddings'
 
         # Compute loss (criterion handles dict)
         loss = criterion(outputs, labels)
@@ -479,7 +497,7 @@ def train_epoch(
         n_batches += 1
 
         # Track loss components if available
-        if hasattr(criterion, 'get_last_losses'):
+        if hasattr(criterion, "get_last_losses"):
             last_losses = criterion.get_last_losses()
             for key, value in last_losses.items():
                 if key not in loss_components:
@@ -537,7 +555,7 @@ def validate_epoch(model, dataloader, criterion, device, desc="Validation"):
             n_batches += 1
 
             # Track loss components
-            if hasattr(criterion, 'get_last_losses'):
+            if hasattr(criterion, "get_last_losses"):
                 last_losses = criterion.get_last_losses()
                 for key, value in last_losses.items():
                     if key not in loss_components:
@@ -559,6 +577,7 @@ def validate_epoch(model, dataloader, criterion, device, desc="Validation"):
 # ============================================================================
 # UTILITIES
 # ============================================================================
+
 
 def print_model_summary(model):
     """Print model parameter summary."""
@@ -599,7 +618,13 @@ def print_model_summary(model):
 
 
 def save_checkpoint(
-    model, optimizer, scheduler, epoch, train_losses, val_losses, checkpoint_path
+    model,
+    optimizer,
+    scheduler,
+    epoch,
+    train_losses,
+    val_losses,
+    checkpoint_path,
 ):
     """Save full checkpoint."""
     checkpoint = {
@@ -654,7 +679,9 @@ def load_model_weights(model, checkpoint_path, device):
                 model.load_parameters(checkpoint_path)
                 print(f"Loaded model using model.load_parameters() method")
             else:
-                raise ValueError("Unable to load checkpoint. Format not recognized.")
+                raise ValueError(
+                    "Unable to load checkpoint. Format not recognized."
+                )
         return None
 
 
@@ -682,6 +709,7 @@ def evaluate_model(model, val_loader, output_dir, device):
 # ============================================================================
 # MAIN TRAINING FUNCTION
 # ============================================================================
+
 
 def train_model(
     model,
@@ -723,7 +751,9 @@ def train_model(
 
     # Validate arguments
     if mode not in ["train", "eval", "both"]:
-        raise ValueError(f"Invalid mode: {mode}. Must be 'train', 'eval', or 'both'")
+        raise ValueError(
+            f"Invalid mode: {mode}. Must be 'train', 'eval', or 'both'"
+        )
 
     if mode == "eval" and checkpoint_path is None:
         raise ValueError("checkpoint_path must be provided when mode='eval'")
@@ -786,7 +816,7 @@ def train_model(
     print(f"Checkpoints will be saved every {checkpoint_every} epochs")
     print(f"Visualizations will be saved every {visualize_every} epochs")
 
-    print_model_summary(model)
+    # print_model_summary(model)
 
     # Start timing
     training_start_time = time.time()
@@ -839,13 +869,13 @@ def train_model(
         if train_components:
             print(f"\n  Train Loss Components:")
             for key, value in train_components.items():
-                if key != 'total':
+                if key != "total":
                     print(f"    {key:15s}: {value:.4f}")
 
         if val_components:
             print(f"\n  Val Loss Components:")
             for key, value in val_components.items():
-                if key != 'total':
+                if key != "total":
                     print(f"    {key:15s}: {value:.4f}")
 
         # Save best model
