@@ -8,16 +8,16 @@ from model.Conversions import Conversions
 
 
 # ----------------------------------------------------------------------------
-# Class TileDef
+# Class TmsTileDef
 # ----------------------------------------------------------------------------
-class TileDef:
+class TmsTileDef:
     
     CELL_SIZE = 'cellSize'
     CRS = 'crs'
     ID = 'id'
     POINT_OF_ORIGIN = 'pointOfOrigin'
     TILE_HEIGHT = 'tileHeight'
-    TILE_MATRICES = 'tileMatrices'
+    # TILE_MATRICES = 'tileMatrices'
     TILE_WIDTH = 'tileWidth'
     
     CUR_FILE_PARENT: Path = Path(__file__).resolve().parent.parent
@@ -28,13 +28,35 @@ class TileDef:
     # ------------------------------------------------------------------------
     # __init__
     # ------------------------------------------------------------------------
-    def __init__(self, zone: str, zoomLevel: int):
+    def __init__(self, 
+                 tileDef: dict = None,
+                 srs: osr.SpatialReference = None
+                 zone: int = None,
+                 zoomLevel: int = None):
         
-        if not TileDef.DB_PATH.exists():
-            
-            msg = 'Invalid tile DB path: ' + str(TileDef.DB_PATH)
-            raise ValueError(msg)
-            
+        self._tileDef: dict = tileDef
+        self._srs: osr.SpatialReference() = srs
+        self._zone: str = zone
+        self._zoomLevel: int = zoomLevel
+        
+    # ------------------------------------------------------------------------
+    # initFromJson
+    # ------------------------------------------------------------------------
+    @classmethod
+    def initFromJson(tileJson: str, 
+                     srs: osr.SpatialReference,
+                     zone: str, 
+                     zoomLevel: int) -> TmsTileDef:
+        
+        return TmsTileDef(tileJson, srs, zone, zoomLevel)
+        
+    # ------------------------------------------------------------------------
+    # initFromParams
+    # ------------------------------------------------------------------------
+    @classmethod
+    def initFromParams(zone: str, 
+                       zoomLevel: int) -> TmsTileDef:
+        
         tmsFileName = 'tms_LTM_' + zone + 'RG.json'
         tmsPath = TileDef.JSON_DIR / tmsFileName
 
@@ -57,11 +79,10 @@ class TileDef:
                                ' in ' + 
                                str(tmsPath))
 
-        tileDef[TileDef.CRS] = tms[TileDef.CRS]
+        srs = osr.SpatialReference()
+        srs.ImportFromWkt(self.tileDef[TileDef.CRS])
         
-        self._tileDef: dict = tileDef
-        self._zone: str = zone
-        self._zoomLevel: int = zoomLevel
+        return TmsTileDef(tileJson, srs, zone, zoomLevel)
         
     # ------------------------------------------------------------------------
     # cellSize
@@ -127,9 +148,7 @@ class TileDef:
     @property
     def srs(self) -> osr.SpatialReference:
         
-        ltmSRS = osr.SpatialReference()
-        ltmSRS.ImportFromWkt(self._tileDef[TileDef.CRS])
-        return ltmSRS
+        return self._srs
         
     # ------------------------------------------------------------------------
     # tileHeight

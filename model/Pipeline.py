@@ -11,7 +11,7 @@ from osgeo import ogr
 from osgeo import osr
 
 from model.Conversions import Conversions
-from model.TileDef import TileDef
+from model.TmsTileDef import TmsTileDef
 
 
 # ----------------------------------------------------------------------------
@@ -138,7 +138,7 @@ class Pipeline:
                   zoomLevel: int) -> List[dict]:
 
         driver: ogr.Driver = ogr.GetDriverByName('GPKG')
-        ds: ogr.Dataset = driver.Open(str(TileDef.DB_PATH), 0)
+        ds: ogr.Dataset = driver.Open(str(TmsTileDef.DB_PATH), 0)
         layer: ogr.Layer = ds.GetLayer()
         layer.SetAttributeFilter('zoom_level = ' + str(zoomLevel))
 
@@ -181,7 +181,7 @@ class Pipeline:
               ') / zone ' + str(zone) + \
               ' / zoom ' + str(zoomLevel))
         
-        self._tileDef: dict = TileDef(zone, zoomLevel)
+        self._tileDef: dict = TmsTileDef(zone, zoomLevel)
 
         # Get the tile corners in LTM.
         ll, ur = self._tileDef.getTileBbox(tileX, tileY)
