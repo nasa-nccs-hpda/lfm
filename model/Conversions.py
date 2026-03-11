@@ -1,4 +1,3 @@
-
 from osgeo import osr
 
 
@@ -20,14 +19,13 @@ class Conversions:
         ' REMARK["Source of IAU Coordinate systems:' + \
         ' https://doi.org/10.1007/s10569-017-9805-5"]]'
     
-    
     # ------------------------------------------------------------------------
     # latLonToLTM
     # ------------------------------------------------------------------------
     @staticmethod
     def latLonToLTM(lat: float, 
                     lon: float, 
-                    outSRS = osr.SpatialReference) -> tuple[float, float]:
+                    outSRS: osr.SpatialReference) -> tuple[float, float]:
     
         # ---
         # Lat/lon SRS
@@ -35,9 +33,9 @@ class Conversions:
         latLonSRS = osr.SpatialReference()
         latLonSRS.ImportFromProj4(Conversions.LUNAR_LAT_LON_PROJ4)
     
-        # Transform the coordinates.
+        # Transform the coordinates
+        # TransformPoint expects (x, y) = (lon, lat) for geographic coords
         xform = osr.CoordinateTransformation(latLonSRS, outSRS)
-        test = xform.TransformPoint(lon, lat)
         easting, northing, height = xform.TransformPoint(lon, lat)
 
         return easting, northing
@@ -49,7 +47,10 @@ class Conversions:
     def ltmToLatLon(zone: str, 
                     ll: tuple, 
                     ur: tuple, 
-                    inSRS = osr.SpatialReference) -> tuple[float, float]:
+                    inSRS: osr.SpatialReference) -> tuple[float, 
+                                                          float, 
+                                                          float, 
+                                                          float]:
     
         # ---
         # Lat/lon SRS
@@ -57,11 +58,12 @@ class Conversions:
         latLonSRS = osr.SpatialReference()
         latLonSRS.ImportFromProj4(Conversions.LUNAR_LAT_LON_PROJ4)
     
-        # Transform the coordinates.
+        # ---
+        # Transform the coordinates
+        # TransformPoint returns (lon, lat, height) for geographic coords
+        # ---
         xform = osr.CoordinateTransformation(inSRS, latLonSRS)
-        llLatLon = xform.TransformPoint(ll[0], ll[1])
-        urLatLon = xform.TransformPoint(ur[0], ur[1])
+        llLon, llLat, _ = xform.TransformPoint(ll[0], ll[1])
+        urLon, urLat, _ = xform.TransformPoint(ur[0], ur[1])
 
-        return llLatLon, urLatLon
-    
-    
+        return llLat, llLon, urLat, urLon

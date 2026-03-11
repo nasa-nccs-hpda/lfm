@@ -1,10 +1,11 @@
 
+from __future__ import annotations
 import json
 from pathlib import Path
+from typing import List
+from typing import Tuple
 
 from osgeo import osr
-
-from model.Conversions import Conversions
 
 
 # ----------------------------------------------------------------------------
@@ -14,10 +15,13 @@ class TmsTileDef:
     
     CELL_SIZE = 'cellSize'
     CRS = 'crs'
+    GEO_CRS = '_geographic_crs'
     ID = 'id'
+    MATRIX_HEIGHT = 'matrixHeight'
+    MATRIX_WIDTH = 'matrixWidth'
     POINT_OF_ORIGIN = 'pointOfOrigin'
     TILE_HEIGHT = 'tileHeight'
-    # TILE_MATRICES = 'tileMatrices'
+    TILE_MATRICES = 'tileMatrices'
     TILE_WIDTH = 'tileWidth'
     
     CUR_FILE_PARENT: Path = Path(__file__).resolve().parent.parent
@@ -30,12 +34,14 @@ class TmsTileDef:
     # ------------------------------------------------------------------------
     def __init__(self, 
                  tileDef: dict = None,
-                 srs: osr.SpatialReference = None
+                 srs: osr.SpatialReference = None,
+                 geoSrs: osr.SpatialReference = None,
                  zone: int = None,
                  zoomLevel: int = None):
         
-        self._tileDef: dict = tileDef
-        self._srs: osr.SpatialReference() = srs
+        self._tileDef: dict = tileDef  # Includes the single tile definition.
+        self._srs: osr.SpatialReference = srs
+        self._geoSrs: osr.SpatialReference = geoSrs
         self._zone: str = zone
         self._zoomLevel: int = zoomLevel
         
@@ -43,34 +49,17 @@ class TmsTileDef:
     # initFromJson
     # ------------------------------------------------------------------------
     @classmethod
-    def initFromJson(tileJson: str, 
+    def initFromJson(cls,
+                     tileJson: str, 
                      srs: osr.SpatialReference,
+                     geoSrs: osr.SpatialReference,
                      zone: str, 
                      zoomLevel: int) -> TmsTileDef:
         
-        return TmsTileDef(tileJson, srs, zone, zoomLevel)
-        
-    # ------------------------------------------------------------------------
-    # initFromParams
-    # ------------------------------------------------------------------------
-    @classmethod
-    def initFromParams(zone: str, 
-                       zoomLevel: int) -> TmsTileDef:
-        
-        tmsFileName = 'tms_LTM_' + zone + 'RG.json'
-        tmsPath = TileDef.JSON_DIR / tmsFileName
-
-        with open(tmsPath, 'r') as f:
-            tms = json.load(f)
-
-        # ---
-        # If we made it here, we must have the correct zone, etc.  No need 
-        # to validate.
-        # ---
-        zoomLevels: list = tms[TileDef.TILE_MATRICES]
+        zoomLevels: list = tileJson[TmsTileDef.TILE_MATRICES]
         
         tileDef = [zl for zl in zoomLevels \
-            if int(zl[TileDef.ID]) == zoomLevel][0]
+                   if int(zl[TmsTileDef.ID]) == zoomLevel][0]
 
         if len(tileDef) == 0:
         
@@ -78,11 +67,31 @@ class TmsTileDef:
                                str(zoomLevel) + 
                                ' in ' + 
                                str(tmsPath))
+                               
+        tileDef[TmsTileDef.CRS] = tileJson[TmsTileDef.CRS]
 
-        srs = osr.SpatialReference()
-        srs.ImportFromWkt(self.tileDef[TileDef.CRS])
+        return TmsTileDef(tileDef, srs, geoSrs, zone, zoomLevel)
         
-        return TmsTileDef(tileJson, srs, zone, zoomLevel)
+    # ------------------------------------------------------------------------
+    # initFromParams
+    # ------------------------------------------------------------------------
+    @classmethod
+    def initFromParams(cls,
+                       zone: str, 
+                       zoomLevel: int) -> TmsTileDef:
+        
+        tmsPath = TmsTileDef.getTmsFilePath(zone)
+
+        with open(tmsPath, 'r') as f:
+            tms = json.load(f)
+
+        # srs = osr.SpatialReference()
+        # srs.ImportFromWkt(tms[TmsTileDef.CRS])
+        
+        geoSrs = osr.SpatialReference()
+        geoSrs.ImportFromWkt(tms[TmsTileDef.GEO_CRS])
+        
+        return TmsTileDef.initFromJson(tms, None, geoSrs, zone, zoomLevel)
         
     # ------------------------------------------------------------------------
     # cellSize
@@ -90,12 +99,114 @@ class TmsTileDef:
     @property
     def cellSize(self) -> float:
         
-        return self._tileDef[TileDef.CELL_SIZE]
+        return self._tileDef[TmsTileDef.CELL_SIZE]
         
-    # -----------------------------------------------------------------------
+    # ------------------------------------------------------------------------
+    # geoSrs
+    # ------------------------------------------------------------------------
+    @property
+    def geoSrs(self) -> osr.SpatialReference:
+        
+        return self._geoSrs
+        
+    # ------------------------------------------------------------------------
+    # getOverlappingTiles
+    # ------------------------------------------------------------------------
+    def getOverlappingTiles(self, 
+                            ulLat: float, 
+                            ulLon: float, 
+                            lrLat: float, 
+                            lrLon: float, 
+                            minOverlapMeters=10.0) -> list:
+
+        originX, originY = self.pointOfOrigin
+        cellSize = self.cellSize
+        tileWidth = self.tileWidth
+        matrixWidth = self.matrixWidth
+        matrixHeight = self.matrixHeight
+
+        tilePixelSize = cellSize * tileWidth
+
+        # Transform corners to projected coordinates
+        ulX, ulY = self.llToLtm(ulLat, ulLon)
+        lrX, lrY = self.llToLtm(lrLat, lrLon)
+
+        # Get extent in projected space
+        minEasting = min(ulX, lrX)
+        maxEasting = max(ulX, lrX)
+        minNorthing = min(ulY, lrY)
+        maxNorthing = max(ulY, lrY)
+
+        # Calculate tile range
+        minCol = max(0, int((minEasting - originX) / tilePixelSize))
+        
+        maxCol = min(matrixWidth - 1, 
+                     int((maxEasting - originX) / tilePixelSize))
+        
+        minRow = max(0, int((originY - maxNorthing) / tilePixelSize))
+
+        maxRow = min(matrixHeight - 1, 
+                     int((originY - minNorthing) / tilePixelSize))
+
+        # Store original query bbox for filtering
+        queryMinLat = lrLat
+        queryMaxLat = ulLat
+        queryMinLon = ulLon
+        queryMaxLon = lrLon
+
+        # Generate tile indices, filtering by actual overlap
+        indices = []
+        
+        for row in range(minRow, maxRow + 1):
+
+            for col in range(minCol, maxCol + 1):
+
+                # Get tile bounds using existing method
+                # (llx, lly), (urx, ury) = self.getTileBbox(col, row)
+                llx, lly, urx, ury = self.getTileBbox(col, row)
+    
+                # Calculate overlap dimensions in projected space
+                overlapMinX = max(llx, minEasting)
+                overlapMaxX = min(urx, maxEasting)
+                overlapMinY = max(lly, minNorthing)
+                overlapMaxY = min(ury, maxNorthing)
+    
+                # Calculate overlap width and height
+                overlapWidth = max(0, overlapMaxX - overlapMinX)
+                overlapHeight = max(0, overlapMaxY - overlapMinY)
+    
+                # Check if both dimensions meet minimum overlap requirement
+                if overlapWidth >= minOverlapMeters and \
+                    overlapHeight >= minOverlapMeters:
+                    
+                    # ---
+                    # Final check: verify tile's geographic bounds overlap
+                    # original query bbox
+                    # ---
+                    ulLat, ulLon, lrLat, lrLon = \
+                        self._getTileBoundsGeo(col, row)
+        
+                    # Check geographic overlap
+                    tileMinLon = min(ulLon, lrLon)
+                    tileMaxLon = max(ulLon, lrLon)
+                    tileMinLat = min(ulLat, lrLat)
+                    tileMaxLat = max(ulLat, lrLat)
+        
+                    geoLatOverlap = (tileMaxLat >= queryMinLat and \
+                                     tileMinLat <= queryMaxLat)
+                                     
+                    geoLonOverlap = (tileMaxLon >= queryMinLon and \
+                                     tileMinLon <= queryMaxLon)
+        
+                    if geoLatOverlap and geoLonOverlap:
+                        indices.append((col, row))
+
+        return indices
+
+    # ------------------------------------------------------------------------
     # getTileBbox
     # ------------------------------------------------------------------------
-    def getTileBbox(self, tileX: int, tileY: int) -> tuple:
+    def getTileBbox(self, tileX: int, tileY: int) -> list[float]:
 
         gridOrigin = self.pointOfOrigin
         cellSize = self.cellSize
@@ -112,12 +223,88 @@ class TmsTileDef:
         assert(((urx - llx) / cellSize) - width < 1)
         assert(((ury - lly) / cellSize) - height < 1)
     
-        return ((llx, lly), (urx, ury))
+        return llx, lly, urx, ury
+
+    # ------------------------------------------------------------------------
+    # _getTileBoundsGeo
+    # ------------------------------------------------------------------------
+    def _getTileBoundsGeo(self, col: int, row: int) -> List[float]:
+
+        # Get projected bounds
+        # (llx, lly), (urx, ury) = self.getTileBbox(col, row)
+        llx, lly, urx, ury = self.getTileBbox(col, row)
+    
+        # Transform back to geographic
+        xform = osr.CoordinateTransformation(self.srs, self.geoSrs)
+    
+        # Transform upper-left corner
+        ulLon, ulLat, _ = xform.TransformPoint(llx, ury)
+    
+        # Transform lower-right corner
+        lrLon, lrLat, _ = xform.TransformPoint(urx, lly)
+    
+        return ulLat, ulLon, lrLat, lrLon
+    
+    # ------------------------------------------------------------------------
+    # getTmsFilePath
+    # ------------------------------------------------------------------------
+    @staticmethod
+    def getTmsFilePath(zone: str) -> Path:
+        
+        tmsFileName = 'tms_LTM_' + zone + 'RG.json'
+        tmsPath = TmsTileDef.JSON_DIR / tmsFileName
+        return tmsPath
+        
+    # ------------------------------------------------------------------------
+    # llToLtm
+    # ------------------------------------------------------------------------
+    def llToLtm(self, lat: float, lon: float) -> Tuple(float, float):
+        
+        xform = osr.CoordinateTransformation(self.geoSrs, self.srs)
+        x, y, _ = xform.TransformPoint(lat, lon)
+        return x, y
+        
+    # ------------------------------------------------------------------------
+    # llToTileIndex
+    # ------------------------------------------------------------------------
+    def llToTileIndex(self, lat: float, lon: float) -> Tuple(float, float):
+
+        # Calculate tile size in meters
+        tilePixelSize = self.cellSize * self.tileWidth
+    
+        # Transform point to projected coordinates
+        xform = osr.CoordinateTransformation(self.geoSrs, self.srs)
+        easting, northing, _ = xform.TransformPoint(lat, lon)
+    
+        # Calculate tile indices
+        originX, originY = self.pointOfOrigin
+        col = int((easting - originX) / tilePixelSize)
+        row = int((originY - northing) / tilePixelSize)
+    
+        # Check if within matrix bounds
+        if col < 0 or col >= self.matrixWidth or \
+            row < 0 or row >= self.matrixHeight:
+            
+            return None
+    
+        return col, row
+
+    # ------------------------------------------------------------------------
+    # ltmToLatLon
+    # ------------------------------------------------------------------------
+    def ltmToLatLon(self, x: float, y: float) -> tuple[float, float]:
+    
+        xform = osr.CoordinateTransformation(self.srs, self.geoSrs)
+        lon, lat, _ = xform.TransformPoint(x, y)
+
+        return lat, lon
 
     # ------------------------------------------------------------------------
     # ltmToTileIndex
     # ------------------------------------------------------------------------
-    def ltmToTileIndex(self, easting: float, northing: float) -> tuple[int, int]:
+    def ltmToTileIndex(self, 
+                       easting: float, 
+                       northing: float) -> tuple[int, int]:
 
         # Extract TMS grid parameters
         originX, originY = self.pointOfOrigin
@@ -135,19 +322,40 @@ class TmsTileDef:
         return x, y
 
     # ------------------------------------------------------------------------
+    # maxtrixHeight
+    # ------------------------------------------------------------------------
+    @property
+    def matrixHeight(self) -> int:
+        
+        return self._tileDef[TmsTileDef.MATRIX_HEIGHT]
+        
+    # ------------------------------------------------------------------------
+    # maxtrixWidth
+    # ------------------------------------------------------------------------
+    @property
+    def matrixWidth(self) -> int:
+        
+        return self._tileDef[TmsTileDef.MATRIX_WIDTH]
+        
+    # ------------------------------------------------------------------------
     # pointOfOrigin
     # ------------------------------------------------------------------------
     @property
     def pointOfOrigin(self) -> tuple[float, float]:
         
-        return self._tileDef[TileDef.POINT_OF_ORIGIN]
+        return self._tileDef[TmsTileDef.POINT_OF_ORIGIN]
 
-    # -----------------------------------------------------------------------
+    # ------------------------------------------------------------------------
     # srs
     # ------------------------------------------------------------------------
     @property
     def srs(self) -> osr.SpatialReference:
-        
+
+        if self._srs is None:
+            
+            self._srs = osr.SpatialReference()
+            self._srs.ImportFromWkt(self._tileDef[TmsTileDef.CRS])
+
         return self._srs
         
     # ------------------------------------------------------------------------
@@ -156,7 +364,7 @@ class TmsTileDef:
     @property
     def tileHeight(self) -> int:
         
-        return self._tileDef[TileDef.TILE_HEIGHT]
+        return self._tileDef[TmsTileDef.TILE_HEIGHT]
 
     # ------------------------------------------------------------------------
     # tileWidth
@@ -164,7 +372,7 @@ class TmsTileDef:
     @property
     def tileWidth(self) -> int:
         
-        return self._tileDef[TileDef.TILE_WIDTH]
+        return self._tileDef[TmsTileDef.TILE_WIDTH]
 
     # ------------------------------------------------------------------------
     # zone

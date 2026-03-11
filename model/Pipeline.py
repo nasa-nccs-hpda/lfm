@@ -11,6 +11,7 @@ from osgeo import ogr
 from osgeo import osr
 
 from model.Conversions import Conversions
+from model.TmsIntersector import TmsIntersector
 from model.TmsTileDef import TmsTileDef
 
 
@@ -108,16 +109,18 @@ class Pipeline:
     # ------------------------------------------------------------------------
     # query
     # ------------------------------------------------------------------------
-    def _query(self, llLatLon: tuple, urLatLon: tuple) -> ogr.Layer:
+    def _query(self,
+               llLat: float, 
+               llLon: float, 
+               urLat: float, 
+               urLon: float) -> ogr.Layer:
 
         driver: ogr.Driver = ogr.GetDriverByName('ESRI Shapefile')
         ds: ogr.Dataset = driver.Open(str(self._tileDbPath), 0)
         layer: ogr.Layer = ds.GetLayer()
         
-        layer.SetSpatialFilterRect(llLatLon[0], 
-                                   llLatLon[1], 
-                                   urLatLon[0], 
-                                   urLatLon[1])
+        # minX, minY, maxX, maxY
+        layer.SetSpatialFilterRect(llLon, llLat, urLon, urLat)
 
         # ---
         # When you return an ogr.Layer object from a function, the underlying 
@@ -132,41 +135,41 @@ class Pipeline:
     # ------------------------------------------------------------------------
     # queryTMS
     # ------------------------------------------------------------------------
-    def _queryTMS(self, 
-                  llLatLon: tuple, 
-                  urLatLon: tuple, 
-                  zoomLevel: int) -> List[dict]:
-
-        driver: ogr.Driver = ogr.GetDriverByName('GPKG')
-        ds: ogr.Dataset = driver.Open(str(TmsTileDef.DB_PATH), 0)
-        layer: ogr.Layer = ds.GetLayer()
-        layer.SetAttributeFilter('zoom_level = ' + str(zoomLevel))
-
-        layer.SetSpatialFilterRect(llLatLon[0], 
-                                   llLatLon[1], 
-                                   urLatLon[0], 
-                                   urLatLon[1])
-
-        indexes = []
-        
-        for feature in layer:
-            
-            index = {'tileY': feature.GetField('tile_row'),
-                     'tileX': feature.GetField('tile_col'),
-                     'zone': feature.GetField('zone_name'),
-                     'zoomLevel': feature.GetField('zoom_level')}
-                     
-            indexes.append(index)
-             
-        # ---
-        # When you return an ogr.Layer object from a function, the underlying 
-        # DataSource that owns the layer may be getting garbage collected, 
-        # making the layer invalid.  Attach the datasource to the layer to
-        # prevent garbage collection
-        # ---
-        layer._ds = ds
-    
-        return indexes
+    # def _queryTMS(self,
+    #               llLatLon: tuple,
+    #               urLatLon: tuple,
+    #               zoomLevel: int) -> List[dict]:
+    #
+    #     driver: ogr.Driver = ogr.GetDriverByName('GPKG')
+    #     ds: ogr.Dataset = driver.Open(str(TmsTileDef.DB_PATH), 0)
+    #     layer: ogr.Layer = ds.GetLayer()
+    #     layer.SetAttributeFilter('zoom_level = ' + str(zoomLevel))
+    #
+    #     layer.SetSpatialFilterRect(llLatLon[0],
+    #                                llLatLon[1],
+    #                                urLatLon[0],
+    #                                urLatLon[1])
+    #
+    #     indexes = []
+    #
+    #     for feature in layer:
+    #
+    #         index = {'tileY': feature.GetField('tile_row'),
+    #                  'tileX': feature.GetField('tile_col'),
+    #                  'zone': feature.GetField('zone_name'),
+    #                  'zoomLevel': feature.GetField('zoom_level')}
+    #
+    #         indexes.append(index)
+    #
+    #     # ---
+    #     # When you return an ogr.Layer object from a function, the underlying
+    #     # DataSource that owns the layer may be getting garbage collected,
+    #     # making the layer invalid.  Attach the datasource to the layer to
+    #     # prevent garbage collection
+    #     # ---
+    #     layer._ds = ds
+    #
+    #     return indexes
 
     # ------------------------------------------------------------------------
     # runTileIndex
@@ -181,18 +184,24 @@ class Pipeline:
               ') / zone ' + str(zone) + \
               ' / zoom ' + str(zoomLevel))
         
-        self._tileDef: dict = TmsTileDef(zone, zoomLevel)
+        self._tileDef: dict = TmsTileDef.initFromParams(zone, zoomLevel)
 
         # Get the tile corners in LTM.
-        ll, ur = self._tileDef.getTileBbox(tileX, tileY)
+        llx, lly, urx, ury = self._tileDef.getTileBbox(tileX, tileY)
     
         # Query
-        llLatLon, urLatLon = Conversions.ltmToLatLon(self._tileDef.zone, 
-                                                     ll, 
-                                                     ur, 
-                                                     self._tileDef.srs)
-            
-        layer: ogr.Layer = self._query(llLatLon, urLatLon)
+        # llLat, llLon = self._tileDef.ltmToLatLon(llx, lly)
+        # urLat, urLon = self._tileDef.ltmToLatLon(urx, ury)
+        
+        ll = (llx, lly)
+        ur = (urx, ury)
+        
+        llLat, llLon, urLat, urLon = Conversions.ltmToLatLon(zone, 
+                                                             ll,
+                                                             ur,
+                                                             self._tileDef.srs)
+        
+        layer: ogr.Layer = self._query(llLat, llLon, urLat, urLon)
 
         cubeFile: Path = None
     
@@ -213,8 +222,14 @@ class Pipeline:
     # ------------------------------------------------------------------------
     # runPoint
     # ------------------------------------------------------------------------
-    def runPoint(self, lat: float, lon: float, zoomLevel: int) -> Path:
+    def runPoint(self, 
+                 lat: float, 
+                 lon: float, 
+                 zone: str, 
+                 zoomLevel: int) -> Path:
         
+        tileDef = TmsTileDef.initFromParams(zone, zoomLevel)
+        tileX, tileY = tileDef.llToTileIndex(lat, lon)
         
         return self.runTileIndex(tileX, tileY, zone, zoomLevel)
         
@@ -222,15 +237,21 @@ class Pipeline:
     # run
     # ------------------------------------------------------------------------
     def run(self, 
-            upperLeft: tuple[float, float], 
-            lowerRight: tuple[float, float],
+            ulLat: float,
+            ulLon: float,
+            lrLat: float,
+            lrLon: float,
             zoomLevel: int) -> List[Path]:
         
         # Query the AoI with the TMS GeoPackage.
-        tileIndexes: List[tuple[int, int]] = self._queryTMS(upperLeft, 
-                                                            lowerRight, 
-                                                            zoomLevel)
-               
+        # tileIndexes: List[tuple[int, int]] = self._queryTMS(upperLeft,
+        #                                                     lowerRight,
+        #                                                     zoomLevel)
+
+        tmsi = TmsIntersector()
+        tileIndexes = tmsi.getTids(ulLat, ulLon, lrLat, lrLon, zoomLevel)
+        print('Tile indexes:', tileIndexes)
+        
         cubeFiles = []
         
         for idx in tileIndexes:
