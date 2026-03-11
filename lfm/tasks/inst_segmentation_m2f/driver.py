@@ -174,7 +174,7 @@ def calculate_semantic_f1(pred_mask, gt_mask):
 
 
 def colorize_instance_mask(
-    instance_mask, colormap="viridis", max_instances=100
+    instance_mask, colormap="viridis", max_instances=100, color_stride=5
 ):
     """
     Colorize instance mask: 0 -> black, other values -> colormap colors.
@@ -184,6 +184,7 @@ def colorize_instance_mask(
         instance_mask: (H, W) array with unique IDs per instance (0 = background)
         colormap: Matplotlib colormap name (e.g., 'viridis', 'plasma', 'turbo')
         max_instances: Maximum expected instances for consistent color mapping
+        color_stride: Step size in colormap (higher = more distinct colors between instances)
 
     Returns:
         colored: (H, W, 3) RGB array with values in [0, 1]
@@ -204,9 +205,9 @@ def colorize_instance_mask(
     # Assign colors: map instance IDs to consistent positions in colormap
     for instance_id in unique_instances:
         instance_pixels = instance_mask == instance_id
-        # Map instance_id to [0, 1] range based on max_instances
-        # This ensures consistent colors across images
-        color_position = (instance_id % max_instances) / max(
+        # Apply stride to skip colors, making adjacent instances more distinct
+        strided_id = (instance_id - 1) * color_stride
+        color_position = (strided_id % max_instances) / max(
             max_instances - 1, 1
         )
         color = np.array(cmap(color_position)[:3])  # RGB only, no alpha
