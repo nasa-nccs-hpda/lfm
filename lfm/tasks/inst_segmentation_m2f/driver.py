@@ -16,6 +16,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Rectangle
+import matplotlib.patches as patches
 from tqdm import tqdm
 
 from .utils import get_loss_function
@@ -177,8 +178,8 @@ def prepare_image_for_display(img, fix_rgb_order=True):
     Prepare multi-channel image for matplotlib display.
 
     Args:
-        img: Image array with shape (H, W, C) where C can be any number
-        fix_rgb_order: If True, swap BGR to RGB (common issue with some data)
+        img: Image array with shape (H, W, C)
+        fix_rgb_order: If True, swap BGR to RGB
 
     Returns:
         img_vis: Image ready for display (H, W) or (H, W, 3)
@@ -186,26 +187,19 @@ def prepare_image_for_display(img, fix_rgb_order=True):
     """
     num_channels = img.shape[2]
 
-    # Denormalize image for visualization
-    # Scale to 0-1 range for display
+    # Normalize to 0-1 range
     img_normalized = (img - img.min()) / (img.max() - img.min() + 1e-8)
     img_normalized = np.clip(img_normalized, 0, 1)
 
     if num_channels == 1:
-        # Grayscale - squeeze channel dimension
         img_vis = img_normalized[:, :, 0]
         display_note = "Grayscale"
-
     elif num_channels == 3:
-        # RGB - fix band order if needed (BGR -> RGB)
         img_vis = img_normalized
         if fix_rgb_order:
-            # Swap channels: [B, G, R] -> [R, G, B]
             img_vis = img_vis[..., [2, 1, 0]]
         display_note = "RGB"
-
     else:
-        # Multi-channel (>3): display first 3 channels as RGB
         img_vis = img_normalized[:, :, :3]
         if fix_rgb_order:
             img_vis = img_vis[..., [2, 1, 0]]
@@ -219,113 +213,75 @@ def convert_binary_masks_to_instance_map(binary_masks):
     Convert binary masks to instance segmentation map.
 
     Args:
-        binary_masks: numpy array or tensor of shape (num_instances, H, W)
-                     where each slice is a binary mask for one instance
+        binary_masks: array of shape (num_instances, H, W)
 
     Returns:
-        instance_map: numpy array of shape (H, W) where each pixel
-                     contains the instance ID (0 = background, 1+ = instances)
+        instance_map: array of shape (H, W) where 0 = background, 1+ = instances
     """
     if isinstance(binary_masks, torch.Tensor):
         binary_masks = binary_masks.cpu().numpy()
 
     if binary_masks.ndim == 2:
-        # Already in correct format (H, W)
         return binary_masks
 
-    # binary_masks shape: (num_instances, H, W)
     num_instances, h, w = binary_masks.shape
     instance_map = np.zeros((h, w), dtype=np.int32)
 
-    # Assign each instance a unique ID (1, 2, 3, ...)
     for inst_id in range(num_instances):
-        mask = binary_masks[inst_id] > 0  # Binary mask for this instance
-        instance_map[mask] = inst_id + 1  # Assign instance ID (1-indexed)
+        mask = binary_masks[inst_id] > 0
+        instance_map[mask] = inst_id + 1
 
     return instance_map
 
 
-def create_instance_colormap(
-    instance_mask,
-    background_mode="black",
-    colormap="hsv",
-    alpha_instances=1.0,
-    alpha_background=0.0,
-):
+def colorize_instance_mask(instance_mask, colormap="viridis"):
     """
-    Create a colored instance mask with flexible background handling.
+    Colorize instance mask: 0 -> black, other values -> colormap.
 
     Args:
         instance_mask: (H, W) array with unique IDs per instance (0 = background)
-        background_mode: 'black', 'white', or 'transparent'
-        colormap: Matplotlib colormap name for instance colors
-        alpha_instances: Alpha value for instance pixels (0-1)
-        alpha_background: Alpha value for background pixels (0-1)
+        colormap: Matplotlib colormap name for instances
 
     Returns:
-        colored_mask: (H, W, 4) RGBA array with colored instances
+        colored: (H, W, 3) RGB array
     """
     h, w = instance_mask.shape
-    colored_mask = np.zeros((h, w, 4), dtype=np.float32)
+    colored = np.zeros((h, w, 3), dtype=np.float32)
 
-    # Create background mask (where instance_mask == 0)
-    background_pixels = instance_mask == 0
-
-    # Set background color based on mode
-    if background_mode == "black":
-        colored_mask[background_pixels, :3] = 0  # RGB = black
-        colored_mask[background_pixels, 3] = alpha_background  # Alpha
-    elif background_mode == "white":
-        colored_mask[background_pixels, :3] = 1  # RGB = white
-        colored_mask[background_pixels, 3] = alpha_background  # Alpha
-    elif background_mode == "transparent":
-        colored_mask[background_pixels, :3] = 0  # RGB doesn't matter
-        colored_mask[background_pixels, 3] = 0  # Fully transparent
-
-    # Get unique instances (excluding background with value 0)
+    # Get unique instances (excluding 0)
     unique_instances = np.unique(instance_mask)
     unique_instances = unique_instances[unique_instances != 0]
 
     if len(unique_instances) == 0:
-        return colored_mask
+        return colored  # All black
 
     # Get colormap
     cmap = plt.get_cmap(colormap)
 
-    # Color each instance with a unique color
+    # Assign colors to each instance
     for idx, instance_id in enumerate(unique_instances):
         instance_pixels = instance_mask == instance_id
-
-        # Distribute colors evenly across colormap (skip red start/end in HSV)
-        if colormap == "hsv":
-            # Offset to avoid pure red at 0 and 1
-            color_idx = (idx + 0.5) / max(len(unique_instances) + 1, 2)
-        else:
-            color_idx = idx / max(len(unique_instances) - 1, 1)
-
+        color_idx = idx / max(len(unique_instances) - 1, 1)
         color = np.array(cmap(color_idx)[:3])
-        colored_mask[instance_pixels, :3] = color
-        colored_mask[instance_pixels, 3] = alpha_instances
+        colored[instance_pixels] = color
 
-    return colored_mask
+    return colored
 
 
-def create_instance_overlay_v2(
-    img_vis, instance_mask, alpha=0.5, colormap="hsv", black_background=False
+def create_instance_overlay(
+    img_vis, instance_mask, alpha=0.5, colormap="viridis"
 ):
     """
-    Create overlay of instance mask on image with proper transparency handling.
-    Pixels with instance_mask == 0 are treated as background.
+    Create overlay of instance mask on image.
 
     Args:
-        img_vis: Base image (H, W) for grayscale or (H, W, 3) for color
-        instance_mask: Instance mask (H, W) with unique IDs per instance (0 = background)
-        alpha: Transparency for instance overlays
-        colormap: Matplotlib colormap for instance colors
-        black_background: If True, show instances on black; if False, blend with image
+        img_vis: Base image (H, W) or (H, W, 3)
+        instance_mask: Instance mask (H, W) with 0 = background
+        alpha: Transparency for instances (0 = show image, 1 = show mask)
+        colormap: Colormap for instances
 
     Returns:
-        overlay: (H, W, 3) RGB array with proper compositing
+        overlay: (H, W, 3) RGB array
     """
     # Ensure img_vis is 3-channel
     if img_vis.ndim == 2:
@@ -333,43 +289,46 @@ def create_instance_overlay_v2(
     else:
         img_vis_rgb = img_vis.copy()
 
-    # Ensure same shape
-    if img_vis_rgb.shape[:2] != instance_mask.shape:
-        raise ValueError(
-            f"Shape mismatch: image {img_vis_rgb.shape[:2]} vs mask {instance_mask.shape}"
-        )
+    # Colorize the mask (0 -> black, others -> colormap)
+    colored_mask = colorize_instance_mask(instance_mask, colormap=colormap)
 
-    if black_background:
-        # Pure black background with full-opacity colored instances
-        colored_mask = create_instance_colormap(
-            instance_mask,
-            background_mode="black",
-            colormap=colormap,
-            alpha_instances=1.0,
-            alpha_background=1.0,
-        )
-        # Return RGB only (background pixels are already black)
-        return np.clip(colored_mask[..., :3], 0, 1)
-    else:
-        # Transparent background, blend instances with image
-        colored_mask = create_instance_colormap(
-            instance_mask,
-            background_mode="transparent",
-            colormap=colormap,
-            alpha_instances=alpha,
-            alpha_background=0.0,
-        )
+    # Create alpha mask (0 for background, alpha for instances)
+    alpha_mask = (instance_mask != 0).astype(np.float32) * alpha
+    alpha_mask = alpha_mask[:, :, np.newaxis]  # (H, W, 1)
 
-        # Alpha compositing: blend colored instances over image
-        # Where mask == 0 (background), alpha = 0, so original image shows through
-        # Where mask != 0 (instances), alpha = alpha parameter, so colors blend
-        alpha_mask = colored_mask[..., 3:4]  # (H, W, 1)
-        rgb_mask = colored_mask[..., :3]
+    # Blend: where mask is 0 (background), show original image
+    # where mask is nonzero, blend mask with image
+    overlay = img_vis_rgb * (1 - alpha_mask) + colored_mask * alpha_mask
 
-        # Standard alpha compositing formula
-        overlay = img_vis_rgb * (1 - alpha_mask) + rgb_mask * alpha_mask
+    return np.clip(overlay, 0, 1)
 
-        return np.clip(overlay, 0, 1)
+
+def get_instance_bboxes(instance_mask):
+    """
+    Extract bounding boxes for each instance.
+
+    Args:
+        instance_mask: (H, W) array with unique IDs per instance (0 = background)
+
+    Returns:
+        bboxes: List of (x_min, y_min, width, height) for each instance
+    """
+    unique_instances = np.unique(instance_mask)
+    unique_instances = unique_instances[unique_instances != 0]
+
+    bboxes = []
+    for instance_id in unique_instances:
+        mask = instance_mask == instance_id
+        rows, cols = np.where(mask)
+
+        if len(rows) > 0:
+            y_min, y_max = rows.min(), rows.max()
+            x_min, x_max = cols.min(), cols.max()
+            width = x_max - x_min + 1
+            height = y_max - y_min + 1
+            bboxes.append((x_min, y_min, width, height))
+
+    return bboxes
 
 
 def visualize_predictions(
@@ -391,7 +350,7 @@ def visualize_predictions(
         image_processor: Image processor for post-processing
         device: torch device
         output_dir: Directory to save plots
-        epoch: Current epoch number or label (e.g., "EVAL")
+        epoch: Current epoch number or label
         n_samples: Number of samples to visualize
         threshold: Confidence threshold for predictions
     """
@@ -406,19 +365,17 @@ def visualize_predictions(
     with torch.no_grad():
         for batch in dataloader:
             pixel_values = batch["pixel_values"].to(device)
-            mask_labels = batch["mask_labels"]  # Keep on CPU for now
+            mask_labels = batch["mask_labels"]
 
-            # Get target sizes - use the actual resized size that model sees
-            # The model processes at (304, 304) size
             batch_size = pixel_values.shape[0]
             target_sizes = [
                 (pixel_values.shape[2], pixel_values.shape[3])
             ] * batch_size
 
-            # Forward pass (inference only - no labels)
+            # Forward pass
             outputs = model(pixel_values=pixel_values)
 
-            # Post-process to get instance masks
+            # Post-process
             try:
                 post_processed = (
                     image_processor.post_process_instance_segmentation(
@@ -430,8 +387,6 @@ def visualize_predictions(
                 )
             except Exception as e:
                 print(f"Warning: Post-processing failed: {e}")
-                print("Attempting alternative post-processing...")
-                # Fallback: try without return_binary_maps
                 post_processed = (
                     image_processor.post_process_instance_segmentation(
                         outputs,
@@ -440,74 +395,49 @@ def visualize_predictions(
                     )
                 )
 
-            # Convert to instance masks (numpy arrays)
+            # Convert to instance masks
             for idx, result in enumerate(post_processed):
-                # Check what keys are available
                 if "segmentation" in result:
-                    # Standard output format
                     instance_mask = result["segmentation"]
                     if isinstance(instance_mask, torch.Tensor):
                         instance_mask = instance_mask.cpu().numpy()
-
-                    # Convert from binary masks (num_instances, H, W) to instance map (H, W)
                     instance_mask = convert_binary_masks_to_instance_map(
                         instance_mask
                     )
                     preds_list.append(instance_mask)
                 else:
-                    # Alternative format - create mask from segments_info
                     print(
                         f"Warning: 'segmentation' not in result. Keys: {result.keys()}"
                     )
-
-                    # Create instance mask from segments_info
                     height, width = target_sizes[idx]
                     instance_mask = np.zeros((height, width), dtype=np.int32)
-
-                    if "segments_info" in result:
-                        for segment_idx, segment in enumerate(
-                            result["segments_info"]
-                        ):
-                            print(f"  Segment {segment_idx}: {segment}")
-
                     preds_list.append(instance_mask)
 
-            # Store images and labels
+            # Store images
             images_list.append(pixel_values.cpu())
 
-            # Convert mask_labels from (num_instances, H, W) to (H, W) with instance IDs
+            # Convert mask_labels
             for label_tensor in mask_labels:
                 label_numpy = label_tensor.cpu().numpy()
-
                 if label_numpy.ndim == 3:
-                    # Convert from (num_instances, H, W) to (H, W)
                     h, w = label_numpy.shape[1], label_numpy.shape[2]
                     label_2d = np.zeros((h, w), dtype=np.int32)
                     for inst_id in range(label_numpy.shape[0]):
                         label_2d[label_numpy[inst_id] > 0] = inst_id + 1
                     labels_list.append(label_2d)
                 else:
-                    # Already in correct format
                     labels_list.append(label_numpy)
 
             if len(preds_list) >= n_samples:
                 break
 
-    # Concatenate and limit to n_samples
+    # Limit to n_samples
     all_images = torch.cat(images_list, dim=0)[:n_samples]
     all_labels = labels_list[:n_samples]
     all_preds = preds_list[:n_samples]
 
     num_channels = all_images.shape[1]
     batch_size = min(n_samples, len(all_preds))
-
-    # Verify shapes before visualization
-    print("\nDebug - Shapes for visualization:")
-    for i in range(min(3, batch_size)):
-        print(f"  Sample {i}:")
-        print(f"    Image: {all_images[i].shape}")
-        print(f"    GT Label: {all_labels[i].shape}")
-        print(f"    Prediction: {all_preds[i].shape}")
 
     # Create 5-row visualization
     fig, axes = plt.subplots(5, batch_size, figsize=(4 * batch_size, 20))
@@ -521,28 +451,18 @@ def visualize_predictions(
 
     for i in tqdm(range(batch_size), desc="Plotting predictions"):
         img = all_images[i].numpy().transpose(1, 2, 0)  # (H, W, C)
-        gt_mask = all_labels[i]  # Should be (H, W)
-        pred_mask = all_preds[i]  # Should be (H, W)
+        gt_mask = all_labels[i]
+        pred_mask = all_preds[i]
 
-        # Verify shapes
-        if gt_mask.ndim != 2 or pred_mask.ndim != 2:
-            print(f"Warning: Incorrect mask dimensions at sample {i}")
-            print(
-                f"  GT shape: {gt_mask.shape}, Pred shape: {pred_mask.shape}"
-            )
-            continue
-
-        # Resize masks to match if needed
+        # Resize if needed
         if gt_mask.shape != pred_mask.shape:
             from skimage.transform import resize
 
             print(f"Warning: Shape mismatch at sample {i}. Resizing...")
-            print(f"  GT: {gt_mask.shape}, Pred: {pred_mask.shape}")
-            # Resize pred to match gt
             pred_mask = resize(
                 pred_mask,
                 gt_mask.shape,
-                order=0,  # Nearest neighbor
+                order=0,
                 preserve_range=True,
                 anti_aliasing=False,
             ).astype(np.int32)
@@ -572,17 +492,26 @@ def visualize_predictions(
         )
         axes[0, i].axis("off")
 
-        # Row 1: Predicted instances (colored by ID) - BLACK BACKGROUND
+        # Row 1: Predicted instances (pure mask, no overlay) with bounding boxes
         unique_pred = np.unique(pred_mask)
         num_pred = len(unique_pred[unique_pred != 0])
-        pred_colored = create_instance_overlay_v2(
-            img_vis,
-            pred_mask,
-            alpha=1.0,
-            colormap="hsv",
-            black_background=True,  # Pure black background, bright colors
-        )
+        pred_colored = colorize_instance_mask(pred_mask, colormap="viridis")
         axes[1, i].imshow(pred_colored)
+
+        # Draw red bounding boxes around predictions
+        pred_bboxes = get_instance_bboxes(pred_mask)
+        for bbox in pred_bboxes:
+            x_min, y_min, width, height = bbox
+            rect = patches.Rectangle(
+                (x_min, y_min),
+                width,
+                height,
+                linewidth=2,
+                edgecolor="red",
+                facecolor="none",
+            )
+            axes[1, i].add_patch(rect)
+
         axes[1, i].set_title(
             f"Predicted ({num_pred} instances)\n"
             f"Precision: {inst_metrics['precision']:.3f}",
@@ -590,13 +519,9 @@ def visualize_predictions(
         )
         axes[1, i].axis("off")
 
-        # Row 2: Prediction overlay on image (transparent background, blended instances)
-        pred_overlay = create_instance_overlay_v2(
-            img_vis,
-            pred_mask,
-            alpha=0.5,
-            colormap="hsv",
-            black_background=False,  # Transparent background, blend with image
+        # Row 2: Prediction overlay on image
+        pred_overlay = create_instance_overlay(
+            img_vis, pred_mask, alpha=0.5, colormap="viridis"
         )
         axes[2, i].imshow(pred_overlay)
         axes[2, i].set_title(
@@ -606,16 +531,10 @@ def visualize_predictions(
         )
         axes[2, i].axis("off")
 
-        # Row 3: Ground truth instances (colored by ID) - BLACK BACKGROUND
+        # Row 3: Ground truth instances (pure mask, no overlay)
         unique_gt = np.unique(gt_mask)
         num_gt = len(unique_gt[unique_gt != 0])
-        gt_colored = create_instance_overlay_v2(
-            img_vis,
-            gt_mask,
-            alpha=1.0,
-            colormap="hsv",
-            black_background=True,  # Pure black background, bright colors
-        )
+        gt_colored = colorize_instance_mask(gt_mask, colormap="viridis")
         axes[3, i].imshow(gt_colored)
         axes[3, i].set_title(
             f"Ground Truth ({num_gt} instances)\n"
@@ -624,13 +543,9 @@ def visualize_predictions(
         )
         axes[3, i].axis("off")
 
-        # Row 4: GT overlay on image (transparent background, blended instances)
-        gt_overlay = create_instance_overlay_v2(
-            img_vis,
-            gt_mask,
-            alpha=0.5,
-            colormap="hsv",
-            black_background=False,  # Transparent background, blend with image
+        # Row 4: GT overlay on image
+        gt_overlay = create_instance_overlay(
+            img_vis, gt_mask, alpha=0.5, colormap="viridis"
         )
         axes[4, i].imshow(gt_overlay)
         axes[4, i].set_title(
