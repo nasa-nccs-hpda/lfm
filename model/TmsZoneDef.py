@@ -59,7 +59,6 @@ class TmsZoneDef:
         if zoomLevel not in self._tileDefs:
             
             # Create and cache the tile definition
-            print('zone:', self._zone)
             self._tileDefs[zoomLevel] = \
                 TmsTileDef.initFromParams(self._zone, zoomLevel)
         
