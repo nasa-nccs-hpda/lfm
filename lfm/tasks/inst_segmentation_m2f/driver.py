@@ -314,7 +314,7 @@ def convert_binary_masks_to_instance_map(binary_masks):
     return instance_map
 
 
-def create_instance_overlay(img_vis, instance_mask, alpha=0.5, colors=None):
+def create_instance_overlay(img_vis, instance_mask, alpha=0.5, n_colors=20):
     """
     Create overlay of instance mask on image.
 
@@ -334,7 +334,7 @@ def create_instance_overlay(img_vis, instance_mask, alpha=0.5, colors=None):
         img_vis_rgb = img_vis.copy()
 
     # Colorize the mask (0 -> black, others -> distinct colors)
-    colored_mask = colorize_instance_mask(instance_mask, colors=colors)
+    colored_mask = colorize_instance_mask(instance_mask, n_colors=n_colors)
 
     # Create alpha mask (0 for background, alpha for instances)
     alpha_mask = (instance_mask != 0).astype(np.float32) * alpha
