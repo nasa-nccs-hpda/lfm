@@ -533,6 +533,20 @@ def visualize_predictions(
         # Row 2: Prediction overlay on image
         pred_overlay = create_instance_overlay(img_vis, pred_mask, alpha=0.5)
         axes[2, i].imshow(pred_overlay, vmin=0, vmax=1)
+
+        # Draw red bounding boxes around predictions
+        for bbox in pred_bboxes:  # Reuse pred_bboxes from Row 1
+            x_min, y_min, width, height = bbox
+            rect = patches.Rectangle(
+                (x_min, y_min),
+                width,
+                height,
+                linewidth=2,
+                edgecolor="red",
+                facecolor="none",
+            )
+            axes[2, i].add_patch(rect)
+
         axes[2, i].set_title(
             f"Prediction Overlay\n"
             f"Mean IoU: {inst_metrics['mean_iou']:.3f}",
@@ -570,6 +584,20 @@ def visualize_predictions(
         # Row 4: GT overlay on image
         gt_overlay = create_instance_overlay(img_vis, gt_mask, alpha=0.5)
         axes[4, i].imshow(gt_overlay, vmin=0, vmax=1)
+
+        # Draw green bounding boxes around ground truth
+        for bbox in gt_bboxes:  # Reuse gt_bboxes from Row 3
+            x_min, y_min, width, height = bbox
+            rect = patches.Rectangle(
+                (x_min, y_min),
+                width,
+                height,
+                linewidth=2,
+                edgecolor="green",
+                facecolor="none",
+            )
+            axes[4, i].add_patch(rect)
+
         axes[4, i].set_title(
             f"Ground Truth Overlay\n"
             f"Matched: {inst_metrics['num_matched']}",
