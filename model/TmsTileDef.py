@@ -130,6 +130,9 @@ class TmsTileDef:
         # Transform corners to projected coordinates
         ulX, ulY = self.llToLtm(ulLat, ulLon)
         lrX, lrY = self.llToLtm(lrLat, lrLon)
+        
+        print('lat, lon: ', ulLat, ', ', ulLon)
+        print('x, y: ', ulX, ', ', ulY)
 
         # Get extent in projected space
         minEasting = min(ulX, lrX)
@@ -262,6 +265,7 @@ class TmsTileDef:
         
         xform = osr.CoordinateTransformation(self.geoSrs, self.srs)
         x, y, _ = xform.TransformPoint(lat, lon)
+
         return x, y
         
     # ------------------------------------------------------------------------

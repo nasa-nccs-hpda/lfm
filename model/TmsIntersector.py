@@ -44,9 +44,10 @@ class TmsIntersector:
         
         for zone, zoneDef in self.zones.items():
             
-            print('Zone:', zone)
             # Check if bbox intersects this zone
             if zoneDef.intersectsBbox(ulLat, ulLon, lrLat, lrLon):
+                
+                print('Found intersection:', zone)
             
                 # Get overlapping tile indices
                 indices = zoneDef.getIntersectingTiles(
