@@ -131,15 +131,12 @@ class TmsTileDef:
         ulX, ulY = self.llToLtm(ulLat, ulLon)
         lrX, lrY = self.llToLtm(lrLat, lrLon)
         
-        print('lat, lon: ', ulLat, ', ', ulLon)
-        print('x, y: ', ulX, ', ', ulY)
-
         # Get extent in projected space
         minEasting = min(ulX, lrX)
         maxEasting = max(ulX, lrX)
         minNorthing = min(ulY, lrY)
         maxNorthing = max(ulY, lrY)
-
+        
         # Calculate tile range
         minCol = max(0, int((minEasting - originX) / tilePixelSize))
         
@@ -150,7 +147,7 @@ class TmsTileDef:
 
         maxRow = min(matrixHeight - 1, 
                      int((originY - minNorthing) / tilePixelSize))
-
+                     
         # Store original query bbox for filtering
         queryMinLat = lrLat
         queryMaxLat = ulLat
@@ -165,7 +162,6 @@ class TmsTileDef:
             for col in range(minCol, maxCol + 1):
 
                 # Get tile bounds using existing method
-                # (llx, lly), (urx, ury) = self.getTileBbox(col, row)
                 llx, lly, urx, ury = self.getTileBbox(col, row)
     
                 # Calculate overlap dimensions in projected space
@@ -177,7 +173,7 @@ class TmsTileDef:
                 # Calculate overlap width and height
                 overlapWidth = max(0, overlapMaxX - overlapMinX)
                 overlapHeight = max(0, overlapMaxY - overlapMinY)
-    
+                
                 # Check if both dimensions meet minimum overlap requirement
                 if overlapWidth >= minOverlapMeters and \
                     overlapHeight >= minOverlapMeters:
@@ -186,14 +182,14 @@ class TmsTileDef:
                     # Final check: verify tile's geographic bounds overlap
                     # original query bbox
                     # ---
-                    ulLat, ulLon, lrLat, lrLon = \
+                    tUlLat, tUlLon, tLrLat, tLrLon = \
                         self._getTileBoundsGeo(col, row)
-        
+                        
                     # Check geographic overlap
-                    tileMinLon = min(ulLon, lrLon)
-                    tileMaxLon = max(ulLon, lrLon)
-                    tileMinLat = min(ulLat, lrLat)
-                    tileMaxLat = max(ulLat, lrLat)
+                    tileMinLon = min(tUlLon, tLrLon)
+                    tileMaxLon = max(tUlLon, tLrLon)
+                    tileMinLat = min(tUlLat, tLrLat)
+                    tileMaxLat = max(tUlLat, tLrLat)
         
                     geoLatOverlap = (tileMaxLat >= queryMinLat and \
                                      tileMinLat <= queryMaxLat)
@@ -241,10 +237,10 @@ class TmsTileDef:
         xform = osr.CoordinateTransformation(self.srs, self.geoSrs)
     
         # Transform upper-left corner
-        ulLon, ulLat, _ = xform.TransformPoint(llx, ury)
+        ulLat, ulLon, _ = xform.TransformPoint(llx, ury)
     
         # Transform lower-right corner
-        lrLon, lrLat, _ = xform.TransformPoint(urx, lly)
+        lrLat, lrLon, _ = xform.TransformPoint(urx, lly)
     
         return ulLat, ulLon, lrLat, lrLon
     

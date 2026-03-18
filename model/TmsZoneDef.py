@@ -42,7 +42,6 @@ class TmsZoneDef:
         
         # Get or create tile definition for this zoom level
         tileDef = self.getTileDef(zoomLevel)
-        print('td srs:', tileDef.srs.ExportToPrettyWkt())
         
         # Use TmsTileDef's method to find overlapping tiles
         return tileDef.getOverlappingTiles(ulLat, 
