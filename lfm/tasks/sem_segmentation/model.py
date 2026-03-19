@@ -116,15 +116,16 @@ class DINOSegmentation(nn.Module):
         self.load_state_dict(torch.load(filename))
 
     def _apply_flexible_weights(self):
-        """Weight modification for 4-band input (Blue, Green, Red, NIR)
+        """Weight modification for 5-band input (Blue, Green, Orange, Red, NIR)
 
         Band mapping:
-        - Channel 0 (Blue) <- Red weights (closest RGB match)
-        - Channel 1 (Green) <- Green weights
-        - Channel 2 (Red) <- Red weights
-        - Channel 3 (NIR) <- Red weights (spectral closest)
+        - Channel 0 (Blue) <- Blue weights from DINOv3
+        - Channel 1 (Green) <- Green weights from DINOv3
+        - Channel 2 (Orange) <- Mean of Red and Green weights
+        - Channel 3 (Red) <- Red weights from DINOv3
+        - Channel 4 (NIR) <- Red weights (spectrally closest)
         """
-        print("Modifying input weights for Blue-Green-Red-NIR bands...")
+        print("Modifying input weights for Blue-Green-Orange-Red-NIR bands...")
 
         # Access the patch embedding
         patch_embed = self.encoder.embeddings.patch_embeddings
@@ -133,38 +134,41 @@ class DINOSegmentation(nn.Module):
             original_weights = (
                 patch_embed.weight.data.clone()
             )  # Shape: (out_channels, 3, 16, 16)
+            # original_weights channels: [0]=Red, [1]=Green, [2]=Blue
 
-            # Create new weights for 4-band input
-            # We need to expand from 3 channels to 4 channels
+            # Create new weights for 5-band input
             new_weights = torch.zeros(
                 original_weights.shape[0],
-                5,  # 5 input bands instead of 3
+                5,  # 5 input bands
                 original_weights.shape[2],
                 original_weights.shape[3],
             ).to(original_weights.device)
 
-            # Copy weights: Blue <- Red, Green <- Green, Red <- Red, NIR <- Red
+            # Correct mapping based on RGB order in original_weights
             new_weights[:, 0, :, :] = original_weights[
-                :, 0, :, :
+                :, 2, :, :
             ]  # Blue <- Blue
             new_weights[:, 1, :, :] = original_weights[
                 :, 1, :, :
             ]  # Green <- Green
-            # new_weights[:, 1, :, :] = original_weights[:, 1, :, :]  # Orange <- Mean(Green, Red)
-            new_weights[:, 2, :, :] = original_weights[
-                :, 2, :, :
-            ]  # Red <- Red
+            new_weights[:, 2, :, :] = (
+                original_weights[:, 0, :, :] + original_weights[:, 1, :, :]
+            ) / 2  # Orange <- Mean(Red, Green)
             new_weights[:, 3, :, :] = original_weights[
-                :, 2, :, :
-            ]  # NIR <- Red
+                :, 0, :, :
+            ]  # Red <- Red
+            new_weights[:, 4, :, :] = original_weights[
+                :, 0, :, :
+            ]  # NIR <- Red (spectrally closest)
 
             # Replace patch embedding weights
             patch_embed.weight.data = new_weights
 
         print(
+            "Applied flexible embedding approach to match input bands. "
             "Band mapping: [Blue, Green, Orange, Red, NIR] -> "
             "[Blue_weights, Green_weights, Mean(Red_weights, Green_weights), "
-            "Red_weights, Red_weights]"
+            "Red_weights, Red_weights]."
         )
 
 
