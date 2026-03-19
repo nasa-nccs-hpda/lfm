@@ -69,7 +69,9 @@ class UNetDecoder(nn.Module):
 class DINOSegmentation(nn.Module):
     """DINO encoder with UNet decoder for segmentation."""
 
-    def __init__(self, encoder, num_classes=2, img_size=(304, 304)):
+    def __init__(
+        self, encoder, num_classes=2, img_size=(304, 304), use_flexible=False
+    ):
         super().__init__()
         self.encoder = encoder
         self.img_size = img_size
@@ -79,6 +81,10 @@ class DINOSegmentation(nn.Module):
 
         # UNet decoder
         self.decoder = UNetDecoder(self.embed_dim, num_classes)
+
+        # Change weights if using flexible embeddings approach
+        if use_flexible:
+            self._apply_flexible_weights()
 
     def forward(self, x):
         # Get patch embeddings from encoder
@@ -109,24 +115,79 @@ class DINOSegmentation(nn.Module):
         """Load model state (encoder + decoder)."""
         self.load_state_dict(torch.load(filename))
 
-def load_dinov3_encoder(weights_local_checkpoint, device, model='dinov3_vitl16'):
+    def _apply_flexible_weights(self):
+        """Weight modification for 4-band input (Blue, Green, Red, NIR)
+
+        Band mapping:
+        - Channel 0 (Blue) <- Red weights (closest RGB match)
+        - Channel 1 (Green) <- Green weights
+        - Channel 2 (Red) <- Red weights
+        - Channel 3 (NIR) <- Red weights (spectral closest)
+        """
+        print("Modifying input weights for Blue-Green-Red-NIR bands...")
+
+        # Access the patch embedding
+        patch_embed = self.encoder.embeddings.patch_embeddings
+
+        with torch.no_grad():
+            original_weights = (
+                patch_embed.weight.data.clone()
+            )  # Shape: (out_channels, 3, 16, 16)
+
+            # Create new weights for 4-band input
+            # We need to expand from 3 channels to 4 channels
+            new_weights = torch.zeros(
+                original_weights.shape[0],
+                5,  # 5 input bands instead of 3
+                original_weights.shape[2],
+                original_weights.shape[3],
+            ).to(original_weights.device)
+
+            # Copy weights: Blue <- Red, Green <- Green, Red <- Red, NIR <- Red
+            new_weights[:, 0, :, :] = original_weights[
+                :, 0, :, :
+            ]  # Blue <- Blue
+            new_weights[:, 1, :, :] = original_weights[
+                :, 1, :, :
+            ]  # Green <- Green
+            # new_weights[:, 1, :, :] = original_weights[:, 1, :, :]  # Orange <- Mean(Green, Red)
+            new_weights[:, 2, :, :] = original_weights[
+                :, 2, :, :
+            ]  # Red <- Red
+            new_weights[:, 3, :, :] = original_weights[
+                :, 2, :, :
+            ]  # NIR <- Red
+
+            # Replace patch embedding weights
+            patch_embed.weight.data = new_weights
+
+        print(
+            "Band mapping: [Blue, Green, Orange, Red, NIR] -> "
+            "[Blue_weights, Green_weights, Mean(Red_weights, Green_weights), "
+            "Red_weights, Red_weights]"
+        )
+
+
+def load_dinov3_encoder(
+    weights_local_checkpoint, device, model="dinov3_vitl16"
+):
     if os.path.exists(weights_local_checkpoint):
-        print(f'Loading model from {weights_local_checkpoint}')
+        print(f"Loading model from {weights_local_checkpoint}")
         encoder = torch.hub.load(
-            repo_or_dir='facebookresearch/dinov3',  # GitHub repo
+            repo_or_dir="facebookresearch/dinov3",  # GitHub repo
             model=model,
-            source='github',
-            weights=weights_local_checkpoint
+            source="github",
+            weights=weights_local_checkpoint,
         ).to(device)
         print("Encoder loaded with pretrained weights.")
         return encoder
     else:
         try:
             encoder = torch.hub.load(
-                repo_or_dir='facebookresearch/dinov3',  # GitHub repo
+                repo_or_dir="facebookresearch/dinov3",  # GitHub repo
                 model=model,
-                source='github',
-                weights=weights_URL
+                source="github",
+                weights=weights_URL,
             ).to(device)
             print("Encoder loaded with pretrained weights.")
             return encoder
@@ -139,4 +200,3 @@ def load_dinov3_encoder(weights_local_checkpoint, device, model='dinov3_vitl16')
                     "to obtain a new download URL for your own use: https://ai.meta.com/resources/models-and-libraries/dinov3-downloads/."
                 ) from e
             raise
-    
