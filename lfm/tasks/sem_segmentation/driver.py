@@ -48,36 +48,36 @@ def calculate_f1_score(pred, label):
 def prepare_image_for_display(img):
     """
     Prepare multi-channel image for matplotlib display.
-    
+
     Args:
         img: Image array with shape (H, W, C) where C can be any number
-        
+
     Returns:
         img_vis: Image ready for display (H, W) or (H, W, 3)
         display_note: String describing how the image was prepared
     """
     num_channels = img.shape[2]
-    
+
     # Denormalize image for visualization
     # Scale to 0-1 range for display
     img_normalized = (img - img.min()) / (img.max() - img.min() + 1e-8)
     img_normalized = np.clip(img_normalized, 0, 1)
-    
+
     if num_channels == 1:
         # Grayscale - squeeze channel dimension
         img_vis = img_normalized[:, :, 0]
         display_note = "Grayscale"
-        
+
     elif num_channels == 3:
         # RGB - display as-is
         img_vis = img_normalized
         display_note = "RGB"
-        
+
     else:
         # Multi-channel (>3): display first 3 channels as RGB
         img_vis = img_normalized[:, :, :3]
         display_note = f"{num_channels}ch (showing first 3)"
-    
+
     return img_vis, display_note
 
 
@@ -85,11 +85,11 @@ def create_overlay_image(img_vis, pred_mask):
     """
     Create overlay of prediction mask on image.
     Handles grayscale and color images.
-    
+
     Args:
         img_vis: Base image (H, W) for grayscale or (H, W, 3) for color
         pred_mask: Binary prediction mask (H, W)
-        
+
     Returns:
         blended: Blended image with yellow overlay on predictions
     """
@@ -99,7 +99,7 @@ def create_overlay_image(img_vis, pred_mask):
         img_vis_rgb = np.stack([img_vis] * 3, axis=2)
     else:
         img_vis_rgb = img_vis
-    
+
     # Create RGBA image for proper alpha blending
     combined = np.zeros((pred_mask.shape[0], pred_mask.shape[1], 4))
     combined[:, :, :3] = img_vis_rgb
@@ -121,7 +121,7 @@ def create_overlay_image(img_vis, pred_mask):
     # Blend images
     alpha = overlay[:, :, 3:4]
     blended = overlay[:, :, :3] * alpha + combined[:, :, :3] * (1 - alpha)
-    
+
     return np.clip(blended, 0, 1)
 
 
@@ -199,7 +199,7 @@ def visualize_predictions(
 
     # Calculate F1 scores for each sample
     f1_scores = []
-    
+
     # Track display mode for figure title
     display_mode = None
 
@@ -218,7 +218,7 @@ def visualize_predictions(
             display_mode = display_note
 
         # Determine colormap for grayscale images
-        cmap_image = 'gray' if img_vis.ndim == 2 else None
+        cmap_image = "gray" if img_vis.ndim == 2 else None
 
         # Row 0: Original image with F1 score
         axes[0, i].imshow(img_vis, cmap=cmap_image)
@@ -271,7 +271,13 @@ def visualize_predictions(
 
 
 def train_epoch(
-    model, dataloader, criterion, optimizer, device, desc="Training", max_grad_norm=1.0
+    model,
+    dataloader,
+    criterion,
+    optimizer,
+    device,
+    desc="Training",
+    max_grad_norm=1.0,
 ):
     """
     Train for one epoch.
@@ -307,8 +313,9 @@ def train_epoch(
         # Backward pass
         loss.backward()
         # Clip gradients
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)\
-        #Optimizer step
+        torch.nn.utils.clip_grad_norm_(
+            model.parameters(), max_norm=max_grad_norm
+        )  # Optimizer step
         optimizer.step()
 
         # Track metrics
@@ -555,8 +562,8 @@ def train_model(
     mode="both",
     checkpoint_path=None,
     max_grad_norm=1.0,
-    use_early_stopping=False, 
-    warmup_epochs=None
+    early_stopping_patience=None,
+    warmup_epochs=None,
 ):
     """
     Main training/evaluation loop for DINO segmentation.
@@ -638,24 +645,24 @@ def train_model(
     if warmup_epochs is None or warmup_epochs < 0:
         scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
     elif warmup_epochs > num_epochs:
-        raise ValueError("Number of warmup epochs must be less than or equal to total epochs.")
+        raise ValueError(
+            "Number of warmup epochs must be less than or equal to total epochs."
+        )
     elif warmup_epochs > 0.5 * num_epochs:
         print("Warning: warmup epochs is greater than 1/2 of total epochs.")
     else:
         warmup_scheduler = LinearLR(
-            optimizer, 
-            start_factor=0.1, 
-            total_iters=warmup_epochs
+            optimizer, start_factor=0.1, total_iters=warmup_epochs
         )
         cosine_scheduler = CosineAnnealingLR(
-            optimizer, 
+            optimizer,
             T_max=num_epochs - warmup_epochs,
-            eta_min=1e-7  # Lower minimum
+            eta_min=1e-7,  # Lower minimum
         )
         scheduler = SequentialLR(
             optimizer,
             schedulers=[warmup_scheduler, cosine_scheduler],
-            milestones=[warmup_epochs]
+            milestones=[warmup_epochs],
         )
 
     # Training history
@@ -686,6 +693,9 @@ def train_model(
 
     print_model_summary(model)
 
+    # Early stopping
+    patience_counter = 0
+
     # Start timing
     training_start_time = time.time()
     epoch_times = []
@@ -705,7 +715,7 @@ def train_model(
             optimizer,
             device,
             desc=f"Epoch {epoch}/{num_epochs} [Train]",
-            max_grad_norm=max_grad_norm
+            max_grad_norm=max_grad_norm,
         )
         train_losses.append(train_loss)
 
@@ -775,10 +785,14 @@ def train_model(
             # Save best model...
         else:
             patience_counter += 1
-            
-        if patience_counter >= patience:
+
+        # If we specify early stopping, use it when we hit a plateau
+        if (
+            early_stopping_patience
+            and patience_counter >= early_stopping_patience
+        ):
             print(f"\n⚠️  Early stopping triggered after {epoch} epochs")
-            print(f"No improvement for {patience} epochs")
+            print(f"No improvement for {early_stopping_patience} epochs")
             break
 
     # Calculate total training time
