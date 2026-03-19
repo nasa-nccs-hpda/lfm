@@ -419,7 +419,8 @@ def visualize_predictions(
                     preds_list.append(instance_mask)
                 else:
                     print(
-                        f"Warning: 'segmentation' not in result. Keys: {result.keys()}"
+                        "Warning: 'segmentation' not in result. "
+                        f"Keys: {result.keys()}"
                     )
                     height, width = target_sizes[idx]
                     instance_mask = np.zeros((height, width), dtype=np.int32)

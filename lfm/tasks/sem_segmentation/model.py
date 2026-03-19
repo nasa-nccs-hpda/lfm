@@ -10,73 +10,49 @@ import torch.nn.functional as F
 
 
 class UNetDecoder(nn.Module):
-    """UNet-style decoder for segmentation."""
+    """UNet-style decoder with skip connections."""
 
-    def __init__(self, in_channels, num_classes):
+    def __init__(self, encoder_dims, num_classes):
         super().__init__()
-
-        # Progressive upsampling with skip connections
-        # Starting from patch embeddings: (batch, in_channels, H, W)
-
-        self.up1 = nn.Sequential(
-            nn.ConvTranspose2d(in_channels, 512, kernel_size=2, stride=2),
-            nn.BatchNorm2d(512),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(512, 512, kernel_size=3, padding=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(inplace=True),
-        )
-
-        self.up2 = nn.Sequential(
-            nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(256, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-        )
-
-        self.up3 = nn.Sequential(
-            nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-        )
-
-        self.up4 = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(64, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-        )
-
-        # Final classification layer
+        # encoder_dims: list of feature dimensions from encoder layers
+        # e.g., [768, 768, 768, 768] for DINO-Base
+        
+        self.up1 = self._make_up_block(encoder_dims[-1], 512)
+        self.up2 = self._make_up_block(512 + encoder_dims[-2], 256)  # +skip
+        self.up3 = self._make_up_block(256 + encoder_dims[-3], 128)  # +skip
+        self.up4 = self._make_up_block(128 + encoder_dims[-4], 64)   # +skip
+        
         self.final = nn.Conv2d(64, num_classes, kernel_size=1)
 
-    def forward(self, x):
-        # x shape: (batch, patches_h * patches_w, embedding_dim)
+    def _make_up_block(self, in_ch, out_ch):
+        return nn.Sequential(
+            nn.ConvTranspose2d(in_ch, out_ch, kernel_size=2, stride=2),
+            nn.GroupNorm(32, out_ch),  # More stable than BatchNorm
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1),
+            nn.GroupNorm(32, out_ch),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x, skip_features):
+        # x: final output, skip_features: list of intermediate features
         batch_size, num_patches, embed_dim = x.shape
-
-        # Calculate spatial dimensions
         patch_h = patch_w = int(num_patches**0.5)
-
-        # Reshape to spatial: (batch, embed_dim, patch_h, patch_w)
+        
         x = x.transpose(1, 2).reshape(batch_size, embed_dim, patch_h, patch_w)
-
-        # Progressive upsampling
-        x = self.up1(x)  # 2x upsampling
-        x = self.up2(x)  # 4x upsampling
-        x = self.up3(x)  # 8x upsampling
-        x = self.up4(x)  # 16x upsampling
-
-        # Final classification
-        x = self.final(x)
-
-        return x
+        
+        x = self.up1(x)
+        x = torch.cat([x, skip_features[-2]], dim=1)  # Skip connection
+        
+        x = self.up2(x)
+        x = torch.cat([x, skip_features[-3]], dim=1)
+        
+        x = self.up3(x)
+        x = torch.cat([x, skip_features[-4]], dim=1)
+        
+        x = self.up4(x)
+        
+        return self.final(x)
 
 
 class DINOSegmentation(nn.Module):

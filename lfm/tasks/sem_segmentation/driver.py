@@ -10,7 +10,7 @@ import time
 
 import torch
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -271,7 +271,7 @@ def visualize_predictions(
 
 
 def train_epoch(
-    model, dataloader, criterion, optimizer, device, desc="Training"
+    model, dataloader, criterion, optimizer, device, desc="Training", max_grad_norm=1.0
 ):
     """
     Train for one epoch.
@@ -306,6 +306,9 @@ def train_epoch(
 
         # Backward pass
         loss.backward()
+        # Clip gradients
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)\
+        #Optimizer step
         optimizer.step()
 
         # Track metrics
@@ -551,6 +554,9 @@ def train_model(
     device=None,
     mode="both",
     checkpoint_path=None,
+    max_grad_norm=1.0,
+    use_early_stopping=False, 
+    warmup_epochs=None
 ):
     """
     Main training/evaluation loop for DINO segmentation.
@@ -628,8 +634,29 @@ def train_model(
         weight_decay=weight_decay,
     )
 
-    # Learning rate scheduler
-    scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
+    # # Learning rate scheduler
+    if warmup_epochs is None or warmup_epochs < 0:
+        scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
+    elif warmup_epochs > num_epochs:
+        raise ValueError("Number of warmup epochs must be less than or equal to total epochs.")
+    elif warmup_epochs > 0.5 * num_epochs:
+        print("Warning: warmup epochs is greater than 1/2 of total epochs.")
+    else:
+        warmup_scheduler = LinearLR(
+            optimizer, 
+            start_factor=0.1, 
+            total_iters=warmup_epochs
+        )
+        cosine_scheduler = CosineAnnealingLR(
+            optimizer, 
+            T_max=num_epochs - warmup_epochs,
+            eta_min=1e-7  # Lower minimum
+        )
+        scheduler = SequentialLR(
+            optimizer,
+            schedulers=[warmup_scheduler, cosine_scheduler],
+            milestones=[warmup_epochs]
+        )
 
     # Training history
     train_losses = []
@@ -678,6 +705,7 @@ def train_model(
             optimizer,
             device,
             desc=f"Epoch {epoch}/{num_epochs} [Train]",
+            max_grad_norm=max_grad_norm
         )
         train_losses.append(train_loss)
 
@@ -706,21 +734,6 @@ def train_model(
         print(f"  LR:         {current_lr:.6f}")
         print(f"  Time:       {epoch_time:.2f}s")
 
-        # Save best model
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_path = os.path.join(checkpoint_dir, "best_model.pt")
-            save_checkpoint(
-                model,
-                optimizer,
-                scheduler,
-                epoch,
-                train_losses,
-                val_losses,
-                best_path,
-            )
-            print(f"  Saved best model (val_loss: {val_loss:.4f})")
-
         # Save checkpoint periodically
         if epoch % checkpoint_every == 0:
             checkpoint_path_epoch = os.path.join(
@@ -742,6 +755,31 @@ def train_model(
             visualize_predictions(
                 model, val_loader, device, visualization_dir, epoch
             )
+
+        # Save best model
+        # Early stopping check
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0
+            best_path = os.path.join(checkpoint_dir, "best_model.pt")
+            save_checkpoint(
+                model,
+                optimizer,
+                scheduler,
+                epoch,
+                train_losses,
+                val_losses,
+                best_path,
+            )
+            print(f"  Saved best model (val_loss: {val_loss:.4f})")
+            # Save best model...
+        else:
+            patience_counter += 1
+            
+        if patience_counter >= patience:
+            print(f"\n⚠️  Early stopping triggered after {epoch} epochs")
+            print(f"No improvement for {patience} epochs")
+            break
 
     # Calculate total training time
     total_training_time = time.time() - training_start_time
