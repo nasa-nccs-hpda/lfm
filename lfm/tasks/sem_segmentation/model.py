@@ -128,7 +128,7 @@ class DINOSegmentation(nn.Module):
         print("Modifying input weights for Blue-Green-Orange-Red-NIR bands...")
 
         # Access the patch embedding
-        patch_embed = self.encoder.embeddings.patch_embeddings
+        patch_embed = self.encoder.patch_embed.proj
 
         with torch.no_grad():
             original_weights = (
