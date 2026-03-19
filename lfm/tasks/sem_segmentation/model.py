@@ -144,22 +144,16 @@ class DINOSegmentation(nn.Module):
                 original_weights.shape[3],
             ).to(original_weights.device)
 
+            red_weights = original_weights[:, 0, :, :]
+            green_weights = original_weights[:, 1, :, :]
+            blue_weights = original_weights[:, 2, :, :]
+
             # Correct mapping based on RGB order in original_weights
-            new_weights[:, 0, :, :] = original_weights[
-                :, 2, :, :
-            ]  # Blue <- Blue
-            new_weights[:, 1, :, :] = original_weights[
-                :, 1, :, :
-            ]  # Green <- Green
-            new_weights[:, 2, :, :] = (
-                original_weights[:, 0, :, :] + original_weights[:, 1, :, :]
-            ) / 2  # Orange <- Mean(Red, Green)
-            new_weights[:, 3, :, :] = original_weights[
-                :, 0, :, :
-            ]  # Red <- Red
-            new_weights[:, 4, :, :] = original_weights[
-                :, 0, :, :
-            ]  # NIR <- Red (spectrally closest)
+            new_weights[:, 0, :, :] = blue_weights
+            new_weights[:, 1, :, :] = green_weights
+            new_weights[:, 2, :, :] = 0.7 * red_weights + 0.3 * green_weights
+            new_weights[:, 3, :, :] = red_weights
+            new_weights[:, 4, :, :] = 0.95 * red_weights
 
             # Replace patch embedding weights
             patch_embed.weight.data = new_weights
