@@ -10,7 +10,7 @@ import time
 
 import torch
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, SequentialLR, LinearLR
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -657,7 +657,9 @@ def visualize_predictions(
 # ============================================================================
 
 
-def train_epoch(model, dataloader, optimizer, device, desc="Training"):
+def train_epoch(
+    model, dataloader, optimizer, device, desc="Training", max_grad_norm=None
+):
     """
     Train for one epoch using Mask2Former (no criterion needed).
 
@@ -696,6 +698,11 @@ def train_epoch(model, dataloader, optimizer, device, desc="Training"):
 
         # Backward pass
         loss.backward()
+
+        # Add gradient clipping
+        if max_grad_norm is not None:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+
         optimizer.step()
 
         # Track metrics
@@ -957,6 +964,9 @@ def train_model(
     device=None,
     mode="both",
     checkpoint_path=None,
+    max_grad_norm=1.0,
+    early_stopping_patience=None,
+    warmup_epochs=None,
 ):
     """
     Main training/evaluation loop for Mask2Former instance segmentation.
@@ -1024,14 +1034,34 @@ def train_model(
         weight_decay=weight_decay,
     )
 
-    # Learning rate scheduler
-    scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
+    # Learning rate scheduler with optional warmup
+    if warmup_epochs is None or warmup_epochs <= 0:
+        scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
+    elif warmup_epochs > num_epochs:
+        raise ValueError(
+            "Number of warmup epochs must be less than or equal to total epochs."
+        )
+    else:
+        warmup_scheduler = LinearLR(
+            optimizer, start_factor=0.1, total_iters=warmup_epochs
+        )
+        cosine_scheduler = CosineAnnealingLR(
+            optimizer, T_max=num_epochs - warmup_epochs, eta_min=1e-7
+        )
+        scheduler = SequentialLR(
+            optimizer,
+            schedulers=[warmup_scheduler, cosine_scheduler],
+            milestones=[warmup_epochs],
+        )
 
     # Training history
     train_losses = []
     val_losses = []
     best_val_loss = float("inf")
     start_epoch = 1
+
+    # Early stopping
+    patience_counter = 0
 
     # Load checkpoint if resuming
     if checkpoint_path is not None:
@@ -1046,15 +1076,6 @@ def train_model(
     print(f"Starting from epoch: {start_epoch}")
     print(f"Checkpoints will be saved every {checkpoint_every} epochs")
     print(f"Visualizations will be saved every {visualize_every} epochs")
-
-    # Note: print_model_summary might not work correctly with Mask2Former
-    # Comment out if it causes errors
-    # try:
-    #     print_model_summary(model)
-    # except:
-    #     print(
-    #         "(Skipping model summary - not compatible with Mask2Former structure)"
-    #     )
 
     # Start timing
     training_start_time = time.time()
@@ -1074,6 +1095,7 @@ def train_model(
             optimizer,
             device,
             desc=f"Epoch {epoch}/{num_epochs} [Train]",
+            max_grad_norm=max_grad_norm,
         )
         train_losses.append(train_loss)
 
@@ -1101,21 +1123,6 @@ def train_model(
         print(f"  LR:         {current_lr:.6f}")
         print(f"  Time:       {epoch_time:.2f}s")
 
-        # Save best model
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_path = os.path.join(checkpoint_dir, "best_model.pt")
-            save_checkpoint(
-                model,
-                optimizer,
-                scheduler,
-                epoch,
-                train_losses,
-                val_losses,
-                best_path,
-            )
-            print(f"\n  ✅ Saved best model (val_loss: {val_loss:.4f})")
-
         # Save checkpoint periodically
         if epoch % checkpoint_every == 0:
             checkpoint_path_epoch = os.path.join(
@@ -1142,6 +1149,63 @@ def train_model(
                 visualization_dir,
                 epoch,
             )
+
+        # Save best model & check early stopping
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0  # Reset counter
+            best_path = os.path.join(checkpoint_dir, "best_model.pt")
+            save_checkpoint(
+                model,
+                optimizer,
+                scheduler,
+                epoch,
+                train_losses,
+                val_losses,
+                best_path,
+            )
+            print(f"\n  ✅ Saved best model (val_loss: {val_loss:.4f})")
+        else:
+            patience_counter += 1
+
+        # Early stopping check
+        if (
+            early_stopping_patience
+            and patience_counter >= early_stopping_patience
+        ):
+            print(f"\n{'='*60}")
+            print(f"⚠️  Early stopping triggered after {epoch} epochs")
+            print(f"No improvement for {early_stopping_patience} epochs")
+            print(f"{'='*60}")
+
+            # Load best model for final evaluation
+            best_model_path = os.path.join(checkpoint_dir, "best_model.pt")
+            print(f"\n📊 Loading best model for final evaluation...")
+            print(f"Best model path: {best_model_path}")
+            load_model_weights(model, best_model_path, device)
+
+            # Run evaluation on best model
+            print(
+                f"\n🔍 Running evaluation on best model (val_loss: {best_val_loss:.4f})..."
+            )
+            evaluate_model(
+                model, val_loader, image_processor, output_dir, device
+            )
+
+            # Generate final visualizations
+            print(f"\n📸 Generating final visualizations...")
+            visualize_predictions(
+                model,
+                val_loader,
+                image_processor,
+                device,
+                visualization_dir,
+                epoch=f"early_stop_epoch_{epoch}",  # Mark as early stopped
+            )
+
+            print(f"\n✅ Early stopping evaluation complete")
+            print(f"{'='*60}\n")
+            break
 
     # Calculate total training time
     total_training_time = time.time() - training_start_time

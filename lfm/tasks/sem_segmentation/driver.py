@@ -786,13 +786,40 @@ def train_model(
         else:
             patience_counter += 1
 
-        # If we specify early stopping, use it when we hit a plateau
+        # Early stopping check
         if (
             early_stopping_patience
             and patience_counter >= early_stopping_patience
         ):
-            print(f"\n⚠️  Early stopping triggered after {epoch} epochs")
+            print(f"\n{'='*60}")
+            print(f"⚠️  Early stopping triggered after {epoch} epochs")
             print(f"No improvement for {early_stopping_patience} epochs")
+            print(f"{'='*60}")
+
+            # Load best model for final evaluation
+            best_model_path = os.path.join(checkpoint_dir, "best_model.pt")
+            print(f"\n📊 Loading best model for final evaluation...")
+            print(f"Best model path: {best_model_path}")
+            load_model_weights(model, best_model_path, device)
+
+            # Run evaluation on best model
+            print(
+                f"\n🔍 Running evaluation on best model (val_loss: {best_val_loss:.4f})..."
+            )
+            evaluate_model(model, val_loader, output_dir, device)
+
+            # Generate final visualizations
+            print(f"\n📸 Generating final visualizations...")
+            visualize_predictions(
+                model,
+                val_loader,
+                device,
+                visualization_dir,
+                epoch=f"early_stop_epoch_{epoch}",  # Mark as early stopped
+            )
+
+            print(f"\n✅ Early stopping evaluation complete")
+            print(f"{'='*60}\n")
             break
 
     # Calculate total training time
