@@ -133,14 +133,10 @@ class LunarCraterDatasetMask2Former(Dataset):
         image_processor,
         target_size: Tuple[int, int] = (304, 304),
         max_samples: Optional[int] = None,
-        norm_to_one: bool = False,
     ):
         self.image_dir = image_dir
         self.label_dir = label_dir
         self.target_size = target_size
-
-        # If we want to normalize instances to 1
-        self.norm_to_one = norm_to_one
 
         # Used for m2f
         self.image_processor = image_processor
@@ -271,40 +267,6 @@ class LunarCraterDatasetMask2Former(Dataset):
             "original_size": (original_height, original_width),  # Tuple
         }
 
-        # (C, H, W) where C = num_channels
-        # image = torch.from_numpy(image).permute(2, 0, 1)
-        # (H, W)
-        # instance_label = torch.from_numpy(instance_label)
-
-        # Resize image to target size for model
-        # image = F.interpolate(
-        #     image.unsqueeze(0),
-        #     size=self.target_size,
-        #     mode="bilinear",
-        #     align_corners=False,
-        # ).squeeze(
-        # 0
-        # )  # (C, target_H, target_W)
-
-        # Resize label using nearest neighbor to preserve class indices
-        # Labels are NOT transformed, only resized
-        # label = (
-        #     F.interpolate(
-        #         label.unsqueeze(0).unsqueeze(0).float(),
-        #         size=self.target_size,
-        #         mode="nearest",
-        #     )
-        #     .squeeze(0)
-        #     .squeeze(0)
-        #     .long()
-        # )  # (target_H, target_W)
-
-        # Used in mask2former architecture
-        # if self.norm_to_one:
-        #     label[label > 0] = 1
-
-        # return image, label
-
 
 def collate_fn(batch):
     """
@@ -332,7 +294,6 @@ def get_dataloaders(
     max_samples: Optional[int] = None,
     seed: int = 42,
     stats_save_dir: Optional[str] = None,
-    norm_to_one: bool = False,
 ):
     """
     Create train/val dataloaders with automatic statistics calculation.
@@ -391,7 +352,6 @@ def get_dataloaders(
         image_processor=image_processor,
         target_size=target_size,
         max_samples=max_samples,
-        norm_to_one=norm_to_one,
     )
 
     # Split into train/val

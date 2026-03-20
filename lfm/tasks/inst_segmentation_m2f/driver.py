@@ -258,30 +258,35 @@ def prepare_image_for_display(img, fix_rgb_order=True):
     return img_vis, display_note
 
 
-def convert_binary_masks_to_instance_map(binary_masks):
+def convert_binary_masks_to_instance_map(binary_masks, class_labels=None):
     """
     Convert binary masks to instance segmentation map.
-    Skips first mask if it's the background mask (covers >80% of pixels).
+    Uses class_labels to identify background (class 0) vs instances (class 1).
+
+    Args:
+        binary_masks: (num_masks, H, W) binary mask array
+        class_labels: (num_masks,) array where 0=background, 1=instance
     """
     if isinstance(binary_masks, torch.Tensor):
         binary_masks = binary_masks.cpu().numpy()
+    if isinstance(class_labels, torch.Tensor):
+        class_labels = class_labels.cpu().numpy()
 
     if binary_masks.ndim == 2:
         return binary_masks
 
-    num_instances, h, w = binary_masks.shape
+    num_masks, h, w = binary_masks.shape
     instance_map = np.zeros((h, w), dtype=np.int32)
 
-    # Check if first mask is background (covers most of image)
-    first_mask_coverage = (binary_masks[0] > 0.5).sum() / (h * w)
-    start_idx = 1 if first_mask_coverage > 0.8 else 0
+    instance_counter = 1
+    for mask_id in range(num_masks):
+        # Skip background masks (class_label == 0)
+        if class_labels is not None and class_labels[mask_id] == 0:
+            continue
 
-    # Assign instance IDs (start_idx determines if we skip background)
-    for inst_id in range(start_idx, num_instances):
-        mask = binary_masks[inst_id] > 0.5
-        instance_map[mask] = (
-            inst_id - start_idx + 1
-        )  # Ensures instances start at 1
+        mask = binary_masks[mask_id] > 0.5
+        instance_map[mask] = instance_counter
+        instance_counter += 1
 
     return instance_map
 
@@ -416,27 +421,30 @@ def visualize_predictions(
                     instance_mask = result["segmentation"]
                     if isinstance(instance_mask, torch.Tensor):
                         instance_mask = instance_mask.cpu().numpy()
+                    # Pass class labels if available
+                    class_labels = result.get("segments_info", None)
+                    if class_labels and "label_id" in class_labels[0]:
+                        labels = np.array(
+                            [seg["label_id"] for seg in class_labels]
+                        )
+                    else:
+                        labels = None
                     instance_mask = convert_binary_masks_to_instance_map(
-                        instance_mask
+                        instance_mask, labels
                     )
-                    preds_list.append(instance_mask)
-                else:
-                    print(
-                        "Warning: 'segmentation' not in result. "
-                        f"Keys: {result.keys()}"
-                    )
-                    height, width = target_sizes[idx]
-                    instance_mask = np.zeros((height, width), dtype=np.int32)
                     preds_list.append(instance_mask)
 
             # Store images
             images_list.append(pixel_values.cpu())
 
-            for label_tensor in mask_labels:
+            for idx, label_tensor in enumerate(mask_labels):
                 label_numpy = label_tensor.cpu().numpy()
+                class_label_numpy = (
+                    batch["class_labels"][idx].cpu().numpy()
+                )  # Get class labels!
                 if label_numpy.ndim == 3:
                     label_2d = convert_binary_masks_to_instance_map(
-                        label_numpy
+                        label_numpy, class_label_numpy
                     )
                     labels_list.append(label_2d)
                 else:
