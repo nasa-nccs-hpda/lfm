@@ -66,7 +66,7 @@ class DinoV3WithAdapterBackbone(nn.Module):
 
         if use_flexible:
             print(f"Flexible embeddings will be applied to DinoV3 backbone...")
-            # self._apply_flexible_weights()
+            self._apply_flexible_weights()
 
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         # Get DINOv3 outputs with all hidden states
@@ -119,7 +119,7 @@ class DinoV3WithAdapterBackbone(nn.Module):
         print("Modifying input weights for Blue-Green-Orange-Red-NIR bands...")
 
         # Access the patch embedding
-        patch_embed = self.encoder.patch_embed.proj
+        patch_embed = self.encoder.model.embeddings.patch_embeddings
 
         with torch.no_grad():
             original_weights = (
@@ -211,8 +211,8 @@ def create_mask2former_dinov3_model(
     # 3. Replace the backbone
     model.model.backbone = custom_backbone
 
-    print(f"LOADED DINOV3 BACKBONE:")
-    print(custom_backbone)
+    # print(f"LOADED DINOV3 BACKBONE:")
+    # print(custom_backbone)
 
     # 4. Freeze DINOv3 weights if requested
     if freeze_backbone:
