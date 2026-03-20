@@ -119,7 +119,7 @@ class DinoV3WithAdapterBackbone(nn.Module):
         print("Modifying input weights for Blue-Green-Orange-Red-NIR bands...")
 
         # Access the patch embedding
-        patch_embed = self.encoder.model.embeddings.patch_embeddings
+        patch_embed = self.model.embeddings.patch_embeddings
 
         with torch.no_grad():
             original_weights = (
