@@ -79,21 +79,32 @@ class DinoV3WithAdapterBackbone(nn.Module):
         batch_size, _, height, width = x.shape
         patch_size = self.model.config.patch_size
         patch_height, patch_width = height // patch_size, width // patch_size
+        num_patches = patch_height * patch_width
 
         # Extract features from different layers
         extracted_features = []
         for layer_idx in self.layers_to_extract:
-            layer_output = hidden_states[layer_idx + 1]  # Skip CLS token
+            layer_output = hidden_states[
+                layer_idx + 1
+            ]  # Shape: [B, num_tokens, C]
+
+            # DinoV3 adds: [CLS token, register tokens, patch tokens]
+            # We need to extract only the patch tokens
+            # Calculate how many non-patch tokens there are
+            total_tokens = layer_output.shape[1]
+            num_extra_tokens = total_tokens - num_patches
+
+            # Skip CLS + register tokens, keep only patch tokens
+            patch_tokens = layer_output[
+                :, num_extra_tokens:, :
+            ]  # Shape: [B, num_patches, C]
+
             # Reshape from (B, N, C) to (B, C, H, W)
-            feature_map = (
-                layer_output[:, 1:, :]
-                .permute(0, 2, 1)
-                .reshape(
-                    batch_size,
-                    self.model.config.hidden_size,
-                    patch_height,
-                    patch_width,
-                )
+            feature_map = patch_tokens.permute(0, 2, 1).reshape(
+                batch_size,
+                self.model.config.hidden_size,
+                patch_height,
+                patch_width,
             )
             extracted_features.append(feature_map)
 
@@ -200,6 +211,30 @@ def create_mask2former_dinov3_model(
     # 3. Replace the backbone - USE THE CORRECT PATH!
     # The encoder is in the pixel_level_module, not at model.backbone
     model.model.pixel_level_module.encoder = custom_backbone  # ✅ FIXED!
+
+    # After creating the model
+    print("\nDinoV3 Model Configuration:")
+    print(f"  Hidden size: {custom_backbone.model.config.hidden_size}")
+    print(f"  Patch size: {custom_backbone.model.config.patch_size}")
+    print(
+        f"  Num register tokens: {getattr(custom_backbone.model.config, 'num_register_tokens', 'Not found')}"
+    )
+
+    # Test with dummy input
+    dummy = torch.randn(2, 5, 320, 320).to(device)
+    with torch.no_grad():
+        test_output = custom_backbone.model(
+            dummy, output_hidden_states=True, return_dict=True
+        )
+        first_hidden = test_output.hidden_states[1]
+        print(
+            f"  Hidden states shape: {first_hidden.shape}"
+        )  # [2, num_tokens, 1024]
+        print(f"  Expected patch tokens: {(320//16) * (320//16)} = 400")
+        print(f"  Actual tokens: {first_hidden.shape[1]}")
+        print(
+            f"  Extra tokens (CLS + registers): {first_hidden.shape[1] - 400}"
+        )
 
     logger.info(f"Replaced pixel_level_module.encoder with DINOv3 backbone")
 
