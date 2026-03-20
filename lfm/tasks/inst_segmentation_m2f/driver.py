@@ -261,12 +261,7 @@ def prepare_image_for_display(img, fix_rgb_order=True):
 def convert_binary_masks_to_instance_map(binary_masks):
     """
     Convert binary masks to instance segmentation map.
-
-    Args:
-        binary_masks: array of shape (num_instances, H, W)
-
-    Returns:
-        instance_map: array of shape (H, W) where 0 = background, 1+ = instances
+    Skips first mask if it's the background mask (covers >80% of pixels).
     """
     if isinstance(binary_masks, torch.Tensor):
         binary_masks = binary_masks.cpu().numpy()
@@ -277,9 +272,16 @@ def convert_binary_masks_to_instance_map(binary_masks):
     num_instances, h, w = binary_masks.shape
     instance_map = np.zeros((h, w), dtype=np.int32)
 
-    for inst_id in range(num_instances):
-        mask = binary_masks[inst_id] > 0
-        instance_map[mask] = inst_id + 1
+    # Check if first mask is background (covers most of image)
+    first_mask_coverage = (binary_masks[0] > 0.5).sum() / (h * w)
+    start_idx = 1 if first_mask_coverage > 0.8 else 0
+
+    # Assign instance IDs (start_idx determines if we skip background)
+    for inst_id in range(start_idx, num_instances):
+        mask = binary_masks[inst_id] > 0.5
+        instance_map[mask] = (
+            inst_id - start_idx + 1
+        )  # Ensures instances start at 1
 
     return instance_map
 
