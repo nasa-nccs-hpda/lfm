@@ -173,47 +173,54 @@ def calculate_semantic_f1(pred_mask, gt_mask):
 # ============================================================================
 
 
-def colorize_instance_mask(
-    instance_mask, colormap="viridis", max_instances=100, color_stride=5
-):
+def instance_colormap(instance_mask):
     """
-    Colorize instance mask: 0 -> black, other values -> colormap colors.
-    Instance IDs map to consistent colors across all images.
+    Generate a deterministic, high-contrast color mapping for instance segmentation.
+    0 values always map to black; other values map to a consistent, high-contrast colormap.
 
     Args:
-        instance_mask: (H, W) array with unique IDs per instance (0 = background)
-        colormap: Matplotlib colormap name (e.g., 'viridis', 'plasma', 'turbo')
-        max_instances: Maximum expected instances for consistent color mapping
-        color_stride: Step size in colormap (higher = more distinct colors between instances)
+        instance_mask: numpy array or torch tensor with instance IDs (0 = background)
 
     Returns:
-        colored: (H, W, 3) RGB array with values in [0, 1]
+        RGB image array (H, W, 3) with values in [0, 1]
     """
-    h, w = instance_mask.shape
-    colored = np.zeros((h, w, 3), dtype=np.float32)
+    # Convert to numpy if torch tensor
+    if isinstance(instance_mask, torch.Tensor):
+        instance_mask = instance_mask.cpu().numpy()
 
-    # Get unique instances (excluding 0)
-    unique_instances = np.unique(instance_mask)
-    unique_instances = unique_instances[unique_instances != 0]
+    instance_mask = instance_mask.astype(np.int32)
 
-    if len(unique_instances) == 0:
-        return colored  # All black
+    # Create output RGB image
+    h, w = instance_mask.shape[-2:]
+    rgb_image = np.zeros((h, w, 3), dtype=np.float32)
 
-    # Get colormap
-    cmap = plt.get_cmap(colormap)
+    # Get unique instance IDs
+    unique_ids = np.unique(instance_mask)
 
-    # Assign colors: map instance IDs to consistent positions in colormap
-    for instance_id in unique_instances:
-        instance_pixels = instance_mask == instance_id
-        # Apply stride to skip colors, making adjacent instances more distinct
-        strided_id = (instance_id - 1) * color_stride
-        color_position = (strided_id % max_instances) / max(
-            max_instances - 1, 1
-        )
-        color = np.array(cmap(color_position)[:3])  # RGB only, no alpha
-        colored[instance_pixels] = color
+    # Function to generate deterministic color from instance ID
+    def id_to_color(instance_id):
+        """Generate a deterministic, high-contrast color for a given instance ID."""
+        if instance_id == 0:
+            return np.array([0.0, 0.0, 0.0])  # Black for background
 
-    return colored
+        # Use golden ratio for well-distributed hues
+        golden_ratio = 0.618033988749895
+        hue = (instance_id * golden_ratio) % 1.0
+
+        # Alternate saturation and value for more contrast
+        saturation = 0.9 if instance_id % 2 == 0 else 0.7
+        value = 0.95 if (instance_id // 2) % 2 == 0 else 0.75
+
+        # Convert HSV to RGB
+        rgb = mcolors.hsv_to_rgb([hue, saturation, value])
+        return rgb
+
+    # Apply colors to each instance
+    for instance_id in unique_ids:
+        mask = instance_mask == instance_id
+        rgb_image[mask] = id_to_color(instance_id)
+
+    return rgb_image
 
 
 def prepare_image_for_display(img, fix_rgb_order=True):
@@ -277,9 +284,7 @@ def convert_binary_masks_to_instance_map(binary_masks):
     return instance_map
 
 
-def create_instance_overlay(
-    img_vis, instance_mask, alpha=0.5, colormap="viridis", max_instances=100
-):
+def create_instance_overlay(img_vis, instance_mask, alpha=0.5):
     """
     Create overlay of instance mask on image.
 
@@ -287,8 +292,6 @@ def create_instance_overlay(
         img_vis: Base image (H, W) or (H, W, 3)
         instance_mask: Instance mask (H, W) with 0 = background
         alpha: Transparency for instances (0 = show image, 1 = show mask)
-        colormap: Colormap for instances
-        max_instances: Maximum expected instances for consistent color mapping
 
     Returns:
         overlay: (H, W, 3) RGB array
@@ -300,9 +303,7 @@ def create_instance_overlay(
         img_vis_rgb = img_vis.copy()
 
     # Colorize the mask (0 -> black, others -> distinct colors)
-    colored_mask = colorize_instance_mask(
-        instance_mask, colormap=colormap, max_instances=max_instances
-    )
+    colored_mask = instance_colormap(instance_mask)
 
     # Create alpha mask (0 for background, alpha for instances)
     alpha_mask = (instance_mask != 0).astype(np.float32) * alpha
@@ -452,7 +453,7 @@ def visualize_predictions(
     num_channels = all_images.shape[1]
     batch_size = min(n_samples, len(all_preds))
 
-    # Create 5-row visualization
+    # Create 5-row visualization (maintaining original 4 rows + 1 header = 5 rows)
     fig, axes = plt.subplots(5, batch_size, figsize=(4 * batch_size, 20))
 
     if batch_size == 1:
@@ -505,10 +506,10 @@ def visualize_predictions(
         )
         axes[0, i].axis("off")
 
-        # Row 1: Predicted instances (pure mask, no overlay) with bounding boxes
+        # Row 1: Predicted instances (pure mask, no overlay) with RED bounding boxes
         unique_pred = np.unique(pred_mask)
         num_pred = len(unique_pred[unique_pred != 0])
-        pred_colored = colorize_instance_mask(pred_mask)
+        pred_colored = instance_colormap(pred_mask)
         axes[1, i].imshow(pred_colored, vmin=0, vmax=1)
 
         # Draw red bounding boxes around predictions
@@ -532,7 +533,7 @@ def visualize_predictions(
         )
         axes[1, i].axis("off")
 
-        # Row 2: Prediction overlay on image
+        # Row 2: Prediction overlay on image with RED bounding boxes
         pred_overlay = create_instance_overlay(img_vis, pred_mask, alpha=0.5)
         axes[2, i].imshow(pred_overlay, vmin=0, vmax=1)
 
@@ -556,13 +557,13 @@ def visualize_predictions(
         )
         axes[2, i].axis("off")
 
-        # Row 3: Ground truth instances (pure mask, no overlay) with bounding boxes
+        # Row 3: Ground truth instances (pure mask, no overlay) with RED bounding boxes
         unique_gt = np.unique(gt_mask)
         num_gt = len(unique_gt[unique_gt != 0])
-        gt_colored = colorize_instance_mask(gt_mask)
+        gt_colored = instance_colormap(gt_mask)
         axes[3, i].imshow(gt_colored, vmin=0, vmax=1)
 
-        # Draw bounding boxes around ground truth (green to distinguish from predictions)
+        # Draw RED bounding boxes around ground truth (matching your requirement)
         gt_bboxes = get_instance_bboxes(gt_mask)
         for bbox in gt_bboxes:
             x_min, y_min, width, height = bbox
@@ -571,7 +572,7 @@ def visualize_predictions(
                 width,
                 height,
                 linewidth=2,
-                edgecolor="green",  # Green for ground truth, red for predictions
+                edgecolor="red",
                 facecolor="none",
             )
             axes[3, i].add_patch(rect)
@@ -583,11 +584,11 @@ def visualize_predictions(
         )
         axes[3, i].axis("off")
 
-        # Row 4: GT overlay on image
+        # Row 4: GT overlay on image with RED bounding boxes
         gt_overlay = create_instance_overlay(img_vis, gt_mask, alpha=0.5)
         axes[4, i].imshow(gt_overlay, vmin=0, vmax=1)
 
-        # Draw green bounding boxes around ground truth
+        # Draw red bounding boxes around ground truth
         for bbox in gt_bboxes:  # Reuse gt_bboxes from Row 3
             x_min, y_min, width, height = bbox
             rect = patches.Rectangle(
@@ -595,7 +596,7 @@ def visualize_predictions(
                 width,
                 height,
                 linewidth=2,
-                edgecolor="green",
+                edgecolor="red",
                 facecolor="none",
             )
             axes[4, i].add_patch(rect)
