@@ -68,7 +68,7 @@ class DinoV3WithAdapterBackbone(nn.Module):
             print(f"Flexible embeddings will be applied to DinoV3 backbone...")
             self._apply_flexible_weights()
 
-    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+    def forward(self, x: torch.Tensor):
         # Get DINOv3 outputs with all hidden states
         outputs = self.model(
             pixel_values=x, output_hidden_states=True, return_dict=True
@@ -126,11 +126,16 @@ class DinoV3WithAdapterBackbone(nn.Module):
         # Apply adapter to convert channels
         adapted_features = self.adapter(extracted_features)
 
-        # Return features with proper naming for Mask2Former
-        return {
-            name: feat
-            for name, feat in zip(self.out_features, adapted_features)
-        }
+        # Return in the format Mask2Former expects: an object with .feature_maps attribute
+        # Create a simple namespace object
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            feature_maps=adapted_features,  # List of tensors
+            hidden_states=tuple(
+                adapted_features
+            ),  # Optional: same as feature_maps
+        )
 
     def _apply_flexible_weights(self):
         """Weight modification for 5-band input (Blue, Green, Orange, Red, NIR)
@@ -149,7 +154,7 @@ class DinoV3WithAdapterBackbone(nn.Module):
 
         with torch.no_grad():
             original_weights = (
-                patch_embed.weight.data.clone()
+                patch_embed.projection.weight.data.clone()
             )  # Shape: (out_channels, 3, 16, 16)
             # original_weights channels: [0]=Red, [1]=Green, [2]=Blue
 
@@ -173,7 +178,7 @@ class DinoV3WithAdapterBackbone(nn.Module):
             new_weights[:, 4, :, :] = 0.95 * red_weights
 
             # Replace patch embedding weights
-            patch_embed.weight.data = new_weights
+            patch_embed.projection.weight.data = new_weights
 
         print(
             "Applied flexible embedding approach to match input bands. "
