@@ -14,7 +14,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, SequentialLR, LinearLR
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.colors import ListedColormap
+import matplotlib.colors as mcolors
 from matplotlib.patches import Rectangle
 import matplotlib.patches as patches
 from tqdm import tqdm
