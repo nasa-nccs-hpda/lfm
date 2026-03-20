@@ -65,6 +65,7 @@ class DinoV3WithAdapterBackbone(nn.Module):
         ]  # Adjusted for Large model (24 layers total)
 
         if use_flexible:
+            print(f"Flexible embeddings will be applied to DinoV3 backbone...")
             # self._apply_flexible_weights()
 
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
