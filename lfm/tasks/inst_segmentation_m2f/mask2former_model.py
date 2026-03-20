@@ -149,14 +149,16 @@ class DinoV3WithAdapterBackbone(nn.Module):
         """
         print("Modifying input weights for Blue-Green-Orange-Red-NIR bands...")
 
-        # Access the patch embedding
+        # Access the patch embedding - this IS the Conv2d layer
         patch_embed = self.model.embeddings.patch_embeddings
 
         with torch.no_grad():
+            # Access weights directly from the Conv2d layer
             original_weights = (
-                patch_embed.projection.weight.data.clone()
+                patch_embed.weight.data.clone()
             )  # Shape: (out_channels, 3, 16, 16)
-            # original_weights channels: [0]=Red, [1]=Green, [2]=Blue
+
+            print(f"  Original weights shape: {original_weights.shape}")
 
             # Create new weights for 5-band input
             new_weights = torch.zeros(
@@ -166,25 +168,30 @@ class DinoV3WithAdapterBackbone(nn.Module):
                 original_weights.shape[3],
             ).to(original_weights.device)
 
+            # Extract RGB channel weights
+            # DinoV3 typically uses RGB order: [R, G, B]
             red_weights = original_weights[:, 0, :, :]
             green_weights = original_weights[:, 1, :, :]
             blue_weights = original_weights[:, 2, :, :]
 
-            # Correct mapping based on RGB order in original_weights
+            # Map to 5 bands: [Blue, Green, Orange, Red, NIR]
             new_weights[:, 0, :, :] = blue_weights
             new_weights[:, 1, :, :] = green_weights
-            new_weights[:, 2, :, :] = 0.7 * red_weights + 0.3 * green_weights
+            new_weights[:, 2, :, :] = (
+                0.7 * red_weights + 0.3 * green_weights
+            )  # Orange
             new_weights[:, 3, :, :] = red_weights
-            new_weights[:, 4, :, :] = 0.95 * red_weights
+            new_weights[:, 4, :, :] = 0.95 * red_weights  # NIR
+
+            print(f"  New weights shape: {new_weights.shape}")
 
             # Replace patch embedding weights
-            patch_embed.projection.weight.data = new_weights
+            patch_embed.weight.data = new_weights
 
         print(
-            "Applied flexible embedding approach to match input bands. "
-            "Band mapping: [Blue, Green, Orange, Red, NIR] -> "
-            "[Blue_weights, Green_weights, Mean(Red_weights, Green_weights), "
-            "Red_weights, Red_weights]."
+            "✓ Applied flexible embedding approach to match input bands.\n"
+            "  Band mapping: [Blue, Green, Orange, Red, NIR] -> "
+            "[Blue_weights, Green_weights, 0.7*Red + 0.3*Green, Red_weights, 0.95*Red_weights]"
         )
 
 
