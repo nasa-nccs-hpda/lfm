@@ -429,26 +429,15 @@ def visualize_predictions(
                     instance_mask = np.zeros((height, width), dtype=np.int32)
                     preds_list.append(instance_mask)
 
-            # After the post-processing loop, before "Limit to n_samples"
-            print(f"\nDEBUG: Checking raw mask_labels from batch:")
-            raw_masks = (
-                batch["mask_labels"][0].cpu().numpy()
-            )  # First sample's masks
-            print(
-                f"  mask_labels shape: {raw_masks.shape}, sum per mask: {[m.sum() for m in raw_masks[:5]]}"
-            )
-
             # Store images
             images_list.append(pixel_values.cpu())
 
-            # Convert mask_labels
             for label_tensor in mask_labels:
                 label_numpy = label_tensor.cpu().numpy()
                 if label_numpy.ndim == 3:
-                    h, w = label_numpy.shape[1], label_numpy.shape[2]
-                    label_2d = np.zeros((h, w), dtype=np.int32)
-                    for inst_id in range(label_numpy.shape[0]):
-                        label_2d[label_numpy[inst_id] > 0] = inst_id + 1
+                    label_2d = convert_binary_masks_to_instance_map(
+                        label_numpy
+                    )
                     labels_list.append(label_2d)
                 else:
                     labels_list.append(label_numpy)
