@@ -257,6 +257,8 @@ class LunarCraterDatasetMask2Former(Dataset):
             segmentation_maps=[instance_mask],
             instance_id_to_semantic_id=instance_to_semantic,
             return_tensors="pt",
+            input_data_format="channels_last",  # ADD THIS: your image is (H, W, C)
+            data_format="channels_first",  # ADD THIS: output should be (C, H, W)
         )
 
         # Return in Mask2Former format
@@ -364,6 +366,21 @@ def get_dataloaders(
         [train_size, val_size],
         generator=torch.Generator().manual_seed(seed),
     )
+
+    sample = train_dataset[0]
+    print(f"\nDataset Sample Check:")
+    print(
+        f"  pixel_values shape: {sample['pixel_values'].shape}"
+    )  # Should be [5, H, W]
+    print(
+        f"  mask_labels shape: {sample['mask_labels'].shape}"
+    )  # Should be [num_instances, H, W]
+    print(
+        f"  class_labels shape: {sample['class_labels'].shape}"
+    )  # Should be [num_instances]
+    print(
+        f"  Number of channels: {sample['pixel_values'].shape[0]}"
+    )  # Should be 5
 
     # Create train dataloader
     train_loader = torch.utils.data.DataLoader(
