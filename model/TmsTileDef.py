@@ -162,13 +162,13 @@ class TmsTileDef:
             for col in range(minCol, maxCol + 1):
 
                 # Get tile bounds using existing method
-                llx, lly, urx, ury = self.getTileBbox(col, row)
+                ulx, uly, lrx, lry = self.getTileBbox(col, row)
     
                 # Calculate overlap dimensions in projected space
-                overlapMinX = max(llx, minEasting)
-                overlapMaxX = min(urx, maxEasting)
-                overlapMinY = max(lly, minNorthing)
-                overlapMaxY = min(ury, maxNorthing)
+                overlapMinX = max(ulx, minEasting)
+                overlapMaxX = min(lrx, maxEasting)
+                overlapMinY = max(uly, minNorthing)
+                overlapMaxY = min(lry, maxNorthing)
     
                 # Calculate overlap width and height
                 overlapWidth = max(0, overlapMaxX - overlapMinX)
@@ -207,23 +207,30 @@ class TmsTileDef:
     # ------------------------------------------------------------------------
     def getTileBbox(self, tileX: int, tileY: int) -> list[float]:
 
+        '''
+        Given a tile index, return its bounding box in LTM.
+        '''
+
         gridOrigin = self.pointOfOrigin
         cellSize = self.cellSize
         width = self.tileWidth
         height = self.tileHeight
 
-        ulx = gridOrigin[0] + tileX * width * cellSize
-        uly = gridOrigin[1] - tileY * height * cellSize
-        llx = ulx
-        lly = uly - height * cellSize
-        urx = ulx + width * cellSize
-        ury = uly
+        xmin = gridOrigin[0] + tileX * width * cellSize
+        xmax = gridOrigin[0] + (tileX + 1) * width * cellSize
+        ymax = gridOrigin[1] - tileY * height * cellSize
+        ymin = gridOrigin[1] - (tileY + 1) * height * cellSize
 
-        assert(((urx - llx) / cellSize) - width < 1)
-        assert(((ury - lly) / cellSize) - height < 1)
+        assert(((xmax - xmin) / cellSize) - width < 1)
+        assert(((ymax - ymin) / cellSize) - height < 1)
+
+        ulx = xmin
+        uly = ymax
+        lrx = xmax
+        lry = ymin
+
+        return ulx, uly, lrx, lry
     
-        return llx, lly, urx, ury
-
     # ------------------------------------------------------------------------
     # _getTileBoundsGeo
     # ------------------------------------------------------------------------
@@ -231,16 +238,16 @@ class TmsTileDef:
 
         # Get projected bounds
         # (llx, lly), (urx, ury) = self.getTileBbox(col, row)
-        llx, lly, urx, ury = self.getTileBbox(col, row)
+        ulx, uly, lrx, lry = self.getTileBbox(col, row)
     
         # Transform back to geographic
         xform = osr.CoordinateTransformation(self.srs, self.geoSrs)
     
         # Transform upper-left corner
-        ulLat, ulLon, _ = xform.TransformPoint(llx, ury)
+        ulLat, ulLon, _ = xform.TransformPoint(ulx, uly)
     
         # Transform lower-right corner
-        lrLat, lrLon, _ = xform.TransformPoint(urx, lly)
+        lrLat, lrLon, _ = xform.TransformPoint(lrx, lry)
     
         return ulLat, ulLon, lrLat, lrLon
     
