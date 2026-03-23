@@ -250,7 +250,6 @@ class Pipeline:
 
         tmsi = TmsIntersector()
         tileIndexes = tmsi.getTids(ulLat, ulLon, lrLat, lrLon, zoomLevel)
-        print('Tile indexes:', tileIndexes)
         
         cubeFiles = []
         
@@ -270,59 +269,79 @@ class Pipeline:
                    tileIndex: tuple[int, int], 
                    cube: np.ndarray) -> Path:
 
+        print('version 12')
+
         outName = 'Cube-LTM' + self._tileDef.zone + \
                   '_Zoom-' + str(self._tileDef.zoomLevel) + \
                   '_Tile-' + str(tileIndex[0]) + '-' + str(tileIndex[1]) + \
                   '.tif'
     
         outFile = self._outDir / outName
+        
+        # Strategy: Use a physical temporary file for the source
+        tempTiffPath = str(self._outDir / ('temp_' + outName))
 
-        # ---
-        # First create a temporary in-memory dataset
-        # ---
         dataType = gdal_array.NumericTypeCodeToGDALTypeCode(cube.dtype)
-        memDriver = gdal.GetDriverByName('MEM')
+        width = cube.shape[1]
+        height = cube.shape[2]
+        bands = cube.shape[0]
+
+        # Use GTiff driver for BOTH steps.
+        gtiffDriver = gdal.GetDriverByName('GTiff')
     
-        memDs = memDriver.Create('', 
-                                 cube.shape[1],    # width
-                                 cube.shape[2],    # height  
-                                 cube.shape[0],    # bands
-                                 dataType)
+        # Step 1: Create the source dataset with BIGTIFF and write the array
+        tempDs = gtiffDriver.Create(tempTiffPath, 
+                                    width,    
+                                    height,    
+                                    bands,    
+                                    dataType,
+                                    options=['BIGTIFF=YES', 
+                                             'TILED=YES', 
+                                             'COMPRESS=LZW'])
     
-        if memDs is None:
-            raise RuntimeError('Failed to create dataset in memory.')
+        if tempDs is None:
+            raise RuntimeError('Failed to create temporary GTiff dataset.')
     
-        memDs.SetSpatialRef(self._tileDef.srs)
+        tempDs.SetSpatialRef(self._tileDef.srs)
         
         geotransform = [
-            self._tileDef.pointOfOrigin[0],  # X-coordinate of ul corner
-            self._tileDef.cellSize,          # Pixel width (west-east res)
-            0,                               # Rotation (usually 0)
-            self._tileDef.pointOfOrigin[1],  # Y-coordinate of ul corner  
-            0,                               # Rotation (usually 0)
-            -self._tileDef.cellSize          # Pixel height (north-south res)
+            self._tileDef.pointOfOrigin[0],
+            self._tileDef.cellSize,         
+            0,                              
+            self._tileDef.pointOfOrigin[1], 
+            0,                              
+            -self._tileDef.cellSize         
         ]
-    
-        memDs.SetGeoTransform(geotransform)
+        tempDs.SetGeoTransform(geotransform)
 
-        # ---
-        # Write data to temporary dataset
-        # ---
-        for bandIndex in range(cube.shape[0]):
-        
-            band = memDs.GetRasterBand(bandIndex + 1)
+        # Write data directly
+        for bandIndex in range(bands):
+            band = tempDs.GetRasterBand(bandIndex + 1)
             band.WriteArray(cube[bandIndex])
 
+        # Step 2: Build overviews on the temporary dataset
+        tempDs.BuildOverviews('NEAREST', [2, 4, 8, 16, 32, 64])
+        tempDs.FlushCache()
+
         # ---
-        # Now create COG using CreateCopy.
+        # Step 3: Create the final COG-compliant file
+        # The GTiff driver SUPPORTS COPY_SRC_OVERVIEWS=YES.
+        # This option forces the overviews to the beginning of the file,
+        # which is what makes it a valid COG.
         # ---
-        cogDriver = gdal.GetDriverByName('COG')
+        finalDs = gtiffDriver.CreateCopy(str(outFile),
+                                         tempDs,
+                                         options=['BIGTIFF=YES', 
+                                                  'TILED=YES', 
+                                                  'COMPRESS=LZW', 
+                                                  'COPY_SRC_OVERVIEWS=YES'])
     
-        cogDs = cogDriver.CreateCopy(str(outFile),
-                                     memDs,
-                                     options=['BIGTIFF=YES', 'COMPRESS=LZW'])
-    
+        # Clean up to release file locks
         tempDs = None
-        cogDs = None
+        finalDs = None
+        
+        # Remove the temporary file
+        gdal.Unlink(tempTiffPath)
 
         return outFile
+                        

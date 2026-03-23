@@ -85,13 +85,13 @@ class TmsTileDef:
         with open(tmsPath, 'r') as f:
             tms = json.load(f)
 
-        # srs = osr.SpatialReference()
-        # srs.ImportFromWkt(tms[TmsTileDef.CRS])
+        srs = osr.SpatialReference()
+        srs.ImportFromWkt(tms[TmsTileDef.CRS])
         
         geoSrs = osr.SpatialReference()
         geoSrs.ImportFromWkt(tms[TmsTileDef.GEO_CRS])
         
-        return TmsTileDef.initFromJson(tms, None, geoSrs, zone, zoomLevel)
+        return TmsTileDef.initFromJson(tms, srs, geoSrs, zone, zoomLevel)
         
     # ------------------------------------------------------------------------
     # cellSize
