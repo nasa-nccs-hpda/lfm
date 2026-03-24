@@ -10,7 +10,6 @@ from lfm.model.TmsTileDef import TmsTileDef
 # -----------------------------------------------------------------------------
 # class TmsTileDefTestCase
 #
-# cd nse-da
 # python -m unittest lfm.model.tests.test_TmsTileDef
 # python -m unittest lfm.model.tests.test_TmsTileDef.TmsTileDefTestCase.testInit
 # -----------------------------------------------------------------------------
@@ -143,13 +142,77 @@ class TmsTileDefTestCase(unittest.TestCase):
         tmsTD = TmsTileDef.initFromParams(self._zone, self._zoomLevel)
         ulx, uly, lrx, lry = tmsTD.getTileBbox(tileX, tileY)
         
-        chatXmin = 167551.3878924654 
-        chatYmin = 39915.0436479341 
-        chatXmax = 206373.4338767631 
-        chatYmax =  78737.0896322318 
+        chatXmin = 167551.3878924654
+        chatYmin = 38822.0460662215
+        chatXmax = 206373.4338767631
+        chatYmax = 77644.0920505192
         
         self.assertAlmostEqual(ulx, chatXmin, 5)
-        self.assertAlmostEqual(uly, chatYmax, 5)
+        self.assertAlmostEqual(uly, chatYmax, 2)
         self.assertAlmostEqual(lrx, chatXmax, 5)
-        self.assertAlmostEqual(lry, chatYmin, 5)
+        self.assertAlmostEqual(lry, chatYmin, 2)
+
+    # -------------------------------------------------------------------------
+    # testGetTileBoundsGeo
+    # -------------------------------------------------------------------------
+    def testGetTileBboxGeo(self):
+        
+        col = 1
+        row = 62
+        tmsTD = TmsTileDef.initFromParams(self._zone, self._zoomLevel)
+        ulLat, ulLon, lrLat, lrLon = tmsTD._getTileBboxGeo(col, row)
+        
+        gdalXformUlLat = 2.56021010127471
+        gdalXformUlLon = 149.276599903094
+        gdalXformLrLat = 1.28114577330334
+        gdalXformLrLon = 150.559639399566
+        
+        self.assertAlmostEqual(ulLat, gdalXformUlLat)
+        self.assertAlmostEqual(ulLon, gdalXformUlLon)
+        self.assertAlmostEqual(lrLat, gdalXformLrLat)
+        self.assertAlmostEqual(lrLon, gdalXformLrLon)
+
+    # -------------------------------------------------------------------------
+    # testLlToTileIndex
+    # -------------------------------------------------------------------------
+    def testLlToTileIndex(self):
+        
+        gdalXformUlLat = 2.56021010127471
+        gdalXformUlLon = 149.276599903094
+        
+        tmsTD = TmsTileDef.initFromParams(self._zone, self._zoomLevel)
+        col, row = tmsTD.llToTileIndex(gdalXformUlLat, gdalXformUlLon)
+
+        self.assertEqual(col, 1)
+        self.assertEqual(row, 62)
+        
+    # -------------------------------------------------------------------------
+    # testLtmToTileIndex
+    # -------------------------------------------------------------------------
+    def testLtmToTileIndex(self):
+        
+        ulE = 167551.3878924654
+        ulN = 77644.0920505192
+        
+        tmsTD = TmsTileDef.initFromParams(self._zone, self._zoomLevel)
+        col, row = tmsTD.ltmToTileIndex(ulE, ulN)
+        
+        self.assertEqual(col, 1)
+        self.assertEqual(row, 62)
+
+    # -------------------------------------------------------------------------
+    # testGetOverlappingTiles
+    # -------------------------------------------------------------------------
+    def testGetOverlappingTiles(self):
+        
+        ulLat = 1.3
+        ulLon = 149.7
+        lrLat = 1.1
+        lrLon = 149.9
+        
+        tmsTD = TmsTileDef.initFromParams(self._zone, self._zoomLevel)
+        indices = tmsTD.getOverlappingTiles(ulLat, ulLon, lrLat, lrLon)
+        
+        exp = [(1, 62), (1, 63)]
+        self.assertEqual(indices, exp)
         

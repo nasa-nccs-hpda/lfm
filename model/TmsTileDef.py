@@ -1,6 +1,7 @@
 
 from __future__ import annotations
 import json
+import math
 from pathlib import Path
 from typing import List
 from typing import Tuple
@@ -130,25 +131,34 @@ class TmsTileDef:
         # Transform corners to projected coordinates
         ulX, ulY = self.llToLtm(ulLat, ulLon)
         lrX, lrY = self.llToLtm(lrLat, lrLon)
-        
+
         # Get extent in projected space
         minEasting = min(ulX, lrX)
         maxEasting = max(ulX, lrX)
         minNorthing = min(ulY, lrY)
         maxNorthing = max(ulY, lrY)
+
+        # ---
+        # Calculate tile range, using epsilon to avoid floating point
+        # truncation errors at tile boundaries.
+        # ---
+        epsilon = 1e-6
         
-        # Calculate tile range
-        minCol = max(0, int((minEasting - originX) / tilePixelSize))
+        minCol = max(0, math.floor((minEasting - originX) /
+                                   tilePixelSize + epsilon))
         
         maxCol = min(matrixWidth - 1, 
-                     int((maxEasting - originX) / tilePixelSize))
+                     math.floor((maxEasting - originX) /
+                                tilePixelSize + epsilon))
         
-        minRow = max(0, int((originY - maxNorthing) / tilePixelSize))
-
+        minRow = max(0, math.floor((originY - maxNorthing) / 
+                                   tilePixelSize + epsilon))
+        
         maxRow = min(matrixHeight - 1, 
-                     int((originY - minNorthing) / tilePixelSize))
-                     
-        # Store original query bbox for filtering
+                     math.floor((originY - minNorthing) /
+                                tilePixelSize + epsilon))
+
+        # Store original query bbox for geographic filtering
         queryMinLat = lrLat
         queryMaxLat = ulLat
         queryMinLon = ulLon
@@ -156,52 +166,55 @@ class TmsTileDef:
 
         # Generate tile indices, filtering by actual overlap
         indices = []
-        
+
         for row in range(minRow, maxRow + 1):
 
             for col in range(minCol, maxCol + 1):
 
-                # Get tile bounds using existing method
+                # Get tile bounds in projected space
                 ulx, uly, lrx, lry = self.getTileBbox(col, row)
-    
-                # Calculate overlap dimensions in projected space
+
+                # ---
+                # Calculate overlap in projected space. Note that uly > lry
+                # since Y decreases downward, so min/max must be applied
+                # accordingly.
+                # ---
                 overlapMinX = max(ulx, minEasting)
                 overlapMaxX = min(lrx, maxEasting)
-                overlapMinY = max(uly, minNorthing)
-                overlapMaxY = min(lry, maxNorthing)
-    
+                overlapMinY = max(lry, minNorthing)
+                overlapMaxY = min(uly, maxNorthing)
+
                 # Calculate overlap width and height
                 overlapWidth = max(0, overlapMaxX - overlapMinX)
                 overlapHeight = max(0, overlapMaxY - overlapMinY)
-                
+
                 # Check if both dimensions meet minimum overlap requirement
                 if overlapWidth >= minOverlapMeters and \
                     overlapHeight >= minOverlapMeters:
-                    
+
                     # ---
                     # Final check: verify tile's geographic bounds overlap
-                    # original query bbox
+                    # the original query bbox.
                     # ---
                     tUlLat, tUlLon, tLrLat, tLrLon = \
-                        self._getTileBoundsGeo(col, row)
-                        
-                    # Check geographic overlap
+                        self._getTileBboxGeo(col, row)
+
                     tileMinLon = min(tUlLon, tLrLon)
                     tileMaxLon = max(tUlLon, tLrLon)
                     tileMinLat = min(tUlLat, tLrLat)
                     tileMaxLat = max(tUlLat, tLrLat)
-        
+
                     geoLatOverlap = (tileMaxLat >= queryMinLat and \
                                      tileMinLat <= queryMaxLat)
-                                     
+
                     geoLonOverlap = (tileMaxLon >= queryMinLon and \
                                      tileMinLon <= queryMaxLon)
-        
+
                     if geoLatOverlap and geoLonOverlap:
                         indices.append((col, row))
 
         return indices
-
+    
     # ------------------------------------------------------------------------
     # getTileBbox
     # ------------------------------------------------------------------------
@@ -232,12 +245,11 @@ class TmsTileDef:
         return ulx, uly, lrx, lry
     
     # ------------------------------------------------------------------------
-    # _getTileBoundsGeo
+    # _getTileBboxGeo
     # ------------------------------------------------------------------------
-    def _getTileBoundsGeo(self, col: int, row: int) -> List[float]:
+    def _getTileBboxGeo(self, col: int, row: int) -> List[float]:
 
         # Get projected bounds
-        # (llx, lly), (urx, ury) = self.getTileBbox(col, row)
         ulx, uly, lrx, lry = self.getTileBbox(col, row)
     
         # Transform back to geographic
@@ -282,11 +294,12 @@ class TmsTileDef:
         # Transform point to projected coordinates
         xform = osr.CoordinateTransformation(self.geoSrs, self.srs)
         easting, northing, _ = xform.TransformPoint(lat, lon)
-    
+            
         # Calculate tile indices
         originX, originY = self.pointOfOrigin
-        col = int((easting - originX) / tilePixelSize)
-        row = int((originY - northing) / tilePixelSize)
+        epsilon = 1e-6
+        col = math.floor((easting - originX) / tilePixelSize + epsilon)
+        row = math.floor((originY - northing) / tilePixelSize + epsilon)
     
         # Check if within matrix bounds
         if col < 0 or col >= self.matrixWidth or \
@@ -318,16 +331,20 @@ class TmsTileDef:
         cellSize = self.cellSize
         tileWidth = self.tileWidth
         tileHeight = self.tileHeight
-        
+    
         # Calculate tile size in meters
         tileSize = tileWidth * cellSize
-    
-        # Convert LTM coordinates to tile indices
-        x = int((easting - originX) / tileSize)
-        y = int((originY - northing) / tileSize)
-    
-        return x, y
 
+        # ---
+        # Use epsilon to avoid floating point truncation errors at tile
+        # boundaries.
+        # ---
+        epsilon = 1e-6
+        x = math.floor((easting - originX) / tileSize + epsilon)
+        y = math.floor((originY - northing) / tileSize + epsilon)
+
+        return x, y
+    
     # ------------------------------------------------------------------------
     # maxtrixHeight
     # ------------------------------------------------------------------------
