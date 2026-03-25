@@ -432,6 +432,7 @@ def get_dataloaders(
     stats_save_dir: Optional[str] = None,
     input_file_type: str = ".npy",
     label_file_type: str = ".npy",
+    debug: bool = False,
 ):
     """
     Create train/val dataloaders with automatic statistics calculation.
@@ -473,7 +474,9 @@ def get_dataloaders(
     # Calculate statistics if not loaded
     if mean is None or std is None:
         print("Computing dataset statistics...")
-        mean, std = calculate_dataset_statistics(image_dir, input_file_type)
+        mean, std = calculate_dataset_statistics(
+            image_dir, input_file_type, debug
+        )
 
         # Save statistics if directory provided
         if stats_save_dir is not None:
