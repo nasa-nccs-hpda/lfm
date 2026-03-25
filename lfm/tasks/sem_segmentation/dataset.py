@@ -14,100 +14,7 @@ import torch
 from torch.utils.data import Dataset
 import torch.nn.functional as F
 from tqdm import tqdm
-
-
-def calculate_dataset_statistics(image_dir: str):
-    """
-    Calculate mean and standard deviation for a dataset of .npy images.
-    Automatically detects the number of channels from the first valid image.
-
-    Args:
-        image_dir (str): Directory containing .npy image files
-
-    Returns:
-        mean (np.ndarray): Mean per channel (shape: [num_channels])
-        std (np.ndarray): Standard deviation per channel (shape: [num_channels])
-    """
-    npy_paths = glob(os.path.join(image_dir, "*.npy"))
-
-    if len(npy_paths) == 0:
-        raise ValueError(f"No .npy files found in {image_dir}")
-
-    pixel_sum = None
-    pixel_sq_sum = None
-    pixel_count = 0
-    valid_images = 0
-    num_channels = None
-
-    for npy_path in tqdm(npy_paths, desc="Computing dataset statistics"):
-        if not os.path.exists(npy_path):
-            print(f"Warning: File not found: {npy_path}")
-            continue
-
-        try:
-            img = np.load(npy_path).astype(np.float64)
-
-            # Handle different shapes: (H, W, C), (C, H, W), or (H, W)
-            if img.ndim == 3:
-                # Determine format: if first dimension is smallest, assume (C, H, W)
-                if img.shape[0] < min(img.shape[1], img.shape[2]):
-                    img = img.transpose(1, 2, 0)  # Convert to (H, W, C)
-                # Otherwise, assume already in (H, W, C) format
-
-            elif img.ndim == 2:
-                # Handle grayscale images without explicit channel dimension
-                img = img[:, :, np.newaxis]  # Shape: (H, W, 1)
-
-            else:
-                print(
-                    f"Warning: Image has {img.ndim} dimensions, "
-                    f"expected 2 or 3. Skipping {npy_path}"
-                )
-                continue
-
-            # Initialize statistics arrays on first valid image
-            if valid_images == 0:
-                num_channels = img.shape[2]
-                pixel_sum = np.zeros(num_channels)
-                pixel_sq_sum = np.zeros(num_channels)
-                print(f"First image shape: {img.shape}, dtype: {img.dtype}")
-                print(f"Detected {num_channels} channel(s)")
-                print(f"Value range: min={img.min()}, max={img.max()}")
-
-            # Verify consistent number of channels
-            if img.shape[2] != num_channels:
-                print(
-                    f"Warning: Inconsistent channels. Expected {num_channels}, "
-                    f"got {img.shape[2]} for {npy_path}. Skipping."
-                )
-                continue
-
-            # Accumulate statistics
-            pixel_sum += img.sum(axis=(0, 1))
-            pixel_sq_sum += (img**2).sum(axis=(0, 1))
-            pixel_count += img.shape[0] * img.shape[1]
-            valid_images += 1
-
-        except Exception as e:
-            print(f"Error loading {npy_path}: {e}")
-            continue
-
-    if valid_images == 0:
-        raise ValueError(
-            "No valid images were processed. Check your .npy files."
-        )
-
-    # Calculate mean and std
-    mean = pixel_sum / pixel_count
-    std = np.sqrt((pixel_sq_sum / pixel_count) - (mean**2))
-
-    print(
-        f"Processed {valid_images} valid images out of {len(npy_paths)} total"
-    )
-    print(f"Mean per channel: {mean}")
-    print(f"Std per channel: {std}")
-
-    return mean, std
+import rasterio
 
 
 class LunarCraterDataset(Dataset):
@@ -146,9 +53,9 @@ class LunarCraterDataset(Dataset):
         self.num_channels = len(mean)
 
         # Glob all images and labels
-        if input_file_type not in [".npy", ".npz", ".tif", ".nc"]:
+        if input_file_type not in [".npy", ".npz", ".tif"]:
             raise ValueError(
-                "Inputs are expected to be of type .npy, .npz, .tif, or .nc"
+                "Inputs are expected to be of type .npy, .npz, or .tif"
             )
         if label_file_type not in [".npy", ".npz"]:
             raise ValueError("Inputs are expected to be of type .npy or .npz")
@@ -233,7 +140,13 @@ class LunarCraterDataset(Dataset):
         img_path = self.valid_image_paths[idx]
         label_path = self.valid_label_paths[idx]
 
-        image = np.load(img_path).astype(np.float32)  # (H, W, C) or (C, H, W)
+        if self.input_file_type in [".npy", ".npz"]:
+            image = np.load(img_path).astype(
+                np.float32
+            )  # (H, W, C) or (C, H, W)
+        else:  # .tif
+            image = rasterio.open(img_path).read()
+
         label = np.load(label_path).astype(np.int64)  # (H, W)
 
         # Handle different image shapes: (H, W, C), (C, H, W), or (H, W)
@@ -258,8 +171,8 @@ class LunarCraterDataset(Dataset):
                 f"got {image.shape[2]} for {img_path}"
             )
 
-        # .tif and .nc inputs have been saved as raw values; needs min/max
-        if self.input_file_type in [".tif", ".nc"]:
+        # .tif inputs have been saved as raw values; needs min/max
+        if self.input_file_type == ".tif":
             image = LunarCraterDataset._min_max_scale_bands(image)
 
         # Normalize image with dataset statistics
@@ -298,6 +211,106 @@ class LunarCraterDataset(Dataset):
         )  # (target_H, target_W)
 
         return image, label
+
+
+def calculate_dataset_statistics(image_dir: str, input_file_type: str):
+    """
+    Calculate mean and standard deviation for a dataset of .npy images.
+    Automatically detects the number of channels from the first valid image.
+
+    Args:
+        image_dir (str): Directory containing .npy image files
+
+    Returns:
+        mean (np.ndarray): Mean per channel (shape: [num_channels])
+        std (np.ndarray): Standard deviation per channel (shape: [num_channels])
+    """
+    if input_file_type not in [".npy", ".npz", ".tif"]:
+        raise ValueError(
+            "Calculating dataset statistics expects .npy, .npz, or .tif "
+            "filetypes."
+        )
+
+    input_paths = glob(os.path.join(image_dir, f"*{input_file_type}"))
+
+    if len(input_paths) == 0:
+        raise ValueError(f"No .npy files found in {image_dir}")
+
+    pixel_sum = None
+    pixel_sq_sum = None
+    pixel_count = 0
+    valid_images = 0
+    num_channels = None
+
+    for image_path in tqdm(input_paths, desc="Computing dataset statistics"):
+        if not os.path.exists(image_path):
+            print(f"Warning: File not found: {image_path}")
+            continue
+
+        try:
+            img = np.load(image_path).astype(np.float64)
+
+            # Handle different shapes: (H, W, C), (C, H, W), or (H, W)
+            if img.ndim == 3:
+                # Determine format: if first dimension is smallest, assume (C, H, W)
+                if img.shape[0] < min(img.shape[1], img.shape[2]):
+                    img = img.transpose(1, 2, 0)  # Convert to (H, W, C)
+                # Otherwise, assume already in (H, W, C) format
+
+            elif img.ndim == 2:
+                # Handle grayscale images without explicit channel dimension
+                img = img[:, :, np.newaxis]  # Shape: (H, W, 1)
+
+            else:
+                print(
+                    f"Warning: Image has {img.ndim} dimensions, "
+                    f"expected 2 or 3. Skipping {image_path}"
+                )
+                continue
+
+            # Initialize statistics arrays on first valid image
+            if valid_images == 0:
+                num_channels = img.shape[2]
+                pixel_sum = np.zeros(num_channels)
+                pixel_sq_sum = np.zeros(num_channels)
+                print(f"First image shape: {img.shape}, dtype: {img.dtype}")
+                print(f"Detected {num_channels} channel(s)")
+                print(f"Value range: min={img.min()}, max={img.max()}")
+
+            # Verify consistent number of channels
+            if img.shape[2] != num_channels:
+                print(
+                    f"Warning: Inconsistent channels. Expected {num_channels}, "
+                    f"got {img.shape[2]} for {image_path}. Skipping."
+                )
+                continue
+
+            # Accumulate statistics
+            pixel_sum += img.sum(axis=(0, 1))
+            pixel_sq_sum += (img**2).sum(axis=(0, 1))
+            pixel_count += img.shape[0] * img.shape[1]
+            valid_images += 1
+
+        except Exception as e:
+            print(f"Error loading {image_path}: {e}")
+            continue
+
+    if valid_images == 0:
+        raise ValueError(
+            "No valid images were processed. Check your .npy files."
+        )
+
+    # Calculate mean and std
+    mean = pixel_sum / pixel_count
+    std = np.sqrt((pixel_sq_sum / pixel_count) - (mean**2))
+
+    print(
+        f"Processed {valid_images} valid images out of {len(image_path)} total"
+    )
+    print(f"Mean per channel: {mean}")
+    print(f"Std per channel: {std}")
+
+    return mean, std
 
 
 def get_dataloaders(
@@ -353,7 +366,7 @@ def get_dataloaders(
     # Calculate statistics if not loaded
     if mean is None or std is None:
         print("Computing dataset statistics...")
-        mean, std = calculate_dataset_statistics(image_dir)
+        mean, std = calculate_dataset_statistics(image_dir, input_file_type)
 
         # Save statistics if directory provided
         if stats_save_dir is not None:
