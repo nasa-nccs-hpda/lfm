@@ -254,6 +254,12 @@ def calculate_dataset_statistics(
         band_min_vals = None
         band_max_vals = None
 
+        # Track the problematic value in band 6
+        sentinel_value = -136112908231797138447176037472929841152.0
+        sentinel_files = {}  # Maps filename -> count of sentinel pixels
+        total_band6_pixels = 0
+        total_sentinel_pixels = 0
+
     for image_path in tqdm(input_paths, desc="Computing dataset statistics"):
         if not os.path.exists(image_path):
             print(f"Warning: File not found: {image_path}")
@@ -309,6 +315,28 @@ def calculate_dataset_statistics(
 
             # Debug: Check for problematic values per band
             if debug:
+                # Track band 6 sentinel value
+                if num_channels > 6:  # Make sure band 6 exists
+                    band6_data = img[:, :, 6]
+                    total_band6_pixels += band6_data.size
+
+                    # Check for sentinel value (with tolerance for floating point)
+                    sentinel_mask = np.isclose(
+                        band6_data, sentinel_value, rtol=0, atol=1e-6
+                    )
+                    sentinel_count = sentinel_mask.sum()
+
+                    if sentinel_count > 0:
+                        filename = os.path.basename(image_path)
+                        sentinel_files[filename] = {
+                            "count": sentinel_count,
+                            "total_pixels": band6_data.size,
+                            "percentage": (sentinel_count / band6_data.size)
+                            * 100,
+                            "path": image_path,
+                        }
+                        total_sentinel_pixels += sentinel_count
+
                 for band_idx in range(num_channels):
                     band_data = img[:, :, band_idx]
 
@@ -415,6 +443,43 @@ def calculate_dataset_statistics(
                     print(
                         f"     → Negative variance (numerical precision issue)"
                     )
+
+        # Band 6 sentinel value report
+        if num_channels > 6:
+            print("\n" + "=" * 70)
+            print(f"BAND 6 SENTINEL VALUE ANALYSIS")
+            print(f"Sentinel value: {sentinel_value}")
+            print("=" * 70)
+            print(f"Total Band 6 pixels processed: {total_band6_pixels:,}")
+            print(
+                f"Total pixels with sentinel value: {total_sentinel_pixels:,}"
+            )
+            if total_band6_pixels > 0:
+                overall_percentage = (
+                    total_sentinel_pixels / total_band6_pixels
+                ) * 100
+                print(f"Overall percentage: {overall_percentage:.2f}%")
+
+            if sentinel_files:
+                print(
+                    f"\nFiles containing sentinel value ({len(sentinel_files)} files):"
+                )
+                print("-" * 70)
+                # Sort by count (descending)
+                sorted_files = sorted(
+                    sentinel_files.items(),
+                    key=lambda x: x[1]["count"],
+                    reverse=True,
+                )
+                for filename, info in sorted_files:
+                    print(f"\n  {filename}")
+                    print(
+                        f"    Sentinel pixels: {info['count']:,} / {info['total_pixels']:,}"
+                    )
+                    print(f"    Percentage: {info['percentage']:.2f}%")
+            else:
+                print("\n✓ No files found with the sentinel value")
+
         print("=" * 70)
 
     return mean, std
