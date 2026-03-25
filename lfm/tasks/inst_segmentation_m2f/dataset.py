@@ -232,9 +232,7 @@ def calculate_dataset_statistics(
     image_dir: str, input_file_type: str, debug: bool = False
 ):
     """
-    Calculate mean and standard deviation for a dataset.
-
-    IMPORTANT: Apply the SAME preprocessing as the dataset class!
+    Calculate mean and standard deviation for a dataset. Used in normalization.
     """
     if input_file_type not in [".npy", ".npz", ".tif"]:
         raise ValueError(
@@ -295,7 +293,6 @@ def calculate_dataset_statistics(
                 )
                 continue
 
-            # ⚠️ CRITICAL: Apply the SAME preprocessing as the dataset!
             # For .tif files, apply min-max scaling per band
             if input_file_type == ".tif":
                 for band_idx in range(img.shape[2]):
