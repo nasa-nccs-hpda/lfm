@@ -87,8 +87,8 @@ class DINOSegmentation(nn.Module):
         # UNet decoder
         self.decoder = UNetDecoder(self.embed_dim, num_classes)
 
-        if self.num_bands not in [3, 5, 7]:
-            if self.num_bands > 3 and not use_flexible:
+        if num_bands not in [3, 5, 7]:
+            if num_bands > 3 and not use_flexible:
                 raise ValueError(
                     "Flexible embeddings not specified for > 3 band input."
                 )
