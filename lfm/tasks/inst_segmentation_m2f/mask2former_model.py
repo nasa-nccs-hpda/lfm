@@ -163,7 +163,7 @@ class DinoV3WithAdapterBackbone(nn.Module):
         - Channel 6 (UV 2) <- Blue weights (spectrally closest)
         """
 
-        print("Modifying input weights for Blue-Green-Orange-Red-NIR bands...")
+        print("Modifying input weights for > 3 bands...")
 
         if num_bands not in [5, 7]:
             raise ValueError("Flexible embeddings expects 5 or 7 band input.")
@@ -208,9 +208,8 @@ class DinoV3WithAdapterBackbone(nn.Module):
             patch_embed.weight.data = new_weights
 
         print(
-            "✓ Applied flexible embedding approach to match input bands.\n"
-            "  Band mapping: [Blue, Green, Orange, Red, NIR] -> "
-            "[Blue_weights, Green_weights, 0.7*Red + 0.3*Green, Red_weights, 0.95*Red_weights]"
+            "Applied flexible embedding approach to match input bands. "
+            f"Bands specified: {num_bands}"
         )
 
 

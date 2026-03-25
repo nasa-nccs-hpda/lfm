@@ -142,7 +142,7 @@ class DINOSegmentation(nn.Module):
         - Channel 6 (UV 2) <- Blue weights (spectrally closest)
         """
 
-        print("Modifying input weights for Blue-Green-Orange-Red-NIR bands...")
+        print("Modifying input weights for > 3 bands...")
 
         if num_bands not in [5, 7]:
             raise ValueError("Flexible embeddings expects 5 or 7 band input.")
@@ -184,9 +184,7 @@ class DINOSegmentation(nn.Module):
 
         print(
             "Applied flexible embedding approach to match input bands. "
-            "Band mapping: [Blue, Green, Orange, Red, NIR] -> "
-            "[Blue_weights, Green_weights, Mean(Red_weights, Green_weights), "
-            "Red_weights, Red_weights]."
+            f"Bands specified: {num_bands}"
         )
 
 
