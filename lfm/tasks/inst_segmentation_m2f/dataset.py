@@ -133,6 +133,8 @@ class LunarCraterDatasetMask2Former(Dataset):
         image_processor,
         target_size: Tuple[int, int] = (304, 304),
         max_samples: Optional[int] = None,
+        input_file_type: str = ".npy",
+        label_file_type: str = ".npz",
     ):
         self.image_dir = image_dir
         self.label_dir = label_dir
@@ -147,8 +149,20 @@ class LunarCraterDatasetMask2Former(Dataset):
         self.num_channels = len(mean)
 
         # Glob all images and labels
-        self.image_paths = sorted(glob(os.path.join(image_dir, "*.npy")))
-        label_paths = sorted(glob(os.path.join(label_dir, "*.npz")))
+        if input_file_type not in [".npy", ".npz", ".tif", ".nc"]:
+            raise ValueError(
+                "Inputs are expected to be of type .npy, .npz, .tif, or .nc"
+            )
+        if label_file_type not in [".npy", ".npz"]:
+            raise ValueError("Inputs are expected to be of type .npy or .npz")
+        self.input_file_type = input_file_type
+        self.label_file_type = label_file_type
+        self.image_paths = sorted(
+            glob(os.path.join(image_dir, f"*{self.input_file_type}"))
+        )
+        label_paths = sorted(
+            glob(os.path.join(label_dir, f"*{self.label_file_type}"))
+        )
 
         # Extract basenames for matching
         self.image_basenames = [
@@ -196,6 +210,19 @@ class LunarCraterDatasetMask2Former(Dataset):
                 "Check that basenames match between image_dir and label_dir"
             )
 
+    @staticmethod
+    def _min_max_scale_bands(img: np.array):
+        """Min-max scale each band to [0, 1]"""
+        scaled = np.zeros_like(img, dtype=np.float32)
+        for i in range(img.shape[0]):
+            band = img[i]
+            band_min, band_max = band.min(), band.max()
+            if band_max > band_min:
+                scaled[i] = (band - band_min) / (band_max - band_min)
+            else:
+                scaled[i] = band
+        return scaled
+
     def __len__(self) -> int:
         return len(self.valid_image_paths)
 
@@ -236,6 +263,10 @@ class LunarCraterDatasetMask2Former(Dataset):
                 f"Channel mismatch: expected {self.num_channels}, "
                 f"got {image.shape[2]} for {img_path}"
             )
+
+        # .tif and .nc inputs have been saved as raw values; needs min/max
+        if self.input_file_type in [".tif", ".nc"]:
+            image = LunarCraterDatasetMask2Former._min_max_scale_bands(image)
 
         # Normalize image with dataset statistics
         # Reshape mean and std to (1, 1, C) for broadcasting with (H, W, C)
@@ -296,6 +327,8 @@ def get_dataloaders(
     max_samples: Optional[int] = None,
     seed: int = 42,
     stats_save_dir: Optional[str] = None,
+    input_file_type: str = ".npy",
+    label_file_type: str = ".npy",
 ):
     """
     Create train/val dataloaders with automatic statistics calculation.
@@ -354,6 +387,8 @@ def get_dataloaders(
         image_processor=image_processor,
         target_size=target_size,
         max_samples=max_samples,
+        input_file_type=input_file_type,
+        label_file_type=label_file_type,
     )
 
     # Split into train/val
