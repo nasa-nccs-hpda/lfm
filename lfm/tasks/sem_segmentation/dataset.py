@@ -217,17 +217,9 @@ def calculate_dataset_statistics(
     image_dir: str, input_file_type: str, debug: bool = False
 ):
     """
-    Calculate mean and standard deviation for a dataset of .npy images.
-    Automatically detects the number of channels from the first valid image.
+    Calculate mean and standard deviation for a dataset.
 
-    Args:
-        image_dir (str): Directory containing .npy image files
-        input_file_type (str): File extension (.npy, .npz, or .tif)
-        debug (bool): If True, print detailed debugging information
-
-    Returns:
-        mean (np.ndarray): Mean per channel (shape: [num_channels])
-        std (np.ndarray): Standard deviation per channel (shape: [num_channels])
+    IMPORTANT: Apply the SAME preprocessing as the dataset class!
     """
     if input_file_type not in [".npy", ".npz", ".tif"]:
         raise ValueError(
@@ -238,27 +230,13 @@ def calculate_dataset_statistics(
     input_paths = glob(os.path.join(image_dir, f"*{input_file_type}"))
 
     if len(input_paths) == 0:
-        raise ValueError(f"No .npy files found in {image_dir}")
+        raise ValueError(f"No files found in {image_dir}")
 
     pixel_sum = None
     pixel_sq_sum = None
     pixel_count = 0
     valid_images = 0
     num_channels = None
-
-    # Debug tracking
-    if debug:
-        band_inf_counts = None
-        band_nan_counts = None
-        band_neg_inf_counts = None
-        band_min_vals = None
-        band_max_vals = None
-
-        # Track the problematic value in band 6
-        sentinel_value = -136112908231797138447176037472929841152.0
-        sentinel_files = {}  # Maps filename -> count of sentinel pixels
-        total_band6_pixels = 0
-        total_sentinel_pixels = 0
 
     for image_path in tqdm(input_paths, desc="Computing dataset statistics"):
         if not os.path.exists(image_path):
@@ -267,43 +245,32 @@ def calculate_dataset_statistics(
 
         try:
             if input_file_type in [".npy", ".npz"]:
-                img = np.load(image_path).astype(np.float64)
+                img = np.load(image_path).astype(np.float32)
             else:  # .tif
-                img = rasterio.open(image_path).read()
+                img = rasterio.open(image_path).read().astype(np.float32)
 
             # Handle different shapes: (H, W, C), (C, H, W), or (H, W)
             if img.ndim == 3:
-                # Determine format: if first dimension is smallest, assume (C, H, W)
                 if img.shape[0] < min(img.shape[1], img.shape[2]):
                     img = img.transpose(1, 2, 0)  # Convert to (H, W, C)
-                # Otherwise, assume already in (H, W, C) format
-
             elif img.ndim == 2:
-                # Handle grayscale images without explicit channel dimension
-                img = img[:, :, np.newaxis]  # Shape: (H, W, 1)
-
+                img = img[:, :, np.newaxis]
             else:
                 print(
-                    f"Warning: Image has {img.ndim} dimensions, "
-                    f"expected 2 or 3. Skipping {image_path}"
+                    f"Warning: Image has {img.ndim} dimensions, skipping {image_path}"
                 )
                 continue
 
-            # Initialize statistics arrays on first valid image
+            # Initialize on first valid image
             if valid_images == 0:
                 num_channels = img.shape[2]
                 pixel_sum = np.zeros(num_channels)
                 pixel_sq_sum = np.zeros(num_channels)
                 print(f"First image shape: {img.shape}, dtype: {img.dtype}")
                 print(f"Detected {num_channels} channel(s)")
-                print(f"Value range: min={img.min()}, max={img.max()}")
-
-                if debug:
-                    band_inf_counts = np.zeros(num_channels)
-                    band_nan_counts = np.zeros(num_channels)
-                    band_neg_inf_counts = np.zeros(num_channels)
-                    band_min_vals = np.full(num_channels, np.inf)
-                    band_max_vals = np.full(num_channels, -np.inf)
+                print(
+                    f"Value range BEFORE preprocessing: min={img.min()}, max={img.max()}"
+                )
 
             # Verify consistent number of channels
             if img.shape[2] != num_channels:
@@ -313,65 +280,23 @@ def calculate_dataset_statistics(
                 )
                 continue
 
-            # Debug: Check for problematic values per band
-            if debug:
-                # Track band 6 sentinel value
-                if num_channels > 6:  # Make sure band 6 exists
-                    band6_data = img[:, :, 6]
-                    total_band6_pixels += band6_data.size
+            # ⚠️ CRITICAL: Apply the SAME preprocessing as the dataset!
+            # For .tif files, apply min-max scaling per band
+            if input_file_type == ".tif":
+                for band_idx in range(img.shape[2]):
+                    band = img[:, :, band_idx]
+                    band_min, band_max = band.min(), band.max()
+                    if band_max > band_min:
+                        img[:, :, band_idx] = (band - band_min) / (
+                            band_max - band_min
+                        )
+                    else:
+                        img[:, :, band_idx] = band
 
-                    # Check for sentinel value (with tolerance for floating point)
-                    sentinel_mask = np.isclose(
-                        band6_data, sentinel_value, rtol=0, atol=1e-6
+                if valid_images == 0:
+                    print(
+                        f"Value range AFTER min-max scaling: min={img.min()}, max={img.max()}"
                     )
-                    sentinel_count = sentinel_mask.sum()
-
-                    if sentinel_count > 0:
-                        filename = os.path.basename(image_path)
-                        sentinel_files[filename] = {
-                            "count": sentinel_count,
-                            "total_pixels": band6_data.size,
-                            "percentage": (sentinel_count / band6_data.size)
-                            * 100,
-                            "path": image_path,
-                        }
-                        total_sentinel_pixels += sentinel_count
-
-                for band_idx in range(num_channels):
-                    band_data = img[:, :, band_idx]
-
-                    # Count special values
-                    n_inf = np.isinf(band_data) & (band_data > 0)
-                    n_neg_inf = np.isinf(band_data) & (band_data < 0)
-                    n_nan = np.isnan(band_data)
-
-                    band_inf_counts[band_idx] += n_inf.sum()
-                    band_neg_inf_counts[band_idx] += n_neg_inf.sum()
-                    band_nan_counts[band_idx] += n_nan.sum()
-
-                    # Track min/max (excluding inf/nan)
-                    finite_mask = np.isfinite(band_data)
-                    if finite_mask.any():
-                        band_min_vals[band_idx] = min(
-                            band_min_vals[band_idx],
-                            band_data[finite_mask].min(),
-                        )
-                        band_max_vals[band_idx] = max(
-                            band_max_vals[band_idx],
-                            band_data[finite_mask].max(),
-                        )
-
-                    # Report issues immediately if found
-                    if (
-                        n_inf.sum() > 0
-                        or n_neg_inf.sum() > 0
-                        or n_nan.sum() > 0
-                    ):
-                        print(f"\n⚠️  File: {os.path.basename(image_path)}")
-                        print(
-                            f"    Band {band_idx}: +inf={n_inf.sum()}, "
-                            f"-inf={n_neg_inf.sum()}, nan={n_nan.sum()}"
-                        )
 
             # Accumulate statistics
             pixel_sum += img.sum(axis=(0, 1))
@@ -388,9 +313,7 @@ def calculate_dataset_statistics(
             continue
 
     if valid_images == 0:
-        raise ValueError(
-            "No valid images were processed. Check your .npy files."
-        )
+        raise ValueError("No valid images were processed.")
 
     # Calculate mean and std
     mean = pixel_sum / pixel_count
@@ -402,85 +325,20 @@ def calculate_dataset_statistics(
     print(f"Mean per channel: {mean}")
     print(f"Std per channel: {std}")
 
-    # Debug summary
-    if debug:
-        print("\n" + "=" * 70)
-        print("DEBUG SUMMARY - Per Band Statistics:")
-        print("=" * 70)
-        for band_idx in range(num_channels):
-            print(f"\nBand {band_idx}:")
-            print(f"  Total +inf values: {int(band_inf_counts[band_idx])}")
-            print(f"  Total -inf values: {int(band_neg_inf_counts[band_idx])}")
-            print(f"  Total nan values:  {int(band_nan_counts[band_idx])}")
-            print(f"  Min (finite):      {band_min_vals[band_idx]:.6f}")
-            print(f"  Max (finite):      {band_max_vals[band_idx]:.6f}")
-            print(f"  Calculated mean:   {mean[band_idx]:.6f}")
-            print(f"  Calculated std:    {std[band_idx]:.6f}")
-            print(f"  pixel_sum:         {pixel_sum[band_idx]:.6f}")
-            print(f"  pixel_sq_sum:      {pixel_sq_sum[band_idx]:.6f}")
+    # Sanity checks
+    print("\n" + "=" * 70)
+    print("SANITY CHECKS:")
+    print("=" * 70)
+    if input_file_type == ".tif":
+        print("✓ Min-max scaling was applied (expected for .tif)")
+        print("✓ Mean should be ~0.3-0.7 (middle of [0,1] range)")
+        print("✓ Std should be ~0.1-0.3")
+    else:
+        print("✓ No min-max scaling applied (for .npy/.npz)")
 
-            # Diagnose issues
-            if np.isinf(mean[band_idx]) or np.isnan(mean[band_idx]):
-                print(f"  ⚠️  ISSUE DETECTED!")
-                if band_neg_inf_counts[band_idx] > 0:
-                    print(
-                        f"     → Found {int(band_neg_inf_counts[band_idx])} -inf values"
-                    )
-                if band_inf_counts[band_idx] > 0:
-                    print(
-                        f"     → Found {int(band_inf_counts[band_idx])} +inf values"
-                    )
-                if np.isinf(pixel_sum[band_idx]):
-                    print(f"     → pixel_sum is infinite!")
-
-            if np.isnan(std[band_idx]):
-                print(f"  ⚠️  STD IS NAN!")
-                variance = (pixel_sq_sum[band_idx] / pixel_count) - (
-                    mean[band_idx] ** 2
-                )
-                print(f"     → Variance = {variance:.6f}")
-                if variance < 0:
-                    print(
-                        f"     → Negative variance (numerical precision issue)"
-                    )
-
-        # Band 6 sentinel value report
-        if num_channels > 6:
-            print("\n" + "=" * 70)
-            print(f"BAND 6 SENTINEL VALUE ANALYSIS")
-            print(f"Sentinel value: {sentinel_value}")
-            print("=" * 70)
-            print(f"Total Band 6 pixels processed: {total_band6_pixels:,}")
-            print(
-                f"Total pixels with sentinel value: {total_sentinel_pixels:,}"
-            )
-            if total_band6_pixels > 0:
-                overall_percentage = (
-                    total_sentinel_pixels / total_band6_pixels
-                ) * 100
-                print(f"Overall percentage: {overall_percentage:.2f}%")
-
-            if sentinel_files:
-                print(
-                    f"\nFiles containing sentinel value ({len(sentinel_files)} files):"
-                )
-                print("-" * 70)
-                # Sort by count (descending)
-                sorted_files = sorted(
-                    sentinel_files.items(),
-                    key=lambda x: x[1]["count"],
-                    reverse=True,
-                )
-                for filename, info in sorted_files:
-                    print(f"\n  {filename}")
-                    print(
-                        f"    Sentinel pixels: {info['count']:,} / {info['total_pixels']:,}"
-                    )
-                    print(f"    Percentage: {info['percentage']:.2f}%")
-            else:
-                print("\n✓ No files found with the sentinel value")
-
-        print("=" * 70)
+    for i, (m, s) in enumerate(zip(mean, std)):
+        status = "✓" if 0 <= m <= 1 and s > 0 else "⚠️"
+        print(f"{status} Band {i}: mean={m:.4f}, std={s:.4f}")
 
     return mean, std
 
