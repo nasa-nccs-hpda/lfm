@@ -248,7 +248,10 @@ def calculate_dataset_statistics(image_dir: str, input_file_type: str):
             continue
 
         try:
-            img = np.load(image_path).astype(np.float64)
+            if input_file_type in [".npy", ".npz"]:
+                img = np.load(image_path).astype(np.float64)
+            else:  # .tif
+                img = rasterio.open(image_path).read()
 
             # Handle different shapes: (H, W, C), (C, H, W), or (H, W)
             if img.ndim == 3:
