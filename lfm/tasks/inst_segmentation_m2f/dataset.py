@@ -120,14 +120,11 @@ class LunarCraterDatasetMask2Former(Dataset):
     def _min_max_scale_bands(img: np.array):
         """Min-max scale each band to [0, 1]"""
         scaled = np.zeros_like(img, dtype=np.float32)
-        for i in range(img.shape[0]):
-            band = img[i]
+        for i in range(img.shape[0]):  # <-- Assumes axis 0 is channels!
+            band = img[i]  # But img is (H, W, C), so this gets ROWS!
             band_min, band_max = band.min(), band.max()
             if band_max > band_min:
                 scaled[i] = (band - band_min) / (band_max - band_min)
-            else:
-                scaled[i] = band
-        return scaled
 
     def __len__(self) -> int:
         return len(self.valid_image_paths)
