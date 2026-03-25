@@ -223,37 +223,110 @@ def instance_colormap(instance_mask):
     return rgb_image
 
 
-def prepare_image_for_display(img, fix_rgb_order=True):
+def prepare_image_for_display(
+    img, fix_rgb_order=True, method="percentile", clip_percentile=2, std_clip=3
+):
     """
     Prepare multi-channel image for matplotlib display.
+    Unified version that handles various band configurations and normalization methods.
+
+    Band Configuration Support:
+    - 1-band: Grayscale
+    - 3-band: RGB or BGR (controlled by fix_rgb_order)
+    - 5-band: B, G, _, R, _ → extracts [3, 1, 0] for RGB display
+    - 7-band: B, G, _, R, _, UV, UV → extracts [3, 1, 0] for RGB display
+    - Other: Shows first 3 bands (optionally BGR→RGB if fix_rgb_order=True)
 
     Args:
-        img: Image array with shape (H, W, C)
-        fix_rgb_order: If True, swap BGR to RGB
+        img: Image array with shape (H, W, C) where C is number of channels
+        fix_rgb_order: If True, reorder BGR→RGB for 3-band or when showing first 3 bands
+                       Has no effect for 5/7-band (RGB extraction already in correct order)
+        method: Normalization method for display
+                - 'percentile': Clips based on percentiles (robust to outliers) - RECOMMENDED
+                - 'std_clip': Clips based on standard deviations (for z-score normalized data)
+                - 'minmax': Simple min-max (fastest, but sensitive to outliers)
+        clip_percentile: Percentile for clipping when method='percentile' (default: 2 = 2nd-98th)
+        std_clip: Number of standard deviations to clip when method='std_clip' (default: 3)
 
     Returns:
-        img_vis: Image ready for display (H, W) or (H, W, 3)
+        img_vis: Image ready for display - shape (H, W) for grayscale or (H, W, 3) for color
         display_note: String describing how the image was prepared
     """
     num_channels = img.shape[2]
 
-    # Normalize to 0-1 range
-    img_normalized = (img - img.min()) / (img.max() - img.min() + 1e-8)
-    img_normalized = np.clip(img_normalized, 0, 1)
+    # Step 1: Apply normalization/clipping based on method
+    if method == "percentile":
+        # Percentile-based clipping (per band) - robust to outliers
+        img_clipped = np.zeros_like(img)
+        for c in range(num_channels):
+            band = img[:, :, c]
+            p_low, p_high = np.percentile(
+                band, [clip_percentile, 100 - clip_percentile]
+            )
+            band_clipped = np.clip(band, p_low, p_high)
+            if p_high > p_low:
+                img_clipped[:, :, c] = (band_clipped - p_low) / (
+                    p_high - p_low
+                )
+            else:
+                img_clipped[:, :, c] = 0.5  # Constant band
+        img_normalized = np.clip(img_clipped, 0, 1)
 
+    elif method == "std_clip":
+        # Standard deviation clipping - good for z-score normalized data
+        img_clipped = np.clip(img, -std_clip, std_clip)
+        # Rescale to [0, 1]
+        img_normalized = (img_clipped + std_clip) / (2 * std_clip)
+
+    elif method == "minmax":
+        # Simple min-max normalization - sensitive to outliers but fast
+        img_normalized = (img - img.min()) / (img.max() - img.min() + 1e-8)
+        img_normalized = np.clip(img_normalized, 0, 1)
+
+    else:
+        raise ValueError(
+            f"Unknown method: {method}. Use 'percentile', 'std_clip', or 'minmax'"
+        )
+
+    # Step 2: Select and arrange bands for display
     if num_channels == 1:
+        # Grayscale
         img_vis = img_normalized[:, :, 0]
         display_note = "Grayscale"
+
     elif num_channels == 3:
+        # 3-band: RGB or BGR
         img_vis = img_normalized
         if fix_rgb_order:
-            img_vis = img_vis[..., [2, 1, 0]]
-        display_note = "RGB"
+            img_vis = img_vis[..., [2, 1, 0]]  # BGR → RGB
+            display_note = "RGB (BGR→RGB)"
+        else:
+            display_note = "RGB"
+
+    elif num_channels == 5:
+        # 5-band: B, G, _, R, _
+        # Band indices: [0:B, 1:G, 2:?, 3:R, 4:?]
+        # Extract R, G, B → indices [3, 1, 0] (already in RGB order)
+        img_vis = img_normalized[:, :, [3, 1, 0]]
+        display_note = "5ch (RGB from bands 3,1,0)"
+        # fix_rgb_order has no effect here - already in correct order
+
+    elif num_channels == 7:
+        # 7-band: B, G, _, R, _, UV, UV
+        # Band indices: [0:B, 1:G, 2:?, 3:R, 4:?, 5:UV, 6:UV]
+        # Extract R, G, B → indices [3, 1, 0] (already in RGB order)
+        img_vis = img_normalized[:, :, [3, 1, 0]]
+        display_note = "7ch (RGB from bands 3,1,0)"
+        # fix_rgb_order has no effect here - already in correct order
+
     else:
+        # Other multi-band: show first 3 channels
         img_vis = img_normalized[:, :, :3]
         if fix_rgb_order:
-            img_vis = img_vis[..., [2, 1, 0]]
-        display_note = f"{num_channels}ch (showing first 3)"
+            img_vis = img_vis[..., [2, 1, 0]]  # Assume BGR → RGB
+            display_note = f"{num_channels}ch (first 3, BGR→RGB)"
+        else:
+            display_note = f"{num_channels}ch (first 3)"
 
     return img_vis, display_note
 
@@ -497,9 +570,8 @@ def visualize_predictions(
         semantic_f1s.append(sem_f1)
 
         # Prepare image for display
-        img_vis, display_note = prepare_image_for_display(
-            img, fix_rgb_order=True
-        )
+        # Just use the defaults - works exactly like your old version but more robust
+        img_vis, note = prepare_image_for_display(img, fix_rgb_order=True)
         cmap_image = "gray" if img_vis.ndim == 2 else None
 
         # Row 0: Original image with metrics
