@@ -228,13 +228,17 @@ def collate_fn(batch):
     }
 
 
-def calculate_dataset_statistics(image_dir: str, input_file_type: str):
+def calculate_dataset_statistics(
+    image_dir: str, input_file_type: str, debug: bool = False
+):
     """
     Calculate mean and standard deviation for a dataset of .npy images.
     Automatically detects the number of channels from the first valid image.
 
     Args:
         image_dir (str): Directory containing .npy image files
+        input_file_type (str): File extension (.npy, .npz, or .tif)
+        debug (bool): If True, print detailed debugging information
 
     Returns:
         mean (np.ndarray): Mean per channel (shape: [num_channels])
@@ -242,7 +246,7 @@ def calculate_dataset_statistics(image_dir: str, input_file_type: str):
     """
     if input_file_type not in [".npy", ".npz", ".tif"]:
         raise ValueError(
-            "Calculating dataset statistics expects .npy, .npz, or .tif"
+            "Calculating dataset statistics expects .npy, .npz, or .tif "
             "filetypes."
         )
 
@@ -256,6 +260,14 @@ def calculate_dataset_statistics(image_dir: str, input_file_type: str):
     pixel_count = 0
     valid_images = 0
     num_channels = None
+
+    # Debug tracking
+    if debug:
+        band_inf_counts = None
+        band_nan_counts = None
+        band_neg_inf_counts = None
+        band_min_vals = None
+        band_max_vals = None
 
     for image_path in tqdm(input_paths, desc="Computing dataset statistics"):
         if not os.path.exists(image_path):
@@ -295,6 +307,13 @@ def calculate_dataset_statistics(image_dir: str, input_file_type: str):
                 print(f"Detected {num_channels} channel(s)")
                 print(f"Value range: min={img.min()}, max={img.max()}")
 
+                if debug:
+                    band_inf_counts = np.zeros(num_channels)
+                    band_nan_counts = np.zeros(num_channels)
+                    band_neg_inf_counts = np.zeros(num_channels)
+                    band_min_vals = np.full(num_channels, np.inf)
+                    band_max_vals = np.full(num_channels, -np.inf)
+
             # Verify consistent number of channels
             if img.shape[2] != num_channels:
                 print(
@@ -302,6 +321,44 @@ def calculate_dataset_statistics(image_dir: str, input_file_type: str):
                     f"got {img.shape[2]} for {image_path}. Skipping."
                 )
                 continue
+
+            # Debug: Check for problematic values per band
+            if debug:
+                for band_idx in range(num_channels):
+                    band_data = img[:, :, band_idx]
+
+                    # Count special values
+                    n_inf = np.isinf(band_data) & (band_data > 0)
+                    n_neg_inf = np.isinf(band_data) & (band_data < 0)
+                    n_nan = np.isnan(band_data)
+
+                    band_inf_counts[band_idx] += n_inf.sum()
+                    band_neg_inf_counts[band_idx] += n_neg_inf.sum()
+                    band_nan_counts[band_idx] += n_nan.sum()
+
+                    # Track min/max (excluding inf/nan)
+                    finite_mask = np.isfinite(band_data)
+                    if finite_mask.any():
+                        band_min_vals[band_idx] = min(
+                            band_min_vals[band_idx],
+                            band_data[finite_mask].min(),
+                        )
+                        band_max_vals[band_idx] = max(
+                            band_max_vals[band_idx],
+                            band_data[finite_mask].max(),
+                        )
+
+                    # Report issues immediately if found
+                    if (
+                        n_inf.sum() > 0
+                        or n_neg_inf.sum() > 0
+                        or n_nan.sum() > 0
+                    ):
+                        print(f"\n⚠️  File: {os.path.basename(image_path)}")
+                        print(
+                            f"    Band {band_idx}: +inf={n_inf.sum()}, "
+                            f"-inf={n_neg_inf.sum()}, nan={n_nan.sum()}"
+                        )
 
             # Accumulate statistics
             pixel_sum += img.sum(axis=(0, 1))
@@ -311,6 +368,10 @@ def calculate_dataset_statistics(image_dir: str, input_file_type: str):
 
         except Exception as e:
             print(f"Error loading {image_path}: {e}")
+            if debug:
+                import traceback
+
+                traceback.print_exc()
             continue
 
     if valid_images == 0:
@@ -323,10 +384,53 @@ def calculate_dataset_statistics(image_dir: str, input_file_type: str):
     std = np.sqrt((pixel_sq_sum / pixel_count) - (mean**2))
 
     print(
-        f"Processed {valid_images} valid images out of {len(image_path)} total"
+        f"\nProcessed {valid_images} valid images out of {len(input_paths)} total"
     )
     print(f"Mean per channel: {mean}")
     print(f"Std per channel: {std}")
+
+    # Debug summary
+    if debug:
+        print("\n" + "=" * 70)
+        print("DEBUG SUMMARY - Per Band Statistics:")
+        print("=" * 70)
+        for band_idx in range(num_channels):
+            print(f"\nBand {band_idx}:")
+            print(f"  Total +inf values: {int(band_inf_counts[band_idx])}")
+            print(f"  Total -inf values: {int(band_neg_inf_counts[band_idx])}")
+            print(f"  Total nan values:  {int(band_nan_counts[band_idx])}")
+            print(f"  Min (finite):      {band_min_vals[band_idx]:.6f}")
+            print(f"  Max (finite):      {band_max_vals[band_idx]:.6f}")
+            print(f"  Calculated mean:   {mean[band_idx]:.6f}")
+            print(f"  Calculated std:    {std[band_idx]:.6f}")
+            print(f"  pixel_sum:         {pixel_sum[band_idx]:.6f}")
+            print(f"  pixel_sq_sum:      {pixel_sq_sum[band_idx]:.6f}")
+
+            # Diagnose issues
+            if np.isinf(mean[band_idx]) or np.isnan(mean[band_idx]):
+                print(f"  ⚠️  ISSUE DETECTED!")
+                if band_neg_inf_counts[band_idx] > 0:
+                    print(
+                        f"     → Found {int(band_neg_inf_counts[band_idx])} -inf values"
+                    )
+                if band_inf_counts[band_idx] > 0:
+                    print(
+                        f"     → Found {int(band_inf_counts[band_idx])} +inf values"
+                    )
+                if np.isinf(pixel_sum[band_idx]):
+                    print(f"     → pixel_sum is infinite!")
+
+            if np.isnan(std[band_idx]):
+                print(f"  ⚠️  STD IS NAN!")
+                variance = (pixel_sq_sum[band_idx] / pixel_count) - (
+                    mean[band_idx] ** 2
+                )
+                print(f"     → Variance = {variance:.6f}")
+                if variance < 0:
+                    print(
+                        f"     → Negative variance (numerical precision issue)"
+                    )
+        print("=" * 70)
 
     return mean, std
 
