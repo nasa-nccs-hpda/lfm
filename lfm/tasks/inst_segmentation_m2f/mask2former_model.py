@@ -137,7 +137,7 @@ class DinoV3WithAdapterBackbone(nn.Module):
             ),  # Optional: same as feature_maps
         )
 
-    def _apply_flexible_weights(self):
+    def _apply_flexible_weights(self, num_bands=5):
         """Weight modification for 5-band input (Blue, Green, Orange, Red, NIR)
 
         Band mapping:
@@ -146,8 +146,14 @@ class DinoV3WithAdapterBackbone(nn.Module):
         - Channel 2 (Orange) <- Mean of Red and Green weights
         - Channel 3 (Red) <- Red weights from DINOv3
         - Channel 4 (NIR) <- Red weights (spectrally closest)
+        - Channel 5 (UV 1) <- Blue weights (spectrally closest)
+        - Channel 6 (UV 2) <- Blue weights (spectrally closest)
         """
+
         print("Modifying input weights for Blue-Green-Orange-Red-NIR bands...")
+
+        if num_bands not in [5, 7]:
+            raise ValueError("Flexible embeddings expects 5 or 7 band input.")
 
         # Access the patch embedding - this IS the Conv2d layer
         patch_embed = self.model.embeddings.patch_embeddings
@@ -174,16 +180,16 @@ class DinoV3WithAdapterBackbone(nn.Module):
             green_weights = original_weights[:, 1, :, :]
             blue_weights = original_weights[:, 2, :, :]
 
-            # Map to 5 bands: [Blue, Green, Orange, Red, NIR]
+            # Correct mapping based on RGB order in original_weights
+            # For 5 and 7-band input, these are constant
             new_weights[:, 0, :, :] = blue_weights
             new_weights[:, 1, :, :] = green_weights
-            new_weights[:, 2, :, :] = (
-                0.7 * red_weights + 0.3 * green_weights
-            )  # Orange
+            new_weights[:, 2, :, :] = 0.7 * red_weights + 0.3 * green_weights
             new_weights[:, 3, :, :] = red_weights
-            new_weights[:, 4, :, :] = 0.95 * red_weights  # NIR
-
-            print(f"  New weights shape: {new_weights.shape}")
+            new_weights[:, 4, :, :] = 0.95 * red_weights
+            if num_bands == 7:  # add 2 additional weights for 7-band input
+                new_weights[:, 5, :, :] = blue_weights
+                new_weights[:, 6, :, :] = blue_weights
 
             # Replace patch embedding weights
             patch_embed.weight.data = new_weights
