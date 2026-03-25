@@ -38,7 +38,11 @@ class DinoV3WithAdapterBackbone(nn.Module):
     """
 
     def __init__(
-        self, model_name: str, out_channels: List[int], use_flexible=False
+        self,
+        model_name: str,
+        out_channels: List[int],
+        use_flexible=False,
+        num_bands=3,
     ):
         super().__init__()
         self.model = AutoModel.from_pretrained(model_name)
@@ -64,9 +68,18 @@ class DinoV3WithAdapterBackbone(nn.Module):
             23,
         ]  # Adjusted for Large model (24 layers total)
 
+        if num_bands not in [3, 5, 7]:
+            if num_bands > 3 and not use_flexible:
+                raise ValueError(
+                    "Flexible embeddings not specified for > 3 band input."
+                )
+            raise ValueError("Dino Segmentation expects 3, 5, or 7 bands.")
+
+        self.num_bands = num_bands
+
         if use_flexible:
             print(f"Flexible embeddings will be applied to DinoV3 backbone...")
-            self._apply_flexible_weights()
+            self._apply_flexible_weights(self.num_bands)
 
     def forward(self, x: torch.Tensor):
         # Get DINOv3 outputs with all hidden states
@@ -214,6 +227,7 @@ def create_mask2former_dinov3_model(
     freeze_backbone: bool = True,
     hub_token: str = None,
     use_flexible: bool = False,
+    num_bands: int = 3,
 ) -> AutoModelForUniversalSegmentation:
     """
     Create a complete DINOv3-Large-Mask2Former model with custom backbone.
@@ -238,7 +252,7 @@ def create_mask2former_dinov3_model(
 
     # 2. Create custom DINOv3-Large backbone with adapter
     custom_backbone = DinoV3WithAdapterBackbone(
-        dinov3_model_name, expected_channels, use_flexible
+        dinov3_model_name, expected_channels, use_flexible, num_bands
     )
 
     # 3. Replace the backbone; encoder is in the pixel_level_module, not at model.backbone

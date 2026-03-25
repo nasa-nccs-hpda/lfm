@@ -70,7 +70,12 @@ class DINOSegmentation(nn.Module):
     """DINO encoder with UNet decoder for segmentation."""
 
     def __init__(
-        self, encoder, num_classes=2, img_size=(304, 304), use_flexible=False
+        self,
+        encoder,
+        num_classes=2,
+        img_size=(304, 304),
+        use_flexible=False,
+        num_bands=3,
     ):
         super().__init__()
         self.encoder = encoder
@@ -82,9 +87,18 @@ class DINOSegmentation(nn.Module):
         # UNet decoder
         self.decoder = UNetDecoder(self.embed_dim, num_classes)
 
+        if self.num_bands not in [3, 5, 7]:
+            if self.num_bands > 3 and not use_flexible:
+                raise ValueError(
+                    "Flexible embeddings not specified for > 3 band input."
+                )
+            raise ValueError("Dino Segmentation expects 3, 5, or 7 bands.")
+
+        self.num_bands = num_bands
+
         # Change weights if using flexible embeddings approach
         if use_flexible:
-            self._apply_flexible_weights()
+            self._apply_flexible_weights(self.num_bands)
 
     def forward(self, x):
         # Get patch embeddings from encoder
