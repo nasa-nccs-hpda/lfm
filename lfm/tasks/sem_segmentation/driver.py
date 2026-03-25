@@ -285,7 +285,7 @@ def visualize_predictions(
         f1_scores.append(f1)
 
         # Prepare image for display (handles any number of channels)
-        img_vis, note = prepare_image_for_display(
+        img_vis, display_note = prepare_image_for_display(
             img,
             fix_rgb_order=False,  # Not needed for 5/7-band RGB extraction
             method="percentile",  # Fixes stripe artifacts
