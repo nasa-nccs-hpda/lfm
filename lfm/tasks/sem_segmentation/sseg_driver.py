@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 from tqdm import tqdm
 
-from .utils import get_loss_function
+from .sseg_utils import get_loss_function
 
 
 def calculate_f1_score(pred, label):
