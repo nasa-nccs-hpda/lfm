@@ -7,7 +7,7 @@ Supports images with any number of channels (grayscale, RGB, multispectral, etc.
 import os
 from pathlib import Path
 from glob import glob
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 
 import numpy as np
 import torch
@@ -41,6 +41,7 @@ class LunarCraterDatasetMask2Former(Dataset):
         max_samples: Optional[int] = None,
         input_file_type: str = ".npy",
         label_file_type: str = ".npz",
+        band_indices_filter: int = None,
     ):
         self.image_dir = image_dir
         self.label_dir = label_dir
@@ -69,6 +70,15 @@ class LunarCraterDatasetMask2Former(Dataset):
         label_paths = sorted(
             glob(os.path.join(label_dir, f"*{self.label_file_type}"))
         )
+
+        # Load example to validate input band number
+        example_band_number = self._load_example_input(self.image_paths[0])
+        if example_band_number != len(band_indices_filter):
+            raise ValueError(
+                f"Incompatible number of input bands specified. "
+                f"Number of bands found: {example_band_number}"
+            )
+        self.band_indices_filter = band_indices_filter
 
         # Extract basenames for matching
         self.image_basenames = [
@@ -115,6 +125,29 @@ class LunarCraterDatasetMask2Former(Dataset):
                 "No matching image-label pairs found! "
                 "Check that basenames match between image_dir and label_dir"
             )
+
+    def _load_example_input(self, img_path: str):
+        if self.input_file_type in [".npy", ".npz"]:
+            image = np.load(img_path).astype(
+                np.float32
+            )  # (H, W, C) or (C, H, W)
+        else:  # .tif
+            image = rasterio.open(img_path).read()
+
+        if image.ndim == 3:
+            # Determine format: if first dimension is smallest, assume (C, H, W)
+            if image.shape[0] < min(image.shape[1], image.shape[2]):
+                image = image.transpose(1, 2, 0)  # Convert to (H, W, C)
+            # Otherwise, assume already in (H, W, C) format
+
+        elif image.ndim == 2:
+            # Handle grayscale images without explicit channel dimension
+            image = image[:, :, np.newaxis]  # Shape: (H, W, 1)
+        else:
+            raise ValueError(
+                f"Unexpected image dimensions: {image.shape} for {img_path}"
+            )
+        return image.shape[2]  # Return channel, which is final idx
 
     @staticmethod
     def _min_max_scale_bands(img: np.array):
@@ -187,6 +220,9 @@ class LunarCraterDatasetMask2Former(Dataset):
                 f"got {image.shape[2]} for {img_path}"
             )
 
+        # Filter down to desired bands
+        image = image[:, :, self.band_indices_filter]
+
         # .tif inputs have been saved as raw values; needs min/max
         if self.input_file_type == ".tif":
             image = LunarCraterDatasetMask2Former._min_max_scale_bands(image)
@@ -194,6 +230,7 @@ class LunarCraterDatasetMask2Former(Dataset):
         # Normalize image with dataset statistics
         # Reshape mean and std to (1, 1, C) for broadcasting with (H, W, C)
         mean_reshaped = self.mean.reshape(1, 1, self.num_channels)
+
         std_reshaped = self.std.reshape(1, 1, self.num_channels)
         image = (image - mean_reshaped) / std_reshaped
 
@@ -380,6 +417,7 @@ def get_dataloaders(
     input_file_type: str = ".npy",
     label_file_type: str = ".npy",
     debug: bool = False,
+    band_indices_filter: List[int] = None,
 ):
     """
     Create train/val dataloaders with automatic statistics calculation.
@@ -442,6 +480,7 @@ def get_dataloaders(
         max_samples=max_samples,
         input_file_type=input_file_type,
         label_file_type=label_file_type,
+        band_indices_filter=band_indices_filter,
     )
 
     # Split into train/val

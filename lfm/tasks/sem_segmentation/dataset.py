@@ -7,7 +7,7 @@ Supports images with any number of channels (grayscale, RGB, multispectral, etc.
 import os
 from pathlib import Path
 from glob import glob
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 
 import numpy as np
 import torch
@@ -42,6 +42,7 @@ class LunarCraterDataset(Dataset):
         max_samples: Optional[int] = None,
         input_file_type: str = ".npy",
         label_file_type: str = ".npy",
+        band_indices_filter: List[int] = None,
     ):
         self.image_dir = image_dir
         self.label_dir = label_dir
@@ -67,6 +68,15 @@ class LunarCraterDataset(Dataset):
         label_paths = sorted(
             glob(os.path.join(label_dir, f"*{self.label_file_type}"))
         )
+
+        # Load example to validate input band number
+        example_band_number = self._load_example_input(self.image_paths[0])
+        if example_band_number != len(band_indices_filter):
+            raise ValueError(
+                f"Incompatible number of input bands specified. "
+                f"Number of bands found: {example_band_number}"
+            )
+        self.band_indices_filter = band_indices_filter
 
         # Extract basenames for matching
         self.image_basenames = [
@@ -106,13 +116,38 @@ class LunarCraterDataset(Dataset):
             print(f"Limited to {max_samples} samples")
 
         print(f"Found {len(self.valid_image_paths)} matched image-label pairs")
-        print(f"Dataset configured for {self.num_channels} channel(s)")
+        print(
+            f"Dataset configured for {len(self.band_indices_filter)} channel(s)"
+        )
 
         if len(self.valid_image_paths) == 0:
             raise ValueError(
                 "No matching image-label pairs found! "
                 "Check that basenames match between image_dir and label_dir"
             )
+
+    def _load_example_input(self, img_path: str):
+        if self.input_file_type in [".npy", ".npz"]:
+            image = np.load(img_path).astype(
+                np.float32
+            )  # (H, W, C) or (C, H, W)
+        else:  # .tif
+            image = rasterio.open(img_path).read()
+
+        if image.ndim == 3:
+            # Determine format: if first dimension is smallest, assume (C, H, W)
+            if image.shape[0] < min(image.shape[1], image.shape[2]):
+                image = image.transpose(1, 2, 0)  # Convert to (H, W, C)
+            # Otherwise, assume already in (H, W, C) format
+
+        elif image.ndim == 2:
+            # Handle grayscale images without explicit channel dimension
+            image = image[:, :, np.newaxis]  # Shape: (H, W, 1)
+        else:
+            raise ValueError(
+                f"Unexpected image dimensions: {image.shape} for {img_path}"
+            )
+        return image.shape[2]  # Return channel, which is final idx
 
     @staticmethod
     def _min_max_scale_bands(img: np.array):
@@ -182,6 +217,9 @@ class LunarCraterDataset(Dataset):
                 f"got {image.shape[2]} for {img_path}"
             )
 
+        # Filter down to desired bands
+        image = image[:, :, self.band_indices_filter]
+
         # .tif inputs have been saved as raw values; needs min/max
         if self.input_file_type == ".tif":
             image = LunarCraterDataset._min_max_scale_bands(image)
@@ -192,24 +230,20 @@ class LunarCraterDataset(Dataset):
         std_reshaped = self.std.reshape(1, 1, self.num_channels)
         image = (image - mean_reshaped) / std_reshaped
 
-        # Convert to torch tensors
-        image = torch.from_numpy(image).permute(
-            2, 0, 1
-        )  # (C, H, W) where C = num_channels
-        label = torch.from_numpy(label)  # (H, W)
+        # Convert to torch tensors in (C, H, W)/(H, W) for inputs, labels resp.
+        image = torch.from_numpy(image).permute(2, 0, 1)
+        label = torch.from_numpy(label)
 
-        # Resize image to target size for model
+        # Resize image to target size for model, (C, target_H, target_W)
         image = F.interpolate(
             image.unsqueeze(0),
             size=self.target_size,
             mode="bilinear",
             align_corners=False,
-        ).squeeze(
-            0
-        )  # (C, target_H, target_W)
+        ).squeeze(0)
 
         # Resize label using nearest neighbor to preserve class indices
-        # Labels are NOT transformed, only resized
+        # Labels are NOT transformed, only resized to (target_H, target_W)
         label = (
             F.interpolate(
                 label.unsqueeze(0).unsqueeze(0).float(),
@@ -219,7 +253,7 @@ class LunarCraterDataset(Dataset):
             .squeeze(0)
             .squeeze(0)
             .long()
-        )  # (target_H, target_W)
+        )
 
         return image, label
 
@@ -364,6 +398,7 @@ def get_dataloaders(
     input_file_type: str = ".npy",
     label_file_type: str = ".npy",
     debug: bool = False,
+    band_indices_filter: List[int] = None,
 ):
     """
     Create train/val dataloaders with automatic statistics calculation.
@@ -425,6 +460,7 @@ def get_dataloaders(
         max_samples=max_samples,
         input_file_type=input_file_type,
         label_file_type=label_file_type,
+        band_indices_filter=band_indices_filter,
     )
 
     # Split into train/val
