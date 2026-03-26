@@ -571,7 +571,9 @@ def visualize_predictions(
 
         # Prepare image for display
         # Just use the defaults - works exactly like your old version but more robust
-        img_vis, note = prepare_image_for_display(img, fix_rgb_order=True)
+        img_vis, note = prepare_image_for_display(
+            img, fix_rgb_order=True, method="std_clip"
+        )
         cmap_image = "gray" if img_vis.ndim == 2 else None
 
         # Row 0: Original image with metrics
