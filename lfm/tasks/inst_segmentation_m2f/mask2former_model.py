@@ -182,7 +182,7 @@ class DinoV3WithAdapterBackbone(nn.Module):
             # Create new weights for 5-band input
             new_weights = torch.zeros(
                 original_weights.shape[0],
-                5,  # 5 input bands
+                num_bands,  # 5/7 input bands
                 original_weights.shape[2],
                 original_weights.shape[3],
             ).to(original_weights.device)
