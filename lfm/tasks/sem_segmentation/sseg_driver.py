@@ -292,7 +292,7 @@ def visualize_predictions(
         img_vis, display_note = prepare_image_for_display(
             img,
             fix_rgb_order=False,  # Not needed for 5/7-band RGB extraction
-            method=None,  # Fixes stripe artifacts
+            method="minmax",  # Fixes stripe artifacts
         )
         if display_mode is None:
             display_mode = display_note
