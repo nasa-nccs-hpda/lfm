@@ -78,6 +78,7 @@ class LunarCraterDatasetMask2Former(Dataset):
                 f"Incompatible number of input bands specified. "
                 f"Number of bands found: {example_band_number}"
             )
+        print(f"Filtered to {len(band_indices_filter)} channels.")
         self.band_indices_filter = band_indices_filter
 
         # Extract basenames for matching
