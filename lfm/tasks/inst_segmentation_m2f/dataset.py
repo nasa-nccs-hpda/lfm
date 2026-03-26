@@ -73,12 +73,14 @@ class LunarCraterDatasetMask2Former(Dataset):
 
         # Load example to validate input band number
         example_band_number = self._load_example_input(self.image_paths[0])
-        if example_band_number != len(band_indices_filter):
+        if example_band_number < len(band_indices_filter):
             raise ValueError(
-                f"Incompatible number of input bands specified. "
-                f"Number of bands found: {example_band_number}"
+                f"Incompatible input band filter specified.\n"
+                f"Number of bands found: {example_band_number}\n"
+                f"Band filter: {band_indices_filter}, "
+                f"len={len(band_indices_filter)}"
             )
-        print(f"Filtered to {len(band_indices_filter)} channels.")
+        print(f"Filtered to channels: {band_indices_filter}")
         self.band_indices_filter = band_indices_filter
 
         # Extract basenames for matching
