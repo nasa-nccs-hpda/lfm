@@ -74,7 +74,6 @@ class DINOSegmentation(nn.Module):
         encoder,
         num_classes=2,
         img_size=(304, 304),
-        use_flexible=False,
         num_bands=3,
     ):
         super().__init__()
@@ -95,6 +94,9 @@ class DINOSegmentation(nn.Module):
             raise ValueError("Dino Segmentation expects 3, 5, or 7 bands.")
 
         self.num_bands = num_bands
+        use_flexible = False
+        if num_bands > 3:
+            use_flexible = True
 
         # Change weights if using flexible embeddings approach
         if use_flexible:

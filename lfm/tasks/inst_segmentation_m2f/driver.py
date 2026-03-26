@@ -570,7 +570,6 @@ def visualize_predictions(
         # Just use the defaults - works exactly like your old version but more robust
         img_vis, note = prepare_image_for_display(img, fix_rgb_order=False)
         cmap_image = "gray" if img_vis.ndim == 2 else None
-        print(f"DEBUG: When visualizing, image has dimensions: {img_vis.ndim}")
 
         # Row 0: Original image with metrics
         axes[0, i].imshow(img_vis, cmap=cmap_image)

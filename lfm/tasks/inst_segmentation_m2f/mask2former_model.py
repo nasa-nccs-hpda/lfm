@@ -41,7 +41,6 @@ class DinoV3WithAdapterBackbone(nn.Module):
         self,
         model_name: str,
         out_channels: List[int],
-        use_flexible=False,
         num_bands=3,
     ):
         super().__init__()
@@ -76,6 +75,9 @@ class DinoV3WithAdapterBackbone(nn.Module):
             raise ValueError("Dino Segmentation expects 3, 5, or 7 bands.")
 
         self.num_bands = num_bands
+        use_flexible = False
+        if num_bands > 3:
+            use_flexible = True
 
         if use_flexible:
             print(f"Flexible embeddings will be applied to DinoV3 backbone...")
