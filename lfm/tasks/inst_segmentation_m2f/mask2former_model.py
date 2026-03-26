@@ -227,7 +227,6 @@ def create_mask2former_dinov3_model(
     ],  # Swin-Large head configuration
     freeze_backbone: bool = True,
     hub_token: str = None,
-    use_flexible: bool = False,
     num_bands: int = 3,
 ) -> AutoModelForUniversalSegmentation:
     """
@@ -253,7 +252,7 @@ def create_mask2former_dinov3_model(
 
     # 2. Create custom DINOv3-Large backbone with adapter
     custom_backbone = DinoV3WithAdapterBackbone(
-        dinov3_model_name, expected_channels, use_flexible, num_bands
+        dinov3_model_name, expected_channels, num_bands
     )
 
     # 3. Replace the backbone; encoder is in the pixel_level_module, not at model.backbone
