@@ -42,7 +42,7 @@ class LunarCraterDataset(Dataset):
         max_samples: Optional[int] = None,
         input_file_type: str = ".npy",
         label_file_type: str = ".npy",
-        band_indices_filter: List[int] = None,
+        band_filter: List[int] = None,
     ):
         self.image_dir = image_dir
         self.label_dir = label_dir
@@ -71,18 +71,18 @@ class LunarCraterDataset(Dataset):
 
         # Load example to validate input band number
         example_band_number = self._load_example_input(self.image_paths[0])
-        if band_indices_filter is not None:
-            if example_band_number < len(band_indices_filter):
+        if band_filter is not None:
+            if example_band_number < len(band_filter):
                 raise ValueError(
                     f"Incompatible input band filter specified.\n"
                     f"Number of bands found: {example_band_number}\n"
-                    f"Band filter: {band_indices_filter}, "
-                    f"len={len(band_indices_filter)}"
+                    f"Band filter: {band_filter}, "
+                    f"len={len(band_filter)}"
                 )
-            print(f"Filtered to channels: {band_indices_filter}")
-            self.band_indices_filter = band_indices_filter
+            print(f"Filtered inputs and mean/std to channels: {band_filter}")
+            self.band_filter = band_filter
         else:
-            self.band_indices_filter = list(range(example_band_number))
+            self.band_filter = list(range(example_band_number))
 
         # Extract basenames for matching
         self.image_basenames = [
@@ -122,9 +122,7 @@ class LunarCraterDataset(Dataset):
             print(f"Limited to {max_samples} samples")
 
         print(f"Found {len(self.valid_image_paths)} matched image-label pairs")
-        print(
-            f"Dataset configured for {len(self.band_indices_filter)} channel(s)"
-        )
+        print(f"Dataset configured for {len(self.band_filter)} channel(s)")
 
         if len(self.valid_image_paths) == 0:
             raise ValueError(
@@ -224,7 +222,7 @@ class LunarCraterDataset(Dataset):
             )
 
         # Filter down to desired bands
-        image = image[:, :, self.band_indices_filter]
+        image = image[:, :, self.band_filter]
 
         # .tif inputs have been saved as raw values; needs min/max
         if self.input_file_type == ".tif":
@@ -232,16 +230,8 @@ class LunarCraterDataset(Dataset):
 
         # Normalize image with dataset statistics
         # Filter mean/std to use our band indices filter
-        mean_filtered = (
-            self.mean[self.band_indices_filter]
-            if self.band_indices_filter is not None
-            else self.mean
-        )
-        std_filtered = (
-            self.std[self.band_indices_filter]
-            if self.band_indices_filter is not None
-            else self.std
-        )
+        mean_filtered = self.mean[self.band_filter]
+        std_filtered = self.std[self.band_filter]
 
         # Reshape mean and std to (1, 1, C) for broadcasting with (H, W, C)
         mean_reshaped = mean_filtered.reshape(1, 1, -1)
@@ -416,7 +406,7 @@ def get_dataloaders(
     input_file_type: str = ".npy",
     label_file_type: str = ".npy",
     debug: bool = False,
-    band_indices_filter: List[int] = None,
+    band_filter: List[int] = None,
 ):
     """
     Create train/val dataloaders with automatic statistics calculation.
@@ -478,7 +468,7 @@ def get_dataloaders(
         max_samples=max_samples,
         input_file_type=input_file_type,
         label_file_type=label_file_type,
-        band_indices_filter=band_indices_filter,
+        band_filter=band_filter,
     )
 
     # Split into train/val
