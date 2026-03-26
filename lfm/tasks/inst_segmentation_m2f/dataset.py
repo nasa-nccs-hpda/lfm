@@ -73,15 +73,18 @@ class LunarCraterDatasetMask2Former(Dataset):
 
         # Load example to validate input band number
         example_band_number = self._load_example_input(self.image_paths[0])
-        if example_band_number < len(band_indices_filter):
-            raise ValueError(
-                f"Incompatible input band filter specified.\n"
-                f"Number of bands found: {example_band_number}\n"
-                f"Band filter: {band_indices_filter}, "
-                f"len={len(band_indices_filter)}"
-            )
-        print(f"Filtered to channels: {band_indices_filter}")
-        self.band_indices_filter = band_indices_filter
+        if band_indices_filter is not None:
+            if example_band_number < len(band_indices_filter):
+                raise ValueError(
+                    f"Incompatible input band filter specified.\n"
+                    f"Number of bands found: {example_band_number}\n"
+                    f"Band filter: {band_indices_filter}, "
+                    f"len={len(band_indices_filter)}"
+                )
+            print(f"Filtered to channels: {band_indices_filter}")
+            self.band_indices_filter = band_indices_filter
+        else:
+            self.band_indices_filter = list(range(example_band_number))
 
         # Extract basenames for matching
         self.image_basenames = [
@@ -231,10 +234,17 @@ class LunarCraterDatasetMask2Former(Dataset):
             image = LunarCraterDatasetMask2Former._min_max_scale_bands(image)
 
         # Normalize image with dataset statistics
-        # Reshape mean and std to (1, 1, C) for broadcasting with (H, W, C)
-        mean_reshaped = self.mean.reshape(1, 1, self.num_channels)
+        # Filter mean/std to use our band indices filter
+        mean_filtered = (
+            self.mean[self.indices] if self.indices is not None else self.mean
+        )
+        std_filtered = (
+            self.std[self.indices] if self.indices is not None else self.std
+        )
 
-        std_reshaped = self.std.reshape(1, 1, self.num_channels)
+        # Reshape mean and std to (1, 1, C) for broadcasting with (H, W, C)
+        mean_reshaped = mean_filtered.reshape(1, 1, -1)
+        std_reshaped = std_filtered.reshape(1, 1, -1)
         image = (image - mean_reshaped) / std_reshaped
 
         # Build instance_id_to_semantic_id mapping
