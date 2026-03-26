@@ -243,6 +243,7 @@ def prepare_image_for_display(
                 - 'percentile': Clips based on percentiles (robust to outliers) - RECOMMENDED
                 - 'std_clip': Clips based on standard deviations (for z-score normalized data)
                 - 'minmax': Simple min-max (fastest, but sensitive to outliers)
+                - None: no normalization for display
         clip_percentile: Percentile for clipping when method='percentile' (default: 2 = 2nd-98th)
         std_clip: Number of standard deviations to clip when method='std_clip' (default: 3)
 
@@ -281,7 +282,7 @@ def prepare_image_for_display(
         img_normalized = (img - img.min()) / (img.max() - img.min() + 1e-8)
         img_normalized = np.clip(img_normalized, 0, 1)
 
-    elif method == "none":
+    elif method == None:
         img_normalized = img
 
     else:
@@ -572,7 +573,9 @@ def visualize_predictions(
 
         # Prepare image for display
         # Just use the defaults - works exactly like your old version but more robust
-        img_vis, note = prepare_image_for_display(img, fix_rgb_order=False)
+        img_vis, note = prepare_image_for_display(
+            img, fix_rgb_order=False, method=None
+        )
         cmap_image = "gray" if img_vis.ndim == 2 else None
 
         # Row 0: Original image with metrics
