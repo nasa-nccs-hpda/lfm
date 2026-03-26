@@ -105,6 +105,9 @@ def prepare_image_for_display(
         img_normalized = (img - img.min()) / (img.max() - img.min() + 1e-8)
         img_normalized = np.clip(img_normalized, 0, 1)
 
+    elif method == "none":
+        img_normalized = img
+
     else:
         raise ValueError(
             f"Unknown method: {method}. Use 'percentile', 'std_clip', or 'minmax'"
@@ -198,7 +201,7 @@ def create_overlay_image(img_vis, pred_mask):
 
 
 def visualize_predictions(
-    model, dataloader, device, output_dir, epoch, n_samples=5
+    model, dataloader, device, output_dir, epoch, n_samples=5, dpi=300
 ):
     """
     Visualize model predictions and save to output directory.
@@ -338,7 +341,7 @@ def visualize_predictions(
         epoch_str = str(epoch)
 
     save_path = os.path.join(output_dir, f"predictions_epoch_{epoch_str}.png")
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
     plt.close()
     print(f"Saved visualization to {save_path}")
     print(f"Mean F1 Score: {mean_f1:.3f}")

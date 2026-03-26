@@ -281,6 +281,9 @@ def prepare_image_for_display(
         img_normalized = (img - img.min()) / (img.max() - img.min() + 1e-8)
         img_normalized = np.clip(img_normalized, 0, 1)
 
+    elif method == "none":
+        img_normalized = img
+
     else:
         raise ValueError(
             f"Unknown method: {method}. Use 'percentile', 'std_clip', or 'minmax'"
@@ -431,6 +434,7 @@ def visualize_predictions(
     epoch,
     n_samples=5,
     threshold=0.5,
+    dpi=300,
 ):
     """
     Visualize Mask2Former instance segmentation predictions.
@@ -716,7 +720,7 @@ def visualize_predictions(
         epoch_str = str(epoch)
 
     save_path = os.path.join(output_dir, f"predictions_epoch_{epoch_str}.png")
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
     plt.close()
 
     print(f"Saved visualization to {save_path}")
