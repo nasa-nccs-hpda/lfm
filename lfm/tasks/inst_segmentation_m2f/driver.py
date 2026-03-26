@@ -15,11 +15,9 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, SequentialLR, LinearLR
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-from matplotlib.patches import Rectangle
 import matplotlib.patches as patches
 from tqdm import tqdm
-
-from .utils import get_loss_function
+from skimage.transform import resize
 
 
 # ============================================================================
@@ -551,7 +549,6 @@ def visualize_predictions(
 
         # Resize if needed
         if gt_mask.shape != pred_mask.shape:
-            from skimage.transform import resize
 
             print(f"Warning: Shape mismatch at sample {i}. Resizing...")
             pred_mask = resize(
@@ -571,10 +568,9 @@ def visualize_predictions(
 
         # Prepare image for display
         # Just use the defaults - works exactly like your old version but more robust
-        img_vis, note = prepare_image_for_display(
-            img, fix_rgb_order=False, method="std_clip"
-        )
+        img_vis, note = prepare_image_for_display(img, fix_rgb_order=False)
         cmap_image = "gray" if img_vis.ndim == 2 else None
+        print(f"DEBUG: When visualizing, image has dimensions: {img_vis.ndim}")
 
         # Row 0: Original image with metrics
         axes[0, i].imshow(img_vis, cmap=cmap_image)

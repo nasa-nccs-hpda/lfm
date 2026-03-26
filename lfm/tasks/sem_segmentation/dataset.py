@@ -82,6 +82,7 @@ class LunarCraterDataset(Dataset):
             print(f"Filtered inputs and mean/std to channels: {band_filter}")
             self.band_filter = band_filter
         else:
+            print(f"No band filter, using all {example_band_number} bands.")
             self.band_filter = list(range(example_band_number))
 
         # Extract basenames for matching
@@ -191,9 +192,8 @@ class LunarCraterDataset(Dataset):
         label_path = self.valid_label_paths[idx]
 
         if self.input_file_type in [".npy", ".npz"]:
-            image = np.load(img_path).astype(
-                np.float32
-            )  # (H, W, C) or (C, H, W)
+            # Image is (H, W, C) or (C, H, W)
+            image = np.load(img_path).astype(np.float32)
         else:  # .tif
             image = rasterio.open(img_path).read()
 
