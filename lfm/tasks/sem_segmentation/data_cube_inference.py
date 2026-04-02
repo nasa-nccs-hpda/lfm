@@ -22,35 +22,6 @@ def extract_images(
     max_images=None,
     verbose=True,
 ):
-    """
-    Extract image data from .tif files with optional band filtering.
-
-    Parameters:
-    -----------
-    input_paths : str, Path, or list
-        Path(s) to search for .tif files. Can be:
-        - Single directory path (will glob recursively)
-        - Single .tif file path
-        - List of paths
-    band_filter : list or None
-        Which bands to extract (e.g., [3, 1, 0]). If None, extracts all bands.
-    bands_per_slice : int or None
-        Expected number of bands per image. If None, inferred from first image.
-    max_images : int or None
-        Maximum number of images to extract
-    verbose : bool
-        Print extraction progress
-
-    Returns:
-    --------
-    data : np.ndarray
-        Shape (n_images, n_bands, height, width)
-    file_paths : list
-        List of file paths that were loaded
-    """
-    from glob import glob
-    from pathlib import Path
-    import rasterio
 
     # Convert input to list of file paths
     if isinstance(input_paths, (str, Path)):
@@ -100,23 +71,35 @@ def extract_images(
         if band_filter is not None:
             print(f"Band filter: {band_filter}")
 
-    # Initialize output array
-    data = np.zeros(
-        (len(file_paths), n_bands_output, height, width), dtype=np.float32
-    )
-
     # Extract data from each file
+    valid_data = []
+    valid_paths = []
+
     for i, file_path in enumerate(file_paths):
         with rasterio.open(file_path) as src:
-            # Rasterio uses 1-based indexing, so add 1 to band indices
+            temp_data = np.zeros(
+                (n_bands_output, height, width), dtype=np.float32
+            )
             for j, band_idx in enumerate(bands_to_extract):
-                data[i, j, :, :] = src.read(band_idx + 1)
+                temp_data[j, :, :] = src.read(band_idx + 1)
 
-        if verbose and (i + 1) % 10 == 0:
-            print(f"  ✓ Loaded {i + 1}/{len(file_paths)} images")
+        # Only keep images with all values > 0
+        if (temp_data > 0).all():
+            valid_data.append(temp_data)
+            valid_paths.append(file_path)
+        elif verbose:
+            print(f"  ✗ Skipped {file_path}: contains values <= 0")
+
+    if not valid_data:
+        raise ValueError("No valid images found (all had values <= 0)")
+
+    data = np.stack(valid_data, axis=0)
+    file_paths = valid_paths
 
     if verbose:
-        print(f"  ✓ Extraction complete: shape {data.shape}")
+        print(
+            f"  ✓ Extraction complete: {len(file_paths)} valid images, shape {data.shape}"
+        )
 
     return data, file_paths
 
