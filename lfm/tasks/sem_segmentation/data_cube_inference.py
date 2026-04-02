@@ -124,6 +124,8 @@ def extract_images(
 def plot_data_cubes(
     input_paths,
     mode="rgb",
+    mean=None,
+    std=None,
     max_images=None,
     figsize=None,
     titles=None,
@@ -133,6 +135,7 @@ def plot_data_cubes(
     suptitle=None,
     colorbar=False,
     normalize_per_band=True,
+    apply_normalization=True,
     verbose=True,
 ):
     """
@@ -148,6 +151,12 @@ def plot_data_cubes(
     mode : str, default='rgb'
         'rgb' for RGB composite (extracts bands 3, 1, 0) or
         'bands' for individual band plots (extracts all 7 bands)
+    mean : np.ndarray or None
+        Mean values for normalization. Shape should be (1, n_bands, 1, 1) or (n_bands,).
+        If None and apply_normalization=True, computed from data.
+    std : np.ndarray or None
+        Std values for normalization. Shape should be (1, n_bands, 1, 1) or (n_bands,).
+        If None and apply_normalization=True, computed from data.
     max_images : int, optional
         Maximum number of images to plot
     figsize : tuple, optional
@@ -165,6 +174,9 @@ def plot_data_cubes(
         Add colorbar to band plots (only in 'bands' mode)
     normalize_per_band : bool, default=True
         If True, normalize each band independently. If False, use global vmin/vmax.
+        Only applies to color scaling, not mean/std normalization.
+    apply_normalization : bool, default=True
+        If True, applies (data - mean) / std normalization before plotting
     verbose : bool, default=True
         Print extraction progress
 
@@ -172,18 +184,25 @@ def plot_data_cubes(
     --------
     fig, axes : matplotlib figure and axes objects
     data : np.ndarray
-        Extracted data array
+        Extracted data array (before normalization)
+    data_normalized : np.ndarray
+        Normalized data array (after mean/std normalization)
     file_paths : list
         List of file paths that were loaded
 
     Examples:
     ---------
     # RGB mode - extracts bands 3, 1, 0
-    fig, axes, data, paths = plot_data_cubes('/path/to/tifs/', mode='rgb')
+    fig, axes, data, data_norm, paths = plot_data_cubes('/path/to/tifs/',
+                                                         mode='rgb',
+                                                         mean=my_mean,
+                                                         std=my_std)
 
     # Individual bands mode - extracts all 7 bands
-    fig, axes, data, paths = plot_data_cubes('/path/to/tifs/', mode='bands',
-                                             cmap='viridis', max_images=5)
+    fig, axes, data, data_norm, paths = plot_data_cubes('/path/to/tifs/',
+                                                         mode='bands',
+                                                         cmap='viridis',
+                                                         max_images=5)
     """
 
     # Extract data based on mode
@@ -209,6 +228,39 @@ def plot_data_cubes(
 
     n_images, n_bands, height, width = data.shape
 
+    # Apply normalization if requested
+    if apply_normalization:
+        if mean is None:
+            mean = data.mean(
+                axis=(0, 2, 3), keepdims=True
+            )  # (1, n_bands, 1, 1)
+            if verbose:
+                print(f"Computed mean from data: {mean.squeeze()}")
+        else:
+            # Ensure mean has correct shape
+            mean = np.array(mean)
+            if mean.ndim == 1:
+                mean = mean.reshape(1, -1, 1, 1)
+
+        if std is None:
+            std = data.std(axis=(0, 2, 3), keepdims=True)  # (1, n_bands, 1, 1)
+            if verbose:
+                print(f"Computed std from data: {std.squeeze()}")
+        else:
+            # Ensure std has correct shape
+            std = np.array(std)
+            if std.ndim == 1:
+                std = std.reshape(1, -1, 1, 1)
+
+        data_normalized = (data - mean) / (std + 1e-8)
+
+        if verbose:
+            print(f"Applied normalization: (data - mean) / std")
+    else:
+        data_normalized = data.copy()
+        if verbose:
+            print(f"Skipping normalization")
+
     # Generate titles from filenames if not provided
     if titles is None:
         titles = [Path(fp).stem for fp in file_paths]
@@ -223,10 +275,15 @@ def plot_data_cubes(
 
         for i in range(n_images):
             # Extract RGB bands: (3, H, W) → (H, W, 3)
-            rgb = data[i, :, :, :].transpose(1, 2, 0)
+            rgb = data_normalized[i, :, :, :].transpose(1, 2, 0)
 
-            # Normalize to 0-1 for display
-            rgb_norm = (rgb - rgb.min()) / (rgb.max() - rgb.min() + 1e-8)
+            # Clip and normalize to 0-1 for display
+            # Use percentile clipping to handle outliers after normalization
+            p_low, p_high = np.percentile(rgb, [2, 98])
+            rgb_clipped = np.clip(rgb, p_low, p_high)
+            rgb_norm = (rgb_clipped - rgb_clipped.min()) / (
+                rgb_clipped.max() - rgb_clipped.min() + 1e-8
+            )
 
             axes[i].imshow(rgb_norm)
             axes[i].axis("off")
@@ -247,13 +304,13 @@ def plot_data_cubes(
 
         # Calculate global vmin/vmax if not provided and not normalizing per band
         if not normalize_per_band and vmin is None:
-            vmin = data.min()
+            vmin = data_normalized.min()
         if not normalize_per_band and vmax is None:
-            vmax = data.max()
+            vmax = data_normalized.max()
 
         for i in range(n_images):
             for j in range(n_bands):
-                band_data = data[i, j, :, :]
+                band_data = data_normalized[i, j, :, :]
 
                 # Determine color limits
                 if normalize_per_band:
@@ -308,7 +365,7 @@ def plot_data_cubes(
     if verbose:
         print(f"✓ Plotted {n_images} images with {n_bands} bands each")
 
-    return fig, axes, data, file_paths
+    return fig, axes, data, data_normalized, file_paths
 
 
 def min_max_scale_bands(bands):
