@@ -532,6 +532,7 @@ def run_datacube_inference(
         std=std,
     )
     print(f"Extracted images shape: {images_npy.shape}")  # (N, 512, 512, 3)
+    return
 
     # Save inputs if specified
     if save_inputs_dir:
