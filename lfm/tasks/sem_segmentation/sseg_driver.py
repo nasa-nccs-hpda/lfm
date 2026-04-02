@@ -10,14 +10,14 @@ import time
 
 import torch
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 from tqdm import tqdm
 
-from .utils import get_loss_function
+from .sseg_utils import get_loss_function
 
 
 def calculate_f1_score(pred, label):
@@ -45,39 +45,115 @@ def calculate_f1_score(pred, label):
     return f1
 
 
-def prepare_image_for_display(img):
+def prepare_image_for_display(
+    img, fix_rgb_order=True, method="percentile", clip_percentile=2, std_clip=3
+):
     """
     Prepare multi-channel image for matplotlib display.
-    
+    Unified version that handles various band configurations and normalization methods.
+
+    Band Configuration Support:
+    - 1-band: Grayscale
+    - 3-band: RGB or BGR (controlled by fix_rgb_order)
+    - 5-band: B, G, _, R, _ → extracts [3, 1, 0] for RGB display
+    - 7-band: B, G, _, R, _, UV, UV → extracts [3, 1, 0] for RGB display
+    - Other: Shows first 3 bands (optionally BGR→RGB if fix_rgb_order=True)
+
     Args:
-        img: Image array with shape (H, W, C) where C can be any number
-        
+        img: Image array with shape (H, W, C) where C is number of channels
+        fix_rgb_order: If True, reorder BGR→RGB for 3-band or when showing first 3 bands
+                       Has no effect for 5/7-band (RGB extraction already in correct order)
+        method: Normalization method for display
+                - 'percentile': Clips based on percentiles (robust to outliers) - RECOMMENDED
+                - 'std_clip': Clips based on standard deviations (for z-score normalized data)
+                - 'minmax': Simple min-max (fastest, but sensitive to outliers)
+                - None: no normalization for display
+        clip_percentile: Percentile for clipping when method='percentile' (default: 2 = 2nd-98th)
+        std_clip: Number of standard deviations to clip when method='std_clip' (default: 3)
+
     Returns:
-        img_vis: Image ready for display (H, W) or (H, W, 3)
+        img_vis: Image ready for display - shape (H, W) for grayscale or (H, W, 3) for color
         display_note: String describing how the image was prepared
     """
     num_channels = img.shape[2]
-    
-    # Denormalize image for visualization
-    # Scale to 0-1 range for display
-    img_normalized = (img - img.min()) / (img.max() - img.min() + 1e-8)
-    img_normalized = np.clip(img_normalized, 0, 1)
-    
+
+    # Step 1: Apply normalization/clipping based on method
+    if method == "percentile":
+        # Percentile-based clipping (per band) - robust to outliers
+        img_clipped = np.zeros_like(img)
+        for c in range(num_channels):
+            band = img[:, :, c]
+            p_low, p_high = np.percentile(
+                band, [clip_percentile, 100 - clip_percentile]
+            )
+            band_clipped = np.clip(band, p_low, p_high)
+            if p_high > p_low:
+                img_clipped[:, :, c] = (band_clipped - p_low) / (
+                    p_high - p_low
+                )
+            else:
+                img_clipped[:, :, c] = 0.5  # Constant band
+        img_normalized = np.clip(img_clipped, 0, 1)
+
+    elif method == "std_clip":
+        # Standard deviation clipping - good for z-score normalized data
+        img_clipped = np.clip(img, -std_clip, std_clip)
+        # Rescale to [0, 1]
+        img_normalized = (img_clipped + std_clip) / (2 * std_clip)
+
+    elif method == "minmax":
+        # Simple min-max normalization - sensitive to outliers but fast
+        img_normalized = (img - img.min()) / (img.max() - img.min() + 1e-8)
+        img_normalized = np.clip(img_normalized, 0, 1)
+
+    elif method == None:
+        img_normalized = img
+
+    else:
+        raise ValueError(
+            f"Unknown method: {method}. Use 'percentile', 'std_clip', or 'minmax'"
+        )
+
+    # Step 2: Select and arrange bands for display
     if num_channels == 1:
-        # Grayscale - squeeze channel dimension
+        # Grayscale
         img_vis = img_normalized[:, :, 0]
         display_note = "Grayscale"
-        
+
     elif num_channels == 3:
-        # RGB - display as-is
+        # 3-band: RGB or BGR
         img_vis = img_normalized
-        display_note = "RGB"
-        
+        if fix_rgb_order:
+            img_vis = img_vis[..., [2, 1, 0]]  # BGR → RGB
+            display_note = "RGB (BGR→RGB)"
+        else:
+            display_note = "RGB"
+
+    elif num_channels == 5:
+        # 5-band: B, G, _, R, _
+        # Band indices: [0:B, 1:G, 2:?, 3:R, 4:?]
+        # Extract R, G, B → indices [3, 1, 0] (already in RGB order)
+        img_vis = img_normalized[:, :, [3, 1, 0]]
+        display_note = "5ch (RGB from bands 3,1,0)"
+        # fix_rgb_order has no effect here - already in correct order
+
+    elif num_channels == 7:
+        # 7-band: B, G, _, R, _, UV, UV
+        # Band indices: [0:B, 1:G, 2:?, 3:R, 4:?, 5:UV, 6:UV]
+        # Extract R, G, B → indices [3, 1, 0] (already in RGB order)
+        img_vis = img_normalized[:, :, [3, 1, 0]]
+        display_note = "7ch (RGB from bands 3,1,0)"
+        # fix_rgb_order has no effect here - already in correct order
+
     else:
-        # Multi-channel (>3): display first 3 channels as RGB
+        # Other multi-band: show first 3 channels
         img_vis = img_normalized[:, :, :3]
-        display_note = f"{num_channels}ch (showing first 3)"
-    
+        if fix_rgb_order:
+            img_vis = img_vis[..., [2, 1, 0]]  # Assume BGR → RGB
+            display_note = f"{num_channels}ch (first 3, BGR→RGB)"
+        else:
+            display_note = f"{num_channels}ch (first 3)"
+
     return img_vis, display_note
 
 
@@ -85,11 +161,11 @@ def create_overlay_image(img_vis, pred_mask):
     """
     Create overlay of prediction mask on image.
     Handles grayscale and color images.
-    
+
     Args:
         img_vis: Base image (H, W) for grayscale or (H, W, 3) for color
         pred_mask: Binary prediction mask (H, W)
-        
+
     Returns:
         blended: Blended image with yellow overlay on predictions
     """
@@ -99,7 +175,7 @@ def create_overlay_image(img_vis, pred_mask):
         img_vis_rgb = np.stack([img_vis] * 3, axis=2)
     else:
         img_vis_rgb = img_vis
-    
+
     # Create RGBA image for proper alpha blending
     combined = np.zeros((pred_mask.shape[0], pred_mask.shape[1], 4))
     combined[:, :, :3] = img_vis_rgb
@@ -121,12 +197,12 @@ def create_overlay_image(img_vis, pred_mask):
     # Blend images
     alpha = overlay[:, :, 3:4]
     blended = overlay[:, :, :3] * alpha + combined[:, :, :3] * (1 - alpha)
-    
+
     return np.clip(blended, 0, 1)
 
 
 def visualize_predictions(
-    model, dataloader, device, output_dir, epoch, n_samples=5
+    model, dataloader, device, output_dir, epoch, n_samples=5, dpi=300
 ):
     """
     Visualize model predictions and save to output directory.
@@ -199,7 +275,7 @@ def visualize_predictions(
 
     # Calculate F1 scores for each sample
     f1_scores = []
-    
+
     # Track display mode for figure title
     display_mode = None
 
@@ -213,12 +289,16 @@ def visualize_predictions(
         f1_scores.append(f1)
 
         # Prepare image for display (handles any number of channels)
-        img_vis, display_note = prepare_image_for_display(img)
+        img_vis, display_note = prepare_image_for_display(
+            img,
+            fix_rgb_order=False,  # Not needed for 5/7-band RGB extraction
+            method="minmax",  # Fixes stripe artifacts
+        )
         if display_mode is None:
             display_mode = display_note
 
         # Determine colormap for grayscale images
-        cmap_image = 'gray' if img_vis.ndim == 2 else None
+        cmap_image = "gray" if img_vis.ndim == 2 else None
 
         # Row 0: Original image with F1 score
         axes[0, i].imshow(img_vis, cmap=cmap_image)
@@ -262,7 +342,7 @@ def visualize_predictions(
         epoch_str = str(epoch)
 
     save_path = os.path.join(output_dir, f"predictions_epoch_{epoch_str}.png")
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
     plt.close()
     print(f"Saved visualization to {save_path}")
     print(f"Mean F1 Score: {mean_f1:.3f}")
@@ -271,7 +351,13 @@ def visualize_predictions(
 
 
 def train_epoch(
-    model, dataloader, criterion, optimizer, device, desc="Training"
+    model,
+    dataloader,
+    criterion,
+    optimizer,
+    device,
+    desc="Training",
+    max_grad_norm=1.0,
 ):
     """
     Train for one epoch.
@@ -306,6 +392,10 @@ def train_epoch(
 
         # Backward pass
         loss.backward()
+        # Clip gradients
+        torch.nn.utils.clip_grad_norm_(
+            model.parameters(), max_norm=max_grad_norm
+        )  # Optimizer step
         optimizer.step()
 
         # Track metrics
@@ -551,6 +641,9 @@ def train_model(
     device=None,
     mode="both",
     checkpoint_path=None,
+    max_grad_norm=1.0,
+    early_stopping_patience=None,
+    warmup_epochs=None,
 ):
     """
     Main training/evaluation loop for DINO segmentation.
@@ -628,8 +721,29 @@ def train_model(
         weight_decay=weight_decay,
     )
 
-    # Learning rate scheduler
-    scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
+    # # Learning rate scheduler
+    if warmup_epochs is None or warmup_epochs < 0:
+        scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
+    elif warmup_epochs > num_epochs:
+        raise ValueError(
+            "Number of warmup epochs must be less than or equal to total epochs."
+        )
+    elif warmup_epochs > 0.5 * num_epochs:
+        print("Warning: warmup epochs is greater than 1/2 of total epochs.")
+    else:
+        warmup_scheduler = LinearLR(
+            optimizer, start_factor=0.1, total_iters=warmup_epochs
+        )
+        cosine_scheduler = CosineAnnealingLR(
+            optimizer,
+            T_max=num_epochs - warmup_epochs,
+            eta_min=1e-7,  # Lower minimum
+        )
+        scheduler = SequentialLR(
+            optimizer,
+            schedulers=[warmup_scheduler, cosine_scheduler],
+            milestones=[warmup_epochs],
+        )
 
     # Training history
     train_losses = []
@@ -659,6 +773,9 @@ def train_model(
 
     print_model_summary(model)
 
+    # Early stopping
+    patience_counter = 0
+
     # Start timing
     training_start_time = time.time()
     epoch_times = []
@@ -678,6 +795,7 @@ def train_model(
             optimizer,
             device,
             desc=f"Epoch {epoch}/{num_epochs} [Train]",
+            max_grad_norm=max_grad_norm,
         )
         train_losses.append(train_loss)
 
@@ -706,21 +824,6 @@ def train_model(
         print(f"  LR:         {current_lr:.6f}")
         print(f"  Time:       {epoch_time:.2f}s")
 
-        # Save best model
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_path = os.path.join(checkpoint_dir, "best_model.pt")
-            save_checkpoint(
-                model,
-                optimizer,
-                scheduler,
-                epoch,
-                train_losses,
-                val_losses,
-                best_path,
-            )
-            print(f"  Saved best model (val_loss: {val_loss:.4f})")
-
         # Save checkpoint periodically
         if epoch % checkpoint_every == 0:
             checkpoint_path_epoch = os.path.join(
@@ -742,6 +845,62 @@ def train_model(
             visualize_predictions(
                 model, val_loader, device, visualization_dir, epoch
             )
+
+        # Save best model
+        # Early stopping check
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0
+            best_path = os.path.join(checkpoint_dir, "best_model.pt")
+            save_checkpoint(
+                model,
+                optimizer,
+                scheduler,
+                epoch,
+                train_losses,
+                val_losses,
+                best_path,
+            )
+            print(f"  Saved best model (val_loss: {val_loss:.4f})")
+            # Save best model...
+        else:
+            patience_counter += 1
+
+        # Early stopping check
+        if (
+            early_stopping_patience
+            and patience_counter >= early_stopping_patience
+        ):
+            print(f"\n{'='*60}")
+            print(f"⚠️  Early stopping triggered after {epoch} epochs")
+            print(f"No improvement for {early_stopping_patience} epochs")
+            print(f"{'='*60}")
+
+            # Load best model for final evaluation
+            best_model_path = os.path.join(checkpoint_dir, "best_model.pt")
+            print(f"\n📊 Loading best model for final evaluation...")
+            print(f"Best model path: {best_model_path}")
+            load_model_weights(model, best_model_path, device)
+
+            # Run evaluation on best model
+            print(
+                f"\n🔍 Running evaluation on best model (val_loss: {best_val_loss:.4f})..."
+            )
+            evaluate_model(model, val_loader, output_dir, device)
+
+            # Generate final visualizations
+            print(f"\n📸 Generating final visualizations...")
+            visualize_predictions(
+                model,
+                val_loader,
+                device,
+                visualization_dir,
+                epoch=f"early_stop_epoch_{epoch}",  # Mark as early stopped
+            )
+
+            print(f"\n✅ Early stopping evaluation complete")
+            print(f"{'='*60}\n")
+            break
 
     # Calculate total training time
     total_training_time = time.time() - training_start_time

@@ -243,6 +243,52 @@ class FullLoss(nn.Module):
         )
         return total_loss
 
+class FocalDiceLoss(nn.Module):
+    """
+    Combined Focal Loss and Dice Loss for binary segmentation.
+    
+    Focal Loss handles class imbalance (sparse craters).
+    Dice Loss optimizes for segmentation overlap.
+    
+    Args:
+        focal_weight (float): Weight for focal loss component
+        dice_weight (float): Weight for dice loss component
+        alpha (float): Focal loss alpha parameter (class weighting)
+        gamma (float): Focal loss gamma parameter (focus on hard examples)
+        smooth (float): Smoothing factor for dice loss
+    """
+    
+    def __init__(
+        self, 
+        focal_weight=0.3, 
+        dice_weight=0.7,
+        alpha=0.25,
+        gamma=2.0,
+        smooth=1.0
+    ):
+        super().__init__()
+        self.focal_weight = focal_weight
+        self.dice_weight = dice_weight
+        self.focal_loss = FocalLoss(alpha=alpha, gamma=gamma)
+        self.dice_loss = DiceLoss(smooth=smooth)
+        
+    def forward(self, logits, targets):
+        """
+        Args:
+            logits: Raw model outputs (batch, num_classes, H, W)
+            targets: Ground truth masks (batch, H, W) for CE or (batch, num_classes, H, W) for Dice
+        """
+        focal = self.focal_loss(logits, targets)
+        dice = self.dice_loss(logits, targets)
+        
+        total_loss = self.focal_weight * focal + self.dice_weight * dice
+        
+        return total_loss
+    
+    def __repr__(self):
+        return (f"FocalDiceLoss(focal_weight={self.focal_weight}, "
+                f"dice_weight={self.dice_weight})")
+
 
 def get_loss_function(loss_type="cross_entropy"):
     """
@@ -268,6 +314,7 @@ def get_loss_function(loss_type="cross_entropy"):
         "focal": FocalLoss(alpha=0.25, gamma=2.0),
         "dice": DiceLoss(smooth=1.0),
         "combined": CombinedLoss(ce_weight=0.5, dice_weight=0.5),
+        "focal_dice": FocalDiceLoss(focal_weight=0.3, dice_weight=0.7),  
         "full": FullLoss(ce_weight=0.4, dice_weight=0.4, boundary_weight=0.2),
     }
 
