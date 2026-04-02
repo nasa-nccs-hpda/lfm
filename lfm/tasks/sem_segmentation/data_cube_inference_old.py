@@ -15,300 +15,106 @@ from transformers import AutoImageProcessor
 import xarray as xr
 
 
-def extract_images(
-    input_paths,
-    band_filter=None,
-    bands_per_slice=None,
-    max_images=None,
-    verbose=True,
-):
-    """
-    Extract image data from .tif files with optional band filtering.
-
-    Parameters:
-    -----------
-    input_paths : str, Path, or list
-        Path(s) to search for .tif files. Can be:
-        - Single directory path (will glob recursively)
-        - Single .tif file path
-        - List of paths
-    band_filter : list or None
-        Which bands to extract (e.g., [3, 1, 0]). If None, extracts all bands.
-    bands_per_slice : int or None
-        Expected number of bands per image. If None, inferred from first image.
-    max_images : int or None
-        Maximum number of images to extract
-    verbose : bool
-        Print extraction progress
-
-    Returns:
-    --------
-    data : np.ndarray
-        Shape (n_images, n_bands, height, width)
-    file_paths : list
-        List of file paths that were loaded
-    """
-    from glob import glob
-    from pathlib import Path
-    import rasterio
-
-    # Convert input to list of file paths
-    if isinstance(input_paths, (str, Path)):
-        input_paths = [input_paths]
-
-    file_paths = []
-    for path in input_paths:
-        path = Path(path)
-        if path.is_file() and path.suffix.lower() == ".tif":
-            file_paths.append(str(path))
-        elif path.is_dir():
-            file_paths.extend(glob(str(path / "**/*.tif"), recursive=True))
-
-    if not file_paths:
-        raise ValueError(f"No .tif files found in {input_paths}")
-
-    file_paths = sorted(file_paths)
-
-    if max_images is not None:
-        file_paths = file_paths[:max_images]
-
-    if verbose:
-        print(f"Found {len(file_paths)} .tif files")
-
-    # Read first image to get dimensions
-    with rasterio.open(file_paths[0]) as src:
-        total_bands = src.count
-        height = src.height
-        width = src.width
-
-    # Determine band configuration
-    if band_filter is None:
-        bands_to_extract = list(range(total_bands))
-        if bands_per_slice is None:
-            bands_per_slice = total_bands
-    else:
-        bands_to_extract = band_filter
-        if bands_per_slice is None:
-            bands_per_slice = len(band_filter)
-
-    n_bands_output = len(bands_to_extract)
-
-    if verbose:
-        print(
-            f"Extracting {n_bands_output} bands from {total_bands} total bands"
-        )
-        if band_filter is not None:
-            print(f"Band filter: {band_filter}")
-
-    # Initialize output array
-    data = np.zeros(
-        (len(file_paths), n_bands_output, height, width), dtype=np.float32
-    )
-
-    # Extract data from each file
-    for i, file_path in enumerate(file_paths):
-        with rasterio.open(file_path) as src:
-            # Rasterio uses 1-based indexing, so add 1 to band indices
-            for j, band_idx in enumerate(bands_to_extract):
-                data[i, j, :, :] = src.read(band_idx + 1)
-
-        if verbose and (i + 1) % 10 == 0:
-            print(f"  ✓ Loaded {i + 1}/{len(file_paths)} images")
-
-    if verbose:
-        print(f"  ✓ Extraction complete: shape {data.shape}")
-
-    return data, file_paths
-
-
 def plot_data_cubes(
-    input_paths,
-    mode="rgb",
-    max_images=None,
-    figsize=None,
-    titles=None,
-    cmap="gray",
-    vmin=None,
-    vmax=None,
-    suptitle=None,
-    colorbar=False,
-    normalize_per_band=True,
-    verbose=True,
+    input_dir,
+    n_images,
+    output_dir,
+    mean,
+    std,
+    bands_per_slice=7,
+    bands_per_image=3,
+    band_filter=[3, 1, 0],
 ):
-    """
-    Extract and plot data cubes from .tif files as either RGB composites or individual bands.
+    # Find all TIFF files recursively
+    tiff_filenames = list(Path(input_dir).rglob("*.tif"))
+    if len(tiff_filenames) == 0:
+        raise ValueError(f"No TIFF files found in {input_dir}")
+    print(f"Found {len(tiff_filenames)} TIFF files.")
 
-    Parameters:
-    -----------
-    input_paths : str, Path, or list
-        Path(s) to search for .tif files. Can be:
-        - Single directory path (will glob recursively)
-        - Single .tif file path
-        - List of paths
-    mode : str, default='rgb'
-        'rgb' for RGB composite (extracts bands 3, 1, 0) or
-        'bands' for individual band plots (extracts all 7 bands)
-    max_images : int, optional
-        Maximum number of images to plot
-    figsize : tuple, optional
-        Figure size (width, height). If None, auto-calculated.
-    titles : list of str, optional
-        Titles for each row (image). Length should match n_images.
-        If None, uses filenames.
-    cmap : str, default='gray'
-        Colormap for individual bands (only used in 'bands' mode)
-    vmin, vmax : float, optional
-        Color scale limits for individual bands. If None, auto-scales.
-    suptitle : str, optional
-        Overall figure title
-    colorbar : bool, default=False
-        Add colorbar to band plots (only in 'bands' mode)
-    normalize_per_band : bool, default=True
-        If True, normalize each band independently. If False, use global vmin/vmax.
-    verbose : bool, default=True
-        Print extraction progress
+    now = datetime.now()
+    time_str = now.strftime("%y%m%d_%H%M")
+    output_basename = f"{time_str}"
 
-    Returns:
-    --------
-    fig, axes : matplotlib figure and axes objects
-    data : np.ndarray
-        Extracted data array
-    file_paths : list
-        List of file paths that were loaded
-
-    Examples:
-    ---------
-    # RGB mode - extracts bands 3, 1, 0
-    fig, axes, data, paths = plot_data_cubes('/path/to/tifs/', mode='rgb')
-
-    # Individual bands mode - extracts all 7 bands
-    fig, axes, data, paths = plot_data_cubes('/path/to/tifs/', mode='bands',
-                                             cmap='viridis', max_images=5)
-    """
-
-    # Extract data based on mode
-    if mode == "rgb":
-        band_filter = [3, 1, 0]
-        bands_per_slice = 3
-    elif mode == "bands":
-        band_filter = None
-        bands_per_slice = 7
-    else:
-        raise ValueError(f"Unknown mode: '{mode}'. Use 'rgb' or 'bands'.")
-
-    if verbose:
-        print(f"Extracting data in '{mode}' mode...")
-
-    data, file_paths = extract_images(
-        input_paths=input_paths,
-        band_filter=band_filter,
-        bands_per_slice=bands_per_slice,
-        max_images=max_images,
-        verbose=verbose,
-    )
-
-    n_images, n_bands, height, width = data.shape
-
-    # Generate titles from filenames if not provided
-    if titles is None:
-        titles = [Path(fp).stem for fp in file_paths]
-
-    if mode == "rgb":
-        # ==================== RGB Composite Mode ====================
-        if figsize is None:
-            figsize = (5 * n_images, 5)
-
-        fig, axes = plt.subplots(1, n_images, figsize=figsize, squeeze=False)
-        axes = axes.flatten()
-
-        for i in range(n_images):
-            # Extract RGB bands: (3, H, W) → (H, W, 3)
-            rgb = data[i, :, :, :].transpose(1, 2, 0)
-
-            # Normalize to 0-1 for display
-            rgb_norm = (rgb - rgb.min()) / (rgb.max() - rgb.min() + 1e-8)
-
-            axes[i].imshow(rgb_norm)
-            axes[i].axis("off")
-
-            if i < len(titles):
-                axes[i].set_title(titles[i], fontsize=12)
-            else:
-                axes[i].set_title(f"Image {i}", fontsize=12)
-
-    elif mode == "bands":
-        # ==================== Individual Bands Mode ====================
-        if figsize is None:
-            figsize = (2 * n_bands, 2 * n_images)
-
-        fig, axes = plt.subplots(
-            n_images, n_bands, figsize=figsize, squeeze=False
+    # Try to extract n_images RGB images
+    try:
+        images = extract_images(
+            tiff_paths=tiff_filenames,
+            num_images_to_extract=n_images,
+            bands_per_slice=bands_per_slice,
+            bands_per_image=bands_per_image,
+            band_filter=band_filter,
+            mean=mean,
+            std=std,
         )
+    except ValueError as e:
+        print(f"Warning: Could not extract {n_images} images")
+        print(f"Error: {e}")
+        print("No images to plot. Exiting.")
+        return
 
-        # Calculate global vmin/vmax if not provided and not normalizing per band
-        if not normalize_per_band and vmin is None:
-            vmin = data.min()
-        if not normalize_per_band and vmax is None:
-            vmax = data.max()
+    actual_n_images = len(images)
+    print(f"\nPlotting {actual_n_images} RGB images...")
 
-        for i in range(n_images):
-            for j in range(n_bands):
-                band_data = data[i, j, :, :]
+    # Determine optimal grid size
+    if actual_n_images <= 4:
+        grid_rows, grid_cols = 2, 2
+        images_per_fig = 4
+    elif actual_n_images <= 9:
+        grid_rows, grid_cols = 3, 3
+        images_per_fig = 9
+    elif actual_n_images <= 16:
+        grid_rows, grid_cols = 4, 4
+        images_per_fig = 16
+    else:
+        grid_rows, grid_cols = 5, 5
+        images_per_fig = 25
 
-                # Determine color limits
-                if normalize_per_band:
-                    band_vmin = band_data.min() if vmin is None else vmin
-                    band_vmax = band_data.max() if vmax is None else vmax
-                else:
-                    band_vmin = vmin
-                    band_vmax = vmax
+    # Calculate number of figures needed
+    n_figures = math.ceil(actual_n_images / images_per_fig)
+    print(f"Creating {n_figures} figure(s) with {grid_rows}x{grid_cols} grid")
 
-                im = axes[i, j].imshow(
-                    band_data, cmap=cmap, vmin=band_vmin, vmax=band_vmax
-                )
-                axes[i, j].axis("off")
+    # Create figures
+    for fig_num in range(n_figures):
+        fig, axes = plt.subplots(grid_rows, grid_cols, figsize=(12, 12))
 
-                # Column titles (band index) on first row
-                if i == 0:
-                    axes[i, j].set_title(f"Band {j}", fontsize=10)
+        # Flatten axes for easier indexing
+        if grid_rows * grid_cols == 1:
+            axes = np.array([axes])
+        else:
+            axes = axes.flatten()
 
-                # Add colorbar if requested
-                if colorbar:
-                    from mpl_toolkits.axes_grid1 import make_axes_locatable
+        start_img_idx = fig_num * images_per_fig
+        end_img_idx = min(start_img_idx + images_per_fig, actual_n_images)
 
-                    divider = make_axes_locatable(axes[i, j])
-                    cax = divider.append_axes("right", size="5%", pad=0.05)
-                    plt.colorbar(im, cax=cax)
+        plot_idx = 0
+        for img_idx in range(start_img_idx, end_img_idx):
+            img_to_plot = images[img_idx]  # Shape: (H, W, 3), normalized
 
-            # Row titles (image index/name) on first column
-            if i < len(titles):
-                axes[i, 0].set_ylabel(
-                    titles[i],
-                    rotation=0,
-                    labelpad=50,
-                    fontsize=11,
-                    va="center",
-                    ha="right",
-                )
-            else:
-                axes[i, 0].set_ylabel(
-                    f"Image {i}",
-                    rotation=0,
-                    labelpad=50,
-                    fontsize=11,
-                    va="center",
-                    ha="right",
-                )
+            # Denormalize for display
+            mean_reshaped = mean.reshape(1, 1, 3)
+            std_reshaped = std.reshape(1, 1, 3)
+            img_denorm = (img_to_plot * std_reshaped) + mean_reshaped
 
-    if suptitle:
-        fig.suptitle(suptitle, fontsize=14, y=0.99)
+            # Clip to [0, 1] for display
+            img_display = np.clip(img_denorm, 0, 1)
 
-    plt.tight_layout()
+            # Display RGB image
+            axes[plot_idx].imshow(img_display)
+            axes[plot_idx].set_title(f"Image {img_idx + 1}", fontsize=10)
+            axes[plot_idx].axis("off")
 
-    if verbose:
-        print(f"✓ Plotted {n_images} images with {n_bands} bands each")
+            plot_idx += 1
 
-    return fig, axes, data, file_paths
+        # Turn off empty subplots
+        for empty_idx in range(plot_idx, len(axes)):
+            axes[empty_idx].axis("off")
+
+        plt.tight_layout()
+
+        fig_filename = f"{output_dir}/{output_basename}_fig{fig_num+1}.png"
+        plt.savefig(fig_filename, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved figure to: {fig_filename}")
 
 
 def min_max_scale_bands(bands):
@@ -322,6 +128,131 @@ def min_max_scale_bands(bands):
         else:
             scaled[i] = band
     return scaled
+
+
+def extract_images(
+    tiff_paths,
+    num_images_to_extract,
+    bands_per_slice=7,
+    bands_per_image=3,
+    band_filter=[3, 1, 0],
+    mean=None,
+    std=None,
+):
+    """
+    Extract unique spatial images by processing complete band slices.
+
+    Logic:
+    - Each 7-band slice represents one spatial image
+    - Extract only the first `bands_per_image` bands from each slice
+    - Check if those bands have all positive values
+    - If yes, keep them; if no, skip the entire slice
+    - This prevents spatial duplication
+
+    Args:
+        tiff_paths: List of TIFF file paths
+        num_images_to_extract: Number of unique spatial images to extract
+        bands_per_slice: Total bands per complete image (default: 7)
+        bands_per_image: Number of bands to extract from each slice (default: 3)
+        band_filter: Order to arrange the extracted bands (e.g., [3, 1, 0] for RGB)
+
+    Returns:
+        Array of shape (N, H, W, bands_per_image)
+    """
+    if mean is None or std is None:
+        raise ValueError("Mean/std are required to preprocess inputs.")
+    else:
+        print(f"Extracting images with mean={mean}, std={std}")
+
+    extracted = []
+
+    for tiff_path in tiff_paths:
+        if len(extracted) >= num_images_to_extract:
+            break
+
+        with xr.open_dataset(tiff_path, engine="rasterio") as ds:
+            total_bands = ds.sizes["band"]
+            num_slices = total_bands // bands_per_slice
+
+            print(
+                f"Processing {tiff_path}: {total_bands} bands, {num_slices} complete {bands_per_slice}-band slices"
+            )
+
+            for slice_idx in range(num_slices):
+                if len(extracted) >= num_images_to_extract:
+                    break
+
+                # Calculate starting band for this 7-band slice
+                start_band = slice_idx * bands_per_slice
+
+                # Extract first `bands_per_image` bands from this slice
+                slice_data = ds.isel(
+                    band=[
+                        start_band + i for i in band_filter
+                    ]  # Selects bands 3, 1, 0
+                )
+                data_var = list(slice_data.data_vars)[0]
+                img = slice_data[
+                    data_var
+                ].values  # Shape: (3, H, W), already in correct order
+
+                # Check if ALL values in these bands are positive
+                # NODATA = -3.4028227e38
+                nodata_count = np.sum(img < 0)
+                nodata_percentage = (nodata_count / img.size) * 100
+                if nodata_count == 0:  # zero tolerance
+                    # Transpose to (H, W, C) for channels-last format
+                    img_transposed = np.transpose(img, (1, 2, 0))
+
+                    # Scale inputs to 0, 1
+                    img_scaled = min_max_scale_bands(img_transposed)
+
+                    print(
+                        f"Image minmax after scaling: {np.min(img_scaled), np.max(img_scaled)}"
+                    )
+
+                    # Normalize to work with shape
+                    mean_reshaped = mean.reshape(1, 1, 3)  # 1 value per band
+                    std_reshaped = std.reshape(1, 1, 3)  # 1 value per band
+                    print(
+                        f"Image shape before norm, after resize: {img_scaled.shape}"
+                    )
+                    print(
+                        f"Mean, std shapes before norm: {mean_reshaped.shape, std_reshaped.shape}"
+                    )
+                    img_norm = (img_scaled - mean_reshaped) / std_reshaped
+
+                    extracted.append(img_norm)
+                    print(
+                        f"✓ Slice 0: extracted 3 bands (original bands {band_filter}) → indices 0-2 in output"
+                    )
+                else:
+                    print(
+                        f"  ✗ Slice {slice_idx}: bands {start_band}-{start_band + bands_per_image - 1} → skipped (non-positive values)"
+                    )
+                    min_val = np.min(img)
+                    print(
+                        f"     Slice min value: {min_val}, count and percent: {nodata_count}, {nodata_percentage}"
+                    )
+
+    if len(extracted) < num_images_to_extract:
+        raise ValueError(
+            f"Requested {num_images_to_extract} valid images but only found "
+            f"{len(extracted)} with all positive values across all TIFFs"
+        )
+
+    result = np.array(extracted)
+    print(
+        f"\nFinal extracted array shape: {result.shape}"
+    )  # Should be (N, H, W, 3)
+
+    # Show first few for verification
+    for i, elem in enumerate(result[:5]):
+        print(
+            f"Image {i} shape: {elem.shape}, min: {elem.min():.2f}, max: {elem.max():.2f}"
+        )
+
+    return result
 
 
 def create_binary_colormap(instance_mask):
