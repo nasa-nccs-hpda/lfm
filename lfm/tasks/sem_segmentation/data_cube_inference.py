@@ -196,23 +196,22 @@ def extract_images(
 
                 # Extract first `bands_per_image` bands from this slice
                 slice_data = ds.isel(
-                    band=slice(start_band, start_band + bands_per_image)
+                    band=[
+                        start_band + i for i in band_filter
+                    ]  # Selects bands 3, 1, 0
                 )
                 data_var = list(slice_data.data_vars)[0]
                 img = slice_data[
                     data_var
-                ].values  # Shape: (bands_per_image, H, W)
+                ].values  # Shape: (3, H, W), already in correct order
 
                 # Check if ALL values in these bands are positive
                 NODATA = -3.4028227e38
                 nodata_count = np.sum(img == NODATA)
                 nodata_percentage = (nodata_count / img.size) * 100
                 if nodata_count == 0:  # zero tolerance
-                    # Reorder bands (e.g., [2, 0, 1] for RGB order)
-                    img_reordered = img[band_filter, :, :]
-
                     # Transpose to (H, W, C) for channels-last format
-                    img_transposed = np.transpose(img_reordered, (1, 2, 0))
+                    img_transposed = np.transpose(img, (1, 2, 0))
 
                     # Scale inputs to 0, 1
                     img_scaled = min_max_scale_bands(img_transposed)
