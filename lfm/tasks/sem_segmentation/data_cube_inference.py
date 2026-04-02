@@ -9,12 +9,14 @@ import numpy as np
 import numpy.ma as ma
 import torch
 import xarray as xr
+import rasterio
 
 from transformers import AutoImageProcessor
 from tiler import Tiler, Merger
 
 
-def plot_data_cubes(tiffs, n_samples, n_bands, output_dir):
+def plot_data_cubes(input_dir, n_samples, n_bands, output_dir):
+    tiffs = glob(f"{input_dir}/*.tif")
     samples = tiffs[:n_samples]
     images = []
     filenames = []
@@ -25,107 +27,119 @@ def plot_data_cubes(tiffs, n_samples, n_bands, output_dir):
 
     print(f"Loading {len(samples)} TIFF files...")
     for tiff_path in samples:
-        dataset = gdal.Open(tiff_path)
-        ds_band_count = dataset.RasterCount
-        base_tiff_path = Path(tiff_path).name
+        with rasterio.open(tiff_path) as src:
+            ds_band_count = src.count
+            base_tiff_path = Path(tiff_path).name
 
-        print(f"Opened {base_tiff_path} with {n_bands} bands")
+            print(f"Opened {base_tiff_path} with {n_bands} bands")
 
-        # Read first n_bands (1-indexed in GDAL)
-        band_list = list(range(1, min(n_bands, ds_band_count) + 1))
-        img_array = dataset.ReadAsArray(band_list=band_list)
+            # Read first n_bands (1-indexed in rasterio too)
+            num_bands_to_read = min(n_bands, ds_band_count)
+            band_indices = list(range(1, num_bands_to_read + 1))
 
-        # Track mask changes
-        current_group_start = 0
-        mask_change_bands = []
+            # Read all bands at once
+            img_array = src.read(band_indices)
 
-        print("\n" + "=" * 60)
-        print("MASK CHANGE DETECTION")
-        print("=" * 60)
+            # Get nodata value (assuming same for all bands, or use src.nodatavals for per-band)
+            nodata_value = src.nodata
 
-        for i in range(0, n_bands, 25):
-            fig, axes = plt.subplots(5, 5, figsize=(10, 10))
-            bands_subset = img_array[i : i + 25]
-            band_idx = 0
+            # Track mask changes
+            current_group_start = 0
+            mask_change_bands = []
 
-            for row in range(5):
-                for col in range(5):
-                    current_band_num = band_idx + i
+            print("\n" + "=" * 60)
+            print("MASK CHANGE DETECTION")
+            print("=" * 60)
 
-                    if (
-                        band_idx < len(bands_subset)
-                        and current_band_num < n_bands
-                    ):
-                        band_to_plot = bands_subset[band_idx]
-                        band_min, band_max = np.min(band_to_plot), np.max(
-                            band_to_plot
-                        )
-                        print("Unmasked band min, max:", band_min, band_max)
+            for i in range(0, n_bands, 25):
+                fig, axes = plt.subplots(5, 5, figsize=(10, 10))
+                bands_subset = img_array[i : i + 25]
+                band_idx = 0
 
-                        # Mask out nodata values
-                        mask = (
-                            band_to_plot == -3.4028227e38
-                        )  # Nodata value is large negative number
-                        print(f"Number of masked values: {mask.sum()}")
-                        masked_band = ma.masked_where(mask, band_to_plot)
-                        valid_values = masked_band.compressed()
-                        if valid_values.size > 0:
-                            min_val = valid_values.min()
-                            max_val = valid_values.max()
-                            print(
-                                f"Range of unmasked values: [{min_val}, {max_val}]"
-                            )
-                            unique_vals, counts = np.unique(
-                                valid_values, return_counts=True
+                for row in range(5):
+                    for col in range(5):
+                        current_band_num = band_idx + i
+
+                        if (
+                            band_idx < len(bands_subset)
+                            and current_band_num < n_bands
+                        ):
+                            band_to_plot = bands_subset[band_idx]
+                            band_min, band_max = np.min(band_to_plot), np.max(
+                                band_to_plot
                             )
                             print(
-                                f"Number of unique unmasked values: {len(unique_vals)}"
+                                "Unmasked band min, max:", band_min, band_max
                             )
-                        else:
-                            print("No valid (unmasked) values found!")
 
-                        # Get vmin/vmax of plot based on data range
-                        if masked_band.compressed().size > 0:
-                            valid_data = masked_band.compressed()
-                            vmin = np.percentile(valid_data, 2)
-                            vmax = np.percentile(valid_data, 98)
+                            # Mask out nodata values
+                            if nodata_value is not None:
+                                mask = band_to_plot == nodata_value
+                            else:
+                                # Fallback to original value if nodata not set in metadata
+                                mask = band_to_plot == -3.4028227e38
 
-                            if vmin == vmax:
-                                vmin = valid_data.min()
-                                vmax = valid_data.max()
+                            print(f"Number of masked values: {mask.sum()}")
+                            masked_band = ma.masked_where(mask, band_to_plot)
+                            valid_values = masked_band.compressed()
+
+                            if valid_values.size > 0:
+                                min_val = valid_values.min()
+                                max_val = valid_values.max()
+                                print(
+                                    f"Range of unmasked values: [{min_val}, {max_val}]"
+                                )
+                                unique_vals, counts = np.unique(
+                                    valid_values, return_counts=True
+                                )
+                                print(
+                                    f"Number of unique unmasked values: {len(unique_vals)}"
+                                )
+                            else:
+                                print("No valid (unmasked) values found!")
+
+                            # Get vmin/vmax of plot based on data range
+                            if masked_band.compressed().size > 0:
+                                valid_data = masked_band.compressed()
+                                vmin = np.percentile(valid_data, 2)
+                                vmax = np.percentile(valid_data, 98)
+
                                 if vmin == vmax:
-                                    vmax = vmin + 1
+                                    vmin = valid_data.min()
+                                    vmax = valid_data.max()
+                                    if vmin == vmax:
+                                        vmax = vmin + 1
+                            else:
+                                vmin, vmax = 0, 1
+
+                            cmap = plt.cm.viridis.copy()
+                            cmap.set_bad(color="lightgray")
+
+                            im = axes[row, col].imshow(
+                                masked_band, cmap=cmap, vmin=vmin, vmax=vmax
+                            )
+                            axes[row, col].set_title(
+                                f"Band {current_band_num + 1}", fontsize=8
+                            )
+                            axes[row, col].axis("off")
+                            fig.colorbar(
+                                im, ax=axes[row, col], fraction=0.046, pad=0.04
+                            )
                         else:
-                            vmin, vmax = 0, 1
+                            axes[row, col].axis("off")
 
-                        cmap = plt.cm.viridis.copy()
-                        cmap.set_bad(color="lightgray")
+                        band_idx += 1
 
-                        im = axes[row, col].imshow(
-                            masked_band, cmap=cmap, vmin=vmin, vmax=vmax
-                        )
-                        axes[row, col].set_title(
-                            f"Band {current_band_num + 1}", fontsize=8
-                        )
-                        axes[row, col].axis("off")
-                        fig.colorbar(
-                            im, ax=axes[row, col], fraction=0.046, pad=0.04
-                        )
-                    else:
-                        axes[row, col].axis("off")
-
-                    band_idx += 1
-
-            plt.tight_layout()
-            plt.savefig(
-                f"{output_dir}/{base_tiff_path}_{output_basename}{i}_{i+25}.png",
-                dpi=150,
-                bbox_inches="tight",
-            )
-            plt.close(fig)
-            print(
-                f"Saved figure to path: {output_dir}/{base_tiff_path}_{output_basename}{i}_{i+25}.png"
-            )
+                plt.tight_layout()
+                plt.savefig(
+                    f"{output_dir}/{base_tiff_path}_{output_basename}{i}_{i+25}.png",
+                    dpi=150,
+                    bbox_inches="tight",
+                )
+                plt.close(fig)
+                print(
+                    f"Saved figure to path: {output_dir}/{base_tiff_path}_{output_basename}{i}_{i+25}.png"
+                )
 
 
 def min_max_scale_bands(bands):
