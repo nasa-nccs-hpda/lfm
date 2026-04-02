@@ -584,15 +584,15 @@ def run_datacube_inference(
 ):
     model.eval()
 
-    tiff_filenames = list(Path(input_dir).rglob("*.tif"))
-    if len(tiff_filenames) == 0:
-        raise ValueError(f"No TIFF files found in {input_dir}")
-    print(f"Found {len(tiff_filenames)} tiff filenames.")
+    # tiff_filenames = list(Path(input_dir).rglob("*.tif"))
+    # if len(tiff_filenames) == 0:
+    #     raise ValueError(f"No TIFF files found in {input_dir}")
+    # print(f"Found {len(tiff_filenames)} tiff filenames.")
 
     # Load numpy array of 3-band images at full resolution
     print(f"Loading {n_images} images from TIFF files...")
     images_npy = extract_images(
-        tiff_paths=tiff_filenames,
+        input_paths=input_dir,
         num_images_to_extract=n_images,
         bands_per_slice=5,
         bands_per_image=3,
