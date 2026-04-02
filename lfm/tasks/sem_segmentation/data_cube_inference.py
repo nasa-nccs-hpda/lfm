@@ -2,26 +2,17 @@
 from datetime import datetime
 from glob import glob
 from pathlib import Path
+import math
 
 # Third-party imports
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.ma as ma
-import torch
-import xarray as xr
 import rasterio
-
-from transformers import AutoImageProcessor
 from tiler import Tiler, Merger
-
-
-import rasterio
-from glob import glob
-from pathlib import Path
-from datetime import datetime
-import numpy as np
-import numpy.ma as ma
-import matplotlib.pyplot as plt
+import torch
+from transformers import AutoImageProcessor
+import xarray as xr
 
 
 def plot_data_cubes(
