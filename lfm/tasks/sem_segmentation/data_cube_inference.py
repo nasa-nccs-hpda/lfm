@@ -224,7 +224,7 @@ def extract_images(
                     mean_reshaped = mean.reshape(1, 1, 3)  # 1 value per band
                     std_reshaped = std.reshape(1, 1, 3)  # 1 value per band
                     print(
-                        f"Image shape before norm, after resize: {img_reordered.shape}"
+                        f"Image shape before norm, after resize: {img_scaled.shape}"
                     )
                     print(
                         f"Mean, std shapes before norm: {mean_reshaped.shape, std_reshaped.shape}"
