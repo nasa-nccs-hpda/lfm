@@ -210,7 +210,7 @@ def plot_data_cubes(
         band_filter = [3, 1, 0]
         bands_per_slice = 3
     elif mode == "bands":
-        band_filter = None
+        band_filter = list(range(7))
         bands_per_slice = 7
     else:
         raise ValueError(f"Unknown mode: '{mode}'. Use 'rgb' or 'bands'.")
