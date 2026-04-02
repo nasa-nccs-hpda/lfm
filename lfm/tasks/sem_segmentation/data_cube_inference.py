@@ -224,7 +224,7 @@ def extract_images(
 
                     extracted.append(img_norm)
                     print(
-                        f"  ✓ Slice {slice_idx}: bands {start_band}-{start_band + bands_per_image - 1} → valid"
+                        f"✓ Slice 0: extracted 3 bands (original bands {band_filter}) → indices 0-2 in output"
                     )
                 else:
                     print(
