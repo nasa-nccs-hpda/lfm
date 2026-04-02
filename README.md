@@ -21,10 +21,15 @@ python -m ipykernel install --user --name=lfm_env --display-name="LFM_ENV"
    2. From the top right corner, click the text that says Python [...]. Select "Python [conda env: ilab-pytorch]" from the dropdown.
 3. Navigate to a folder where you would like to run the example workflow.
 4. Open a Terminal from JupyterHub.
-5. Download the Notebook with
+5. Download the semantic segmentation notebook with:
 
    ```bash
-   wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/finetune_dinov3.ipynb
+   wget https://github.com/nasa-nccs-hpda/lfm/blob/develop/notebooks/semantic_seg.ipynb
+   ```
+
+    Or download the instance segmentation notebook with:
+   ```bash
+   https://github.com/nasa-nccs-hpda/lfm/blob/develop/notebooks/instance_seg.ipynb
    ```
 7. Navigate to the top right where it says "Python 3 (ipykernel)" or something similar. Click on this, and select  ```LFM_ENV``` from the dropdown list.
 8. Run the Notebook.
