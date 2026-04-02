@@ -327,8 +327,8 @@ def plot_data_cubes(
 
                 # Column titles (band index) on first row
                 # Column titles (band index and min/max) for each row
-                band_min = data_normalized[i, j, :, :].min()
-                band_max = data_normalized[i, j, :, :].max()
+                band_min = round(data_normalized[i, j, :, :].min(), 2)
+                band_max = round(data_normalized[i, j, :, :].max(), 2)
                 axes[i, j].set_title(
                     f"Band {j}\n[{band_min:.2f}, {band_max:.2f}]", fontsize=9
                 )
