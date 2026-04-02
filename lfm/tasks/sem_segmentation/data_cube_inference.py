@@ -197,8 +197,8 @@ def extract_images(
                 ].values  # Shape: (3, H, W), already in correct order
 
                 # Check if ALL values in these bands are positive
-                NODATA = -3.4028227e38
-                nodata_count = np.sum(img == NODATA)
+                # NODATA = -3.4028227e38
+                nodata_count = np.sum(img < 0)
                 nodata_percentage = (nodata_count / img.size) * 100
                 if nodata_count == 0:  # zero tolerance
                     # Transpose to (H, W, C) for channels-last format
