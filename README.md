@@ -72,12 +72,7 @@ To fully utilize this Repo, you will need a fine-grained access token:
 ## Model and data specifications
 
 ### Model specifications
-
-#### Semantic Segmentation Model
-The SAT-493M ViT-L/16 distilled DinoV3 encoder was used (trained on Satellite data). All encoder parameters were unfrozen for fine-tuning. See the [DinoV3 repo](https://github.com/facebookresearch/dinov3) for more info.
-
-#### Instance Segmentation Model
-The base ViT-L/16 DinoV3 encoder was used (trained on RGB images on the internet). All encoder parameters were unfrozen for fine-tuning. See the [DinoV3 repo](https://github.com/facebookresearch/dinov3) for more info.
+The SAT-493M ViT-L/16 distilled DinoV3 encoder was used (trained on Satellite data). All encoder parameters were unfrozen for fine-tuning. See the [DinoV3 repo](https://github.com/facebookresearch/dinov3) for more info. For instance segmentation, the Mask2Former architecture was used on top of DinoV3 to allow for instance segmentation. See the [DinoV3 Mask2former example repo](https://github.com/Carti-97/DINOv3-Mask2former) and the [Mask2Former HuggingFace](https://huggingface.co/blog/mask2former) for more.
 
 ### Data Specifications
 

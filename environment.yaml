@@ -7,27 +7,28 @@ channels:
 
 dependencies:
   - python=3.11
-  
+
   # PyTorch ecosystem with CUDA support
   - pytorch
   - torchvision
   - pytorch-cuda=11.8
   - torchmetrics
-  
+  - transformers
+
   # Core scientific computing
   - numpy
   - matplotlib
   - rasterio
-  
+
   # Machine learning and utilities
   - scikit-learn
   - scikit-image
   - tqdm
   - termcolor
-  
+
   # Jupyter support
   - ipykernel
-  
+
   # pip dependencies (packages not available or better via pip)
   - pip
   - pip:
@@ -35,3 +36,4 @@ dependencies:
     - omegaconf
     - regex
     - submitit
+    - tiler

@@ -191,7 +191,7 @@ class DINOSegmentation(nn.Module):
 
 
 def load_dinov3_encoder(
-    weights_local_checkpoint, weights_URL, device, model="dinov3_vitl16"
+    weights_local_checkpoint, device="cuda", model="dinov3_vitl16"
 ):
     if os.path.exists(weights_local_checkpoint):
         print(f"Loading model from {weights_local_checkpoint}")
