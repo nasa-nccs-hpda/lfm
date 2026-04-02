@@ -25,10 +25,11 @@ import matplotlib.pyplot as plt
 
 
 def plot_data_cubes(input_dir, n_samples, n_bands, output_dir):
-    tiffs = glob(f"{input_dir}/*.tif")
-    samples = tiffs[:n_samples]
-    images = []
-    filenames = []
+    tiff_filenames = list(Path(input_dir).rglob("*.tif"))
+    if len(tiff_filenames) == 0:
+        raise ValueError(f"No TIFF files found in {input_dir}")
+    print(f"Found {len(tiff_filenames)} tiff filenames.")
+    samples = tiff_filenames[:n_samples]
 
     now = datetime.now()
     time_str = now.strftime("%y%m%d_%H%M")
