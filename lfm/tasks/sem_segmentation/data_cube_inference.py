@@ -24,153 +24,106 @@ import numpy.ma as ma
 import matplotlib.pyplot as plt
 
 
-def plot_data_cubes(input_dir, n_samples, n_bands, output_dir):
+def plot_data_cubes(
+    input_dir,
+    n_images,
+    output_dir,
+    mean,
+    std,
+    bands_per_slice=7,
+    bands_per_image=3,
+    band_filter=[3, 1, 0],
+):
+    # Find all TIFF files recursively
     tiff_filenames = list(Path(input_dir).rglob("*.tif"))
     if len(tiff_filenames) == 0:
         raise ValueError(f"No TIFF files found in {input_dir}")
-    print(f"Found {len(tiff_filenames)} tiff filenames.")
-    samples = tiff_filenames[:n_samples]
+    print(f"Found {len(tiff_filenames)} TIFF files.")
 
     now = datetime.now()
     time_str = now.strftime("%y%m%d_%H%M")
     output_basename = f"{time_str}"
 
-    print(f"Loading {len(samples)} TIFF files...")
-    for tiff_path in samples:
-        with rasterio.open(tiff_path) as src:
-            ds_band_count = src.count
-            base_tiff_path = Path(tiff_path).name
+    # Try to extract n_images RGB images
+    try:
+        images = extract_images(
+            tiff_paths=tiff_filenames,
+            num_images_to_extract=n_images,
+            bands_per_slice=bands_per_slice,
+            bands_per_image=bands_per_image,
+            band_filter=band_filter,
+            mean=mean,
+            std=std,
+        )
+    except ValueError as e:
+        print(f"Warning: Could not extract {n_images} images")
+        print(f"Error: {e}")
+        print("No images to plot. Exiting.")
+        return
 
-            print(f"Opened {base_tiff_path} with {ds_band_count} total bands")
-            print(
-                f"Searching for {n_bands} bands with all valid (positive) data..."
-            )
+    actual_n_images = len(images)
+    print(f"\nPlotting {actual_n_images} RGB images...")
 
-            # Find bands with all valid (positive) data
-            valid_band_indices = []
-            for band_idx in range(1, ds_band_count + 1):
-                band_data = src.read(band_idx)
+    # Determine optimal grid size
+    if actual_n_images <= 4:
+        grid_rows, grid_cols = 2, 2
+        images_per_fig = 4
+    elif actual_n_images <= 9:
+        grid_rows, grid_cols = 3, 3
+        images_per_fig = 9
+    elif actual_n_images <= 16:
+        grid_rows, grid_cols = 4, 4
+        images_per_fig = 16
+    else:
+        grid_rows, grid_cols = 5, 5
+        images_per_fig = 25
 
-                # Check if all values are positive
-                if np.all(band_data > 0):
-                    valid_band_indices.append(band_idx)
-                    print(f"  Band {band_idx}: VALID (all positive values)")
+    # Calculate number of figures needed
+    n_figures = math.ceil(actual_n_images / images_per_fig)
+    print(f"Creating {n_figures} figure(s) with {grid_rows}x{grid_cols} grid")
 
-                    # Stop once we have enough valid bands
-                    if len(valid_band_indices) >= n_bands:
-                        break
-                else:
-                    num_negative = np.sum(band_data <= 0)
-                    # print(
-                    #     f"  Band {band_idx}: INVALID ({num_negative} non-positive values)"
-                    # )
+    # Create figures
+    for fig_num in range(n_figures):
+        fig, axes = plt.subplots(grid_rows, grid_cols, figsize=(12, 12))
 
-            # Check if we found enough valid bands
-            if len(valid_band_indices) < n_bands:
-                print(
-                    f"WARNING: Only found {len(valid_band_indices)} valid bands out of {n_bands} requested"
-                )
-                print(f"Proceeding with {len(valid_band_indices)} bands")
-            else:
-                print(
-                    f"Found {n_bands} valid bands: {valid_band_indices[:n_bands]}"
-                )
+        # Flatten axes for easier indexing
+        if grid_rows * grid_cols == 1:
+            axes = np.array([axes])
+        else:
+            axes = axes.flatten()
 
-            # Use only the valid bands we found
-            valid_band_indices = valid_band_indices[:n_bands]
+        start_img_idx = fig_num * images_per_fig
+        end_img_idx = min(start_img_idx + images_per_fig, actual_n_images)
 
-            if len(valid_band_indices) == 0:
-                print(f"No valid bands found in {base_tiff_path}. Skipping...")
-                continue
+        plot_idx = 0
+        for img_idx in range(start_img_idx, end_img_idx):
+            img_to_plot = images[img_idx]  # Shape: (H, W, 3), normalized
 
-            # Read only the valid bands
-            img_array = src.read(valid_band_indices)
-            actual_n_bands = len(valid_band_indices)
+            # Denormalize for display
+            mean_reshaped = mean.reshape(1, 1, 3)
+            std_reshaped = std.reshape(1, 1, 3)
+            img_denorm = (img_to_plot * std_reshaped) + mean_reshaped
 
-            print("\n" + "=" * 60)
-            print("PLOTTING VALID BANDS")
-            print("=" * 60)
+            # Clip to [0, 1] for display
+            img_display = np.clip(img_denorm, 0, 1)
 
-            for i in range(0, actual_n_bands, 25):
-                fig, axes = plt.subplots(5, 5, figsize=(10, 10))
-                bands_subset = img_array[i : i + 25]
-                band_idx = 0
+            # Display RGB image
+            axes[plot_idx].imshow(img_display)
+            axes[plot_idx].set_title(f"Image {img_idx + 1}", fontsize=10)
+            axes[plot_idx].axis("off")
 
-                for row in range(5):
-                    for col in range(5):
-                        current_band_num = band_idx + i
+            plot_idx += 1
 
-                        if (
-                            band_idx < len(bands_subset)
-                            and current_band_num < actual_n_bands
-                        ):
-                            band_to_plot = bands_subset[band_idx]
-                            band_min, band_max = np.min(band_to_plot), np.max(
-                                band_to_plot
-                            )
-                            print(
-                                f"Band {valid_band_indices[current_band_num]} min, max:",
-                                band_min,
-                                band_max,
-                            )
+        # Turn off empty subplots
+        for empty_idx in range(plot_idx, len(axes)):
+            axes[empty_idx].axis("off")
 
-                            # Since we've pre-filtered for positive values,
-                            # we can optionally still mask if needed, or skip masking
-                            # Here I'm keeping minimal masking for safety
-                            masked_band = band_to_plot
-                            valid_values = band_to_plot.flatten()
+        plt.tight_layout()
 
-                            if valid_values.size > 0:
-                                min_val = valid_values.min()
-                                max_val = valid_values.max()
-                                print(
-                                    f"Range of values: [{min_val}, {max_val}]"
-                                )
-                                unique_vals, counts = np.unique(
-                                    valid_values, return_counts=True
-                                )
-                                print(
-                                    f"Number of unique values: {len(unique_vals)}"
-                                )
-
-                            # Get vmin/vmax of plot based on data range
-                            vmin = np.percentile(valid_values, 2)
-                            vmax = np.percentile(valid_values, 98)
-
-                            if vmin == vmax:
-                                vmin = valid_values.min()
-                                vmax = valid_values.max()
-                                if vmin == vmax:
-                                    vmax = vmin + 1
-
-                            cmap = plt.cm.viridis.copy()
-
-                            im = axes[row, col].imshow(
-                                masked_band, cmap=cmap, vmin=vmin, vmax=vmax
-                            )
-                            axes[row, col].set_title(
-                                f"Band {valid_band_indices[current_band_num]}",
-                                fontsize=8,
-                            )
-                            axes[row, col].axis("off")
-                            fig.colorbar(
-                                im, ax=axes[row, col], fraction=0.046, pad=0.04
-                            )
-                        else:
-                            axes[row, col].axis("off")
-
-                        band_idx += 1
-
-                plt.tight_layout()
-                plt.savefig(
-                    f"{output_dir}/{base_tiff_path}_{output_basename}{i}_{i+25}.png",
-                    dpi=150,
-                    bbox_inches="tight",
-                )
-                plt.close(fig)
-                print(
-                    f"Saved figure to path: {output_dir}/{base_tiff_path}_{output_basename}{i}_{i+25}.png"
-                )
+        fig_filename = f"{output_dir}/{output_basename}_fig{fig_num+1}.png"
+        plt.savefig(fig_filename, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved figure to: {fig_filename}")
 
 
 def min_max_scale_bands(bands):
