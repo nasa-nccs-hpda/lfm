@@ -326,8 +326,12 @@ def plot_data_cubes(
                 axes[i, j].axis("off")
 
                 # Column titles (band index) on first row
-                if i == 0:
-                    axes[i, j].set_title(f"Band {j}", fontsize=10)
+                # Column titles (band index and min/max) for each row
+                band_min = data_normalized[i, j, :, :].min()
+                band_max = data_normalized[i, j, :, :].max()
+                axes[i, j].set_title(
+                    f"Band {j}\n[{band_min:.2f}, {band_max:.2f}]", fontsize=9
+                )
 
                 # Add colorbar if requested
                 if colorbar:
