@@ -67,17 +67,24 @@ To fully utilize this Repo, you will need a fine-grained access token:
 ## Model and data specifications
 
 ### Model specifications
+
+#### Semantic Segmentation Model
 The SAT-493M ViT-L/16 distilled DinoV3 encoder was used (trained on Satellite data). All encoder parameters were unfrozen for fine-tuning. See the [DinoV3 repo](https://github.com/facebookresearch/dinov3) for more info.
 
-#### Input data specifications
+#### Instance Segmentation Model
+The base ViT-L/16 DinoV3 encoder was used (trained on RGB images on the internet). All encoder parameters were unfrozen for fine-tuning. See the [DinoV3 repo](https://github.com/facebookresearch/dinov3) for more info.
+
+### Data Specifications
+
+#### Input Data
 The vis data, (hosted at /explore/nobackup/projects/lfm/rawdata/Lunar/LowRes_MLDataset_v1_bilinear), was preprocessed by extracting the following bands and normalizing values to [0,1] range: [643, 566, 415]. Data was saved in (3, 300, 300) shape .npy files under the LFM project space (explore/nobackup/projects/lfm/vis_chips). 
 *Note*: 5 band data is also stored in the lfm space under `/explore/nobackup/projects/lfm/all_band_vis`. This data hasn't been tested with the notebook finetuning workflow.
 
-#### Label specifications
+#### Labels
 Labels were processed from the annotations JSON file. Annotations were sorted by corresponding filename, then all labels for a given filename were saved single composite (300, 300) shape .npy images under the LFM project space (explore/nobackup/projects/lfm/vis_chips).
 
 #### Input/label matching
 Labels and inputs were matched by asset ID, as well as tile row/column ID.
 
 #### Training specifications
-Model was trained on 500 input/label pairs for 50 epochs, using a PRISM JupyterHub job on 4 V100 GPUs (1 V100 will also work, but will be slower). The parameters used were: "combined" loss function (Dice loss + Binary CE), 1e-4 LR, AdamW optimizer, and Cosine Annealing LR scheduling. A train/val split of 80/20% was used as well.
+The base semantic segmentation models were trained on 500 input/label pairs for 50 epochs, using a PRISM JupyterHub job on 4 V100 GPUs (1 V100 will also work, but will be slower). When adding bands (5/7 bands), a H100 node was used for its larger VRAM capacity. The parameters used were: "focal dice" loss function (Focal Loss + Dice loss), 5e-5 initial learning rate, AdamW optimizer, and Cosine Annealing LR scheduling with warmup. A train/val split of 80/20% was used as well, with early stopping patience of 5 epochs.
