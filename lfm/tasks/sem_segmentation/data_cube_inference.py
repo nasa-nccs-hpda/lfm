@@ -78,26 +78,37 @@ def extract_images(
     valid_data = []
     valid_paths = []
 
-    for i, file_path in enumerate(file_paths):
+    for file_path in file_paths:
         with rasterio.open(file_path) as src:
-            temp_data = np.zeros(
-                (n_bands_output, height, width), dtype=np.float32
-            )
-            for j, band_idx in enumerate(bands_to_extract):
-                temp_data[j, :, :] = src.read(band_idx + 1)
+            n_bands = src.count
+            n_slices = n_bands // bands_per_slice  # e.g., 70 // 7 = 10 slices
 
-        # Only keep images with all values > 0
-        if (temp_data > 0).all():
-            valid_data.append(temp_data)
-            valid_paths.append(file_path)
-        elif verbose:
-            print(f"  ✗ Skipped {file_path}: contains values <= 0")
+            for slice_idx in range(n_slices):
+                start_band = slice_idx * bands_per_slice
+                slice_bands = list(
+                    range(start_band, start_band + bands_per_slice)
+                )
 
-    if not valid_data:
-        raise ValueError("No valid images found (all had values <= 0)")
+                temp_data = np.zeros(
+                    (bands_per_slice, src.height, src.width), dtype=np.float32
+                )
+                for j, band_idx in enumerate(slice_bands):
+                    temp_data[j, :, :] = src.read(band_idx + 1)
+
+                if (temp_data > 0).all():
+                    valid_data.append(temp_data)
+                    valid_paths.append(f"{file_path}_slice{slice_idx}")
+                elif verbose:
+                    print(
+                        f"  ✗ Skipped {Path(file_path).name} slice {slice_idx}: contains values <= 0"
+                    )
 
     data = np.stack(valid_data, axis=0)
     file_paths = valid_paths
+
+    if max_images and len(data) > max_images:
+        data = data[:max_images]
+        file_paths = file_paths[:max_images]
 
     if verbose:
         print(
