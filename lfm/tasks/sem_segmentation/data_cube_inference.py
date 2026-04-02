@@ -1,20 +1,14 @@
 # Standard library imports
-import os
-import subprocess
-import sys
 from datetime import datetime
 from glob import glob
 from pathlib import Path
 
 # Third-party imports
-import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.ma as ma
 import torch
 import xarray as xr
-from osgeo import gdal
-from tqdm import tqdm
 
 from transformers import AutoImageProcessor
 from tiler import Tiler, Merger
