@@ -365,6 +365,7 @@ def plot_data_cubes(
         fig.suptitle(suptitle, fontsize=14, y=0.99)
 
     plt.tight_layout()
+    plt.savefig("output.png")
 
     if verbose:
         print(f"✓ Plotted {n_images} images with {n_bands} bands each")
