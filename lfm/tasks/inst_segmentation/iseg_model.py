@@ -10,8 +10,26 @@ import torch.nn as nn
 from typing import List, Dict
 from transformers import AutoModel, AutoModelForUniversalSegmentation
 import logging
+import os
 
 logger = logging.getLogger(__name__)
+
+
+def load_dinov3_encoder(
+    weights_local_checkpoint, device, model="dinov3_vitl16"
+):
+    if os.path.exists(weights_local_checkpoint):
+        print(f"Loading model from {weights_local_checkpoint}")
+        encoder = torch.hub.load(
+            repo_or_dir="facebookresearch/dinov3",  # GitHub repo
+            model=model,
+            source="github",
+            weights=weights_local_checkpoint,
+        ).to(device)
+        print("Encoder loaded with pretrained weights.")
+        return encoder
+    else:
+        raise Exception("DinoV3 local checkpoint not found. Exiting.")
 
 
 class Adapter(nn.Module):
@@ -40,11 +58,25 @@ class DinoV3WithAdapterBackbone(nn.Module):
     def __init__(
         self,
         model_name: str,
+        weights_local_checkpoint: str,
         out_channels: List[int],
         num_bands=3,
+        device="cuda",
     ):
         super().__init__()
-        self.model = AutoModel.from_pretrained(model_name)
+        # self.model = AutoModel.from_pretrained(model_name)
+        if model_name == "facebook/dinov3-vitl16-pretrain-sat493m":
+            self.model = load_dinov3_encoder(
+                weights_local_checkpoint, device, model="dinov3_vitl16"
+            )
+        else:
+            try:
+                self.model = AutoModel.from_pretrained(model_name)
+            except Exception:
+                raise ValueError(
+                    f"Error loading model from model name. {model_name}"
+                    f"Ensure valid model name."
+                )
         self.adapter = Adapter(self.model.config.hidden_size, out_channels)
 
         # Define output features for Mask2Former compatibility
@@ -59,28 +91,15 @@ class DinoV3WithAdapterBackbone(nn.Module):
             "stage_3": 32,
         }
 
-        # Layers to extract from DINOv3-Large (different depths for multi-scale features)
-        self.layers_to_extract = [
-            5,
-            11,
-            17,
-            23,
-        ]  # Adjusted for Large model (24 layers total)
+        # Layers to extract from DINOv3-Large
+        # Adjusted for Large model (24 layers total)
+        self.layers_to_extract = [5, 11, 17, 23]
 
         if num_bands not in [3, 5, 7]:
-            if num_bands > 3 and not use_flexible:
-                raise ValueError(
-                    "Flexible embeddings not specified for > 3 band input."
-                )
-            raise ValueError("Dino Segmentation expects 3, 5, or 7 bands.")
-
+            raise ValueError("Instance Segmentation expects 3, 5, or 7 bands.")
         self.num_bands = num_bands
-        use_flexible = False
-        if num_bands > 3:
-            use_flexible = True
 
-        if use_flexible:
-            print(f"Flexible embeddings will be applied to DinoV3 backbone...")
+        if num_bands > 3:
             self._apply_flexible_weights(self.num_bands)
 
     def forward(self, x: torch.Tensor):
@@ -216,13 +235,13 @@ class DinoV3WithAdapterBackbone(nn.Module):
 
 
 def create_mask2former_dinov3_model(
-    label2id: Dict[str, int],
-    id2label: Dict[int, str],
     dinov3_model_name: str = "facebook/dinov3-vitl16-pretrain-lvd1689m",
+    dinov3_checkpoint: str = "",
     expected_channels=[192, 384, 768, 1536],
     freeze_backbone: bool = True,
     hub_token: str = None,
     num_bands: int = 3,
+    device="cuda",
 ) -> AutoModelForUniversalSegmentation:
     """
     Create a complete DINOv3-Large-Mask2Former model with custom backbone.
@@ -236,6 +255,13 @@ def create_mask2former_dinov3_model(
     logger.info(f"  - Expected channels: {expected_channels}")
     logger.info(f"  - Freeze backbone: {freeze_backbone}")
 
+    # Required for mask2former model
+    label2id = {
+        "background": 0,
+        "crater": 1,
+    }
+    id2label = {v: k for k, v in label2id.items()}
+
     # 1. Load base Mask2Former-Large model
     model = AutoModelForUniversalSegmentation.from_pretrained(
         mask2former_model_name,
@@ -247,10 +273,14 @@ def create_mask2former_dinov3_model(
 
     # 2. Create custom DINOv3-Large backbone with adapter
     custom_backbone = DinoV3WithAdapterBackbone(
-        dinov3_model_name, expected_channels, num_bands
+        dinov3_model_name,
+        dinov3_checkpoint,
+        expected_channels,
+        num_bands,
+        device,
     )
 
-    # 3. Replace the backbone; encoder is in the pixel_level_module, not at model.backbone
+    # 3. Replace the backbone with DinoV3
     model.model.pixel_level_module.encoder = custom_backbone
 
     # 4. Freeze DINOv3 weights if requested
@@ -263,7 +293,7 @@ def create_mask2former_dinov3_model(
 
     logger.info("Successfully created DINOv3-Large-Mask2Former model.")
 
-    return model
+    return model.to(device)
 
 
 def get_model_info(model: AutoModelForUniversalSegmentation) -> Dict:

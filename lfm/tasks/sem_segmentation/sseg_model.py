@@ -191,7 +191,7 @@ class DINOSegmentation(nn.Module):
 
 
 def load_dinov3_encoder(
-    weights_local_checkpoint, device, model="dinov3_vitl16"
+    weights_local_checkpoint, weights_URL, device, model="dinov3_vitl16"
 ):
     if os.path.exists(weights_local_checkpoint):
         print(f"Loading model from {weights_local_checkpoint}")
@@ -204,21 +204,4 @@ def load_dinov3_encoder(
         print("Encoder loaded with pretrained weights.")
         return encoder
     else:
-        try:
-            encoder = torch.hub.load(
-                repo_or_dir="facebookresearch/dinov3",  # GitHub repo
-                model=model,
-                source="github",
-                weights=weights_URL,
-            ).to(device)
-            print("Encoder loaded with pretrained weights.")
-            return encoder
-        except Exception as e:
-            if isinstance(e, HTTPError) and e.code == 403:
-                raise RuntimeError(
-                    "DINOv3 checkpoint download failed (HTTP 403). "
-                    "Meta-hosted signed URLs need you to sign an agreement. "
-                    "Please go to the following link and follow the directions"
-                    "to obtain a new download URL for your own use: https://ai.meta.com/resources/models-and-libraries/dinov3-downloads/."
-                ) from e
-            raise
+        raise Exception("DinoV3 local checkpoint not found. Exiting.")
