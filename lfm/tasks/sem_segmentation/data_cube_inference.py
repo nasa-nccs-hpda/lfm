@@ -96,7 +96,12 @@ def extract_images(
                     temp_data[j, :, :] = src.read(band_idx + 1)
 
                 if (temp_data > 0).all():
-                    valid_data.append(temp_data)
+                    filtered_data = (
+                        temp_data[bands_to_extract, :, :]
+                        if bands_to_extract
+                        else temp_data
+                    )
+                    valid_data.append(filtered_data)
                     valid_paths.append(f"{file_path}_slice{slice_idx}")
                 elif verbose:
                     print(
