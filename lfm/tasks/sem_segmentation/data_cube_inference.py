@@ -499,7 +499,7 @@ def sliding_window_inference(
 def run_datacube_inference(
     model,
     device,
-    tiff_dir,
+    tiff_dirs,
     mean,  # No longer needed, but kept for compatibility
     std,  # No longer needed, but kept for compatibility
     output_path="inference_test.png",
@@ -514,7 +514,10 @@ def run_datacube_inference(
     model.eval()
 
     # Load TIFF files
-    tiffs = glob(f"{tiff_dir}/*.tif")
+    all_tiff_files = []
+    for dir in tiff_dirs:
+        globbed = glob(f"{tiff_dir}/*.tif")
+        all_tiff_files = all_tiff_files + globbed
     print(f"Found {len(tiffs)} TIFF files")
 
     if len(tiffs) == 0:
