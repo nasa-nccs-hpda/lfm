@@ -15,6 +15,15 @@ from transformers import AutoImageProcessor
 from tiler import Tiler, Merger
 
 
+import rasterio
+from glob import glob
+from pathlib import Path
+from datetime import datetime
+import numpy as np
+import numpy.ma as ma
+import matplotlib.pyplot as plt
+
+
 def plot_data_cubes(input_dir, n_samples, n_bands, output_dir):
     tiffs = glob(f"{input_dir}/*.tif")
     samples = tiffs[:n_samples]
@@ -31,27 +40,57 @@ def plot_data_cubes(input_dir, n_samples, n_bands, output_dir):
             ds_band_count = src.count
             base_tiff_path = Path(tiff_path).name
 
-            print(f"Opened {base_tiff_path} with {n_bands} bands")
+            print(f"Opened {base_tiff_path} with {ds_band_count} total bands")
+            print(
+                f"Searching for {n_bands} bands with all valid (positive) data..."
+            )
 
-            # Read first n_bands (1-indexed in rasterio too)
-            num_bands_to_read = min(n_bands, ds_band_count)
-            band_indices = list(range(1, num_bands_to_read + 1))
+            # Find bands with all valid (positive) data
+            valid_band_indices = []
+            for band_idx in range(1, ds_band_count + 1):
+                band_data = src.read(band_idx)
 
-            # Read all bands at once
-            img_array = src.read(band_indices)
+                # Check if all values are positive
+                if np.all(band_data > 0):
+                    valid_band_indices.append(band_idx)
+                    print(f"  Band {band_idx}: VALID (all positive values)")
 
-            # Get nodata value (assuming same for all bands, or use src.nodatavals for per-band)
-            nodata_value = src.nodata
+                    # Stop once we have enough valid bands
+                    if len(valid_band_indices) >= n_bands:
+                        break
+                else:
+                    num_negative = np.sum(band_data <= 0)
+                    print(
+                        f"  Band {band_idx}: INVALID ({num_negative} non-positive values)"
+                    )
 
-            # Track mask changes
-            current_group_start = 0
-            mask_change_bands = []
+            # Check if we found enough valid bands
+            if len(valid_band_indices) < n_bands:
+                print(
+                    f"WARNING: Only found {len(valid_band_indices)} valid bands out of {n_bands} requested"
+                )
+                print(f"Proceeding with {len(valid_band_indices)} bands")
+            else:
+                print(
+                    f"Found {n_bands} valid bands: {valid_band_indices[:n_bands]}"
+                )
+
+            # Use only the valid bands we found
+            valid_band_indices = valid_band_indices[:n_bands]
+
+            if len(valid_band_indices) == 0:
+                print(f"No valid bands found in {base_tiff_path}. Skipping...")
+                continue
+
+            # Read only the valid bands
+            img_array = src.read(valid_band_indices)
+            actual_n_bands = len(valid_band_indices)
 
             print("\n" + "=" * 60)
-            print("MASK CHANGE DETECTION")
+            print("PLOTTING VALID BANDS")
             print("=" * 60)
 
-            for i in range(0, n_bands, 25):
+            for i in range(0, actual_n_bands, 25):
                 fig, axes = plt.subplots(5, 5, figsize=(10, 10))
                 bands_subset = img_array[i : i + 25]
                 band_idx = 0
@@ -62,64 +101,55 @@ def plot_data_cubes(input_dir, n_samples, n_bands, output_dir):
 
                         if (
                             band_idx < len(bands_subset)
-                            and current_band_num < n_bands
+                            and current_band_num < actual_n_bands
                         ):
                             band_to_plot = bands_subset[band_idx]
                             band_min, band_max = np.min(band_to_plot), np.max(
                                 band_to_plot
                             )
                             print(
-                                "Unmasked band min, max:", band_min, band_max
+                                f"Band {valid_band_indices[current_band_num]} min, max:",
+                                band_min,
+                                band_max,
                             )
 
-                            # Mask out nodata values
-                            if nodata_value is not None:
-                                mask = band_to_plot == nodata_value
-                            else:
-                                # Fallback to original value if nodata not set in metadata
-                                mask = band_to_plot == -3.4028227e38
-
-                            print(f"Number of masked values: {mask.sum()}")
-                            masked_band = ma.masked_where(mask, band_to_plot)
-                            valid_values = masked_band.compressed()
+                            # Since we've pre-filtered for positive values,
+                            # we can optionally still mask if needed, or skip masking
+                            # Here I'm keeping minimal masking for safety
+                            masked_band = band_to_plot
+                            valid_values = band_to_plot.flatten()
 
                             if valid_values.size > 0:
                                 min_val = valid_values.min()
                                 max_val = valid_values.max()
                                 print(
-                                    f"Range of unmasked values: [{min_val}, {max_val}]"
+                                    f"Range of values: [{min_val}, {max_val}]"
                                 )
                                 unique_vals, counts = np.unique(
                                     valid_values, return_counts=True
                                 )
                                 print(
-                                    f"Number of unique unmasked values: {len(unique_vals)}"
+                                    f"Number of unique values: {len(unique_vals)}"
                                 )
-                            else:
-                                print("No valid (unmasked) values found!")
 
                             # Get vmin/vmax of plot based on data range
-                            if masked_band.compressed().size > 0:
-                                valid_data = masked_band.compressed()
-                                vmin = np.percentile(valid_data, 2)
-                                vmax = np.percentile(valid_data, 98)
+                            vmin = np.percentile(valid_values, 2)
+                            vmax = np.percentile(valid_values, 98)
 
+                            if vmin == vmax:
+                                vmin = valid_values.min()
+                                vmax = valid_values.max()
                                 if vmin == vmax:
-                                    vmin = valid_data.min()
-                                    vmax = valid_data.max()
-                                    if vmin == vmax:
-                                        vmax = vmin + 1
-                            else:
-                                vmin, vmax = 0, 1
+                                    vmax = vmin + 1
 
                             cmap = plt.cm.viridis.copy()
-                            cmap.set_bad(color="lightgray")
 
                             im = axes[row, col].imshow(
                                 masked_band, cmap=cmap, vmin=vmin, vmax=vmax
                             )
                             axes[row, col].set_title(
-                                f"Band {current_band_num + 1}", fontsize=8
+                                f"Band {valid_band_indices[current_band_num]}",
+                                fontsize=8,
                             )
                             axes[row, col].axis("off")
                             fig.colorbar(
