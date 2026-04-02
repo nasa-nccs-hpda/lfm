@@ -191,7 +191,7 @@ def extract_images(
     num_images_to_extract,
     bands_per_slice=7,
     bands_per_image=3,
-    band_order=[3, 1, 0],
+    band_filter=[3, 1, 0],
     mean=None,
     std=None,
 ):
@@ -210,7 +210,7 @@ def extract_images(
         num_images_to_extract: Number of unique spatial images to extract
         bands_per_slice: Total bands per complete image (default: 7)
         bands_per_image: Number of bands to extract from each slice (default: 3)
-        band_order: Order to arrange the extracted bands (e.g., [2, 0, 1] for RGB)
+        band_filter: Order to arrange the extracted bands (e.g., [3, 1, 0] for RGB)
 
     Returns:
         Array of shape (N, H, W, bands_per_image)
@@ -256,7 +256,7 @@ def extract_images(
                 nodata_percentage = (nodata_count / img.size) * 100
                 if nodata_count == 0:  # zero tolerance
                     # Reorder bands (e.g., [2, 0, 1] for RGB order)
-                    img_reordered = img[band_order, :, :]
+                    img_reordered = img[band_filter, :, :]
 
                     # Transpose to (H, W, C) for channels-last format
                     img_transposed = np.transpose(img_reordered, (1, 2, 0))
@@ -509,6 +509,7 @@ def run_datacube_inference(
     normalize=True,  # Ignore this parameter
     save_inputs_dir=None,
     use_sliding=True,
+    band_filter=None,
 ):
     model.eval()
 
@@ -524,7 +525,7 @@ def run_datacube_inference(
         num_images_to_extract=n_images,
         bands_per_slice=5,
         bands_per_image=3,
-        band_order=[2, 0, 1],
+        band_filter=band_filter,
         mean=mean,
         std=std,
     )
