@@ -499,7 +499,7 @@ def sliding_window_inference(
 def run_datacube_inference(
     model,
     device,
-    tiff_dirs,
+    input_dir,
     mean,  # No longer needed, but kept for compatibility
     std,  # No longer needed, but kept for compatibility
     output_path="inference_test.png",
@@ -513,20 +513,15 @@ def run_datacube_inference(
 ):
     model.eval()
 
-    # Load TIFF files
-    all_tiff_files = []
-    for dir in tiff_dirs:
-        globbed = glob(f"{tiff_dir}/*.tif")
-        all_tiff_files = all_tiff_files + globbed
-    print(f"Found {len(tiffs)} TIFF files")
-
-    if len(tiffs) == 0:
-        raise ValueError(f"No TIFF files found in {tiff_dir}")
+    tiff_filenames = list(Path(input_dir).rglob("*.tif"))
+    if len(tiff_filenames) == 0:
+        raise ValueError(f"No TIFF files found in {input_dir}")
+    print(f"Found {len(tiff_filenames)} tiff filenames.")
 
     # Load numpy array of 3-band images at full resolution
     print(f"Loading {n_images} images from TIFF files...")
     images_npy = extract_images(
-        tiff_paths=tiffs,
+        tiff_paths=tiff_filenames,
         num_images_to_extract=n_images,
         bands_per_slice=5,
         bands_per_image=3,
