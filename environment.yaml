@@ -17,6 +17,7 @@ dependencies:
   # Core scientific computing
   - numpy
   - matplotlib
+  - rasterio
   
   # Machine learning and utilities
   - scikit-learn
