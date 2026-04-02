@@ -11,7 +11,7 @@ To test one of the example crater segmentation workflows:
 module load mamba
 ```
 ```bash
-mamba activate /explore/nobackup/projects/lfm/env
+micromamba activate /explore/nobackup/projects/lfm/env
 ```
 ```bash
 python -m ipykernel install --user --name=lfm_env --display-name="LFM_ENV"
