@@ -570,38 +570,71 @@ def run_datacube_inference(
     model,
     device,
     input_dir,
-    mean,  # No longer needed, but kept for compatibility
-    std,  # No longer needed, but kept for compatibility
+    mean,
+    std,
     output_path="inference_test.png",
     n_images=20,
     model_native_size=304,
     tile_overlap=0.25,
     threshold=0.75,
-    normalize=True,  # Ignore this parameter
+    normalize=True,
     save_inputs_dir=None,
     use_sliding=True,
-    band_filter=None,
+    band_filter=[3, 1, 0],  # Extract bands 3, 1, 0 by default
 ):
     model.eval()
 
-    # tiff_filenames = list(Path(input_dir).rglob("*.tif"))
-    # if len(tiff_filenames) == 0:
-    #     raise ValueError(f"No TIFF files found in {input_dir}")
-    # print(f"Found {len(tiff_filenames)} tiff filenames.")
-
     # Load numpy array of 3-band images at full resolution
-    print(f"Loading {n_images} images from TIFF files...")
-    images_npy = extract_images(
+    print(f"Loading up to {n_images} images from TIFF files...")
+
+    # NEW: extract_images now returns (data, file_paths)
+    # data shape: (N, bands, H, W) - channels first, unnormalized
+    images_raw, file_paths = extract_images(
         input_paths=input_dir,
-        num_images_to_extract=n_images,
-        bands_per_slice=5,
-        bands_per_image=3,
-        band_filter=band_filter,
-        mean=mean,
-        std=std,
+        band_filter=band_filter,  # e.g., [3, 1, 0]
+        bands_per_slice=7,  # How many bands per slice in the original file
+        max_images=n_images,
+        verbose=True,
     )
-    print(f"Extracted images shape: {images_npy.shape}")  # (N, 512, 512, 3)
-    return
+
+    print(
+        f"Extracted raw images shape: {images_raw.shape}"
+    )  # (N, 3, 512, 512)
+
+    # NEW: Transpose from (N, bands, H, W) to (N, H, W, bands) for processing
+    images_transposed = np.transpose(
+        images_raw, (0, 2, 3, 1)
+    )  # (N, 512, 512, 3)
+    print(f"Transposed to: {images_transposed.shape}")
+
+    # NEW: Apply min-max scaling to [0, 1]
+    images_scaled = np.zeros_like(images_transposed, dtype=np.float32)
+    for i in range(len(images_transposed)):
+        images_scaled[i] = min_max_scale_bands(images_transposed[i])
+
+    print(
+        f"After min-max scaling: min={images_scaled.min():.3f}, max={images_scaled.max():.3f}"
+    )
+
+    # NEW: Apply mean/std normalization
+    if mean is not None and std is not None:
+        # Reshape mean and std for broadcasting
+        mean_reshaped = mean.reshape(1, 1, 1, 3)  # (1, 1, 1, 3)
+        std_reshaped = std.reshape(1, 1, 1, 3)  # (1, 1, 1, 3)
+
+        images_npy = (images_scaled - mean_reshaped) / (std_reshaped + 1e-8)
+        print(
+            f"After normalization: min={images_npy.min():.3f}, max={images_npy.max():.3f}"
+        )
+    else:
+        images_npy = images_scaled
+        print(
+            "Warning: No mean/std provided, using scaled data without normalization"
+        )
+
+    print(
+        f"Final images shape ready for inference: {images_npy.shape}"
+    )  # (N, 512, 512, 3)
 
     # Save inputs if specified
     if save_inputs_dir:
@@ -614,7 +647,7 @@ def run_datacube_inference(
                 i, image_transposed, n_bands=3, save_path=str(save_path)
             )
 
-    # Pass raw images, image_processor handles normalization
+    # Rest of inference code remains the same...
     print(f"\n{'='*60}")
     print(f"Running inference:")
     print(f"  Input images: {images_npy.shape[1]}×{images_npy.shape[2]}")
@@ -631,7 +664,7 @@ def run_datacube_inference(
             images_npy,
             model,
             target_size=model_native_size,
-            device="cuda",
+            device=device,
             threshold=threshold,
         )
     else:  # add support for resizing of inputs then regular pred
@@ -651,23 +684,18 @@ def run_datacube_inference(
     if batch_size == 1:
         axes = axes.reshape(-1, 1)
 
-    filenames = [f"image_{i}" for i in range(batch_size)]
+    # Use actual filenames from extract_images
+    display_filenames = [Path(fp).name for fp in file_paths[:batch_size]]
 
     for i in range(batch_size):
-        img = images_npy[i]  # Original unnormalized image (512, 512, 3)
+        # Use original scaled images (before normalization) for visualization
+        img = images_scaled[i]  # (512, 512, 3) in [0, 1]
         pred_mask = preds_list[i]  # (512, 512)
 
-        # Prepare image for display
-        img_vis = img.copy()
-        # Normalize to [0, 1] for display
-        img_vis = (img_vis - img_vis.min()) / (
-            img_vis.max() - img_vis.min() + 1e-8
-        )
-
         # Row 0: Original image
-        axes[0, i].imshow(img_vis)
+        axes[0, i].imshow(img)
         axes[0, i].set_title(
-            f"{filenames[i]}",
+            f"{display_filenames[i]}",
             fontsize=11,
             fontweight="bold",
         )
