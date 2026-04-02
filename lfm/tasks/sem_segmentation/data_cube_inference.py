@@ -33,8 +33,11 @@ def extract_images(
         if path.is_file() and path.suffix.lower() == ".tif":
             file_paths.append(str(path))
         elif path.is_dir():
-            file_paths.extend(glob(str(path / "**/*.tif"), recursive=True))
-
+            pattern = str(path / "**/*.tif")
+            print(f"Searching with pattern: {pattern}")
+            found = glob(pattern, recursive=True)
+            print(f"Found {len(found)} files")
+            file_paths.extend(found)
     if not file_paths:
         raise ValueError(f"No .tif files found in {input_paths}")
 
