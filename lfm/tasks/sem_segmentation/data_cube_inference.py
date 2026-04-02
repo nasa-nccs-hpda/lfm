@@ -245,42 +245,40 @@ def extract_images(
                     band=slice(start_band, start_band + bands_per_image)
                 )
                 data_var = list(slice_data.data_vars)[0]
-                image_data = slice_data[
+                img = slice_data[
                     data_var
                 ].values  # Shape: (bands_per_image, H, W)
 
                 # Check if ALL values in these bands are positive
                 NODATA = -3.4028227e38
-                nodata_count = np.sum(image_data == NODATA)
-                nodata_percentage = (nodata_count / image_data.size) * 100
+                nodata_count = np.sum(img == NODATA)
+                nodata_percentage = (nodata_count / img.size) * 100
                 if nodata_count == 0:  # zero tolerance
                     # Reorder bands (e.g., [2, 0, 1] for RGB order)
-                    image_data_reordered = image_data[band_order, :, :]
+                    img_reordered = img[band_order, :, :]
 
                     # Transpose to (H, W, C) for channels-last format
-                    image_data_reordered = np.transpose(
-                        image_data_reordered, (1, 2, 0)
-                    )
+                    img_transposed = np.transpose(img_reordered, (1, 2, 0))
 
                     # Scale inputs to 0, 1
-                    image_data_scaled = min_max_scale_bands(
-                        image_data_reordered
+                    img_scaled = min_max_scale_bands(img_transposed)
+
+                    print(
+                        f"Image minmax after scaling: {np.min(img_scaled), np.max(img_scaled)}"
                     )
 
                     # Normalize to work with shape
                     mean_reshaped = mean.reshape(1, 1, 3)  # 1 value per band
                     std_reshaped = std.reshape(1, 1, 3)  # 1 value per band
                     print(
-                        f"Image shape before norm, after resize: {image_data_reordered.shape}"
+                        f"Image shape before norm, after resize: {img_reordered.shape}"
                     )
                     print(
                         f"Mean, std shapes before norm: {mean_reshaped.shape, std_reshaped.shape}"
                     )
-                    image_data_norm = (
-                        image_data_scaled - mean_reshaped
-                    ) / std_reshaped
+                    img_norm = (img_scaled - mean_reshaped) / std_reshaped
 
-                    extracted.append(image_data_norm)
+                    extracted.append(img_norm)
                     print(
                         f"  ✓ Slice {slice_idx}: bands {start_band}-{start_band + bands_per_image - 1} → valid"
                     )
@@ -288,7 +286,7 @@ def extract_images(
                     print(
                         f"  ✗ Slice {slice_idx}: bands {start_band}-{start_band + bands_per_image - 1} → skipped (non-positive values)"
                     )
-                    min_val = np.min(image_data)
+                    min_val = np.min(img)
                     print(
                         f"     Slice min value: {min_val}, count and percent: {nodata_count}, {nodata_percentage}"
                     )
