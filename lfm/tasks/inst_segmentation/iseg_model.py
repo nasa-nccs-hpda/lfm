@@ -65,18 +65,18 @@ class DinoV3WithAdapterBackbone(nn.Module):
     ):
         super().__init__()
         # self.model = AutoModel.from_pretrained(model_name)
-        if model_name == "facebook/dinov3-vitl16-pretrain-sat493m":
-            self.model = load_dinov3_encoder(
-                weights_local_checkpoint, device, model="dinov3_vitl16"
+        # if model_name == "facebook/dinov3-vitl16-pretrain-sat493m":
+        #     self.model = load_dinov3_encoder(
+        #         weights_local_checkpoint, device, model="dinov3_vitl16"
+        #     )
+        # else:
+        try:
+            self.model = AutoModel.from_pretrained(model_name)
+        except Exception:
+            raise ValueError(
+                f"Error loading model from model name. {model_name}"
+                f"Ensure valid model name."
             )
-        else:
-            try:
-                self.model = AutoModel.from_pretrained(model_name)
-            except Exception:
-                raise ValueError(
-                    f"Error loading model from model name. {model_name}"
-                    f"Ensure valid model name."
-                )
         self.adapter = Adapter(self.model.config.hidden_size, out_channels)
 
         # Define output features for Mask2Former compatibility
