@@ -61,9 +61,9 @@ def plot_data_cubes(input_dir, n_samples, n_bands, output_dir):
                         break
                 else:
                     num_negative = np.sum(band_data <= 0)
-                    print(
-                        f"  Band {band_idx}: INVALID ({num_negative} non-positive values)"
-                    )
+                    # print(
+                    #     f"  Band {band_idx}: INVALID ({num_negative} non-positive values)"
+                    # )
 
             # Check if we found enough valid bands
             if len(valid_band_indices) < n_bands:
@@ -191,7 +191,7 @@ def extract_images(
     num_images_to_extract,
     bands_per_slice=7,
     bands_per_image=3,
-    band_order=[2, 0, 1],
+    band_order=[3, 1, 0],
     mean=None,
     std=None,
 ):
