@@ -21,7 +21,9 @@ dependencies:
   
   # Machine learning and utilities
   - scikit-learn
+  - scikit-image
   - tqdm
+  - termcolor
   
   # Jupyter support
   - ipykernel
@@ -33,4 +35,3 @@ dependencies:
     - omegaconf
     - regex
     - submitit
-    - termcolor
