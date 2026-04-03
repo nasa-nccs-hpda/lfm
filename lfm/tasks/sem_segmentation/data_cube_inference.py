@@ -667,7 +667,7 @@ def run_datacube_inference(
     normalize=True,
     save_inputs_dir=None,
     use_sliding=True,
-    band_filter=[3, 1, 0],  # Extract bands 3, 1, 0 by default
+    band_filter=None,
 ):
     model.eval()
 
