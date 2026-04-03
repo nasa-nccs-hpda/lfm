@@ -72,12 +72,7 @@ To fully utilize this Repo, you will need a fine-grained access token:
 ## Model and data specifications
 
 ### Model specifications
-
-#### Semantic Segmentation Model
-The SAT-493M ViT-L/16 distilled DinoV3 encoder was used (trained on Satellite data). All encoder parameters were unfrozen for fine-tuning. See the [DinoV3 repo](https://github.com/facebookresearch/dinov3) for more info.
-
-#### Instance Segmentation Model
-The base ViT-L/16 DinoV3 encoder was used (trained on RGB images on the internet). All encoder parameters were unfrozen for fine-tuning. See the [DinoV3 repo](https://github.com/facebookresearch/dinov3) for more info.
+The SAT-493M ViT-L/16 distilled DinoV3 encoder was used (trained on Satellite data). All encoder parameters were unfrozen for fine-tuning. See the [DinoV3 repo](https://github.com/facebookresearch/dinov3) for more info. For instance segmentation, the Mask2Former architecture was used as part of the encoder, on top of the DinoV3 SAT-493M encoder ([M2F Example](https://github.com/Carti-97/DINOv3-Mask2former), [M2F Website](https://arxiv.org/abs/2112.01527](https://mask2former.com/)). 
 
 ### Data Specifications
 
@@ -91,5 +86,5 @@ Labels were processed from the annotations JSON file. Annotations were sorted by
 #### Input/label matching
 Labels and inputs were matched by asset ID, as well as tile row/column ID.
 
-#### Training specifications
-The base semantic segmentation models were trained on 500 input/label pairs for 50 epochs, using a PRISM JupyterHub job on 4 V100 GPUs (1 V100 will also work, but will be slower). When adding bands (5/7 bands), a H100 node was used for its larger VRAM capacity. The parameters used were: "focal dice" loss function (Focal Loss + Dice loss), 5e-5 initial learning rate, AdamW optimizer, and Cosine Annealing LR scheduling with warmup. A train/val split of 80/20% was used as well, with early stopping patience of 5 epochs.
+### Training specifications
+The toy models were trained on 500 input/label pairs for 50 epochs, using a PRISM JupyterHub job on 4 V100 GPUs (1 V100 will also work, but will be slower). When adding bands (5/7 bands), a H100 node was used for its larger VRAM capacity. The parameters used were: "focal dice" loss function (Focal Loss + Dice loss), 5e-5 initial learning rate, AdamW optimizer, and Cosine Annealing LR scheduling with warmup. A train/val split of 80/20% was used as well, with early stopping patience of 5 epochs.
