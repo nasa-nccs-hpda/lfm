@@ -63,7 +63,7 @@ def extract_images(
     else:
         bands_to_extract = band_filter
         if bands_per_slice is None:
-            bands_per_slice = len(band_filter)
+            bands_per_slice = 7  # Default to 7-band slices for data cubes
 
     n_bands_output = len(bands_to_extract)
 
@@ -85,6 +85,8 @@ def extract_images(
 
             for slice_idx in range(n_slices):
                 start_band = slice_idx * bands_per_slice
+
+                # Read ALL bands in the slice first
                 slice_bands = list(
                     range(start_band, start_band + bands_per_slice)
                 )
@@ -95,13 +97,16 @@ def extract_images(
                 for j, band_idx in enumerate(slice_bands):
                     temp_data[j, :, :] = src.read(band_idx + 1)
 
+                # Check if all bands have positive values
                 if (temp_data > 0).all():
-                    filtered_data = (
-                        temp_data[bands_to_extract, :, :]
-                        if bands_to_extract
-                        else temp_data
-                    )
-                    valid_data.append(filtered_data)
+                    # NOW filter to get only the requested bands
+                    if band_filter is not None:
+                        # Extract only the bands specified in band_filter
+                        filtered_data = temp_data[bands_to_extract, :, :]
+                        valid_data.append(filtered_data)
+                    else:
+                        valid_data.append(temp_data)
+
                     valid_paths.append(f"{file_path}_slice{slice_idx}")
                 elif verbose:
                     print(
@@ -129,17 +134,19 @@ def plot_data_cubes(
     mean=None,
     std=None,
     max_images=None,
+    band_filter=None,
+    bands_per_slice=7,
     figsize=None,
     titles=None,
-    cmap="gray",
+    cmap="viridis",
     vmin=None,
     vmax=None,
     suptitle=None,
     colorbar=False,
     normalize_per_band=True,
     apply_normalization=True,
+    output_path="output.png",
     verbose=True,
-    output_dir=".",
 ):
     """
     Extract and plot data cubes from .tif files as either RGB composites or individual bands.
@@ -152,22 +159,27 @@ def plot_data_cubes(
         - Single .tif file path
         - List of paths
     mode : str, default='rgb'
-        'rgb' for RGB composite (extracts bands 3, 1, 0) or
-        'bands' for individual band plots (extracts all 7 bands)
+        'rgb' for RGB composite or 'bands' for individual band plots
     mean : np.ndarray or None
-        Mean values for normalization. Shape should be (1, n_bands, 1, 1) or (n_bands,).
+        Mean values for normalization. Shape should be (n_bands,) or broadcastable.
         If None and apply_normalization=True, computed from data.
     std : np.ndarray or None
-        Std values for normalization. Shape should be (1, n_bands, 1, 1) or (n_bands,).
+        Std values for normalization. Shape should be (n_bands,) or broadcastable.
         If None and apply_normalization=True, computed from data.
     max_images : int, optional
-        Maximum number of images to plot
+        Maximum number of image slices to extract and plot
+    band_filter : list of int, optional
+        Which bands to extract from each slice.
+        For RGB mode: e.g., [5, 3, 2] extracts bands 5, 3, 2 as R, G, B
+        For bands mode: e.g., [0, 1, 2, 3, 4] extracts first 5 bands
+        If None, uses all bands in slice (determined by bands_per_slice)
+    bands_per_slice : int, default=7
+        Total number of bands per complete slice in the TIFF file
     figsize : tuple, optional
         Figure size (width, height). If None, auto-calculated.
     titles : list of str, optional
-        Titles for each row (image). Length should match n_images.
-        If None, uses filenames.
-    cmap : str, default='gray'
+        Titles for each row (image). If None, uses filenames.
+    cmap : str, default='viridis'
         Colormap for individual bands (only used in 'bands' mode)
     vmin, vmax : float, optional
         Color scale limits for individual bands. If None, auto-scales.
@@ -176,10 +188,12 @@ def plot_data_cubes(
     colorbar : bool, default=False
         Add colorbar to band plots (only in 'bands' mode)
     normalize_per_band : bool, default=True
-        If True, normalize each band independently. If False, use global vmin/vmax.
+        If True, normalize each band independently for display.
         Only applies to color scaling, not mean/std normalization.
     apply_normalization : bool, default=True
-        If True, applies (data - mean) / std normalization before plotting
+        If True, applies (data - mean) / std normalization
+    output_path : str, default='output.png'
+        Path to save the figure. If None, doesn't save.
     verbose : bool, default=True
         Print extraction progress
 
@@ -187,40 +201,53 @@ def plot_data_cubes(
     --------
     fig, axes : matplotlib figure and axes objects
     data : np.ndarray
-        Extracted data array (before normalization)
+        Extracted raw data array (N, bands, H, W)
     data_normalized : np.ndarray
-        Normalized data array (after mean/std normalization)
+        Normalized data array (N, H, W, bands)
     file_paths : list
         List of file paths that were loaded
 
     Examples:
     ---------
-    # RGB mode - extracts bands 3, 1, 0
-    fig, axes, data, data_norm, paths = plot_data_cubes('/path/to/tifs/',
-                                                         mode='rgb',
-                                                         mean=my_mean,
-                                                         std=my_std)
+    # RGB mode - extracts bands 5, 3, 2 as RGB
+    fig, axes, data, data_norm, paths = plot_data_cubes(
+        '/path/to/tifs/',
+        mode='rgb',
+        band_filter=[5, 3, 2],
+        mean=my_mean,
+        std=my_std,
+        max_images=10
+    )
 
     # Individual bands mode - extracts all 7 bands
-    fig, axes, data, data_norm, paths = plot_data_cubes('/path/to/tifs/',
-                                                         mode='bands',
-                                                         cmap='viridis',
-                                                         max_images=5)
+    fig, axes, data, data_norm, paths = plot_data_cubes(
+        '/path/to/tifs/',
+        mode='bands',
+        bands_per_slice=7,
+        cmap='viridis',
+        max_images=5
+    )
     """
 
-    # Extract data based on mode
+    # Determine band configuration based on mode
     if mode == "rgb":
-        band_filter = [3, 1, 0]
-        bands_per_slice = 3
+        if band_filter is None:
+            band_filter = [3, 1, 0]  # Default RGB bands
+        if len(band_filter) != 3:
+            raise ValueError(
+                f"RGB mode requires exactly 3 bands in band_filter, got {len(band_filter)}"
+            )
     elif mode == "bands":
-        band_filter = list(range(7))
-        bands_per_slice = 7
+        if band_filter is None:
+            band_filter = list(range(bands_per_slice))  # Extract all bands
     else:
         raise ValueError(f"Unknown mode: '{mode}'. Use 'rgb' or 'bands'.")
 
     if verbose:
         print(f"Extracting data in '{mode}' mode...")
+        print(f"Band filter: {band_filter}")
 
+    # Extract images using extract_images
     data, file_paths = extract_images(
         input_paths=input_paths,
         band_filter=band_filter,
@@ -229,91 +256,129 @@ def plot_data_cubes(
         verbose=verbose,
     )
 
+    # data shape: (N, bands, H, W) - channels first, raw positive values
     n_images, n_bands, height, width = data.shape
 
-    # Apply normalization if requested
+    if verbose:
+        print(f"Extracted {n_images} images with {n_bands} bands each")
+        print(f"Image dimensions: {height}×{width}")
+
+    # Transpose to (N, H, W, bands) for processing
+    data_transposed = np.transpose(data, (0, 2, 3, 1))  # (N, H, W, bands)
+
+    # Apply min-max scaling to [0, 1]
+    data_scaled = np.zeros_like(data_transposed, dtype=np.float32)
+    for i in range(n_images):
+        for b in range(n_bands):
+            band = data_transposed[i, :, :, b]
+            band_min, band_max = band.min(), band.max()
+            if band_max > band_min:
+                data_scaled[i, :, :, b] = (band - band_min) / (
+                    band_max - band_min
+                )
+            else:
+                data_scaled[i, :, :, b] = band
+
+    if verbose:
+        print(
+            f"After min-max scaling: min={data_scaled.min():.3f}, max={data_scaled.max():.3f}"
+        )
+
+    # Apply mean/std normalization if requested
     if apply_normalization:
         if mean is None:
-            mean = data.mean(
-                axis=(0, 2, 3), keepdims=True
-            )  # (1, n_bands, 1, 1)
+            mean = data_scaled.mean(axis=(0, 1, 2))  # (n_bands,)
             if verbose:
-                print(f"Computed mean from data: {mean.squeeze()}")
+                print(f"Computed mean from data: {mean}")
         else:
-            # Ensure mean has correct shape
             mean = np.array(mean)
             if mean.ndim == 1:
-                mean = mean.reshape(1, -1, 1, 1)
+                mean = mean.reshape(1, 1, 1, -1)  # (1, 1, 1, n_bands)
 
         if std is None:
-            std = data.std(axis=(0, 2, 3), keepdims=True)  # (1, n_bands, 1, 1)
+            std = data_scaled.std(axis=(0, 1, 2))  # (n_bands,)
             if verbose:
-                print(f"Computed std from data: {std.squeeze()}")
+                print(f"Computed std from data: {std}")
         else:
-            # Ensure std has correct shape
             std = np.array(std)
             if std.ndim == 1:
-                std = std.reshape(1, -1, 1, 1)
+                std = std.reshape(1, 1, 1, -1)  # (1, 1, 1, n_bands)
 
-        data_normalized = (data - mean) / (std + 1e-8)
+        data_normalized = (data_scaled - mean) / (std + 1e-8)
 
         if verbose:
-            print(f"Applied normalization: (data - mean) / std")
+            print(
+                f"After normalization: min={data_normalized.min():.3f}, max={data_normalized.max():.3f}"
+            )
     else:
-        data_normalized = data.copy()
+        data_normalized = data_scaled.copy()
         if verbose:
-            print(f"Skipping normalization")
+            print("Skipping normalization")
 
     # Generate titles from filenames if not provided
     if titles is None:
         titles = [Path(fp).stem for fp in file_paths]
 
+    # Create visualization
     if mode == "rgb":
         # ==================== RGB Composite Mode ====================
         if figsize is None:
-            figsize = (5 * n_images, 5)
+            figsize = (5 * min(n_images, 5), 5 * math.ceil(n_images / 5))
 
-        fig, axes = plt.subplots(1, n_images, figsize=figsize, squeeze=False)
+        # Calculate grid layout
+        n_cols = min(n_images, 5)
+        n_rows = math.ceil(n_images / n_cols)
+
+        fig, axes = plt.subplots(
+            n_rows, n_cols, figsize=figsize, squeeze=False
+        )
         axes = axes.flatten()
 
         for i in range(n_images):
-            # Extract RGB bands: (3, H, W) → (H, W, 3)
-            rgb = data_normalized[i, :, :, :].transpose(1, 2, 0)
+            # Use scaled data (pre-normalization) for visualization
+            # This keeps values in [0, 1] range which looks good
+            rgb = data_scaled[i, :, :, :]  # (H, W, 3)
 
-            # Clip and normalize to 0-1 for display
-            # Use percentile clipping to handle outliers after normalization
-            p_low, p_high = np.percentile(rgb, [2, 98])
-            rgb_clipped = np.clip(rgb, p_low, p_high)
-            rgb_norm = (rgb_clipped - rgb_clipped.min()) / (
-                rgb_clipped.max() - rgb_clipped.min() + 1e-8
-            )
-
-            axes[i].imshow(rgb_norm)
+            # Display RGB image
+            axes[i].imshow(rgb)
             axes[i].axis("off")
 
             if i < len(titles):
-                axes[i].set_title(titles[i], fontsize=12)
+                axes[i].set_title(titles[i], fontsize=10)
             else:
-                axes[i].set_title(f"Image {i}", fontsize=12)
+                axes[i].set_title(f"Image {i}", fontsize=10)
+
+        # Turn off extra subplots
+        for i in range(n_images, len(axes)):
+            axes[i].axis("off")
+
+        if suptitle:
+            fig.suptitle(suptitle, fontsize=14, y=0.99)
+        else:
+            fig.suptitle(
+                f"RGB Data Cubes ({n_images} images)", fontsize=14, y=0.99
+            )
 
     elif mode == "bands":
         # ==================== Individual Bands Mode ====================
         if figsize is None:
-            figsize = (2 * n_bands, 2 * n_images)
+            figsize = (2.5 * n_bands, 2.5 * n_images)
 
         fig, axes = plt.subplots(
             n_images, n_bands, figsize=figsize, squeeze=False
         )
 
         # Calculate global vmin/vmax if not provided and not normalizing per band
-        if not normalize_per_band and vmin is None:
-            vmin = data_normalized.min()
-        if not normalize_per_band and vmax is None:
-            vmax = data_normalized.max()
+        if not normalize_per_band:
+            if vmin is None:
+                vmin = data_scaled.min()  # Use scaled data for display
+            if vmax is None:
+                vmax = data_scaled.max()
 
         for i in range(n_images):
             for j in range(n_bands):
-                band_data = data_normalized[i, j, :, :]
+                # Use scaled data (pre-normalization) for visualization
+                band_data = data_scaled[i, :, :, j]
 
                 # Determine color limits
                 if normalize_per_band:
@@ -328,12 +393,17 @@ def plot_data_cubes(
                 )
                 axes[i, j].axis("off")
 
-                # Column titles (band index) on first row
-                # Column titles (band index and min/max) for each row
-                band_min = round(data_normalized[i, j, :, :].min(), 2)
-                band_max = round(data_normalized[i, j, :, :].max(), 2)
+                # Column titles (band index and value range) on each row
+                if band_filter is not None:
+                    original_band = band_filter[j]
+                else:
+                    original_band = j
+
+                band_min = band_data.min()
+                band_max = band_data.max()
                 axes[i, j].set_title(
-                    f"Band {j}\n[{band_min:.2f}, {band_max:.2f}]", fontsize=9
+                    f"Band {original_band}\n[{band_min:.2f}, {band_max:.2f}]",
+                    fontsize=9,
                 )
 
                 # Add colorbar if requested
@@ -344,13 +414,13 @@ def plot_data_cubes(
                     cax = divider.append_axes("right", size="5%", pad=0.05)
                     plt.colorbar(im, cax=cax)
 
-            # Row titles (image index/name) on first column
+            # Row titles (image name) on left
             if i < len(titles):
                 axes[i, 0].set_ylabel(
                     titles[i],
                     rotation=0,
-                    labelpad=50,
-                    fontsize=11,
+                    labelpad=80,
+                    fontsize=10,
                     va="center",
                     ha="right",
                 )
@@ -358,17 +428,28 @@ def plot_data_cubes(
                 axes[i, 0].set_ylabel(
                     f"Image {i}",
                     rotation=0,
-                    labelpad=50,
-                    fontsize=11,
+                    labelpad=80,
+                    fontsize=10,
                     va="center",
                     ha="right",
                 )
 
-    if suptitle:
-        fig.suptitle(suptitle, fontsize=14, y=0.99)
+        if suptitle:
+            fig.suptitle(suptitle, fontsize=14, y=0.99)
+        else:
+            fig.suptitle(
+                f"Data Cube Bands ({n_images} images × {n_bands} bands)",
+                fontsize=14,
+                y=0.99,
+            )
 
     plt.tight_layout()
-    plt.savefig(f"{output_dir}/output.png")
+
+    # Save figure if path provided
+    if output_path:
+        plt.savefig(output_path, dpi=150, bbox_inches="tight")
+        if verbose:
+            print(f"✓ Saved figure to: {output_path}")
 
     if verbose:
         print(f"✓ Plotted {n_images} images with {n_bands} bands each")
