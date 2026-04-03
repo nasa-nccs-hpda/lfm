@@ -139,6 +139,7 @@ def plot_data_cubes(
     normalize_per_band=True,
     apply_normalization=True,
     verbose=True,
+    output_dir=".",
 ):
     """
     Extract and plot data cubes from .tif files as either RGB composites or individual bands.
@@ -367,7 +368,7 @@ def plot_data_cubes(
         fig.suptitle(suptitle, fontsize=14, y=0.99)
 
     plt.tight_layout()
-    plt.savefig("output.png")
+    plt.savefig(f"{output_dir}/output.png")
 
     if verbose:
         print(f"✓ Plotted {n_images} images with {n_bands} bands each")
