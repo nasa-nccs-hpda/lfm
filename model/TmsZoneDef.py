@@ -4,7 +4,7 @@ import json
 
 from osgeo import osr
 
-from model.TmsTileDef import TmsTileDef
+from lfm.model.TmsTileDef import TmsTileDef
 
 
 # ----------------------------------------------------------------------------

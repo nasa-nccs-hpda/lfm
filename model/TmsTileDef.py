@@ -33,18 +33,21 @@ class TmsTileDef:
     # ------------------------------------------------------------------------
     # __init__
     # ------------------------------------------------------------------------
-    def __init__(self, 
-                 tileDef: dict = None,
-                 srs: osr.SpatialReference = None,
-                 geoSrs: osr.SpatialReference = None,
-                 zone: int = None,
-                 zoomLevel: int = None):
-        
+    def __init__(self,
+                 tileDef: dict,
+                 srs: osr.SpatialReference,
+                 geoSrs: osr.SpatialReference,
+                 zone: int,
+                 zoomLevel: int):
+
         self._tileDef: dict = tileDef  # Includes the single tile definition.
-        self._srs: osr.SpatialReference = srs
-        self._geoSrs: osr.SpatialReference = geoSrs
+        self._srs: osr.SpatialReference = None
+        self._geoSrs: osr.SpatialReference = None
         self._zone: str = zone
         self._zoomLevel: int = zoomLevel
+        
+        self.srs = srs
+        self.geoSrs = geoSrs
         
     # ------------------------------------------------------------------------
     # initFromJson
@@ -110,6 +113,22 @@ class TmsTileDef:
         
         return self._geoSrs
         
+    # ------------------------------------------------------------------------
+    # geoSrs
+    # ------------------------------------------------------------------------
+    @geoSrs.setter
+    def geoSrs(self, value: osr.SpatialReference) -> None:
+        
+        if not value:
+            
+            self._geoSrs = osr.SpatialReference()
+            self._geoSrs.ImportFromWkt(self._tileDef[TmsTileDef.GEO_CRS])
+
+        else:
+            self._geoSrs = value
+
+        self._geoSrs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+
     # ------------------------------------------------------------------------
     # getOverlappingTiles
     # ------------------------------------------------------------------------
@@ -234,15 +253,15 @@ class TmsTileDef:
         ymax = gridOrigin[1] - tileY * height * cellSize
         ymin = gridOrigin[1] - (tileY + 1) * height * cellSize
 
-        assert(((xmax - xmin) / cellSize) - width < 1)
-        assert(((ymax - ymin) / cellSize) - height < 1)
+        assert(abs(((xmax - xmin) / cellSize) - width) < 1e-6)
+        assert(abs(((ymax - ymin) / cellSize) - height) < 1e-6)
 
         ulx = xmin
         uly = ymax
         lrx = xmax
         lry = ymin
 
-        return ulx, uly, lrx, lry
+        return [ulx, uly, lrx, lry]
     
     # ------------------------------------------------------------------------
     # _getTileBboxGeo
@@ -251,15 +270,9 @@ class TmsTileDef:
 
         # Get projected bounds
         ulx, uly, lrx, lry = self.getTileBbox(col, row)
-    
-        # Transform back to geographic
-        xform = osr.CoordinateTransformation(self.srs, self.geoSrs)
-    
-        # Transform upper-left corner
-        ulLat, ulLon, _ = xform.TransformPoint(ulx, uly)
-    
-        # Transform lower-right corner
-        lrLat, lrLon, _ = xform.TransformPoint(lrx, lry)
+
+        ulLat, ulLon = self.ltmToLatLon(ulx, uly)
+        lrLat, lrLon = self.ltmToLatLon(lrx, lry)
     
         return ulLat, ulLon, lrLat, lrLon
     
@@ -279,7 +292,7 @@ class TmsTileDef:
     def llToLtm(self, lat: float, lon: float) -> Tuple(float, float):
         
         xform = osr.CoordinateTransformation(self.geoSrs, self.srs)
-        x, y, _ = xform.TransformPoint(lat, lon)
+        x, y, _ = xform.TransformPoint(lon, lat)
 
         return x, y
         
@@ -292,14 +305,15 @@ class TmsTileDef:
         tilePixelSize = self.cellSize * self.tileWidth
     
         # Transform point to projected coordinates
-        xform = osr.CoordinateTransformation(self.geoSrs, self.srs)
-        easting, northing, _ = xform.TransformPoint(lat, lon)
+        # xform = osr.CoordinateTransformation(self.geoSrs, self.srs)
+        # easting, northing, _ = xform.TransformPoint(lat, lon)
+        x, y = self.llToLtm(lat, lon)
             
         # Calculate tile indices
         originX, originY = self.pointOfOrigin
         epsilon = 1e-6
-        col = math.floor((easting - originX) / tilePixelSize + epsilon)
-        row = math.floor((originY - northing) / tilePixelSize + epsilon)
+        col = math.floor((x - originX) / tilePixelSize + epsilon)
+        row = math.floor((originY - y) / tilePixelSize + epsilon)
     
         # Check if within matrix bounds
         if col < 0 or col >= self.matrixWidth or \
@@ -313,18 +327,15 @@ class TmsTileDef:
     # ltmToLatLon
     # ------------------------------------------------------------------------
     def ltmToLatLon(self, x: float, y: float) -> tuple[float, float]:
-    
+        
         xform = osr.CoordinateTransformation(self.srs, self.geoSrs)
         lon, lat, _ = xform.TransformPoint(x, y)
-
         return lat, lon
-
+        
     # ------------------------------------------------------------------------
     # ltmToTileIndex
     # ------------------------------------------------------------------------
-    def ltmToTileIndex(self, 
-                       easting: float, 
-                       northing: float) -> tuple[int, int]:
+    def ltmToTileIndex(self, inX: float, inY: float) -> tuple[int, int]:
 
         # Extract TMS grid parameters
         originX, originY = self.pointOfOrigin
@@ -340,8 +351,8 @@ class TmsTileDef:
         # boundaries.
         # ---
         epsilon = 1e-6
-        x = math.floor((easting - originX) / tileSize + epsilon)
-        y = math.floor((originY - northing) / tileSize + epsilon)
+        x = math.floor((inX - originX) / tileSize + epsilon)
+        y = math.floor((originY - inY) / tileSize + epsilon)
 
         return x, y
     
@@ -382,6 +393,22 @@ class TmsTileDef:
 
         return self._srs
         
+    # ------------------------------------------------------------------------
+    # srs
+    # ------------------------------------------------------------------------
+    @srs.setter
+    def srs(self, value: osr.SpatialReference) -> None:
+        
+        if not value:
+            
+            self._srs = osr.SpatialReference()
+            self._srs.ImportFromWkt(self._tileDef[TmsTileDef.CRS])
+
+        else:
+            self._srs = value
+
+        self._srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+
     # ------------------------------------------------------------------------
     # tileHeight
     # ------------------------------------------------------------------------

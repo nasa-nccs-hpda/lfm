@@ -33,8 +33,10 @@ class Conversions:
         latLonSRS = osr.SpatialReference()
         latLonSRS.ImportFromProj4(Conversions.LUNAR_LAT_LON_PROJ4)
     
+        # ---
         # Transform the coordinates
         # TransformPoint expects (x, y) = (lon, lat) for geographic coords
+        # ---
         xform = osr.CoordinateTransformation(latLonSRS, outSRS)
         easting, northing, height = xform.TransformPoint(lon, lat)
 
@@ -44,20 +46,20 @@ class Conversions:
     # ltmToLatLon
     # ------------------------------------------------------------------------
     @staticmethod
-    def ltmToLatLon(zone: str, 
-                    ll: tuple, 
-                    ur: tuple, 
-                    inSRS: osr.SpatialReference) -> tuple[float, 
-                                                          float, 
-                                                          float, 
+    def ltmToLatLon(zone: str,
+                    ll: tuple,
+                    ur: tuple,
+                    inSRS: osr.SpatialReference) -> tuple[float,
+                                                          float,
+                                                          float,
                                                           float]:
-    
+
         # ---
         # Lat/lon SRS
         # ---
         latLonSRS = osr.SpatialReference()
         latLonSRS.ImportFromProj4(Conversions.LUNAR_LAT_LON_PROJ4)
-    
+
         # ---
         # Transform the coordinates
         # TransformPoint returns (lon, lat, height) for geographic coords

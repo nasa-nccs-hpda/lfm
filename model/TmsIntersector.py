@@ -2,8 +2,8 @@
 from pathlib import Path
 from typing import List
 
-from model.TmsTileDef import TmsTileDef
-from model.TmsZoneDef import TmsZoneDef
+from lfm.model.TmsTileDef import TmsTileDef
+from lfm.model.TmsZoneDef import TmsZoneDef
 
 
 # ----------------------------------------------------------------------------
@@ -16,7 +16,7 @@ class TmsIntersector:
     # ------------------------------------------------------------------------
     def __init__(self):
 
-        self.zones = {}
+        self._zones = {}
         
         # Load all zone JSON files
         for jsonFile in TmsTileDef.JSON_DIR.glob('*.json'):
@@ -24,7 +24,7 @@ class TmsIntersector:
             try:
 
                 zoneDef = TmsZoneDef(jsonFile)
-                self.zones[zoneDef.zone] = zoneDef
+                self._zones[zoneDef.zone] = zoneDef
 
             except Exception as e:
                 print(f'Error loading {jsonFile}: {e}')
@@ -40,9 +40,14 @@ class TmsIntersector:
                 zoomLevel: int, 
                 minOverlapMeters: float = 10.0) -> List[str]:
 
+        '''
+        This returns all tiles in all zones that intersect the input bounding
+        box.
+        '''
+
         allTiles = []
         
-        for zone, zoneDef in self.zones.items():
+        for zone, zoneDef in self._zones.items():
             
             # Check if bbox intersects this zone
             if zoneDef.intersectsBbox(ulLat, ulLon, lrLat, lrLon):
@@ -65,4 +70,11 @@ class TmsIntersector:
         
         return allTiles
 
+    # -----------------------------------------------------------------------
+    # zones
+    # ------------------------------------------------------------------------
+    @property
+    def zones(self) -> str:
+        
+        return self._zones
 
