@@ -351,7 +351,7 @@ class Pipeline:
             cubeFiles += self.runTileIndex(idx['tileX'],
                                            idx['tileY'],
                                            idx['zone'], 
-                                           idx['zoomLevel']))
+                                           idx['zoomLevel'])
             
         return cubeFiles
         
