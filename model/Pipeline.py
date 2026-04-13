@@ -11,6 +11,7 @@ from osgeo import gdalconst
 from osgeo import ogr
 from osgeo import osr
 
+from lfm.model.ResamplingMethod import ResamplingMethod
 from lfm.model.TmsIntersector import TmsIntersector
 from lfm.model.TmsTileDef import TmsTileDef
 
@@ -66,7 +67,8 @@ class Pipeline:
               lry: float,
               ds: gdal.Dataset,
               width: int,
-              height: int) -> gdal.Dataset:
+              height: int,
+              resamplingMethod: ResamplingMethod) -> gdal.Dataset:
 
         clipDs: gdal.Dataset = \
             gdal.Translate('',
@@ -74,7 +76,8 @@ class Pipeline:
                            projWin=[ulx, uly, lrx, lry],
                            width=width,
                            height=height,
-                           format='MEM')
+                           format='MEM',
+                           resampleAlg=resamplingMethod)
 
         return clipDs
 
@@ -251,7 +254,7 @@ class Pipeline:
                      tileX: int,
                      tileY: int,
                      zone: int, 
-                     zoomLevel: int) -> Path:
+                     zoomLevel: int) -> list[Path]:
         
         print('Processing (' + str(tileX) + ', ' + str(tileY) + \
               ') / zone ' + str(zone) + \
@@ -297,10 +300,10 @@ class Pipeline:
             # Write the data cube as a CoG.
             if len(cube):  
         
-                cubeFile = \
+                cubeFiles = \
                     self._writeCube((tileX, tileY), cube, tileDef, ulx, uly)
 
-        return cubeFile
+        return cubeFiles
 
     # ------------------------------------------------------------------------
     # runPoint
@@ -309,7 +312,7 @@ class Pipeline:
                  lat: float, 
                  lon: float, 
                  zone: str, 
-                 zoomLevel: int) -> Path:
+                 zoomLevel: int) -> list[Path]:
         
         # Find the tile index for the given point, zone and zoom.
         tileDef = TmsTileDef.initFromParams(zone, zoomLevel)
@@ -340,13 +343,82 @@ class Pipeline:
         # Make a cube for each tile index.
         for idx in tileIndexes:
             
-            cubeFiles.append(self.runTileIndex(idx['tileX'],
-                                               idx['tileY'],
-                                               idx['zone'], 
-                                               idx['zoomLevel']))
-        
+            # cubeFiles.append(self.runTileIndex(idx['tileX'],
+            #                                    idx['tileY'],
+            #                                    idx['zone'],
+            #                                    idx['zoomLevel']))
+
+            cubeFiles += self.runTileIndex(idx['tileX'],
+                                           idx['tileY'],
+                                           idx['zone'], 
+                                           idx['zoomLevel']))
+            
         return cubeFiles
         
+    # ------------------------------------------------------------------------
+    # writeCube
+    # ------------------------------------------------------------------------
+    # def _writeCube(self,
+    #                tileIndex: tuple[int, int],
+    #                cubeDict: dict,
+    #                tileDef: dict,
+    #                ulx: float,
+    #                uly: float) -> Path:
+    #
+    #     # Name the file.
+    #     outName = 'Cube-LTM' + tileDef.zone + \
+    #               '_Zoom-' + str(tileDef.zoomLevel) + \
+    #               '_Tile-' + str(tileIndex[0]) + '-' + str(tileIndex[1]) + \
+    #               '.tif'
+    #
+    #     outFile = self._outDir / outName
+    #
+    #     # Get information about the output.
+    #     raster = list(cubeDict.values())[0]
+    #     dataType = gdal_array.NumericTypeCodeToGDALTypeCode(raster.dtype)
+    #     width = raster.shape[0]
+    #     height = raster.shape[1]
+    #     bands = len(cubeDict)
+    #
+    #     # Create the dataset.
+    #     ds = gdal.GetDriverByName('GTiff').Create(
+    #          str(outFile),
+    #          height,
+    #          width,
+    #          bands,
+    #          dataType,
+    #          options=['BIGTIFF=YES',
+    #                   'TILED=YES',
+    #                   'COMPRESS=LZW'])
+    #
+    #     # Set the spatial reference.
+    #     ds.SetSpatialRef(tileDef.srs)
+    #
+    #     geotransform = [ulx,
+    #                     tileDef.cellSize,
+    #                     0,
+    #                     uly,
+    #                     0,
+    #                     -tileDef.cellSize]
+    #
+    #     ds.SetGeoTransform(geotransform)
+    #
+    #     # Write the bands.
+    #     bandIndex = 0
+    #     NO_DATA_VAL = -3.40282265508890445e+38
+    #
+    #     for bandName, cube in cubeDict.items():
+    #
+    #         bandIndex += 1
+    #         band = ds.GetRasterBand(bandIndex)
+    #         band.WriteArray(cube)
+    #         band.SetMetadataItem('Name', bandName)
+    #         band.SetNoDataValue(NO_DATA_VAL)
+    #
+    #     ds = None
+    #
+    #     return outFile
+
     # ------------------------------------------------------------------------
     # writeCube
     # ------------------------------------------------------------------------
@@ -355,57 +427,61 @@ class Pipeline:
                    cubeDict: dict,
                    tileDef: dict,
                    ulx: float,
-                   uly: float) -> Path:
+                   uly: float) -> list[Path]:
 
-        # Name the file.
-        outName = 'Cube-LTM' + tileDef.zone + \
-                  '_Zoom-' + str(tileDef.zoomLevel) + \
-                  '_Tile-' + str(tileIndex[0]) + '-' + str(tileIndex[1]) + \
-                  '.tif'
-
-        outFile = self._outDir / outName
+        outFiles: list[Path] = []
         
         # Get information about the output.
         raster = list(cubeDict.values())[0]
         dataType = gdal_array.NumericTypeCodeToGDALTypeCode(raster.dtype)
         width = raster.shape[0]
         height = raster.shape[1]
-        bands = len(cubeDict)
-        
-        # Create the dataset.
-        ds = gdal.GetDriverByName('GTiff').Create(
-            str(outFile),
-            height,
-            width,
-            bands,
-            dataType,
-            options=['BIGTIFF=YES',
-                     'TILED=YES',
-                     'COMPRESS=LZW'])
-
-        # Set the spatial reference.
-        ds.SetSpatialRef(tileDef.srs)
-
-        geotransform = [ulx,
-                        tileDef.cellSize,
-                        0,
-                        uly,
-                        0,
-                        -tileDef.cellSize]
-
-        ds.SetGeoTransform(geotransform)
-
-        # Write the bands.
-        bandIndex = 0
 
         for bandName, cube in cubeDict.items():
 
-            bandIndex += 1
-            band = ds.GetRasterBand(bandIndex)
+            # Name the file.
+            outName = 'Cube-LTM' + tileDef.zone + \
+                      '_Zoom-' + str(tileDef.zoomLevel) + \
+                      '_Tile-' + str(tileIndex[0]) + '-' + \
+                      str(tileIndex[1]) + \
+                      '_Band-' + bandName + \
+                      '.tif'
+
+            outFile = self._outDir / outName
+        
+            # Create the dataset.
+            ds = gdal.GetDriverByName('GTiff').Create(
+                 str(outFile),
+                 height,
+                 width,
+                 1,
+                 dataType,
+                 options=['BIGTIFF=YES',
+                          'TILED=YES',
+                          'COMPRESS=LZW'])
+
+            # Set the spatial reference.
+            ds.SetSpatialRef(tileDef.srs)
+
+            geotransform = [ulx,
+                            tileDef.cellSize,
+                            0,
+                            uly,
+                            0,
+                            -tileDef.cellSize]
+
+            ds.SetGeoTransform(geotransform)
+
+            # Write the band.
+            NO_DATA_VAL = -3.40282265508890445e+38
+            band = ds.GetRasterBand(1)
             band.WriteArray(cube)
             band.SetMetadataItem('Name', bandName)
+            band.SetNoDataValue(NO_DATA_VAL)
         
-        ds = None
+            ds = None
+            
+            outFiles.append(outFile)
         
-        return outFile
+        return outFiles
         
