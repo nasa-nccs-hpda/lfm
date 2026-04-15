@@ -77,9 +77,151 @@ class Pipeline:
                            width=width,
                            height=height,
                            format='MEM',
-                           resampleAlg=resamplingMethod)
+                           resampleAlg=resamplingMethod.value)
 
         return clipDs
+
+    # ------------------------------------------------------------------------
+    # createCube
+    # ------------------------------------------------------------------------
+    # def _createCube(self,
+    #                 layer: ogr.Layer,
+    #                 ulx: float,
+    #                 uly: float,
+    #                 lrx: float,
+    #                 lry: float,
+    #                 width: float,
+    #                 height: float,
+    #                 resamplingMethod: ResamplingMethod) -> dict:
+    #
+    #     # ---
+    #     # We cannot know the final number of 512 x 512 images in the stack
+    #     # unless we read all the images beforehand; therefore, we cannot
+    #     # define the ndarray.  Instead, store each 512 x 512 raster in a
+    #     # list, and use it to create the ndarray at the end.
+    #     # ---
+    #     rasterList = {}
+    #
+    #     # ---
+    #     # Read the images and put them in the cube.
+    #     # ---
+    #     numProcessed = 0
+    #     nullCount = 0
+    #     rasterCount = 0
+    #
+    #     for feature in layer:
+    #
+    #         numProcessed += 1
+    #
+    #         fileName: Path = Path(feature['location'])
+    #
+    #         ds: gdal.Dataset = gdal.Open(fileName, gdalconst.GA_ReadOnly)
+    #
+    #         try:
+    #
+    #             if self._debug:
+    #                 print('Clipping', fileName.name, 'to', ulx, uly, lrx, lry)
+    #
+    #             clipDs: gdal.Dataset = self._clip(ulx,
+    #                                               uly,
+    #                                               lrx,
+    #                                               lry,
+    #                                               ds,
+    #                                               width,
+    #                                               height,
+    #                                               resamplingMethod)
+    #
+    #             if self._debug:
+    #
+    #                 corners = self._getCorners(clipDs)
+    #                 cUlx = corners['upperLeft'][0]
+    #                 cUly = corners['upperLeft'][1]
+    #                 cLrx = corners['lowerRight'][0]
+    #                 cLry = corners['lowerRight'][1]
+    #                 print('Clip result:', cUlx, cUly, cLrx, cLry)
+    #                 print('Size:', clipDs.RasterXSize, clipDs.RasterYSize)
+    #
+    #         except RuntimeError:
+    #
+    #             print('The image did not clip.  Skipping.')
+    #             continue
+    #
+    #         raster: np.ndarray = clipDs.ReadAsArray()  # Float32
+    #
+    #
+    #         # Output structure
+    #         prodIdDict = {}  # One output geotiff per product ID
+    #
+    #         if fileName.stem not in prod
+    #
+    #
+    #
+    #
+    #
+    #
+    #
+    #
+    #
+    #         # ---
+    #         # If the raster has one band, the shape will be in two dimensions.
+    #         # If the raster has multiple bands, the shape will be in three
+    #         # dimensions.
+    #         # ---
+    #         numBands = 1 if len(raster.shape) == 2 else raster.shape[0]
+    #         rasterCount += numBands
+    #
+    #         if fileName.stem not in rasterList:
+    #             rasterList[fileName.stem] = {}
+    #
+    #
+    #         if numBands == 1:
+    #
+    #             ndv = ds.GetRasterBand(1).GetNoDataValue()
+    #
+    #             if not (raster == ndv).all():
+    #
+    #                 rasterList[fileName.stem][fileName.stem] = raster
+    #
+    #             else:
+    #                 nullCount += 1
+    #
+    #         else:
+    #
+    #             for i in range(numBands):
+    #
+    #                 ndv = ds.GetRasterBand(i+1).GetNoDataValue()
+    #
+    #                 if not (raster == ndv).all():
+    #
+    #                     # key = fileName.stem + '-' + str(i)
+    #                     # rasterList[key] = raster[i]
+    #
+    #                     key = fileName.stem + '-' + str(i)
+    #                     rasterList[fileName.stem][key] = raster[i]
+    #
+    #                 else:
+    #                     nullCount += 1
+    #
+    #         if self._debug and numProcessed > 99:
+    #
+    #             print('Debug cube size reached.  Stopping.')
+    #             break
+    #
+    #     if self._debug:
+    #
+    #         print('Null count:', nullCount)
+    #
+    #     if nullCount == rasterCount:
+    #
+    #         print('All bands were filled with no-data values.')
+    #
+    #     print('Total bands:', len(rasterList))
+    #
+    #     # if len(rasterList):
+    #     #
+    #     #     print('Raster shape:', list(rasterList.values())[0].shape)
+    #
+    #     return rasterList
 
     # ------------------------------------------------------------------------
     # createCube
@@ -91,43 +233,47 @@ class Pipeline:
                     lrx: float,
                     lry: float,
                     width: float,
-                    height: float) -> dict:  # np.ndarray:
+                    height: float,
+                    resamplingMethod: ResamplingMethod) -> dict:
 
         # ---
         # We cannot know the final number of 512 x 512 images in the stack
-        # unless we read all the images beforehand; therefore, we cannot 
+        # unless we read all the images beforehand; therefore, we cannot
         # define the ndarray.  Instead, store each 512 x 512 raster in a
-        # list, and use it to create the ndarray at the end.
+        # dict, and use it to create the ndarray at the end.
+        #
+        # Each product id maps to a list of tuples, (bandName, raster).
         # ---
-        rasterList = {}
-    
+        prodIdDict: dict[str, list] = {}  # One output geotiff per product ID
+
         # ---
         # Read the images and put them in the cube.
         # ---
         numProcessed = 0
         nullCount = 0
         rasterCount = 0
-        
+
         for feature in layer:
-    
+
             numProcessed += 1
-            
+
             fileName: Path = Path(feature['location'])
 
             ds: gdal.Dataset = gdal.Open(fileName, gdalconst.GA_ReadOnly)
 
             try:
-                
+
                 if self._debug:
                     print('Clipping', fileName.name, 'to', ulx, uly, lrx, lry)
-                
+
                 clipDs: gdal.Dataset = self._clip(ulx,
                                                   uly,
                                                   lrx,
                                                   lry,
-                                                  ds, 
-                                                  width, 
-                                                  height)
+                                                  ds,
+                                                  width,
+                                                  height,
+                                                  resamplingMethod)
 
                 if self._debug:
 
@@ -138,14 +284,14 @@ class Pipeline:
                     cLry = corners['lowerRight'][1]
                     print('Clip result:', cUlx, cUly, cLrx, cLry)
                     print('Size:', clipDs.RasterXSize, clipDs.RasterYSize)
-                    
+
             except RuntimeError:
-                
+
                 print('The image did not clip.  Skipping.')
                 continue
-                
+
             raster: np.ndarray = clipDs.ReadAsArray()  # Float32
-            
+
             # ---
             # If the raster has one band, the shape will be in two dimensions.
             # If the raster has multiple bands, the shape will be in three
@@ -153,53 +299,102 @@ class Pipeline:
             # ---
             numBands = 1 if len(raster.shape) == 2 else raster.shape[0]
             rasterCount += numBands
-        
+
             if numBands == 1:
-            
+
                 ndv = ds.GetRasterBand(1).GetNoDataValue()
 
                 if not (raster == ndv).all():
-                    
-                    rasterList[fileName.stem] = raster
+
+                    # Must do this here to avoid empty prod ids.
+                    prodId = fileName.stem.split('.')[0]
+
+                    if prodId not in prodIdDict:
+                        prodIdDict[prodId]: list[tuple] = []
+
+                    prodIdDict[prodId].append((fileName.stem, raster))
 
                 else:
                     nullCount += 1
-                
+
             else:
-            
+
                 for i in range(numBands):
-                    
+
                     ndv = ds.GetRasterBand(i+1).GetNoDataValue()
 
                     if not (raster == ndv).all():
-                
+
+                        # Must do this here to avoid empty prod ids.
+                        prodId = fileName.stem.split('.')[0]
+
+                        if prodId not in prodIdDict:
+                            prodIdDict[prodId]: list[tuple] = []
+
                         key = fileName.stem + '-' + str(i)
-                        rasterList[key] = raster[i]
-                        
+                        prodIdDict[prodId].append((key, raster[i]))
+
                     else:
                         nullCount += 1
-                    
+
             if self._debug and numProcessed > 99:
-                
+
                 print('Debug cube size reached.  Stopping.')
                 break
-            
+
         if self._debug:
-            
+
             print('Null count:', nullCount)
-            
+
         if nullCount == rasterCount:
-            
+
             print('All bands were filled with no-data values.')
-            
-        print('Total bands:', len(rasterList))
+
+        print('Total product IDs:', len(prodIdDict))
+
+        return prodIdDict
+
+    # ------------------------------------------------------------------------
+    # cubePipeline
+    # ------------------------------------------------------------------------
+    def _cubePipeline(self, 
+                      layer: ogr.Layer,
+                      ulx: float,
+                      uly: float,
+                      lrx: float,
+                      lry: float,
+                      width: int,
+                      height: int,
+                      resamplingMethod: ResamplingMethod) -> list[Path]:
         
-        if len(rasterList):
-
-            print('Raster shape:', list(rasterList.values())[0].shape)
+        # ---
+        # Create the cube.
+        # ---
+        cubeFiles: list[Path] = []
     
-        return rasterList
+        if layer.GetFeatureCount() == 0:
+        
+            print('Tile does not overlap any images.')
 
+        else:
+        
+            cube: dict = self._createCube(layer, 
+                                          ulx, 
+                                          uly, 
+                                          lrx, 
+                                          lry, 
+                                          tileDef.tileWidth, 
+                                          tileDef.tileHeight,
+                                          resamplingMethod)
+        
+            # Write the data cube as a CoG.
+            if len(cube):  
+        
+                cubeFiles = \
+                    self._writeCube((tileX, tileY), cube, tileDef, ulx, uly)
+
+        return cubeFiles
+        
     # ------------------------------------------------------------------------
     # getCorners
     # ------------------------------------------------------------------------
@@ -228,10 +423,11 @@ class Pipeline:
                ulLat: float, 
                ulLon: float, 
                lrLat: float, 
-               lrLon: float) -> ogr.Layer:
+               lrLon: float,
+               dbFile: Path = self._tileDbPath) -> ogr.Layer:
 
         driver: ogr.Driver = ogr.GetDriverByName('ESRI Shapefile')
-        ds: ogr.Dataset = driver.Open(str(self._tileDbPath), 0)
+        ds: ogr.Dataset = driver.Open(str(dbFile), 0)
         layer: ogr.Layer = ds.GetLayer()
         
         # minX, minY, maxX, maxY
@@ -250,11 +446,72 @@ class Pipeline:
     # ------------------------------------------------------------------------
     # runTileIndex
     # ------------------------------------------------------------------------
+    # def runTileIndex(self,
+    #                  tileX: int,
+    #                  tileY: int,
+    #                  zone: int,
+    #                  zoomLevel: int,
+    #                  resamplingMethod: ResamplingMethod) -> list[Path]:
+    #
+    #     print('Processing (' + str(tileX) + ', ' + str(tileY) + \
+    #           ') / zone ' + str(zone) + \
+    #           ' / zoom ' + str(zoomLevel))
+    #
+    #     tileDef: dict = TmsTileDef.initFromParams(zone, zoomLevel)
+    #
+    #     # Get the tile corners, which are in LTM.
+    #     ulx, uly, lrx, lry = tileDef.getTileBbox(tileX, tileY)
+    #
+    #     # ---
+    #     # Query the tile-index database.  It is in lat/lon.
+    #     # ---
+    #     ulLat, ulLon = tileDef.ltmToLatLon(ulx, uly)
+    #     lrLat, lrLon = tileDef.ltmToLatLon(lrx, lry)
+    #     layer: ogr.Layer = self._query(ulLat, ulLon, lrLat, lrLon)
+    #
+    #     if self._debug:
+    #
+    #         print('Tile Bbox LTM:', ulx, uly, lrx, lry)
+    #         print('Tile Bbox Lat/Lon:', ulLat, ulLon, lrLat, lrLon)
+    #         print('Layers from Query:', layer.GetFeatureCount())
+    #
+    #     # ---
+    #     # Create the cube.
+    #     # ---
+    #     cubeFiles: list[Path] = []
+    #
+    #     if layer.GetFeatureCount() == 0:
+    #
+    #         print('Tile does not overlap any images.')
+    #
+    #     else:
+    #
+    #         cube: dict = self._createCube(layer,
+    #                                       ulx,
+    #                                       uly,
+    #                                       lrx,
+    #                                       lry,
+    #                                       tileDef.tileWidth,
+    #                                       tileDef.tileHeight,
+    #                                       resamplingMethod)
+    #
+    #         # Write the data cube as a CoG.
+    #         if len(cube):
+    #
+    #             cubeFiles = \
+    #                 self._writeCube((tileX, tileY), cube, tileDef, ulx, uly)
+    #
+    #     return cubeFiles
+
+    # ------------------------------------------------------------------------
+    # runTileIndex
+    # ------------------------------------------------------------------------
     def runTileIndex(self, 
                      tileX: int,
                      tileY: int,
                      zone: int, 
-                     zoomLevel: int) -> list[Path]:
+                     zoomLevel: int,
+                     resamplingMethod: ResamplingMethod) -> list[Path]:
         
         print('Processing (' + str(tileX) + ', ' + str(tileY) + \
               ') / zone ' + str(zone) + \
@@ -270,6 +527,8 @@ class Pipeline:
         # ---
         ulLat, ulLon = tileDef.ltmToLatLon(ulx, uly)
         lrLat, lrLon = tileDef.ltmToLatLon(lrx, lry)
+        
+        # Process the dynamic images.
         layer: ogr.Layer = self._query(ulLat, ulLon, lrLat, lrLon)
 
         if self._debug:
@@ -278,30 +537,36 @@ class Pipeline:
             print('Tile Bbox Lat/Lon:', ulLat, ulLon, lrLat, lrLon)
             print('Layers from Query:', layer.GetFeatureCount())
             
-        # ---
-        # Create the cube.
-        # ---
-        cubeFile: Path = None
-    
-        if layer.GetFeatureCount() == 0:
-        
-            print('Tile does not overlap any images.')
+        cubeFiles = self._cubePipeline(layer: ogr.Layer,
+                                       ulx: float,
+                                       uly: float,
+                                       lrx: float,
+                                       lry: float,
+                                       width: int,
+                                       height: int,
+                                       resamplingMethod: ResamplingMethod)
+                                       
+        # Process the static images.
+        layer: ogr.Layer = self._query(ulLat, 
+                                       ulLon, 
+                                       lrLat, 
+                                       lrLon, 
+                                       self._staticDbPath)
 
-        else:
-        
-            cube: dict = self._createCube(layer, 
-                                          ulx, 
-                                          uly, 
-                                          lrx, 
-                                          lry, 
-                                          tileDef.tileWidth, 
-                                          tileDef.tileHeight)
-        
-            # Write the data cube as a CoG.
-            if len(cube):  
-        
-                cubeFiles = \
-                    self._writeCube((tileX, tileY), cube, tileDef, ulx, uly)
+        if self._debug:
+            
+            print('Tile Bbox LTM:', ulx, uly, lrx, lry)
+            print('Tile Bbox Lat/Lon:', ulLat, ulLon, lrLat, lrLon)
+            print('Layers from Query:', layer.GetFeatureCount())
+            
+        cubeFiles = self._cubePipeline(layer: ogr.Layer,
+                                       ulx: float,
+                                       uly: float,
+                                       lrx: float,
+                                       lry: float,
+                                       width: int,
+                                       height: int,
+                                       ResamplingMethod.NEAREST)
 
         return cubeFiles
 
@@ -312,14 +577,19 @@ class Pipeline:
                  lat: float, 
                  lon: float, 
                  zone: str, 
-                 zoomLevel: int) -> list[Path]:
+                 zoomLevel: int,
+                 resamplingMethod: ResamplingMethod) -> list[Path]:
         
         # Find the tile index for the given point, zone and zoom.
         tileDef = TmsTileDef.initFromParams(zone, zoomLevel)
         tileX, tileY = tileDef.llToTileIndex(lat, lon)
         
         # Run that tile index.
-        return self.runTileIndex(tileX, tileY, zone, zoomLevel)
+        return self.runTileIndex(tileX, 
+                                 tileY, 
+                                 zone, 
+                                 zoomLevel, 
+                                 resamplingMethod)
         
     # ------------------------------------------------------------------------
     # run
@@ -329,7 +599,8 @@ class Pipeline:
             ulLon: float,
             lrLat: float,
             lrLon: float,
-            zoomLevel: int) -> List[Path]:
+            zoomLevel: int,
+            resamplingMethod: ResamplingMethod) -> List[Path]:
         
         # Get all the tile ids in all zones that intersect the bounding box.
         tmsi = TmsIntersector()
@@ -351,7 +622,8 @@ class Pipeline:
             cubeFiles += self.runTileIndex(idx['tileX'],
                                            idx['tileY'],
                                            idx['zone'], 
-                                           idx['zoomLevel'])
+                                           idx['zoomLevel'],
+                                           resamplingMethod)
             
         return cubeFiles
         
@@ -424,37 +696,41 @@ class Pipeline:
     # ------------------------------------------------------------------------
     def _writeCube(self,
                    tileIndex: tuple[int, int],
-                   cubeDict: dict,
+                   prodIdDict: dict,
                    tileDef: dict,
                    ulx: float,
                    uly: float) -> list[Path]:
 
         outFiles: list[Path] = []
-        
-        # Get information about the output.
-        raster = list(cubeDict.values())[0]
-        dataType = gdal_array.NumericTypeCodeToGDALTypeCode(raster.dtype)
-        width = raster.shape[0]
-        height = raster.shape[1]
 
-        for bandName, cube in cubeDict.items():
+        for pid, rasters in prodIdDict.items():
 
             # Name the file.
             outName = 'Cube-LTM' + tileDef.zone + \
                       '_Zoom-' + str(tileDef.zoomLevel) + \
                       '_Tile-' + str(tileIndex[0]) + '-' + \
                       str(tileIndex[1]) + \
-                      '_Band-' + bandName + \
+                      '_ProdId-' + pid + \
                       '.tif'
 
             outFile = self._outDir / outName
-        
+
+            # Get information about the output.
+            firstRaster = rasters[0]
+            name = firstRaster[0]
+            raster = firstRaster[1]
+            
+            dataType = gdal_array.NumericTypeCodeToGDALTypeCode(raster.dtype)
+            width = raster.shape[0]
+            height = raster.shape[1]
+            numBands = len(rasters)
+
             # Create the dataset.
             ds = gdal.GetDriverByName('GTiff').Create(
                  str(outFile),
                  height,
                  width,
-                 1,
+                 numBands,
                  dataType,
                  options=['BIGTIFF=YES',
                           'TILED=YES',
@@ -473,15 +749,20 @@ class Pipeline:
             ds.SetGeoTransform(geotransform)
 
             # Write the band.
+            bandIndex = 0
             NO_DATA_VAL = -3.40282265508890445e+38
-            band = ds.GetRasterBand(1)
-            band.WriteArray(cube)
-            band.SetMetadataItem('Name', bandName)
-            band.SetNoDataValue(NO_DATA_VAL)
-        
+
+            for raster in rasters:
+                
+                bandIndex += 1
+                band = ds.GetRasterBand(bandIndex)
+                band.WriteArray(raster[1])
+                band.SetMetadataItem('Name', raster[0])
+                band.SetNoDataValue(NO_DATA_VAL)
+
             ds = None
-            
+
             outFiles.append(outFile)
-        
+
         return outFiles
-        
+
