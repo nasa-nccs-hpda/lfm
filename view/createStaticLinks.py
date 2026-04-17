@@ -1,13 +1,19 @@
 
+import argparse
 from pathlib import Path
+import sys
+
+from osgeo import gdal
+
+from lfm.model.Pipeline import Pipeline
 
 
 NAMES = [
-    'lola_kaguya_60mpp.asp.vrt',
-    'lola_kaguya_60mpp.cos.vrt',
-    'lola_kaguya_60mpp.elv.vrt',
-    'lola_kaguya_60mpp.sin.vrt',
-    'lola_kaguya_60mpp.slp.vrt',
+    'topo/lola_kaguya_60mpp.asp.vrt',
+    'topo/lola_kaguya_60mpp.cos.vrt',
+    'topo/lola_kaguya_60mpp.elv.vrt',
+    'topo/lola_kaguya_60mpp.sin.vrt',
+    'topo/lola_kaguya_60mpp.slp.vrt',
     'mini_rf/GlobeNoPolesDeltaCPR_v2-offsetto49d.iau.tif',
     'mini_rf/GlobeNoPolesDeltaS1_v2.iau.tif',
     'mini_rf/NorthDeltaCPR_mean80n_v5-offsetto49d.iau.tif',
@@ -132,12 +138,32 @@ NAMES = [
     'Diviner/Tbol/polar_north_80_winter_tbol-slon13.iau.tif',
     'Diviner/Tbol/polar_north_80_winter_tbol-slon14.iau.tif',
     'Diviner/Tbol/polar_north_80_winter_tbol-slon15.iau.tif',
-    'Diviner/Tbol/polar_north_80_winter_tbol-slon16.iau.tif'
+    'Diviner/Tbol/polar_north_80_winter_tbol-slon16.iau.tif',
     'Diviner/Treg/TREG_ANOM_70Sto70N.iau7.tif'
 ]
     
+# -----------------------------------------------------------------------------
+# createSpatialDb
+# -----------------------------------------------------------------------------
+def createSpatialDb(inputDir: Path) -> None:
+
+    outputFile = inputDir / 'db2.shp'
+
+    tifFiles = inputDir.glob('*.tif')
+    vrtFiles = inputDir.glob('*.vrt')
+    allInputFiles = list(tifFiles) + list(vrtFiles)
+
+    # Set up the tile index options
+    tileIndexOptions = \
+        gdal.TileIndexOptions(options=['-t_srs', Pipeline.MOON_SRS])
+
+    # Execute the tile index creation strategy
+    gdal.TileIndex(outputFile, allInputFiles, options=tileIndexOptions)
+    
 # ------------------------------------------------------------------------
 # main
+#
+# python lfm/view/createStaticLinks.py -i /explore/nobackup/projects/lfm/processed_data/Lunar/Static_final -o /explore/nobackup/projects/ilab/projects/Lunar_FM/data/staticLinks
 # ------------------------------------------------------------------------
 def main():
 
@@ -167,15 +193,37 @@ def main():
     if not outputDir or not outputDir.exists() or not outputDir.is_dir():
         raise ValueError('Invalid output directory.')
         
-    for name in cls.NAMES:
+    print('Linking', len(NAMES), 'names.')
+    count = 0
     
-        fromPath: Path = inputDir / name
-        toPath: Path = outputDir
+    for name in NAMES:
+    
+        originalFile: Path = inputDir / name
+
+        # Some names have subdirectory prefixes.  Remove those.
+        fullName = Path(name)
+        linkPath: Path = outputDir / fullName.name
         
-        if not fromPath.exists():
-            raise RuntimeError('Invalid input: ' + str(fromPath))
+        if not originalFile.exists():
+            raise RuntimeError('Invalid input: ' + str(originalFile))
             
-        fromPath.symlink_to(toPath, target_is_directory=True)
-        
-        break
+        try:
             
+            print('Linking', originalFile.name, 'to', linkPath)
+            linkPath.symlink_to(originalFile)
+            count += 1
+
+        except FileExistsError:
+            print('Link already exists.')           
+
+    print('Linked', count, 'files.')
+    print('Creating spatial database for these files.')
+    createSpatialDb(outputDir)
+    
+    
+# -----------------------------------------------------------------------------
+# Invoke the main
+# -----------------------------------------------------------------------------
+if __name__ == "__main__":
+    sys.exit(main())
+ 

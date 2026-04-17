@@ -37,7 +37,7 @@ class PipelineTestCase(unittest.TestCase):
                 'ID["IAU",30100,2015],'
                 'REMARK["Source of IAU Coordinate systems:'
                 ' https://doi.org/10.1007/s10569-017-9805-5"]]')
-                    
+
     # ------------------------------------------------------------------------
     # setUp
     # ------------------------------------------------------------------------
@@ -45,14 +45,14 @@ class PipelineTestCase(unittest.TestCase):
 
         self._imageDir = Path('/explore/nobackup/projects/lfm/' + \
                               'processed_data/Lunar/LRO_WAC_Pho_Sites')
-        
+
         self._tileDbPath = self.getTileDbPath(self._imageDir)
-        
+
     # ------------------------------------------------------------------------
     # getTileDbPath
     # ------------------------------------------------------------------------
     def getTileDbPath(self,
-                      imageDir: Path, 
+                      imageDir: Path,
                       dbName: str = 'output_index.shp') -> Path:
 
         if not imageDir or not imageDir.exists() or not imageDir.is_dir():
@@ -66,22 +66,22 @@ class PipelineTestCase(unittest.TestCase):
         outFile: Path = imageDir / dbName
 
         # The database does not exist, so create it for the image directory.
-        gdal.TileIndex(outFile, 
-                       list(imageDir.glob('*.tif')), 
+        gdal.TileIndex(outFile,
+                       list(imageDir.glob('*.tif')),
                        outputSRS=PipelineTestCase.MOON_SRS)
-                       
+
         outFile.chmod(666)
 
         return outFile
-      
+
     # -------------------------------------------------------------------------
     # testInit
     # -------------------------------------------------------------------------
     def testInit(self):
-        
+
         outDir = Path(tempfile.mkdtemp())
         pl = Pipeline(self._tileDbPath, outDir)
-        
+
         self.assertEqual(pl._tileDbPath, self._tileDbPath)
         self.assertEqual(pl._outDir, outDir)
 
@@ -89,31 +89,31 @@ class PipelineTestCase(unittest.TestCase):
     # testClip
     # -------------------------------------------------------------------------
     def testClip(self):
-        
+
         # Pipeline clips to the bbox of the tile.
         zone = '42N'
         zoomLevel = 5
         tileDef: dict = TmsTileDef.initFromParams(zone, zoomLevel)
         ulx, uly, lrx, lry = tileDef.getTileBbox(1, 63)
-        
+
         inImage = Path('/explore/nobackup/projects/lfm/' +
                        'processed_data/Lunar/LRO_NAC_Pho_Sites/' +
                        'M1117899885LE.ech.cog.tif')
 
         ds = gdal.Open(inImage, gdalconst.GA_ReadOnly)
-        
+
         outDir = Path(tempfile.mkdtemp())
         pl = Pipeline(self._tileDbPath, outDir, debug=True)
-        
-        clipDs: gdal.Dataset = pl._clip(ulx, 
-                                        uly, 
-                                        lrx, 
-                                        lry, 
-                                        ds, 
-                                        tileDef.tileWidth, 
+
+        clipDs: gdal.Dataset = pl._clip(ulx,
+                                        uly,
+                                        lrx,
+                                        lry,
+                                        ds,
+                                        tileDef.tileWidth,
                                         tileDef.tileHeight,
                                         ResamplingMethod.AVERAGE)
-         
+
         corners = pl._getCorners(clipDs)
         clipUlx = corners['upperLeft'][0]
         clipUly = corners['upperLeft'][1]
@@ -124,14 +124,11 @@ class PipelineTestCase(unittest.TestCase):
         self.assertTrue(abs(uly - clipUly) < 1)
         self.assertTrue(abs(lrx - clipLrx) < 1)
         self.assertTrue(abs(lry - clipLry) < 1)
-        
+
     # -------------------------------------------------------------------------
     # testCreateCube
     # -------------------------------------------------------------------------
     def testCreateCube(self):
-
-        # imageDir = Path('/explore/nobackup/projects/lfm/' +
-        #                 'processed_data/Lunar/LRO_NAC_Pho_Sites')
 
         tileDbPath = self.getTileDbPath(self._imageDir)
         outDir = Path(tempfile.mkdtemp())
@@ -143,7 +140,7 @@ class PipelineTestCase(unittest.TestCase):
         tileY = 63
         tileDef: dict = TmsTileDef.initFromParams(zone, zoomLevel)
         ulx, uly, lrx, lry = tileDef.getTileBbox(tileX, tileY)
-        
+
         self.assertEqual(ulx, 167551.38789374547)
         self.assertEqual(uly, 38822.04598557763)
         self.assertEqual(lrx, 206373.43387932325)
@@ -159,20 +156,20 @@ class PipelineTestCase(unittest.TestCase):
 
         layer: ogr.Layer = pl._query(ulLat, ulLon, lrLat, lrLon)
         self.assertEqual(layer.GetFeatureCount(), 1793)
-        
-        prodIdDict: dict = pl._createCube(layer, 
-                                          ulx, 
-                                          uly, 
-                                          lrx, 
-                                          lry, 
-                                          tileDef.tileWidth, 
+
+        prodIdDict: dict = pl._createCube(layer,
+                                          ulx,
+                                          uly,
+                                          lrx,
+                                          lry,
+                                          tileDef.tileWidth,
                                           tileDef.tileHeight,
                                           ResamplingMethod.NEAREST)
-        
+
         self.assertEqual(len(prodIdDict), 340)
         self.assertEqual(len(prodIdDict['M1187363083CE']), 7)
         self.assertEqual(prodIdDict['M1187363083CE'][0][1].shape, (512, 512))
-        
+
     # -------------------------------------------------------------------------
     # testQuery
     # -------------------------------------------------------------------------
@@ -181,9 +178,9 @@ class PipelineTestCase(unittest.TestCase):
         outDir = Path(tempfile.mkdtemp())
         pl = Pipeline(self._tileDbPath, outDir)
 
-        ulLat = 8.464517596269197e-07 
-        ulLon = 119.50911264482448 
-        lrLat = -1.2665375155552137 
+        ulLat = 8.464517596269197e-07
+        ulLon = 119.50911264482448
+        lrLat = -1.2665375155552137
         lrLon = 120.77987584070043
 
         layer: ogr.layer = pl._query(ulLat, ulLon, lrLat, lrLon)
@@ -203,14 +200,14 @@ class PipelineTestCase(unittest.TestCase):
         zone = '42N'
         zoomLevel = 5
 
-        outFiles: list[Path] = pl.runTileIndex(tileX, 
-                                               tileY, 
-                                               zone, 
-                                               zoomLevel, 
+        outFiles: list[Path] = pl.runTileIndex(tileX,
+                                               tileY,
+                                               zone,
+                                               zoomLevel,
                                                ResamplingMethod.AVERAGE)
-        
-        self.assertEqual(len(outFiles), 340)
-        
+
+        self.assertEqual(len(outFiles), 341)
+
         ds = gdal.Open(outFiles[0], gdalconst.GA_ReadOnly)
         self.assertEqual(ds.RasterXSize, 512)
         self.assertEqual(ds.RasterYSize, 512)
@@ -221,9 +218,6 @@ class PipelineTestCase(unittest.TestCase):
     # -------------------------------------------------------------------------
     def testRunPoint(self):
 
-        # imageDir = Path('/explore/nobackup/projects/lfm/' +
-        #                 'processed_data/Lunar/LRO_NAC_Pho_Sites')
-
         tileDbPath = self.getTileDbPath(self._imageDir)
         outDir = Path(tempfile.mkdtemp())
         pl = Pipeline(tileDbPath, outDir, debug=False)
@@ -233,26 +227,23 @@ class PipelineTestCase(unittest.TestCase):
         zone = '42N'
         zoomLevel = 5
 
-        outFiles: list[Path] = pl.runPoint(lat, 
-                                           lon, 
-                                           zone, 
-                                           zoomLevel, 
+        outFiles: list[Path] = pl.runPoint(lat,
+                                           lon,
+                                           zone,
+                                           zoomLevel,
                                            ResamplingMethod.AVERAGE)
-        
-        self.assertEqual(len(outFiles), 340)
-        
+
+        self.assertEqual(len(outFiles), 341)
+
         ds = gdal.Open(outFiles[0], gdalconst.GA_ReadOnly)
         self.assertEqual(ds.RasterXSize, 512)
         self.assertEqual(ds.RasterYSize, 512)
         self.assertEqual(ds.RasterCount, 7)
-        
+
     # -------------------------------------------------------------------------
     # testRun
     # -------------------------------------------------------------------------
     def testRun(self):
-
-        # imageDir = Path('/explore/nobackup/projects/lfm/' +
-        #                 'processed_data/Lunar/LRO_NAC_Pho_Sites')
 
         tileDbPath = self.getTileDbPath(self._imageDir)
         outDir = Path(tempfile.mkdtemp())
@@ -264,15 +255,15 @@ class PipelineTestCase(unittest.TestCase):
         lrLon = 149.9
         zoomLevel = 5
 
-        outFiles: list[Path] = pl.run(ulLat, 
-                                      ulLon, 
-                                      lrLat, 
-                                      lrLon, 
-                                      zoomLevel, 
+        outFiles: list[Path] = pl.run(ulLat,
+                                      ulLon,
+                                      lrLat,
+                                      lrLon,
+                                      zoomLevel,
                                       ResamplingMethod.AVERAGE)
 
-        self.assertEqual(len(outFiles), 687)
-        
+        self.assertEqual(len(outFiles), 689)
+
         ds = gdal.Open(outFiles[1], gdalconst.GA_ReadOnly)
         self.assertEqual(ds.RasterXSize, 512)
         self.assertEqual(ds.RasterYSize, 512)

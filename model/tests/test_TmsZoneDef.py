@@ -24,7 +24,7 @@ class TmsZoneDefTestCase(unittest.TestCase):
         self._zone = '42N'
         tmsFileName = 'tms_LTM_' + self._zone + 'RG.json'
         self._tmsPath = TmsTileDef.JSON_DIR / tmsFileName
-        
+
         with open(self._tmsPath, 'r') as f:
             self._tms = json.load(f)
 
@@ -37,9 +37,9 @@ class TmsZoneDefTestCase(unittest.TestCase):
     # testInit
     # -------------------------------------------------------------------------
     def testInit(self):
-        
+
         zd = TmsZoneDef(self._tmsPath)
-        
+
         self.assertIsNotNone(zd._zoneDef)
         self.assertTrue(zd.srs.IsSame(self._srs))
         self.assertEqual(zd.zone, self._zone)
@@ -49,20 +49,20 @@ class TmsZoneDefTestCase(unittest.TestCase):
     # testGetIntersectingTiles
     # -------------------------------------------------------------------------
     def testGetIntersectingTiles(self):
-        
+
         ulLat = 1.3
         ulLon = 149.7
         lrLat = 1.1
         lrLon = 149.9
 
         zd = TmsZoneDef(self._tmsPath)
-        
+
         indices: list = zd.getIntersectingTiles(ulLat,
                                                 ulLon,
                                                 lrLat,
                                                 lrLon,
                                                 self._zoomLevel)
-        
+
         exp = [(1, 62), (1, 63)]
         self.assertEqual(indices, exp)
 
@@ -73,26 +73,26 @@ class TmsZoneDefTestCase(unittest.TestCase):
 
         zd = TmsZoneDef(self._tmsPath)
         td: TmsTileDef = zd.getTileDef(self._zoomLevel)
-        
+
         self.assertIsInstance(td, TmsTileDef)
         self.assertTrue(td.srs.IsSame(self._srs))
         self.assertEqual(td._zone, self._zone)
-        self.assertEqual(td._zoomLevel, self._zoomLevel)                   
+        self.assertEqual(td._zoomLevel, self._zoomLevel)
 
     # -------------------------------------------------------------------------
     # testIntersectsBbox
     # -------------------------------------------------------------------------
     def testIntersectsBbox(self):
-        
+
         ulLat = 1.3
         ulLon = 149.7
         lrLat = 1.1
         lrLon = 149.9
-        
+
         zd = TmsZoneDef(self._tmsPath)
-        intersects = zd.intersectsBbox(ulLat, ulLon, lrLat, lrLon)            
+        intersects = zd.intersectsBbox(ulLat, ulLon, lrLat, lrLon)
         self.assertTrue(intersects)
-        
+
         # This one does not overlap.
         ulLat = 45
         ulLon = 0
@@ -100,7 +100,7 @@ class TmsZoneDefTestCase(unittest.TestCase):
         lrLon = 8
         intersects = zd.intersectsBbox(ulLat, ulLon, lrLat, lrLon)
         self.assertFalse(intersects)
-        
+
         # This intersects in latitude, but not longitude.
         ulLat = 60
         ulLon = 0
@@ -108,7 +108,7 @@ class TmsZoneDefTestCase(unittest.TestCase):
         lrLon = 8
         intersects = zd.intersectsBbox(ulLat, ulLon, lrLat, lrLon)
         self.assertFalse(intersects)
-        
+
         # This intersects in longitude, but not latitude.
         ulLat = -10
         ulLon = 150
@@ -121,18 +121,17 @@ class TmsZoneDefTestCase(unittest.TestCase):
     # testZoneBbox
     # -------------------------------------------------------------------------
     def testZoneBbox(self):
-        
+
         zd = TmsZoneDef(self._tmsPath)
         minLat, minLon, maxLat, maxLon = zd.zoneBbox()
-        
+
         expMinLat = 0
         expMinLon = 148
         expMaxLat = 82
         expMaxLon = 156
-        
+
         self.assertEqual(minLat, expMinLat)
         self.assertEqual(minLon, expMinLon)
         self.assertEqual(maxLat, expMaxLat)
         self.assertEqual(maxLon, expMaxLon)
-        
-        
+
