@@ -72,19 +72,21 @@ To fully utilize this Repo, you will need a fine-grained access token:
 ## Model and data specifications
 
 ### Model specifications
-The SAT-493M ViT-L/16 distilled DinoV3 encoder was used (trained on Satellite data). All encoder parameters were unfrozen for fine-tuning. See the [DinoV3 repo](https://github.com/facebookresearch/dinov3) for more info. For instance segmentation, the Mask2Former architecture was used on top of DinoV3 to allow for instance segmentation. See the [DinoV3 Mask2former example repo](https://github.com/Carti-97/DINOv3-Mask2former) and the [Mask2Former HuggingFace](https://huggingface.co/blog/mask2former) for more.
+The SAT-493M ViT-L/16 distilled DinoV3 encoder was used (trained on Satellite data). All encoder parameters were unfrozen for fine-tuning. See the [DinoV3 repo](https://github.com/facebookresearch/dinov3) for more info. For instance segmentation, the Mask2Former architecture was used as part of the encoder, on top of the DinoV3 SAT-493M encoder ([M2F Example](https://github.com/Carti-97/DINOv3-Mask2former), [M2F Website](https://arxiv.org/abs/2112.01527](https://mask2former.com/)). 
 
 ### Data Specifications
 
 #### Input Data
-The vis data, (hosted at /explore/nobackup/projects/lfm/rawdata/Lunar/LowRes_MLDataset_v1_bilinear), was preprocessed by extracting the following bands and normalizing values to [0,1] range: [643, 566, 415]. Data was saved in (3, 300, 300) shape .npy files under the LFM project space (explore/nobackup/projects/lfm/vis_chips). 
-*Note*: 5 band data is also stored in the lfm space under `/explore/nobackup/projects/lfm/all_band_vis`. This data hasn't been tested with the notebook finetuning workflow.
+Input data was comprised of 2 UV bands and 5 vis bands. These were preprocessed by extracting all bands from the processed data geotiffs, matching them to the AOI of the (300, 300, 3) netCDF chips, and normalizing values to [0,1] range. Data was saved as georeferenced, 7-band geotiffs under the LFM project space. 
 
 #### Labels
-Labels were processed from the annotations JSON file. Annotations were sorted by corresponding filename, then all labels for a given filename were saved single composite (300, 300) shape .npy images under the LFM project space (explore/nobackup/projects/lfm/vis_chips).
+Labels were processed from the annotations JSON file. Annotations were sorted by corresponding filename, then all labels for a given filename were saved single composite (300, 300) shape .npy images under the LFM project space. 
 
 #### Input/label matching
-Labels and inputs were matched by asset ID, as well as tile row/column ID.
+Labels and inputs were matched by asset ID, as well as tile row/column ID. Since the AOI of the original images were used, labels could be reused for the 7-band geotiffs.
 
-#### Training specifications
-The base semantic segmentation models were trained on 500 input/label pairs for 50 epochs, using a PRISM JupyterHub job on 4 V100 GPUs (1 V100 will also work, but will be slower). When adding bands (5/7 bands), a H100 node was used for its larger VRAM capacity. The parameters used were: "focal dice" loss function (Focal Loss + Dice loss), 5e-5 initial learning rate, AdamW optimizer, and Cosine Annealing LR scheduling with warmup. A train/val split of 80/20% was used as well, with early stopping patience of 5 epochs.
+#### Data locations
+Data is kept under the LFM project space, under the ```/explore/nobackup/projects/lfm/model_inputs/300_300_inputs``` subdirectory. 3 band, 5_band vis data is kept there, as well as the primary 7-band vis/uv data. 3 and 5 band data is kept in .npy format, while 7-band is kept in .tif format. Data is separated into semantic segmentation and instance segmentation, due to their differing labels.
+
+### Training specifications
+The toy models were trained on 500 input/label pairs for 50 epochs, using a PRISM JupyterHub job on 4 V100 GPUs (1 V100 will also work, but will be slower). When adding bands (5/7 bands), a H100 node was used for its larger VRAM capacity. The parameters used were: "focal dice" loss function (Focal Loss + Dice loss), 5e-5 initial learning rate, AdamW optimizer, and Cosine Annealing LR scheduling with warmup. A train/val split of 80/20% was used as well, with early stopping patience of 5 epochs.
