@@ -6,7 +6,7 @@ Working repo for LFM project. See finetuning notebook for an example workflow.
 
 To test one of the example crater segmentation workflows:
 
-1. Open an ADAPT terminal, and run these commands: 
+1. Open an ADAPT terminal, and run these commands:
 ```bash
 module load mamba
 ```
@@ -72,15 +72,15 @@ To fully utilize this Repo, you will need a fine-grained access token:
 ## Model and data specifications
 
 ### Model specifications
-The SAT-493M ViT-L/16 distilled DinoV3 encoder was used (trained on Satellite data). All encoder parameters were unfrozen for fine-tuning. See the [DinoV3 repo](https://github.com/facebookresearch/dinov3) for more info. For instance segmentation, the Mask2Former architecture was used as part of the encoder, on top of the DinoV3 SAT-493M encoder ([M2F Example](https://github.com/Carti-97/DINOv3-Mask2former), [M2F Website](https://arxiv.org/abs/2112.01527](https://mask2former.com/)). 
+The SAT-493M ViT-L/16 distilled DinoV3 encoder was used (trained on Satellite data). All encoder parameters were unfrozen for fine-tuning. See the [DinoV3 repo](https://github.com/facebookresearch/dinov3) for more info. For instance segmentation, the Mask2Former architecture was used as part of the encoder, on top of the DinoV3 SAT-493M encoder ([M2F Example](https://github.com/Carti-97/DINOv3-Mask2former), [M2F Website](https://arxiv.org/abs/2112.01527](https://mask2former.com/)).
 
 ### Data Specifications
 
 #### Input Data
-Input data was comprised of 2 UV bands and 5 vis bands. These were preprocessed by extracting all bands from the processed data geotiffs, matching them to the AOI of the (300, 300, 3) netCDF chips, and normalizing values to [0,1] range. Data was saved as georeferenced, 7-band geotiffs under the LFM project space. 
+Input data was comprised of 2 UV bands and 5 vis bands. These were preprocessed by extracting all bands from the processed data geotiffs, matching them to the AOI of the (300, 300, 3) netCDF chips, and normalizing values to [0,1] range. Data was saved as georeferenced, 7-band geotiffs under the LFM project space.
 
 #### Labels
-Labels were processed from the annotations JSON file. Annotations were sorted by corresponding filename, then all labels for a given filename were saved single composite (300, 300) shape .npy images under the LFM project space. 
+Labels were processed from the annotations JSON file. Annotations were sorted by corresponding filename, then all labels for a given filename were saved single composite (300, 300) shape .npy images under the LFM project space.
 
 #### Input/label matching
 Labels and inputs were matched by asset ID, as well as tile row/column ID. Since the AOI of the original images were used, labels could be reused for the 7-band geotiffs.
