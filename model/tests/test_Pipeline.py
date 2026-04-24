@@ -268,3 +268,49 @@ class PipelineTestCase(unittest.TestCase):
         self.assertEqual(ds.RasterXSize, 512)
         self.assertEqual(ds.RasterYSize, 512)
         self.assertEqual(ds.RasterCount, 7)
+
+    # -------------------------------------------------------------------------
+    # testStatic
+    # -------------------------------------------------------------------------
+    def testStatic(self):
+        
+        tileDbPath = Path('/explore/nobackup/projects/ilab/projects/' +
+                          'Lunar_FM/data/staticLinks/db2.shp')
+                          
+        outDir = Path(tempfile.mkdtemp())
+        pl = Pipeline(tileDbPath, outDir, debug=True)
+
+        zone = '42N'
+        zoomLevel = 5
+        tileX = 1
+        tileY = 62
+        tileDef: dict = TmsTileDef.initFromParams(zone, zoomLevel)
+        ulx, uly, lrx, lry = tileDef.getTileBbox(tileX, tileY)
+
+        ulLat, ulLon = tileDef.ltmToLatLon(ulx, uly)
+        lrLat, lrLon = tileDef.ltmToLatLon(lrx, lry)
+
+        layer: ogr.Layer = pl._query(ulLat, ulLon, lrLat, lrLon)
+        
+        # Is asp there?
+        expName = '/explore/nobackup/projects/ilab/projects/' + \
+                  'Lunar_FM/data/staticLinks/lola_kaguya_60mpp_asp.vrt'
+        
+        for feature in layer:
+            
+            print(feature['location'])
+
+
+
+        
+        # prodIdDict: dict = pl._createCube(layer,
+        #                                   ulx,
+        #                                   uly,
+        #                                   lrx,
+        #                                   lry,
+        #                                   tileDef.srs,
+        #                                   tileDef.tileWidth,
+        #                                   tileDef.tileHeight,
+        #                                   ResamplingMethod.NEAREST)
+        #       
+        

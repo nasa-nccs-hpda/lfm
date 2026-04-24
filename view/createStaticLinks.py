@@ -2,11 +2,28 @@
 import argparse
 from pathlib import Path
 import sys
+import tempfile
 
 from osgeo import gdal
 
 from lfm.model.Pipeline import Pipeline
 
+
+PROJ_EXCEPTIONS = {
+    'topo/lola_kaguya_60mpp.asp.vrt': Pipeline.MOON_SRS,
+    'topo/lola_kaguya_60mpp.cos.vrt': Pipeline.MOON_SRS,
+    'topo/lola_kaguya_60mpp.elv.vrt': Pipeline.MOON_SRS,
+    'topo/lola_kaguya_60mpp.sin.vrt': Pipeline.MOON_SRS,
+    'topo/lola_kaguya_60mpp.slp.vrt': Pipeline.MOON_SRS
+}
+
+NAME_EXCEPTIONS = {
+    'topo/lola_kaguya_60mpp.asp.vrt': 'lola_kaguya_60mpp_asp.vrt',
+    'topo/lola_kaguya_60mpp.cos.vrt': 'lola_kaguya_60mpp_cos.vrt',
+    'topo/lola_kaguya_60mpp.elv.vrt': 'lola_kaguya_60mpp_elv.vrt',
+    'topo/lola_kaguya_60mpp.sin.vrt': 'lola_kaguya_60mpp_sin.vrt',
+    'topo/lola_kaguya_60mpp.slp.vrt': 'lola_kaguya_60mpp_slp.vrt'
+}
 
 NAMES = [
     'topo/lola_kaguya_60mpp.asp.vrt',
@@ -14,6 +31,9 @@ NAMES = [
     'topo/lola_kaguya_60mpp.elv.vrt',
     'topo/lola_kaguya_60mpp.sin.vrt',
     'topo/lola_kaguya_60mpp.slp.vrt',
+    'topo/rough/LDRM_32_N_FLOAT.iau.tif',
+    'topo/rough/LDRM_40N_1000M_NN_FLOAT.iau.tif',
+    'topo/rough/LDRM_40S_1000M_NN_FLOAT.iau.tif',
     'mini_rf/GlobeNoPolesDeltaCPR_v2-offsetto49d.iau.tif',
     'mini_rf/GlobeNoPolesDeltaS1_v2.iau.tif',
     'mini_rf/NorthDeltaCPR_mean80n_v5-offsetto49d.iau.tif',
@@ -139,12 +159,68 @@ NAMES = [
     'Diviner/Tbol/polar_north_80_winter_tbol-slon14.iau.tif',
     'Diviner/Tbol/polar_north_80_winter_tbol-slon15.iau.tif',
     'Diviner/Tbol/polar_north_80_winter_tbol-slon16.iau.tif',
+    'Diviner/Tbol/polar_north_80_winter_tbol-slon17.iau.tif',
+    'Diviner/Tbol/polar_north_80_winter_tbol-slon18.iau.tif',
+    'Diviner/Tbol/polar_north_80_winter_tbol-slon19.iau.tif',
+    'Diviner/Tbol/polar_north_80_winter_tbol-slon20.iau.tif',
+    'Diviner/Tbol/polar_north_80_winter_tbol-slon21.iau.tif',
+    'Diviner/Tbol/polar_north_80_winter_tbol-slon22.iau.tif',
+    'Diviner/Tbol/polar_north_80_winter_tbol-slon23.iau.tif',
+    'Diviner/Tbol/polar_north_80_winter_tbol-slon24.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon01.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon02.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon03.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon04.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon05.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon06.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon07.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon08.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon09.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon10.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon11.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon12.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon13.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon14.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon15.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon16.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon17.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon18.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon19.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon20.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon21.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon22.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon23.iau.tif',
+    'Diviner/Tbol/polar_south_80_summer_tbol-slon24.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon01.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon02.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon03.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon04.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon05.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon06.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon07.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon08.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon09.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon10.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon11.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon12.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon13.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon14.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon15.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon16.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon17.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon18.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon19.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon20.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon21.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon22.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon23.iau.tif',
+    'Diviner/Tbol/polar_south_80_winter_tbol-slon24.iau.tif',
     'Diviner/Treg/TREG_ANOM_70Sto70N.iau7.tif'
 ]
     
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # createSpatialDb
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 def createSpatialDb(inputDir: Path) -> None:
 
     outputFile = inputDir / 'db2.shp'
@@ -160,11 +236,12 @@ def createSpatialDb(inputDir: Path) -> None:
     # Execute the tile index creation strategy
     gdal.TileIndex(outputFile, allInputFiles, options=tileIndexOptions)
     
-# ------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
 # main
 #
 # python lfm/view/createStaticLinks.py -i /explore/nobackup/projects/lfm/processed_data/Lunar/Static_final -o /explore/nobackup/projects/ilab/projects/Lunar_FM/data/staticLinks
-# ------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 def main():
 
     # Process command-line args.
@@ -201,16 +278,37 @@ def main():
         originalFile: Path = inputDir / name
 
         # Some names have subdirectory prefixes.  Remove those.
-        fullName = Path(name)
-        linkPath: Path = outputDir / fullName.name
-        
+        # fullName = Path(name)
+        # linkPath: Path = outputDir / fullName.name
+        #
+        # linkPath = outputDir / NAME_EXCEPTIONS[name] \
+        #     if name in NAME_EXCEPTIONS else linkPath
+
         if not originalFile.exists():
             raise RuntimeError('Invalid input: ' + str(originalFile))
             
-        try:
+        outName = NAME_EXCEPTIONS[name] \
+            if name in NAME_EXCEPTIONS else Path(name).name
+        
+        linkPath = outputDir / outName
+        sourceFile: Path = originalFile
+
+        if name in PROJ_EXCEPTIONS:
+        
+            projTemp = Path(tempfile.mkdtemp()) / outName
             
-            print('Linking', originalFile.name, 'to', linkPath)
-            linkPath.symlink_to(originalFile)
+            gdal.Warp(projTemp, 
+                      originalFile, 
+                      dstSRS=Pipeline.MOON_SRS)
+            
+            sourceFile = projTemp
+
+        try:
+
+            # print('Linking', originalFile.name, 'to', linkPath)
+            # linkPath.symlink_to(originalFile)
+            print('Linking', sourceFile.name, 'to', linkPath)
+            linkPath.symlink_to(sourceFile)
             count += 1
 
         except FileExistsError:

@@ -59,6 +59,14 @@ class Pipeline:
         self._outDir: Path = outDir
         self._tileDbPath: Path = tileDbPath
         self._debug: bool = debug
+        
+        # ---
+        # When you return an ogr.Layer object from a function, the underlying
+        # DataSource that owns the layer may be getting garbage collected,
+        # making the layer invalid.  Attach the datasource to the layer to
+        # prevent garbage collection.  This happens in _query().
+        # ---
+        self._layer = None
 
     # ------------------------------------------------------------------------
     # clip
@@ -68,6 +76,7 @@ class Pipeline:
               uly: float,
               lrx: float,
               lry: float,
+              srs: osr.SpatialReference,
               ds: gdal.Dataset,
               width: int,
               height: int,
@@ -77,6 +86,7 @@ class Pipeline:
             gdal.Translate('',
                            ds,
                            projWin=[ulx, uly, lrx, lry],
+                           projWinSRS=srs,
                            width=width,
                            height=height,
                            format='MEM',
@@ -93,6 +103,7 @@ class Pipeline:
                     uly: float,
                     lrx: float,
                     lry: float,
+                    srs: osr.SpatialReference,
                     width: float,
                     height: float,
                     resamplingMethod: ResamplingMethod) -> dict:
@@ -119,7 +130,7 @@ class Pipeline:
             numProcessed += 1
 
             fileName: Path = Path(feature['location'])
-
+            
             ds: gdal.Dataset = gdal.Open(str(fileName), gdalconst.GA_ReadOnly)
 
             try:
@@ -131,6 +142,7 @@ class Pipeline:
                                                   uly,
                                                   lrx,
                                                   lry,
+                                                  srs,
                                                   ds,
                                                   width,
                                                   height,
@@ -148,7 +160,7 @@ class Pipeline:
 
             except RuntimeError:
 
-                print('The image did not clip.  Skipping.')
+                print('The image', fileName, 'did not clip.  Skipping.')
                 continue
 
             raster: np.ndarray = clipDs.ReadAsArray()  # Float32
@@ -169,11 +181,11 @@ class Pipeline:
 
                     # Must do this here to avoid empty prod ids.
                     prodId = fileName.stem.split('.')[0]
-
+                    
                     if prodId not in prodIdDict:
                         prodIdDict[prodId]: list[tuple] = []
 
-                    prodIdDict[prodId].append((fileName.stem, raster))
+                    prodIdDict[prodId].append((fileName.stem, raster, ndv))
 
                 else:
                     nullCount += 1
@@ -193,7 +205,7 @@ class Pipeline:
                             prodIdDict[prodId]: list[tuple] = []
 
                         key = fileName.stem + '-' + str(i)
-                        prodIdDict[prodId].append((key, raster[i]))
+                        prodIdDict[prodId].append((key, raster[i], ndv))
 
                     else:
                         nullCount += 1
@@ -260,7 +272,7 @@ class Pipeline:
         # When you return an ogr.Layer object from a function, the underlying
         # DataSource that owns the layer may be getting garbage collected,
         # making the layer invalid.  Attach the datasource to the layer to
-        # prevent garbage collection
+        # prevent garbage collection.
         # ---
         layer._ds = ds
 
@@ -314,6 +326,7 @@ class Pipeline:
                                           uly,
                                           lrx,
                                           lry,
+                                          tileDef.srs,
                                           tileDef.tileWidth,
                                           tileDef.tileHeight,
                                           resamplingMethod)
@@ -355,6 +368,7 @@ class Pipeline:
                                                 uly,
                                                 lrx,
                                                 lry,
+                                                tileDef.srs,
                                                 tileDef.tileWidth,
                                                 tileDef.tileHeight,
                                                 resamplingMethod)
@@ -554,15 +568,18 @@ class Pipeline:
 
             # Write the band.
             bandIndex = 0
-            NO_DATA_VAL = -3.40282265508890445e+38
 
             for raster in rasters:
 
+                name = raster[0]
+                pixels = raster[1]
+                noDataValue = raster[2]
+                
                 bandIndex += 1
                 band = ds.GetRasterBand(bandIndex)
-                band.WriteArray(raster[1])
-                band.SetMetadataItem('Name', raster[0])
-                band.SetNoDataValue(NO_DATA_VAL)
+                band.WriteArray(pixels)
+                band.SetMetadataItem('Name', name)
+                band.SetNoDataValue(noDataValue)
 
             ds = None
 
