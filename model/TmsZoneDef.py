@@ -26,7 +26,7 @@ class TmsZoneDef:
         self._srs = osr.SpatialReference()
         self._srs.ImportFromWkt(self._zoneDef[TmsZoneDef.CRS])
 
-        self._zone = zoneFile.stem.split('_')[2][:3]
+        self._zone = zoneFile.stem.split('_')[2][:-2]
         self._tileDefs = {}  # Cache tile definitions by zoom level
 
     # ------------------------------------------------------------------------

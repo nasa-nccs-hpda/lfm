@@ -109,6 +109,7 @@ class PipelineTestCase(unittest.TestCase):
                                         uly,
                                         lrx,
                                         lry,
+                                        tileDef.srs,
                                         ds,
                                         tileDef.tileWidth,
                                         tileDef.tileHeight,
@@ -162,6 +163,7 @@ class PipelineTestCase(unittest.TestCase):
                                           uly,
                                           lrx,
                                           lry,
+                                          tileDef.srs,
                                           tileDef.tileWidth,
                                           tileDef.tileHeight,
                                           ResamplingMethod.NEAREST)

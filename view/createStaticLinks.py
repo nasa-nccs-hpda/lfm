@@ -236,6 +236,11 @@ def createSpatialDb(inputDir: Path) -> None:
     # Execute the tile index creation strategy
     gdal.TileIndex(outputFile, allInputFiles, options=tileIndexOptions)
     
+    outputFile.chmod(0o644)
+    (inputDir / 'db2.dbf').chmod(0o644)
+    (inputDir / 'db2.prj').chmod(0o644)
+    (inputDir / 'db2.shx').chmod(0o644)
+    
 
 # ----------------------------------------------------------------------------
 # main
@@ -277,13 +282,6 @@ def main():
     
         originalFile: Path = inputDir / name
 
-        # Some names have subdirectory prefixes.  Remove those.
-        # fullName = Path(name)
-        # linkPath: Path = outputDir / fullName.name
-        #
-        # linkPath = outputDir / NAME_EXCEPTIONS[name] \
-        #     if name in NAME_EXCEPTIONS else linkPath
-
         if not originalFile.exists():
             raise RuntimeError('Invalid input: ' + str(originalFile))
             
@@ -295,29 +293,29 @@ def main():
 
         if name in PROJ_EXCEPTIONS:
         
-            projTemp = Path(tempfile.mkdtemp()) / outName
+            # projTemp = Path(tempfile.mkdtemp()) / outName
+            projTemp = outputDir / (Path(outName).stem + '-reproj.vrt')
             
             gdal.Warp(projTemp, 
                       originalFile, 
                       dstSRS=Pipeline.MOON_SRS)
             
+            projTemp.chmod(0o644)
             sourceFile = projTemp
 
         try:
 
-            # print('Linking', originalFile.name, 'to', linkPath)
-            # linkPath.symlink_to(originalFile)
             print('Linking', sourceFile.name, 'to', linkPath)
             linkPath.symlink_to(sourceFile)
             count += 1
 
         except FileExistsError:
             print('Link already exists.')           
-
+    
     print('Linked', count, 'files.')
     print('Creating spatial database for these files.')
     createSpatialDb(outputDir)
-    
+
     
 # -----------------------------------------------------------------------------
 # Invoke the main

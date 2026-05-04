@@ -44,6 +44,14 @@ class TmsZoneDefTestCase(unittest.TestCase):
         self.assertTrue(zd.srs.IsSame(self._srs))
         self.assertEqual(zd.zone, self._zone)
         self.assertIsInstance(zd._tileDefs, dict)
+        
+        # Test a file in a single-digit zone.
+        zone = '1N'
+        tmsFileName = 'tms_LTM_' + zone + 'RG.json'
+        tmsPath = TmsTileDef.JSON_DIR / tmsFileName
+        zd = TmsZoneDef(tmsPath)
+
+        self.assertEqual(zd.zone, '1N')
 
     # -------------------------------------------------------------------------
     # testGetIntersectingTiles

@@ -118,6 +118,9 @@ class Pipeline:
         # ---
         prodIdDict: dict[str, list] = {}  # One output geotiff per product ID
 
+        # For debugging, store the various no-data values.
+        noDataValues = {}
+        
         # ---
         # Read the images and put them in the cube.
         # ---
@@ -176,6 +179,11 @@ class Pipeline:
             if numBands == 1:
 
                 ndv = ds.GetRasterBand(1).GetNoDataValue()
+                
+                if ndv not in noDataValues:
+                    noDataValues[ndv] = 0
+                    
+                noDataValues[ndv] = noDataValues[ndv] + 1
 
                 if not (raster == ndv).all():
 
@@ -195,6 +203,11 @@ class Pipeline:
                 for i in range(numBands):
 
                     ndv = ds.GetRasterBand(i+1).GetNoDataValue()
+
+                    if ndv not in noDataValues:
+                        noDataValues[ndv] = 0
+                    
+                    noDataValues[ndv] = noDataValues[ndv] + 1
 
                     if not (raster == ndv).all():
 
@@ -224,6 +237,7 @@ class Pipeline:
             print('All bands were filled with no-data values.')
 
         print('Total product IDs:', len(prodIdDict))
+        print('No-data values:', noDataValues)
 
         return prodIdDict
 
@@ -448,7 +462,7 @@ class Pipeline:
     # ------------------------------------------------------------------------
     def _writeStaticCube(self,
                          tileIndex: tuple[int, int],
-                         cubeDict: dict,
+                         prodIdDict: dict,
                          tileDef: dict,
                          ulx: float,
                          uly: float) -> Path:
@@ -461,15 +475,18 @@ class Pipeline:
 
         outFile = self._outDir / outName
 
+        # For debug.
+        noDataValues = {}
+
         # Get information about the output.
-        firstRaster = list(cubeDict.values())[0][0]
+        firstRaster = list(prodIdDict.values())[0][0]
         name = firstRaster[0]
         raster = firstRaster[1]
 
         dataType = gdal_array.NumericTypeCodeToGDALTypeCode(raster.dtype)
         width = raster.shape[0]
         height = raster.shape[1]
-        numBands = len(cubeDict)
+        numBands = len(prodIdDict)
 
         # Create the dataset.
         ds = gdal.GetDriverByName('GTiff').Create(str(outFile),
@@ -495,16 +512,43 @@ class Pipeline:
 
         # Write the bands.
         bandIndex = 0
-        NO_DATA_VAL = -3.40282265508890445e+38
+        # NO_DATA_VAL = -3.40282265508890445e+38
 
-        for bandName, cube in cubeDict.items():
+        for pid, rasters in prodIdDict.items():
+        # for bandName, raster in cubeDict.items():
 
-            bandIndex += 1
-            band = ds.GetRasterBand(bandIndex)
-            band.WriteArray(cube[0][1])
-            band.SetMetadataItem('Name', bandName)
-            band.SetNoDataValue(NO_DATA_VAL)
+            # bandIndex += 1
+            # band = ds.GetRasterBand(bandIndex)
+            # band.WriteArray(cube[0][1])
+            # band.SetMetadataItem('Name', bandName)
+            # band.SetNoDataValue(NO_DATA_VAL)
 
+            # import pdb
+            # pdb.set_trace()
+            
+            for raster in rasters:
+                
+                name = raster[0]
+                pixels = raster[1]
+                noDataValue = raster[2]
+            
+                bandIndex += 1
+                band = ds.GetRasterBand(bandIndex)
+                band.WriteArray(pixels)
+                band.SetMetadataItem('Name', name)
+                
+                if not noDataValue:
+                    noDataValue = -3.40282265508890445e+38
+                    
+                band.SetNoDataValue(noDataValue)
+
+                if noDataValue not in noDataValues:
+                    noDataValues[noDataValue] = 0
+                
+                noDataValues[noDataValue] += 1
+            
+        print('No-data values in write cube:', noDataValues)
+        
         ds = None
 
         return outFile
@@ -520,7 +564,7 @@ class Pipeline:
                    uly: float) -> list[Path]:
 
         outFiles: list[Path] = []
-
+        
         for pid, rasters in prodIdDict.items():
 
             # Name the file.
