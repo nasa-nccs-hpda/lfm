@@ -298,6 +298,7 @@ class LunarCraterDatasetMask2Former(Dataset):
             "original_size": (original_height, original_width),
         }
 
+
 def collate_fn(batch):
     """
     Custom collate function for Mask2Former.
@@ -336,9 +337,13 @@ def calculate_dataset_statistics(
     valid_images = 0
     num_channels = None
 
+    # Initialize list to track problematic files
+    problematic_files = []
+
     for image_path in tqdm(input_paths, desc="Computing dataset statistics"):
         if not os.path.exists(image_path):
             print(f"Warning: File not found: {image_path}")
+            problematic_files.append((image_path, "file_not_found"))
             continue
 
         try:
@@ -354,60 +359,143 @@ def calculate_dataset_statistics(
             elif img.ndim == 2:
                 img = img[:, :, np.newaxis]
             else:
-                print(
-                    f"Warning: Image has {img.ndim} dimensions, skipping {image_path}"
-                )
+                print(f"Warning: Image has {img.ndim} dimensions, skipping {image_path}")
+                problematic_files.append((image_path, f"invalid_dimensions_{img.ndim}"))
                 continue
 
-            # Initialize on first valid image
+            # === CHECK FOR PROBLEMATIC VALUES ===
+            has_issues = False
+            issue_reasons = []
+
+            # Check 1: NaN or Inf in raw data
+            if np.isnan(img).any():
+                has_issues = True
+                issue_reasons.append(f"nan_count_{np.isnan(img).sum()}")
+                print(f"⚠️ Found NaN in: {image_path}")
+                for band_idx in range(img.shape[2]):
+                    band = img[:, :, band_idx]
+                    nan_count = np.isnan(band).sum()
+                    if nan_count > 0:
+                        print(f"  Band {band_idx}: NaN={nan_count}")
+
+            if np.isinf(img).any():
+                has_issues = True
+                issue_reasons.append(f"inf_count_{np.isinf(img).sum()}")
+                print(f"⚠️ Found inf in: {image_path}")
+                for band_idx in range(img.shape[2]):
+                    band = img[:, :, band_idx]
+                    inf_count = np.isinf(band).sum()
+                    if inf_count > 0:
+                        print(f"  Band {band_idx}: inf={inf_count}")
+
+            # Check 2: Constant bands (min == max)
+            for band_idx in range(img.shape[2]):
+                band = img[:, :, band_idx]
+                band_min, band_max = band.min(), band.max()
+
+                if band_max == band_min:
+                    has_issues = True
+                    issue_reasons.append(f"constant_band_{band_idx}_value_{band_min}")
+                    print(f"⚠️ Constant band {band_idx} in {image_path}: value={band_min}")
+
+            # Check 3: Extremely large or small values
+            img_min, img_max = img.min(), img.max()
+            if abs(img_min) > 1e10 or abs(img_max) > 1e10:
+                has_issues = True
+                issue_reasons.append(f"extreme_values_min_{img_min:.2e}_max_{img_max:.2e}")
+                print(f"⚠️ Extreme values in {image_path}: min={img_min:.6e}, max={img_max:.6e}")
+
+            # Check 4: Very large range (potential scaling issues)
+            for band_idx in range(img.shape[2]):
+                band = img[:, :, band_idx]
+                band_range = band.max() - band.min()
+                if band_range > 1e10:
+                    has_issues = True
+                    issue_reasons.append(f"huge_range_band_{band_idx}_range_{band_range:.2e}")
+                    print(f"⚠️ Huge range in band {band_idx} of {image_path}: {band_range:.6e}")
+
+            # Check 5: All zeros or near-zero variance
+            if np.allclose(img, 0, atol=1e-10):
+                has_issues = True
+                issue_reasons.append("all_zeros")
+                print(f"⚠️ All zeros in {image_path}")
+
+            # If file has issues, add to problematic list and skip statistics
+            if has_issues:
+                problematic_files.append((image_path, "; ".join(issue_reasons)))
+                print(f"❌ SKIPPING {image_path} from statistics due to issues")
+                continue
+
+            # Initialize tracking arrays
             if valid_images == 0:
                 num_channels = img.shape[2]
-                pixel_sum = np.zeros(num_channels)
-                pixel_sq_sum = np.zeros(num_channels)
-                print(f"First image shape: {img.shape}, dtype: {img.dtype}")
+                pixel_sum = np.zeros(num_channels, dtype=np.float64)
+                pixel_sq_sum = np.zeros(num_channels, dtype=np.float64)
+                band_min_vals = np.full(num_channels, np.inf)
+                band_max_vals = np.full(num_channels, -np.inf)
+                print(f"First valid image shape: {img.shape}, dtype: {img.dtype}")
                 print(f"Detected {num_channels} channel(s)")
-                print(
-                    f"Value range BEFORE preprocessing: min={img.min()}, max={img.max()}"
-                )
+                print(f"Value range: min={img.min()}, max={img.max()}")
 
             # Verify consistent number of channels
             if img.shape[2] != num_channels:
-                print(
-                    f"Warning: Inconsistent channels. Expected {num_channels}, "
-                    f"got {img.shape[2]} for {image_path}. Skipping."
-                )
+                print(f"Warning: Inconsistent channels. Expected {num_channels}, "
+                    f"got {img.shape[2]} for {image_path}. Skipping.")
+                problematic_files.append((image_path, f"channel_mismatch_{img.shape[2]}_vs_{num_channels}"))
                 continue
+
+            # Track min/max per band across all images
+            for band_idx in range(img.shape[2]):
+                band = img[:, :, band_idx]
+                band_min_vals[band_idx] = min(band_min_vals[band_idx], band.min())
+                band_max_vals[band_idx] = max(band_max_vals[band_idx], band.max())
 
             # For .tif files, apply min-max scaling per band
             if input_file_type == ".tif":
                 for band_idx in range(img.shape[2]):
                     band = img[:, :, band_idx]
                     band_min, band_max = band.min(), band.max()
-                    if band_max > band_min:
-                        img[:, :, band_idx] = (band - band_min) / (
-                            band_max - band_min
-                        )
-                    else:
-                        img[:, :, band_idx] = band
 
-                if valid_images == 0:
-                    print(
-                        f"Value range AFTER min-max scaling: min={img.min()}, max={img.max()}"
-                    )
+                    if band_max != band_min:
+                        img[:, :, band_idx] = (band - band_min) / (band_max - band_min)
+                    else:
+                        img[:, :, band_idx] = 0
+
+                # Final check after scaling for any NaN
+                if np.isnan(img).any() or np.isinf(img).any():
+                    print(f"⚠️ NaN/inf appeared AFTER scaling in {image_path}")
+                    problematic_files.append((image_path, "nan_inf_after_scaling"))
+                    continue
 
             # Accumulate statistics
             pixel_sum += img.sum(axis=(0, 1))
-            pixel_sq_sum += (img**2).sum(axis=(0, 1))
+            pixel_sq_sum += (img.astype(np.float64)**2).sum(axis=(0, 1))
             pixel_count += img.shape[0] * img.shape[1]
             valid_images += 1
 
         except Exception as e:
             print(f"Error loading {image_path}: {e}")
+            problematic_files.append((image_path, f"exception_{str(e)[:50]}"))
             if debug:
                 import traceback
-
                 traceback.print_exc()
             continue
+
+    # After the loop, save problematic files list
+    print(f"\n{'='*60}")
+    print(f"Total problematic files found: {len(problematic_files)}")
+    print(f"Valid images processed: {valid_images}")
+
+    # Save to file for review/deletion
+    if problematic_files:
+        output_file = "problematic_files.txt"
+        with open(output_file, 'w') as f:
+            f.write("# Problematic files found during statistics computation\n")
+            f.write("# Format: filepath | reason\n\n")
+            for filepath, reason in problematic_files:
+                f.write(f"{filepath} | {reason}\n")
+
+        print(f"Problematic files list saved to: {output_file}")
 
     if valid_images == 0:
         raise ValueError("No valid images were processed.")
@@ -436,6 +524,10 @@ def calculate_dataset_statistics(
     for i, (m, s) in enumerate(zip(mean, std)):
         status = "✓" if 0 <= m <= 1 and s > 0 else "⚠️"
         print(f"{status} Band {i}: mean={m:.4f}, std={s:.4f}")
+
+    print("\nGlobal value ranges per band (before scaling):")
+    for band_idx in range(num_channels):
+        print(f"  Band {band_idx}: min={band_min_vals[band_idx]:.6e}, max={band_max_vals[band_idx]:.6e}")
 
     return mean, std
 

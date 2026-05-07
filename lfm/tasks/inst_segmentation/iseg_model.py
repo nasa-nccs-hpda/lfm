@@ -146,62 +146,70 @@ class DinoV3WithAdapterBackbone(nn.Module):
             hidden_states=tuple(adapted_features),
         )
 
-    def _apply_flexible_weights(self, num_bands: int):
-        """
-        Modify patch embedding weights for multi-band input (>3 bands).
+    def _apply_flexible_weights(self, num_bands=5):
+        """Weight modification for >3-band input
 
-        Band mapping strategy:
-        - Channel 0 (Blue)     <- Blue weights from DINOv3
-        - Channel 1 (Green)    <- Green weights from DINOv3
-        - Channel 2 (Orange)   <- Weighted avg of Red and Green
-        - Channel 3 (Red)      <- Red weights from DINOv3
-        - Channel 4 (NIR)      <- Red weights (spectrally closest)
-        - Channel 5 (UV 1)     <- Blue weights (spectrally closest)
-        - Channel 6 (UV 2)     <- Blue weights (spectrally closest)
-        - Channel 7 (Static)   <- Red weights (spectrally closest)
+        Band mapping:
+        - Channel 0 (Blue) <- Blue weights from DINOv3
+        - Channel 1 (Green) <- Green weights from DINOv3
+        - Channel 2 (Orange) <- Mean of Red and Green weights
+        - Channel 3 (Red) <- Red weights from DINOv3
+        - Channel 4 (NIR) <- Red weights (spectrally closest)
+        - Channel 5 (UV 1) <- Blue weights (spectrally closest)
+        - Channel 6 (UV 2) <- Blue weights (spectrally closest)
+        - Channel 7 (STATIC 3) <- Red weights (spectrally closest)
         """
-        print(f"Modifying input weights for {num_bands} bands...")
 
-        # Access patch embedding from torch.hub model
-        patch_embed = self.model.patch_embed.proj
+        print("Modifying input weights for > 3 bands...")
+
+        # Access the patch embedding
+        patch_embed = self.encoder.patch_embed.proj
 
         with torch.no_grad():
-            # Original weights: (out_channels, 3, kernel_h, kernel_w)
-            # RGB channels: [0]=Red, [1]=Green, [2]=Blue
-            original_weights = patch_embed.weight.data.clone()
+            original_weights = (
+                patch_embed.weight.data.clone()
+            )  # Shape: (out_channels, 3, 16, 16)
+            # original_weights channels: [0]=Red, [1]=Green, [2]=Blue
 
-            # Create new weights for multi-band input
+            # Create new weights for >3-band input
+            # new_weights shape: [:, n_bands, :, :]
             new_weights = torch.zeros(
-                original_weights.shape[0],  # out_channels (e.g., 1024)
-                num_bands,                   # Input bands (5, 7, or 8)
-                original_weights.shape[2],   # kernel_height (e.g., 16)
-                original_weights.shape[3],   # kernel_width (e.g., 16)
+                original_weights.shape[0],
+                num_bands,  # 5/7/8 input bands
+                original_weights.shape[2],
+                original_weights.shape[3],
             ).to(original_weights.device)
 
-            # Extract RGB weights
             red_weights = original_weights[:, 0, :, :]
             green_weights = original_weights[:, 1, :, :]
             blue_weights = original_weights[:, 2, :, :]
 
-            # Map original RGB weights to new bands
-            new_weights[:, 0, :, :] = blue_weights                              # Blue
-            new_weights[:, 1, :, :] = green_weights                             # Green
-            new_weights[:, 2, :, :] = 0.7 * red_weights + 0.3 * green_weights  # Orange (blend)
-            new_weights[:, 3, :, :] = red_weights                               # Red
-            new_weights[:, 4, :, :] = 0.95 * red_weights                        # NIR (near-red)
+            # Correct mapping based on RGB order in original_weights
+            new_weights[:, :5, :, :] = torch.stack([
+                blue_weights,
+                green_weights,
+                0.7 * red_weights + 0.3 * green_weights,
+                red_weights,
+                0.95 * red_weights
+            ], dim=1)
+            if num_bands >= 7:  # add 2 additional weights for 7-band input
+                new_weights[:, 5:7, :, :] = blue_weights.unsqueeze(1).expand(
+                    -1, 2, -1, -1
+                )
+            if num_bands >= 8:
+                # For STATIC data, just use red embeddings for all bands
+                for idx in range(7, num_bands):
+                    new_weights[:, 7:, :, :] = red_weights.unsqueeze(1).expand(
+                        -1, num_bands - 7, -1, -1
+                    )
 
-            if num_bands >= 7:
-                new_weights[:, 5, :, :] = blue_weights  # UV 1
-                new_weights[:, 6, :, :] = blue_weights  # UV 2
-
-            if num_bands == 8:
-                new_weights[:, 7, :, :] = red_weights   # Static band
-
-            # Replace original weights with new multi-band weights
+            # Replace patch embedding weights
             patch_embed.weight.data = new_weights
 
-        print(f"✓ Applied flexible embedding for {num_bands} bands")
-
+        print(
+            "Applied flexible embedding approach to match input bands. "
+            f"Bands specified: {num_bands}"
+        )
 
 def create_mask2former_dinov3_model(
     encoder: nn.Module,

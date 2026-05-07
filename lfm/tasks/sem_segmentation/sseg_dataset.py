@@ -16,7 +16,6 @@ import torch.nn.functional as F
 from tqdm import tqdm
 import rasterio
 
-
 class LunarCraterDataset(Dataset):
     """
     Dataset for multi-channel images and segmentation masks.
@@ -289,9 +288,13 @@ def calculate_dataset_statistics(
     valid_images = 0
     num_channels = None
 
+    # Initialize list to track problematic files
+    problematic_files = []
+
     for image_path in tqdm(input_paths, desc="Computing dataset statistics"):
         if not os.path.exists(image_path):
-            print(f"Warning: File not found: {image_path}")
+            tqdm.write(f"Warning: File not found: {image_path}")
+            problematic_files.append((image_path, "file_not_found"))
             continue
 
         try:
@@ -307,43 +310,92 @@ def calculate_dataset_statistics(
             elif img.ndim == 2:
                 img = img[:, :, np.newaxis]
             else:
-                print(
-                    f"Warning: Image has {img.ndim} dimensions, skipping {image_path}"
-                )
+                tqdm.write(f"Warning: Image has {img.ndim} dimensions, skipping {image_path}")
+                problematic_files.append((image_path, f"invalid_dimensions_{img.ndim}"))
                 continue
 
-            # DEBUG: nan values
-            if np.isnan(img).any() or np.isinf(img).any():
-                print(f"⚠️ WARNING: Found NaN or inf in raw data: {image_path}")
+            # === CHECK FOR PROBLEMATIC VALUES ===
+            has_issues = False
+            issue_reasons = []
+
+            # Check 1: NaN or Inf in raw data
+            if np.isnan(img).any():
+                has_issues = True
+                issue_reasons.append(f"nan_count_{np.isnan(img).sum()}")
+                tqdm.write(f"⚠️ Found NaN in: {image_path}")
                 for band_idx in range(img.shape[2]):
                     band = img[:, :, band_idx]
-                    print(f"  Band {band_idx}: NaN={np.isnan(band).sum()}, inf={np.isinf(band).sum()}")
+                    nan_count = np.isnan(band).sum()
+                    if nan_count > 0:
+                        tqdm.write(f"  Band {band_idx}: NaN={nan_count}")
+
+            if np.isinf(img).any():
+                has_issues = True
+                issue_reasons.append(f"inf_count_{np.isinf(img).sum()}")
+                tqdm.write(f"⚠️ Found inf in: {image_path}")
+                for band_idx in range(img.shape[2]):
+                    band = img[:, :, band_idx]
+                    inf_count = np.isinf(band).sum()
+                    if inf_count > 0:
+                        tqdm.write(f"  Band {band_idx}: inf={inf_count}")
+
+            # Check 2: Constant bands (min == max)
+            for band_idx in range(img.shape[2]):
+                band = img[:, :, band_idx]
+                band_min, band_max = band.min(), band.max()
+
+                if band_max == band_min:
+                    has_issues = True
+                    issue_reasons.append(f"constant_band_{band_idx}_value_{band_min}")
+                    tqdm.write(f"⚠️ Constant band {band_idx} in {image_path}: value={band_min}")
+
+            # Check 3: Extremely large or small values
+            img_min, img_max = img.min(), img.max()
+            if abs(img_min) > 1e10 or abs(img_max) > 1e10:
+                has_issues = True
+                issue_reasons.append(f"extreme_values_min_{img_min:.2e}_max_{img_max:.2e}")
+                tqdm.write(f"⚠️ Extreme values in {image_path}: min={img_min:.6e}, max={img_max:.6e}")
+
+            # Check 4: Very large range (potential scaling issues)
+            for band_idx in range(img.shape[2]):
+                band = img[:, :, band_idx]
+                band_range = band.max() - band.min()
+                if band_range > 1e10:
+                    has_issues = True
+                    issue_reasons.append(f"huge_range_band_{band_idx}_range_{band_range:.2e}")
+                    tqdm.write(f"⚠️ Huge range in band {band_idx} of {image_path}: {band_range:.6e}")
+
+            # Check 5: All zeros or near-zero variance
+            if np.allclose(img, 0, atol=1e-10):
+                has_issues = True
+                issue_reasons.append("all_zeros")
+                tqdm.write(f"⚠️ All zeros in {image_path}")
+
+            # If file has issues, add to problematic list and skip statistics
+            if has_issues:
+                problematic_files.append((image_path, "; ".join(issue_reasons)))
+                tqdm.write(f"❌ SKIPPING {image_path} from statistics due to issues")
+                continue
 
             # Initialize tracking arrays
             if valid_images == 0:
                 num_channels = img.shape[2]
-                pixel_sum = np.zeros(num_channels, dtype=np.float64)  # Use float64!
+                pixel_sum = np.zeros(num_channels, dtype=np.float64)
                 pixel_sq_sum = np.zeros(num_channels, dtype=np.float64)
                 band_min_vals = np.full(num_channels, np.inf)
                 band_max_vals = np.full(num_channels, -np.inf)
-                print(f"First image shape: {img.shape}, dtype: {img.dtype}")
-                print(f"Detected {num_channels} channel(s)")
-                print(f"Value range BEFORE preprocessing: min={img.min()}, max={img.max()}")
-
-                # ADD THIS: Print range per band BEFORE scaling
-                for band_idx in range(num_channels):
-                    band = img[:, :, band_idx]
-                    print(f"  Band {band_idx} BEFORE: min={band.min():.6e}, max={band.max():.6e}")
+                tqdm.write(f"First valid image shape: {img.shape}, dtype: {img.dtype}")
+                tqdm.write(f"Detected {num_channels} channel(s)")
+                tqdm.write(f"Value range: min={img.min()}, max={img.max()}")
 
             # Verify consistent number of channels
             if img.shape[2] != num_channels:
-                print(
-                    f"Warning: Inconsistent channels. Expected {num_channels}, "
-                    f"got {img.shape[2]} for {image_path}. Skipping."
-                )
+                tqdm.write(f"Warning: Inconsistent channels. Expected {num_channels}, "
+                    f"got {img.shape[2]} for {image_path}. Skipping.")
+                problematic_files.append((image_path, f"channel_mismatch_{img.shape[2]}_vs_{num_channels}"))
                 continue
 
-             # Track min/max per band across all images
+            # Track min/max per band across all images
             for band_idx in range(img.shape[2]):
                 band = img[:, :, band_idx]
                 band_min_vals[band_idx] = min(band_min_vals[band_idx], band.min())
@@ -355,43 +407,46 @@ def calculate_dataset_statistics(
                     band = img[:, :, band_idx]
                     band_min, band_max = band.min(), band.max()
 
-                    # ADD THIS: Check for problematic cases
-                    if band_max == band_min:
-                        print(f"⚠️ Band {band_idx} in {image_path}: constant value={band_min}")
-                        img[:, :, band_idx] = 0  # or band  # Handle constant bands
-                    elif band_max - band_min > 1e10:  # Very large range
-                        print(f"⚠️ Band {band_idx} in {image_path}: HUGE range! min={band_min:.6e}, max={band_max:.6e}")
+                    if band_max != band_min:
                         img[:, :, band_idx] = (band - band_min) / (band_max - band_min)
                     else:
-                        img[:, :, band_idx] = (band - band_min) / (band_max - band_min)
+                        img[:, :, band_idx] = 0
 
-                    # ADD THIS: Check for NaN after scaling
-                    if np.isnan(img[:, :, band_idx]).any():
-                        print(f"⚠️ Band {band_idx}: NaN detected AFTER min-max scaling!")
-
-                if valid_images == 0:
-                    print(f"Value range AFTER min-max scaling: min={img.min()}, max={img.max()}")
-                    for band_idx in range(num_channels):
-                        band = img[:, :, band_idx]
-                        print(
-                            f"  Band {band_idx} AFTER: min={band.min():.6f}, max={band.max():.6f}, "
-                            f"has_nan={np.isnan(band).any()}"
-                        )
-
+                # Final check after scaling for any NaN
+                if np.isnan(img).any() or np.isinf(img).any():
+                    tqdm.write(f"⚠️ NaN/inf appeared AFTER scaling in {image_path}")
+                    problematic_files.append((image_path, "nan_inf_after_scaling"))
+                    continue
 
             # Accumulate statistics
             pixel_sum += img.sum(axis=(0, 1))
-            pixel_sq_sum += (img.astype(np.float64)**2).sum(axis=(0, 1))  # Cast to float64!
+            pixel_sq_sum += (img.astype(np.float64)**2).sum(axis=(0, 1))
             pixel_count += img.shape[0] * img.shape[1]
             valid_images += 1
 
         except Exception as e:
-            print(f"Error loading {image_path}: {e}")
+            tqdm.write(f"Error loading {image_path}: {e}")
+            problematic_files.append((image_path, f"exception_{str(e)[:50]}"))
             if debug:
                 import traceback
-
                 traceback.print_exc()
             continue
+
+    # After the loop, save problematic files list
+    print(f"\n{'='*60}")
+    print(f"Total problematic files found: {len(problematic_files)}")
+    print(f"Valid images processed: {valid_images}")
+
+    # Save to file for review/deletion
+    if problematic_files:
+        output_file = "problematic_files.txt"
+        with open(output_file, 'w') as f:
+            f.write("# Problematic files found during statistics computation\n")
+            f.write("# Format: filepath | reason\n\n")
+            for filepath, reason in problematic_files:
+                f.write(f"{filepath} | {reason}\n")
+
+        print(f"Problematic files list saved to: {output_file}")
 
     if valid_images == 0:
         raise ValueError("No valid images were processed.")

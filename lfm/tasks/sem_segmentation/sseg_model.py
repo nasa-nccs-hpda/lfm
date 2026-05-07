@@ -86,8 +86,10 @@ class DINOSegmentation(nn.Module):
         # UNet decoder
         self.decoder = UNetDecoder(self.embed_dim, num_classes)
 
-        if num_bands not in [3, 5, 7, 8]:
-            raise ValueError("Dino Segmentation expects 3, 5, 7, or 8 bands.")
+        # 3 for RGB, 5 for all VIS, 7 for all VIS/UV (WAC)
+        # 8 for SAM data, 12 for KAGUYA data
+        if num_bands not in [3, 5, 7, 8, 12]:
+            raise ValueError("Dino Segmentation expects 3, 5, 7, 8, or 12 bands.")
 
         self.num_bands = num_bands
         use_flexible = False
@@ -162,16 +164,23 @@ class DINOSegmentation(nn.Module):
             blue_weights = original_weights[:, 2, :, :]
 
             # Correct mapping based on RGB order in original_weights
-            new_weights[:, 0, :, :] = blue_weights
-            new_weights[:, 1, :, :] = green_weights
-            new_weights[:, 2, :, :] = 0.7 * red_weights + 0.3 * green_weights
-            new_weights[:, 3, :, :] = red_weights
-            new_weights[:, 4, :, :] = 0.95 * red_weights
+            new_weights[:, :5, :, :] = torch.stack([
+                blue_weights,
+                green_weights,
+                0.7 * red_weights + 0.3 * green_weights,
+                red_weights,
+                0.95 * red_weights
+            ], dim=1)
             if num_bands >= 7:  # add 2 additional weights for 7-band input
-                new_weights[:, 5, :, :] = blue_weights
-                new_weights[:, 6, :, :] = blue_weights
-            if num_bands == 8:
-                new_weights[:, 7, :, :] = red_weights
+                new_weights[:, 5:7, :, :] = blue_weights.unsqueeze(1).expand(
+                    -1, 2, -1, -1
+                )
+            if num_bands >= 8:
+                # For STATIC data, just use red embeddings for all bands
+                for idx in range(7, num_bands):
+                    new_weights[:, 7:, :, :] = red_weights.unsqueeze(1).expand(
+                        -1, num_bands - 7, -1, -1
+                    )
 
             # Replace patch embedding weights
             patch_embed.weight.data = new_weights
