@@ -86,20 +86,12 @@ class DINOSegmentation(nn.Module):
         # UNet decoder
         self.decoder = UNetDecoder(self.embed_dim, num_classes)
 
-        if num_bands not in [3, 5, 7]:
-            if num_bands > 3 and not use_flexible:
-                raise ValueError(
-                    "Flexible embeddings not specified for > 3 band input."
-                )
-            raise ValueError("Dino Segmentation expects 3, 5, or 7 bands.")
+        if num_bands not in [3, 5, 7, 8]:
+            raise ValueError("Dino Segmentation expects 3, 5, 7, or 8 bands.")
 
         self.num_bands = num_bands
         use_flexible = False
         if num_bands > 3:
-            use_flexible = True
-
-        # Change weights if using flexible embeddings approach
-        if use_flexible:
             self._apply_flexible_weights(self.num_bands)
 
     def forward(self, x):
@@ -132,7 +124,7 @@ class DINOSegmentation(nn.Module):
         self.load_state_dict(torch.load(filename))
 
     def _apply_flexible_weights(self, num_bands=5):
-        """Weight modification for 5-band input (Blue, Green, Orange, Red, NIR)
+        """Weight modification for >3-band input
 
         Band mapping:
         - Channel 0 (Blue) <- Blue weights from DINOv3
@@ -142,12 +134,10 @@ class DINOSegmentation(nn.Module):
         - Channel 4 (NIR) <- Red weights (spectrally closest)
         - Channel 5 (UV 1) <- Blue weights (spectrally closest)
         - Channel 6 (UV 2) <- Blue weights (spectrally closest)
+        - Channel 7 (STATIC 3) <- Red weights (spectrally closest)
         """
 
         print("Modifying input weights for > 3 bands...")
-
-        if num_bands not in [5, 7]:
-            raise ValueError("Flexible embeddings expects 5 or 7 band input.")
 
         # Access the patch embedding
         patch_embed = self.encoder.patch_embed.proj
@@ -158,10 +148,11 @@ class DINOSegmentation(nn.Module):
             )  # Shape: (out_channels, 3, 16, 16)
             # original_weights channels: [0]=Red, [1]=Green, [2]=Blue
 
-            # Create new weights for 5-band input
+            # Create new weights for >3-band input
+            # new_weights shape: [:, n_bands, :, :]
             new_weights = torch.zeros(
                 original_weights.shape[0],
-                num_bands,  # 5/7 input bands
+                num_bands,  # 5/7/8 input bands
                 original_weights.shape[2],
                 original_weights.shape[3],
             ).to(original_weights.device)
@@ -171,15 +162,16 @@ class DINOSegmentation(nn.Module):
             blue_weights = original_weights[:, 2, :, :]
 
             # Correct mapping based on RGB order in original_weights
-            # For 5 and 7-band input, these are constant
             new_weights[:, 0, :, :] = blue_weights
             new_weights[:, 1, :, :] = green_weights
             new_weights[:, 2, :, :] = 0.7 * red_weights + 0.3 * green_weights
             new_weights[:, 3, :, :] = red_weights
             new_weights[:, 4, :, :] = 0.95 * red_weights
-            if num_bands == 7:  # add 2 additional weights for 7-band input
+            if num_bands >= 7:  # add 2 additional weights for 7-band input
                 new_weights[:, 5, :, :] = blue_weights
                 new_weights[:, 6, :, :] = blue_weights
+            if num_bands == 8:
+                new_weights[:, 7, :, :] = red_weights
 
             # Replace patch embedding weights
             patch_embed.weight.data = new_weights
