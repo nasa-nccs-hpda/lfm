@@ -41,7 +41,7 @@ class LunarCraterDatasetMask2Former(Dataset):
         max_samples: Optional[int] = None,
         input_file_type: str = ".npy",
         label_file_type: str = ".npz",
-        band_filter: int = None,
+        band_filter: List[int] = None,
     ):
         self.image_dir = image_dir
         self.label_dir = label_dir
@@ -89,11 +89,11 @@ class LunarCraterDatasetMask2Former(Dataset):
 
         # Extract basenames for matching
         self.image_basenames = [
-            "_".join(Path(filename).stem.split("_")[:-1])
+            "_".join(Path(filename).stem.split("_")[:3])
             for filename in self.image_paths
         ]
         label_basenames = [
-            "_".join(Path(filename).stem.split("_")[:-1])
+            "_".join(Path(filename).stem.split("_")[:3])
             for filename in label_paths
         ]
 
@@ -243,34 +243,60 @@ class LunarCraterDatasetMask2Former(Dataset):
         # Reshape mean and std to (1, 1, C) for broadcasting with (H, W, C)
         mean_reshaped = mean_filtered.reshape(1, 1, -1)
         std_reshaped = std_filtered.reshape(1, 1, -1)
-        image = (image - mean_reshaped) / std_reshaped
+        # image = (image - mean_reshaped) / std_reshaped
 
-        # Build instance_id_to_semantic_id mapping
-        # Get unique instance IDs (excluding background=0)
-        unique_instances = np.unique(instance_mask)
-        instance_to_semantic = {
-            int(inst_id): (0 if inst_id == 0 else 1)
-            for inst_id in unique_instances
-        }
+        # ============================================
+        # MANUAL PROCESSING (no image_processor for images)
+        # ============================================
 
-        # Apply image processor (handles resizing and format conversion)
-        inputs = self.image_processor(
-            images=[image],
-            segmentation_maps=[instance_mask],
-            instance_id_to_semantic_id=instance_to_semantic,
-            return_tensors="pt",
-            input_data_format="channels_last",  # ADD THIS: your image is (H, W, C)
-            data_format="channels_first",  # ADD THIS: output should be (C, H, W)
-        )
+        # Convert to tensor (C, H, W)
+        image_tensor = torch.from_numpy(image).float().permute(2, 0, 1)
 
-        # Return in Mask2Former format
+        # Resize image
+        image_tensor = torch.nn.functional.interpolate(
+            image_tensor.unsqueeze(0),
+            size=self.target_size,
+            mode='bilinear',
+            align_corners=False
+        ).squeeze(0)  # Result: (C, H, W)
+
+        # Resize instance mask
+        instance_mask_tensor = torch.from_numpy(instance_mask).long()
+        instance_mask_resized = torch.nn.functional.interpolate(
+            instance_mask_tensor.unsqueeze(0).unsqueeze(0).float(),
+            size=self.target_size,
+            mode='nearest'
+        ).squeeze(0).squeeze(0).long()  # Result: (H, W)
+
+        # ============================================
+        # EXTRACT INSTANCE MASKS MANUALLY
+        # ============================================
+        unique_instances = torch.unique(instance_mask_resized)
+        mask_labels = []
+        class_labels = []
+
+        for inst_id in unique_instances:
+            if inst_id == 0:  # Skip background
+                continue
+            mask = (instance_mask_resized == inst_id).float()
+            mask_labels.append(mask)
+            class_labels.append(1)  # All craters are class 1
+
+        # Handle case with no instances
+        if len(mask_labels) > 0:
+            mask_labels = torch.stack(mask_labels)  # (num_instances, H, W)
+            class_labels = torch.tensor(class_labels, dtype=torch.long)
+        else:
+            mask_labels = torch.zeros((0, *self.target_size), dtype=torch.float32)
+            class_labels = torch.tensor([], dtype=torch.long)
+
+        # Return in EXACT Mask2Former format
         return {
-            "pixel_values": inputs.pixel_values[0],  # (C, H, W)
-            "mask_labels": inputs.mask_labels[0],  # (num_instances, H, W)
-            "class_labels": inputs.class_labels[0],  # (num_instances,)
-            "original_size": (original_height, original_width),  # Tuple
+            "pixel_values": image_tensor,  # (C, H, W)
+            "mask_labels": mask_labels,    # (num_instances, H, W)
+            "class_labels": class_labels,  # (num_instances,)
+            "original_size": (original_height, original_width),
         }
-
 
 def collate_fn(batch):
     """

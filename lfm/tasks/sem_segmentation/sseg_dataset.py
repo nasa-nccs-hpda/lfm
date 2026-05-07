@@ -87,11 +87,11 @@ class LunarCraterDataset(Dataset):
 
         # Extract basenames for matching
         self.image_basenames = [
-            "_".join(Path(filename).stem.split("_")[:-1])
+            "_".join(Path(filename).stem.split("_")[:3])
             for filename in self.image_paths
         ]
         label_basenames = [
-            "_".join(Path(filename).stem.split("_")[:-1])
+            "_".join(Path(filename).stem.split("_")[:3])
             for filename in label_paths
         ]
 
@@ -312,16 +312,28 @@ def calculate_dataset_statistics(
                 )
                 continue
 
-            # Initialize on first valid image
+            # DEBUG: nan values
+            if np.isnan(img).any() or np.isinf(img).any():
+                print(f"⚠️ WARNING: Found NaN or inf in raw data: {image_path}")
+                for band_idx in range(img.shape[2]):
+                    band = img[:, :, band_idx]
+                    print(f"  Band {band_idx}: NaN={np.isnan(band).sum()}, inf={np.isinf(band).sum()}")
+
+            # Initialize tracking arrays
             if valid_images == 0:
                 num_channels = img.shape[2]
-                pixel_sum = np.zeros(num_channels)
-                pixel_sq_sum = np.zeros(num_channels)
+                pixel_sum = np.zeros(num_channels, dtype=np.float64)  # Use float64!
+                pixel_sq_sum = np.zeros(num_channels, dtype=np.float64)
+                band_min_vals = np.full(num_channels, np.inf)
+                band_max_vals = np.full(num_channels, -np.inf)
                 print(f"First image shape: {img.shape}, dtype: {img.dtype}")
                 print(f"Detected {num_channels} channel(s)")
-                print(
-                    f"Value range BEFORE preprocessing: min={img.min()}, max={img.max()}"
-                )
+                print(f"Value range BEFORE preprocessing: min={img.min()}, max={img.max()}")
+
+                # ADD THIS: Print range per band BEFORE scaling
+                for band_idx in range(num_channels):
+                    band = img[:, :, band_idx]
+                    print(f"  Band {band_idx} BEFORE: min={band.min():.6e}, max={band.max():.6e}")
 
             # Verify consistent number of channels
             if img.shape[2] != num_channels:
@@ -331,26 +343,45 @@ def calculate_dataset_statistics(
                 )
                 continue
 
+             # Track min/max per band across all images
+            for band_idx in range(img.shape[2]):
+                band = img[:, :, band_idx]
+                band_min_vals[band_idx] = min(band_min_vals[band_idx], band.min())
+                band_max_vals[band_idx] = max(band_max_vals[band_idx], band.max())
+
             # For .tif files, apply min-max scaling per band
             if input_file_type == ".tif":
                 for band_idx in range(img.shape[2]):
                     band = img[:, :, band_idx]
                     band_min, band_max = band.min(), band.max()
-                    if band_max > band_min:
-                        img[:, :, band_idx] = (band - band_min) / (
-                            band_max - band_min
-                        )
+
+                    # ADD THIS: Check for problematic cases
+                    if band_max == band_min:
+                        print(f"⚠️ Band {band_idx} in {image_path}: constant value={band_min}")
+                        img[:, :, band_idx] = 0  # or band  # Handle constant bands
+                    elif band_max - band_min > 1e10:  # Very large range
+                        print(f"⚠️ Band {band_idx} in {image_path}: HUGE range! min={band_min:.6e}, max={band_max:.6e}")
+                        img[:, :, band_idx] = (band - band_min) / (band_max - band_min)
                     else:
-                        img[:, :, band_idx] = band
+                        img[:, :, band_idx] = (band - band_min) / (band_max - band_min)
+
+                    # ADD THIS: Check for NaN after scaling
+                    if np.isnan(img[:, :, band_idx]).any():
+                        print(f"⚠️ Band {band_idx}: NaN detected AFTER min-max scaling!")
 
                 if valid_images == 0:
-                    print(
-                        f"Value range AFTER min-max scaling: min={img.min()}, max={img.max()}"
-                    )
+                    print(f"Value range AFTER min-max scaling: min={img.min()}, max={img.max()}")
+                    for band_idx in range(num_channels):
+                        band = img[:, :, band_idx]
+                        print(
+                            f"  Band {band_idx} AFTER: min={band.min():.6f}, max={band.max():.6f}, "
+                            f"has_nan={np.isnan(band).any()}"
+                        )
+
 
             # Accumulate statistics
             pixel_sum += img.sum(axis=(0, 1))
-            pixel_sq_sum += (img**2).sum(axis=(0, 1))
+            pixel_sq_sum += (img.astype(np.float64)**2).sum(axis=(0, 1))  # Cast to float64!
             pixel_count += img.shape[0] * img.shape[1]
             valid_images += 1
 
@@ -389,6 +420,10 @@ def calculate_dataset_statistics(
     for i, (m, s) in enumerate(zip(mean, std)):
         status = "✓" if 0 <= m <= 1 and s > 0 else "⚠️"
         print(f"{status} Band {i}: mean={m:.4f}, std={s:.4f}")
+
+    print("\nGlobal value ranges per band (before scaling):")
+    for band_idx in range(num_channels):
+        print(f"  Band {band_idx}: min={band_min_vals[band_idx]:.6e}, max={band_max_vals[band_idx]:.6e}")
 
     return mean, std
 
