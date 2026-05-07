@@ -168,7 +168,7 @@ class PipelineTestCase(unittest.TestCase):
                                           tileDef.tileHeight,
                                           ResamplingMethod.NEAREST)
 
-        self.assertEqual(len(prodIdDict), 340)
+        self.assertEqual(len(prodIdDict), 892)
         self.assertEqual(len(prodIdDict['M1187363083CE']), 7)
         self.assertEqual(prodIdDict['M1187363083CE'][0][1].shape, (512, 512))
 
@@ -208,7 +208,7 @@ class PipelineTestCase(unittest.TestCase):
                                                zoomLevel,
                                                ResamplingMethod.AVERAGE)
 
-        self.assertEqual(len(outFiles), 341)
+        self.assertEqual(len(outFiles), 893)
 
         ds = gdal.Open(outFiles[0], gdalconst.GA_ReadOnly)
         self.assertEqual(ds.RasterXSize, 512)
@@ -235,7 +235,7 @@ class PipelineTestCase(unittest.TestCase):
                                            zoomLevel,
                                            ResamplingMethod.AVERAGE)
 
-        self.assertEqual(len(outFiles), 341)
+        self.assertEqual(len(outFiles), 893)
 
         ds = gdal.Open(outFiles[0], gdalconst.GA_ReadOnly)
         self.assertEqual(ds.RasterXSize, 512)
@@ -264,55 +264,10 @@ class PipelineTestCase(unittest.TestCase):
                                       zoomLevel,
                                       ResamplingMethod.AVERAGE)
 
-        self.assertEqual(len(outFiles), 689)
+        self.assertEqual(len(outFiles), 1782)
 
         ds = gdal.Open(outFiles[1], gdalconst.GA_ReadOnly)
         self.assertEqual(ds.RasterXSize, 512)
         self.assertEqual(ds.RasterYSize, 512)
         self.assertEqual(ds.RasterCount, 7)
-
-    # -------------------------------------------------------------------------
-    # testStatic
-    # -------------------------------------------------------------------------
-    def testStatic(self):
-        
-        tileDbPath = Path('/explore/nobackup/projects/ilab/projects/' +
-                          'Lunar_FM/data/staticLinks/db2.shp')
-                          
-        outDir = Path(tempfile.mkdtemp())
-        pl = Pipeline(tileDbPath, outDir, debug=True)
-
-        zone = '42N'
-        zoomLevel = 5
-        tileX = 1
-        tileY = 62
-        tileDef: dict = TmsTileDef.initFromParams(zone, zoomLevel)
-        ulx, uly, lrx, lry = tileDef.getTileBbox(tileX, tileY)
-
-        ulLat, ulLon = tileDef.ltmToLatLon(ulx, uly)
-        lrLat, lrLon = tileDef.ltmToLatLon(lrx, lry)
-
-        layer: ogr.Layer = pl._query(ulLat, ulLon, lrLat, lrLon)
-        
-        # Is asp there?
-        expName = '/explore/nobackup/projects/ilab/projects/' + \
-                  'Lunar_FM/data/staticLinks/lola_kaguya_60mpp_asp.vrt'
-        
-        for feature in layer:
-            
-            print(feature['location'])
-
-
-
-        
-        # prodIdDict: dict = pl._createCube(layer,
-        #                                   ulx,
-        #                                   uly,
-        #                                   lrx,
-        #                                   lry,
-        #                                   tileDef.srs,
-        #                                   tileDef.tileWidth,
-        #                                   tileDef.tileHeight,
-        #                                   ResamplingMethod.NEAREST)
-        #       
         

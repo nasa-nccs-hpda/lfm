@@ -118,9 +118,6 @@ class Pipeline:
         # ---
         prodIdDict: dict[str, list] = {}  # One output geotiff per product ID
 
-        # For debugging, store the various no-data values.
-        noDataValues = {}
-        
         # ---
         # Read the images and put them in the cube.
         # ---
@@ -160,6 +157,13 @@ class Pipeline:
                     cLry = corners['lowerRight'][1]
                     print('Clip result:', cUlx, cUly, cLrx, cLry)
                     print('Size:', clipDs.RasterXSize, clipDs.RasterYSize)
+                    
+                    print('DS dtype:',
+                          gdal.GetDataTypeName(ds.GetRasterBand(1).DataType))
+
+                    print('Clip DS dtype:',
+                          gdal.GetDataTypeName( \
+                              clipDs.GetRasterBand(1).DataType))
 
             except RuntimeError:
 
@@ -180,11 +184,6 @@ class Pipeline:
 
                 ndv = ds.GetRasterBand(1).GetNoDataValue()
                 
-                if ndv not in noDataValues:
-                    noDataValues[ndv] = 0
-                    
-                noDataValues[ndv] = noDataValues[ndv] + 1
-
                 if not (raster == ndv).all():
 
                     # Must do this here to avoid empty prod ids.
@@ -204,11 +203,6 @@ class Pipeline:
 
                     ndv = ds.GetRasterBand(i+1).GetNoDataValue()
 
-                    if ndv not in noDataValues:
-                        noDataValues[ndv] = 0
-                    
-                    noDataValues[ndv] = noDataValues[ndv] + 1
-
                     if not (raster == ndv).all():
 
                         # Must do this here to avoid empty prod ids.
@@ -223,10 +217,14 @@ class Pipeline:
                     else:
                         nullCount += 1
 
-            if self._debug and numProcessed > 99:
+            if self._debug:
 
-                print('Debug cube size reached.  Stopping.')
-                break
+                print('Raster count:', rasterCount)
+                
+                if numProcessed > 99:
+
+                    print('Debug cube size reached.  Stopping.')
+                    break
 
         if self._debug:
 
@@ -237,7 +235,6 @@ class Pipeline:
             print('All bands were filled with no-data values.')
 
         print('Total product IDs:', len(prodIdDict))
-        print('No-data values:', noDataValues)
 
         return prodIdDict
 
@@ -444,11 +441,6 @@ class Pipeline:
         # Make a cube for each tile index.
         for idx in tileIndexes:
 
-            # cubeFiles.append(self.runTileIndex(idx['tileX'],
-            #                                    idx['tileY'],
-            #                                    idx['zone'],
-            #                                    idx['zoomLevel']))
-
             cubeFiles += self.runTileIndex(idx['tileX'],
                                            idx['tileY'],
                                            idx['zone'],
@@ -474,9 +466,6 @@ class Pipeline:
                   '.tif'
 
         outFile = self._outDir / outName
-
-        # For debug.
-        noDataValues = {}
 
         # Get information about the output.
         firstRaster = list(prodIdDict.values())[0][0]
@@ -512,46 +501,137 @@ class Pipeline:
 
         # Write the bands.
         bandIndex = 0
-        # NO_DATA_VAL = -3.40282265508890445e+38
+        NO_DATA_VAL = -32768
 
         for pid, rasters in prodIdDict.items():
-        # for bandName, raster in cubeDict.items():
 
-            # bandIndex += 1
-            # band = ds.GetRasterBand(bandIndex)
-            # band.WriteArray(cube[0][1])
-            # band.SetMetadataItem('Name', bandName)
-            # band.SetNoDataValue(NO_DATA_VAL)
-
-            # import pdb
-            # pdb.set_trace()
-            
             for raster in rasters:
-                
+
                 name = raster[0]
                 pixels = raster[1]
                 noDataValue = raster[2]
-            
+                
+                # This would be better in createCube().
+                raster = np.where(pixels == noDataValue, NO_DATA_VAL, pixels)
+
                 bandIndex += 1
                 band = ds.GetRasterBand(bandIndex)
                 band.WriteArray(pixels)
                 band.SetMetadataItem('Name', name)
-                
-                if not noDataValue:
-                    noDataValue = -3.40282265508890445e+38
-                    
-                band.SetNoDataValue(noDataValue)
+                band.SetNoDataValue(NO_DATA_VAL)
 
-                if noDataValue not in noDataValues:
-                    noDataValues[noDataValue] = 0
-                
-                noDataValues[noDataValue] += 1
-            
-        print('No-data values in write cube:', noDataValues)
-        
         ds = None
 
         return outFile
+
+    # ------------------------------------------------------------------------
+    # writeStaticCube
+    # ------------------------------------------------------------------------
+    # def _writeStaticCube(self,
+    #                      tileIndex: tuple[int, int],
+    #                      prodIdDict: dict,
+    #                      tileDef: dict,
+    #                      ulx: float,
+    #                      uly: float) -> Path:
+    #
+    #     # ---
+    #     # We must collate output tiles by no-data value.  A Geotiff cannot
+    #     # have multiple no-data values for different bands.  Therefore, we
+    #     # write multiple static tile files: one for each no-data value
+    #     # encountered.
+    #     #
+    #     # Static files do not care about the product ID.
+    #     # ---
+    #     rasterToNdv = {}
+    #
+    #     for pid, rasters in prodIdDict.items():
+    #
+    #         for raster in rasters:
+    #
+    #             noDataValue = raster[2]
+    #
+    #             if noDataValue not in rasterToNdv:
+    #                 rasterToNdv[noDataValue] = []
+    #
+    #             rasterToNdv[noDataValue].append(raster)
+    #
+    #     # Now that they are collated, write each one.
+    #     staticCount = 0
+    #
+    #     for ndv in rasterToNdv:
+    #
+    #         rasters = rasterToNdv[ndv]
+    #
+    #         # Name the file.
+    #         staticCount += 1
+    #
+    #         outName = 'StaticCube-LTM' + tileDef.zone + \
+    #                   '_Zoom-' + str(tileDef.zoomLevel) + \
+    #                   '_Tile-' + str(tileIndex[0]) + '-' + str(tileIndex[1]) +\
+    #                   '_' + str(staticCount) + \
+    #                   '.tif'
+    #
+    #         outFile = self._outDir / outName
+    #
+    #         # Get information about the output.
+    #         firstRaster = rasters[0]
+    #         name = firstRaster[0]
+    #         raster = firstRaster[1]
+    #
+    #         dataType = gdal_array.NumericTypeCodeToGDALTypeCode(raster.dtype)
+    #         width = raster.shape[0]
+    #         height = raster.shape[1]
+    #         numBands = len(prodIdDict)
+    #
+    #         if self._debug:
+    #
+    #             print('Raster dtype:', raster.dtype)
+    #             print('Out dtype:', gdal.GetDataTypeName(dataType))
+    #
+    #         # Create the dataset.
+    #         ds = gdal.GetDriverByName('GTiff').Create(str(outFile),
+    #                                                   height,
+    #                                                   width,
+    #                                                   numBands,
+    #                                                   dataType,
+    #                                                   options=['BIGTIFF=YES',
+    #                                                            'TILED=YES',
+    #                                                            'COMPRESS=LZW'])
+    #
+    #         # Set the spatial reference.
+    #         ds.SetSpatialRef(tileDef.srs)
+    #
+    #         geotransform = [ulx,
+    #                         tileDef.cellSize,
+    #                         0,
+    #                         uly,
+    #                         0,
+    #                         -tileDef.cellSize]
+    #
+    #         ds.SetGeoTransform(geotransform)
+    #
+    #         # Write the bands.
+    #         bandIndex = 0
+    #
+    #         for raster in rasters:
+    #
+    #             name = raster[0]
+    #             pixels = raster[1]
+    #             noDataValue = raster[2]
+    #
+    #             bandIndex += 1
+    #             band = ds.GetRasterBand(bandIndex)
+    #             band.WriteArray(pixels)
+    #             band.SetMetadataItem('Name', name)
+    #
+    #             if not noDataValue:
+    #                 noDataValue = -3.40282265508890445e+38
+    #
+    #             band.SetNoDataValue(noDataValue)
+    #
+    #     ds = None
+    #
+    #     return outFile
 
     # ------------------------------------------------------------------------
     # writeCube

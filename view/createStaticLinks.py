@@ -293,24 +293,31 @@ def main():
 
         if name in PROJ_EXCEPTIONS:
         
-            # projTemp = Path(tempfile.mkdtemp()) / outName
-            projTemp = outputDir / (Path(outName).stem + '-reproj.vrt')
-            
-            gdal.Warp(projTemp, 
-                      originalFile, 
+            # projTemp = outputDir / (Path(outName).stem + '-reproj.vrt')
+            #
+            # gdal.Warp(projTemp,
+            #           originalFile,
+            #           dstSRS=Pipeline.MOON_SRS)
+            #
+            # projTemp.chmod(0o644)
+            # sourceFile = projTemp
+
+            gdal.Warp(linkPath,
+                      originalFile,
                       dstSRS=Pipeline.MOON_SRS)
             
-            projTemp.chmod(0o644)
-            sourceFile = projTemp
-
-        try:
-
-            print('Linking', sourceFile.name, 'to', linkPath)
-            linkPath.symlink_to(sourceFile)
             count += 1
+            
+        else:
+            
+            try:
 
-        except FileExistsError:
-            print('Link already exists.')           
+                print('Linking', sourceFile.name, 'to', linkPath)
+                linkPath.symlink_to(sourceFile)
+                count += 1
+
+            except FileExistsError:
+                print('Link already exists.')           
     
     print('Linked', count, 'files.')
     print('Creating spatial database for these files.')
