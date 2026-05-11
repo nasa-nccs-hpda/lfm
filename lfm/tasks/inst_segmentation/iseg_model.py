@@ -74,7 +74,7 @@ class DinoV3WithAdapterBackbone(nn.Module):
         if encoder is None:
             raise ValueError("encoder must be provided (load with torch.hub.load())")
 
-        self.model = encoder
+        self.encoder = encoder
 
         # Get hidden size from torch.hub model
         hidden_size = self._get_hidden_size()
@@ -105,12 +105,12 @@ class DinoV3WithAdapterBackbone(nn.Module):
 
     def _get_hidden_size(self) -> int:
         """Extract hidden size from torch.hub DINOv3 model."""
-        if hasattr(self.model, 'norm') and hasattr(self.model.norm, 'normalized_shape'):
+        if hasattr(self.encoder, 'norm') and hasattr(self.encoder.norm, 'normalized_shape'):
             # DinoVisionTransformer has LayerNorm with normalized_shape
-            return self.model.norm.normalized_shape[0]
-        elif hasattr(self.model, 'patch_embed'):
+            return self.encoder.norm.normalized_shape[0]
+        elif hasattr(self.encoder, 'patch_embed'):
             # Alternative: get from patch embedding output channels
-            return self.model.patch_embed.proj.out_channels
+            return self.encoder.patch_embed.proj.out_channels
         else:
             raise ValueError(
                 "Unable to determine hidden size from model. "
@@ -128,7 +128,7 @@ class DinoV3WithAdapterBackbone(nn.Module):
             SimpleNamespace with feature_maps and hidden_states
         """
         # Use torch.hub DINOv3's built-in method to extract intermediate layers
-        outputs = self.model.get_intermediate_layers(
+        outputs = self.encoder.get_intermediate_layers(
             x,
             n=self.layers_to_extract,  # Which layers to extract
             return_class_token=False,   # Don't need CLS token
