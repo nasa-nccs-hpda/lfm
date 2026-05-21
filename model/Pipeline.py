@@ -82,15 +82,26 @@ class Pipeline:
               height: int,
               resamplingMethod: ResamplingMethod) -> gdal.Dataset:
 
-        clipDs: gdal.Dataset = \
-            gdal.Translate('',
-                           ds,
-                           projWin=[ulx, uly, lrx, lry],
-                           projWinSRS=srs,
-                           width=width,
-                           height=height,
-                           format='MEM',
-                           resampleAlg=resamplingMethod.value)
+        # clipDs: gdal.Dataset = \
+        #     gdal.Translate('',
+        #                    ds,
+        #                    projWin=[ulx, uly, lrx, lry],
+        #                    projWinSRS=srs,
+        #                    width=width,
+        #                    height=height,
+        #                    format='MEM',
+        #                    resampleAlg=resamplingMethod.value)
+
+        clipDs = \
+            gdal.Warp('',
+                      ds,
+                      outputBounds=[ulx, lry, lrx, uly],
+                      outputBoundsSRS=srs,
+                      width=width,
+                      height=height,
+                      format='MEM',
+                      resampleAlg=resamplingMethod.value,
+                      targetAlignedPixels=True)
 
         return clipDs
 
