@@ -293,15 +293,6 @@ def main():
 
         if name in PROJ_EXCEPTIONS:
         
-            # projTemp = outputDir / (Path(outName).stem + '-reproj.vrt')
-            #
-            # gdal.Warp(projTemp,
-            #           originalFile,
-            #           dstSRS=Pipeline.MOON_SRS)
-            #
-            # projTemp.chmod(0o644)
-            # sourceFile = projTemp
-
             gdal.Warp(linkPath,
                       originalFile,
                       dstSRS=Pipeline.MOON_SRS)
