@@ -11,7 +11,6 @@ from osgeo import gdalconst
 from osgeo import ogr
 from osgeo import osr
 
-from lfm.model.ResamplingMethod import ResamplingMethod
 from lfm.model.TmsIntersector import TmsIntersector
 from lfm.model.TmsTileDef import TmsTileDef
 
@@ -71,6 +70,33 @@ class Pipeline:
     # ------------------------------------------------------------------------
     # clip
     # ------------------------------------------------------------------------
+    # def _clip(self,
+    #           ulx: float,
+    #           uly: float,
+    #           lrx: float,
+    #           lry: float,
+    #           srs: osr.SpatialReference,
+    #           ds: gdal.Dataset,
+    #           width: int,
+    #           height: int,
+    #           gridRes: float,  # Unused
+    #           resamplingMethod: rm) -> gdal.Dataset:
+    #
+    #     clipDs: gdal.Dataset = \
+    #         gdal.Translate('',
+    #                        ds,
+    #                        projWin=[ulx, uly, lrx, lry],
+    #                        projWinSRS=srs,
+    #                        width=width,
+    #                        height=height,
+    #                        format='MEM',
+    #                        resampleAlg=resamplingMethod.value)
+    #
+    #     return clipDs
+
+    # ------------------------------------------------------------------------
+    # clip
+    # ------------------------------------------------------------------------
     def _clip(self,
               ulx: float,
               uly: float,
@@ -79,32 +105,21 @@ class Pipeline:
               srs: osr.SpatialReference,
               ds: gdal.Dataset,
               width: int,
-              height: int,
-              resamplingMethod: ResamplingMethod) -> gdal.Dataset:
+              height: int) -> gdal.Dataset:
 
-        # clipDs: gdal.Dataset = \
-        #     gdal.Translate('',
-        #                    ds,
-        #                    projWin=[ulx, uly, lrx, lry],
-        #                    projWinSRS=srs,
-        #                    width=width,
-        #                    height=height,
-        #                    format='MEM',
-        #                    resampleAlg=resamplingMethod.value)
-
-        clipDs = \
-            gdal.Warp('',
-                      ds,
-                      outputBounds=[ulx, lry, lrx, uly],
-                      outputBoundsSRS=srs,
-                      width=width,
-                      height=height,
-                      format='MEM',
-                      resampleAlg=resamplingMethod.value,
-                      targetAlignedPixels=True)
-
+        clipDs: gdal.Dataset = gdal.Warp(
+                '',
+                ds,
+                outputBounds=[ulx, lry, lrx, uly],
+                dstSRS=srs,
+                width=width,
+                height=height,
+                format='MEM',
+                resampleAlg=gdal.GRA_Bilinear,
+            )
+    
         return clipDs
-
+        
     # ------------------------------------------------------------------------
     # createCube
     # ------------------------------------------------------------------------
@@ -116,8 +131,7 @@ class Pipeline:
                     lry: float,
                     srs: osr.SpatialReference,
                     width: float,
-                    height: float,
-                    resamplingMethod: ResamplingMethod) -> dict:
+                    height: float) -> dict:
 
         # ---
         # We cannot know the final number of 512 x 512 images in the stack
@@ -156,8 +170,7 @@ class Pipeline:
                                                   srs,
                                                   ds,
                                                   width,
-                                                  height,
-                                                  resamplingMethod)
+                                                  height)
 
                 if self._debug:
 
@@ -176,7 +189,7 @@ class Pipeline:
                           gdal.GetDataTypeName( \
                               clipDs.GetRasterBand(1).DataType))
 
-            except RuntimeError:
+            except RuntimeError as e:
 
                 print('The image', fileName, 'did not clip.  Skipping.')
                 continue
@@ -307,8 +320,7 @@ class Pipeline:
                      tileX: int,
                      tileY: int,
                      zone: int,
-                     zoomLevel: int,
-                     resamplingMethod: ResamplingMethod) -> list[Path]:
+                     zoomLevel: int) -> list[Path]:
 
         print('Processing (' + str(tileX) + ', ' + str(tileY) + \
               ') / zone ' + str(zone) + \
@@ -350,8 +362,7 @@ class Pipeline:
                                           lry,
                                           tileDef.srs,
                                           tileDef.tileWidth,
-                                          tileDef.tileHeight,
-                                          resamplingMethod)
+                                          tileDef.tileHeight)
 
             # Write the data cube as a CoG.
             if len(cube):
@@ -392,8 +403,7 @@ class Pipeline:
                                                 lry,
                                                 tileDef.srs,
                                                 tileDef.tileWidth,
-                                                tileDef.tileHeight,
-                                                resamplingMethod)
+                                                tileDef.tileHeight)
 
             # Write the data cube as a CoG.
             if len(staticCube):
@@ -415,8 +425,7 @@ class Pipeline:
                  lat: float,
                  lon: float,
                  zone: str,
-                 zoomLevel: int,
-                 resamplingMethod: ResamplingMethod) -> list[Path]:
+                 zoomLevel: int) -> list[Path]:
 
         # Find the tile index for the given point, zone and zoom.
         tileDef = TmsTileDef.initFromParams(zone, zoomLevel)
@@ -426,8 +435,7 @@ class Pipeline:
         return self.runTileIndex(tileX,
                                  tileY,
                                  zone,
-                                 zoomLevel,
-                                 resamplingMethod)
+                                 zoomLevel)
 
     # ------------------------------------------------------------------------
     # run
@@ -437,15 +445,16 @@ class Pipeline:
             ulLon: float,
             lrLat: float,
             lrLon: float,
-            zoomLevel: int,
-            resamplingMethod: ResamplingMethod) -> List[Path]:
+            zoomLevel: int) -> List[Path]:
 
         # Get all the tile ids in all zones that intersect the bounding box.
         tmsi = TmsIntersector()
         tileIndexes = tmsi.getTids(ulLat, ulLon, lrLat, lrLon, zoomLevel)
 
         if self._debug:
+
             print('Num Tile Indexes:', len(tileIndexes))
+            print('Tile Indexes:', tileIndexes)
 
         cubeFiles = []
 
@@ -455,8 +464,7 @@ class Pipeline:
             cubeFiles += self.runTileIndex(idx['tileX'],
                                            idx['tileY'],
                                            idx['zone'],
-                                           idx['zoomLevel'],
-                                           resamplingMethod)
+                                           idx['zoomLevel'])
 
         return cubeFiles
 
@@ -534,115 +542,6 @@ class Pipeline:
         ds = None
 
         return outFile
-
-    # ------------------------------------------------------------------------
-    # writeStaticCube
-    # ------------------------------------------------------------------------
-    # def _writeStaticCube(self,
-    #                      tileIndex: tuple[int, int],
-    #                      prodIdDict: dict,
-    #                      tileDef: dict,
-    #                      ulx: float,
-    #                      uly: float) -> Path:
-    #
-    #     # ---
-    #     # We must collate output tiles by no-data value.  A Geotiff cannot
-    #     # have multiple no-data values for different bands.  Therefore, we
-    #     # write multiple static tile files: one for each no-data value
-    #     # encountered.
-    #     #
-    #     # Static files do not care about the product ID.
-    #     # ---
-    #     rasterToNdv = {}
-    #
-    #     for pid, rasters in prodIdDict.items():
-    #
-    #         for raster in rasters:
-    #
-    #             noDataValue = raster[2]
-    #
-    #             if noDataValue not in rasterToNdv:
-    #                 rasterToNdv[noDataValue] = []
-    #
-    #             rasterToNdv[noDataValue].append(raster)
-    #
-    #     # Now that they are collated, write each one.
-    #     staticCount = 0
-    #
-    #     for ndv in rasterToNdv:
-    #
-    #         rasters = rasterToNdv[ndv]
-    #
-    #         # Name the file.
-    #         staticCount += 1
-    #
-    #         outName = 'StaticCube-LTM' + tileDef.zone + \
-    #                   '_Zoom-' + str(tileDef.zoomLevel) + \
-    #                   '_Tile-' + str(tileIndex[0]) + '-' + str(tileIndex[1]) +\
-    #                   '_' + str(staticCount) + \
-    #                   '.tif'
-    #
-    #         outFile = self._outDir / outName
-    #
-    #         # Get information about the output.
-    #         firstRaster = rasters[0]
-    #         name = firstRaster[0]
-    #         raster = firstRaster[1]
-    #
-    #         dataType = gdal_array.NumericTypeCodeToGDALTypeCode(raster.dtype)
-    #         width = raster.shape[0]
-    #         height = raster.shape[1]
-    #         numBands = len(prodIdDict)
-    #
-    #         if self._debug:
-    #
-    #             print('Raster dtype:', raster.dtype)
-    #             print('Out dtype:', gdal.GetDataTypeName(dataType))
-    #
-    #         # Create the dataset.
-    #         ds = gdal.GetDriverByName('GTiff').Create(str(outFile),
-    #                                                   height,
-    #                                                   width,
-    #                                                   numBands,
-    #                                                   dataType,
-    #                                                   options=['BIGTIFF=YES',
-    #                                                            'TILED=YES',
-    #                                                            'COMPRESS=LZW'])
-    #
-    #         # Set the spatial reference.
-    #         ds.SetSpatialRef(tileDef.srs)
-    #
-    #         geotransform = [ulx,
-    #                         tileDef.cellSize,
-    #                         0,
-    #                         uly,
-    #                         0,
-    #                         -tileDef.cellSize]
-    #
-    #         ds.SetGeoTransform(geotransform)
-    #
-    #         # Write the bands.
-    #         bandIndex = 0
-    #
-    #         for raster in rasters:
-    #
-    #             name = raster[0]
-    #             pixels = raster[1]
-    #             noDataValue = raster[2]
-    #
-    #             bandIndex += 1
-    #             band = ds.GetRasterBand(bandIndex)
-    #             band.WriteArray(pixels)
-    #             band.SetMetadataItem('Name', name)
-    #
-    #             if not noDataValue:
-    #                 noDataValue = -3.40282265508890445e+38
-    #
-    #             band.SetNoDataValue(noDataValue)
-    #
-    #     ds = None
-    #
-    #     return outFile
 
     # ------------------------------------------------------------------------
     # writeCube
