@@ -3,6 +3,7 @@ from datetime import datetime
 from glob import glob
 from pathlib import Path
 import math
+import re
 
 # Third-party imports
 import matplotlib.pyplot as plt
@@ -15,14 +16,243 @@ from transformers import AutoImageProcessor
 import xarray as xr
 
 
-def extract_images(
+import xarray as xr
+import rioxarray as rxr
+import rasterio
+import re
+from pathlib import Path
+import os
+from glob import glob
+
+
+def get_product_id(filepath):
+    """
+    Extract product ID from filename for pairing vis/static files.
+
+    Example:
+        'M115502559CE_r1950_c150_input' -> 'M115502559CE_r1950_c150'
+        'M115502559CE_r1950_c150_Static_input' -> 'M115502559CE_r1950_c150'
+    """
+    basename = Path(filepath).parent.name
+    # Remove '_input' and '_Static_input' suffixes
+    product_id = basename.replace('_Static_input', '').replace('_input', '')
+    return product_id
+
+
+def verify_band_selection(filepath, band_indices, pattern, verbose=True):
+    """
+    Verify that selected bands actually match the pattern.
+
+    Args:
+        filepath: Path to raster file
+        band_indices: List of 1-based band indices (from rasterio)
+        pattern: Regex pattern that was used for matching
+        verbose: Print verification details
+
+    Returns:
+        tuple: (all_match: bool, band_names: list, mismatches: list)
+    """
+    regex = re.compile(pattern)
+    band_names = []
+    mismatches = []
+
+    with rasterio.open(filepath) as src:
+        if verbose:
+            print(f"\n  Verifying bands for {Path(filepath).name}:")
+            print(f"  Pattern: '{pattern}'")
+            print(f"  Selected band indices (1-based): {band_indices}")
+            print(f"  Band verification:")
+
+        for band_idx in band_indices:
+            tags = src.tags(band_idx)
+            band_name = tags.get('Name', '')
+            band_names.append(band_name)
+
+            matches = bool(regex.search(band_name))
+            status = "✓" if matches else "✗"
+
+            if verbose:
+                print(f"    Band {band_idx}: {band_name} {status}")
+
+            if not matches:
+                mismatches.append((band_idx, band_name))
+
+    all_match = len(mismatches) == 0
+
+    if verbose:
+        if all_match:
+            print(f"  ✓ All {len(band_indices)} bands match pattern")
+        else:
+            print(f"  ✗ WARNING: {len(mismatches)} bands don't match pattern!")
+
+    return all_match, band_names, mismatches
+
+
+def check_bands_exist(filepath: Path, pattern: str) -> tuple:
+    """
+    Check if bands matching regex exist.
+
+    Args:
+        filepath: Path to raster file
+        pattern: Regex pattern to match against band names
+
+    Returns:
+        (exists: bool, band_numbers: list, error_message: str or None)
+    """
+    band_indices = []
+    try:
+        regex = re.compile(pattern)
+        with rasterio.open(filepath) as src:
+            for band_idx in range(1, src.count + 1):
+                tags = src.tags(band_idx)
+                band_name = tags.get('Name', '')
+
+                if regex.search(band_name):
+                    band_indices.append(band_idx)
+
+            if not band_indices:
+                return False, None, f"No bands matching pattern '{pattern}' found"
+
+            return True, band_indices, None
+
+    except re.error as e:
+        return False, None, f"Invalid regex pattern: {str(e)}"
+    except Exception as e:
+        return False, None, f"Error reading file: {str(e)}"
+
+
+def filter_static_bands(static_cubes, verbose=True, verify=True):
+    """
+    Filter static cube bands to only include those matching 'lola_kaguya' pattern.
+
+    Args:
+        static_cubes: List of file paths to static cube GeoTIFFs
+        verbose: Print filtering information
+        verify: Verify band selection is correct
+
+    Returns:
+        List of xarray DataArrays with filtered bands
+    """
+    static_datasets = []
+    STATIC_BAND_REGEX = r"lola_kaguya"
+
+    for cube in static_cubes:
+        bands_exist, band_indices, error_message = check_bands_exist(
+            cube, STATIC_BAND_REGEX
+        )
+
+        if not bands_exist:
+            if verbose:
+                print(f"  ⚠ Skipping {Path(cube).name}: {error_message}")
+            continue
+
+        # Verify the band selection if requested
+        if verify:
+            all_match, band_names, mismatches = verify_band_selection(
+                cube, band_indices, STATIC_BAND_REGEX, verbose=verbose
+            )
+            if not all_match:
+                raise ValueError(
+                    f"Band verification failed for {cube}. "
+                    f"Mismatches: {mismatches}"
+                )
+
+        # Convert from 1-based (rasterio) to 0-based (xarray) indexing
+        band_indices_0based = [idx - 1 for idx in band_indices]
+
+        if verbose:
+            print(f"  Converting indices: {band_indices} (rasterio) -> {band_indices_0based} (xarray)")
+
+        # Open with rioxarray and select matching bands
+        ds = rxr.open_rasterio(cube)
+
+        if verbose:
+            print(f"  Total bands in file: {ds.sizes['band']}")
+            print(f"  Selecting bands at 0-based indices: {band_indices_0based}")
+
+        ds_filtered = ds.isel(band=band_indices_0based)
+
+        if verbose:
+            print(f"  ✓ Result: {ds_filtered.sizes['band']} bands selected\n")
+
+        static_datasets.append(ds_filtered)
+
+    return static_datasets
+
+
+def group_cubes_by_tile(datacubes: list) -> tuple:
+    """
+    Group datacubes by tile ID.
+
+    Args:
+        datacubes: List of datacube file paths
+
+    Returns:
+        (cubes_by_tile: dict, ltm_dict: dict)
+    """
+    import re
+
+    # Extract cubes by modality
+    wac_datacubes = [cube for cube in datacubes if "Static" not in cube]
+    static_datacubes = [cube for cube in datacubes if "Static" in cube]
+
+    # Get LTM zones
+    ltm_pattern = r"Cube-LTM[0-9]+[NS]"
+    ltm_matches = [
+        re.search(ltm_pattern, cube).group() for cube in datacubes
+        if re.search(ltm_pattern, cube)
+    ]
+    ltm_unique = set(ltm_matches)
+    ltm_dict = {
+        "all_zones": ltm_matches,
+        "unique": ltm_unique,
+    }
+
+    # Get tile indices
+    tile_pattern = r"_Tile-[0-9]+-[0-9]+"
+    tile_matches = [
+        re.search(tile_pattern, cube).group() for cube in datacubes
+        if re.search(tile_pattern, cube)
+    ]
+
+    # Get unique tile indices
+    unique_tiles = set(tile_matches)
+    tile_ids = sorted([match.replace("_Tile-", "") for match in unique_tiles])
+
+    # Group cubes by tile
+    cubes_by_tile = {
+        tile_id: {
+            "wac": [f for f in wac_datacubes if tile_id in f][0],
+            "static": [f for f in static_datacubes if tile_id in f][0]
+        }
+        for tile_id in tile_ids
+    }
+
+    return cubes_by_tile, ltm_dict
+
+
+def get_datacube_data(
     input_paths,
     band_filter=None,
-    bands_per_slice=None,
     max_images=None,
     verbose=True,
+    verify_bands=True,
 ):
+    """
+    Extract and stack vis and static GeoTIFF data.
 
+    Args:
+        input_paths: Path(s) to directory or file(s)
+        band_filter: Not currently used
+        max_images: Maximum number of image pairs to process
+        verbose: Print progress information
+        verify_bands: Verify that band filtering worked correctly
+
+    Returns:
+        tuple: (stacked_data, file_pairs)
+            - stacked_data: List of xarray DataArrays, one per location
+            - file_pairs: List of (vis_file, static_file) tuples
+    """
     # Convert input to list of file paths
     if isinstance(input_paths, (str, Path)):
         input_paths = [input_paths]
@@ -34,98 +264,111 @@ def extract_images(
             file_paths.append(str(path))
         elif path.is_dir():
             pattern = str(path / "**/*.tif")
-            print(f"Searching with pattern: {pattern}")
+            if verbose:
+                print(f"Searching with pattern: {pattern}")
             found = glob(pattern, recursive=True)
-            print(f"Found {len(found)} files")
+            if verbose:
+                print(f"Found {len(found)} files")
             file_paths.extend(found)
+
     if not file_paths:
         raise ValueError(f"No .tif files found in {input_paths}")
 
     file_paths = sorted(file_paths)
+    cubes_by_tile, _ = group_cubes_by_tile(file_paths)
+    wac_cubes = [data_dict['wac'] for tile_id, data_dict in cubes_by_tile.items()]
+    static_cubes = [data_dict['static'] for tile_id, data_dict in cubes_by_tile.items()]
 
+    if verbose:
+        print(
+            f"\nFound {len(file_paths)} total .tif files. "
+            f"Wac: {len(wac_cubes)}, Static: {len(static_cubes)}"
+        )
+
+    # Apply max_images limit
     if max_images is not None:
-        file_paths = file_paths[:max_images]
+        file_pairs = file_pairs[:max_images]
+        if verbose:
+            print(f"Limiting to {max_images} pairs")
 
-    if verbose:
-        print(f"Found {len(file_paths)} .tif files")
+    # Process each pair
+    all_datasets = []
 
-    # Read first image to get dimensions
-    with rasterio.open(file_paths[0]) as src:
-        total_bands = src.count
-        height = src.height
-        width = src.width
+    # We have already extracted only a single WAC/STATIC file per tile ID
+    for tile_id, dataset_dict in cubes_by_tile.items():
+        wac_file = dataset_dict['wac']  # Assume there's only a single file
+        static_file = dataset_dict['static']  # Assume there's only a single file
+        if verbose:
+            print(f"\n{'='*60}")
+            print(f"Processing tile_id: {tile_id}")
+            print(f"  Wac: {wac_file}")
+            print(f"  Static: {static_file}")
 
-    # Determine band configuration
-    if band_filter is None:
-        bands_to_extract = list(range(total_bands))
-        if bands_per_slice is None:
-            bands_per_slice = total_bands
-    else:
-        bands_to_extract = band_filter
-        if bands_per_slice is None:
-            bands_per_slice = 7  # Default to 7-band slices for data cubes
+        # Load wac data
+        wac_ds = rxr.open_rasterio(wac_file)
+        if verbose:
+            print(f"  Wac bands: {wac_ds.sizes['band']}")
 
-    n_bands_output = len(bands_to_extract)
-
-    if verbose:
-        print(
-            f"Extracting {n_bands_output} bands from {total_bands} total bands"
-        )
-        if band_filter is not None:
-            print(f"Band filter: {band_filter}")
-
-    # Extract data from each file
-    valid_data = []
-    valid_paths = []
-
-    for file_path in file_paths:
-        with rasterio.open(file_path) as src:
-            n_bands = src.count
-            n_slices = n_bands // bands_per_slice  # e.g., 70 // 7 = 10 slices
-
-            for slice_idx in range(n_slices):
-                start_band = slice_idx * bands_per_slice
-
-                # Read ALL bands in the slice first
-                slice_bands = list(
-                    range(start_band, start_band + bands_per_slice)
-                )
-
-                temp_data = np.zeros(
-                    (bands_per_slice, src.height, src.width), dtype=np.float32
-                )
-                for j, band_idx in enumerate(slice_bands):
-                    temp_data[j, :, :] = src.read(band_idx + 1)
-
-                # Check if all bands have positive values
-                if (temp_data > 0).all():
-                    # NOW filter to get only the requested bands
-                    if band_filter is not None:
-                        # Extract only the bands specified in band_filter
-                        filtered_data = temp_data[bands_to_extract, :, :]
-                        valid_data.append(filtered_data)
-                    else:
-                        valid_data.append(temp_data)
-
-                    valid_paths.append(f"{file_path}_slice{slice_idx}")
-                elif verbose:
-                    print(
-                        f"  ✗ Skipped {Path(file_path).name} slice {slice_idx}: contains values <= 0"
-                    )
-
-    data = np.stack(valid_data, axis=0)
-    file_paths = valid_paths
-
-    if max_images and len(data) > max_images:
-        data = data[:max_images]
-        file_paths = file_paths[:max_images]
-
-    if verbose:
-        print(
-            f"  ✓ Extraction complete: {len(file_paths)} valid images, shape {data.shape}"
+        # Load and filter static data
+        static_datasets = filter_static_bands(
+            [static_file],
+            verbose=verbose,
+            verify=verify_bands
         )
 
-    return data, file_paths
+        if not static_datasets:
+            if verbose:
+                print(f"  ⚠ Skipping pair - no static bands matched")
+            continue
+
+        static_ds = static_datasets[0]
+
+        # Combine wac and static
+        combined_ds = xr.concat([wac_ds, static_ds], dim='band')
+
+        if verbose:
+            print(f"  Combined shape: {combined_ds.shape}")
+            print(
+                f"  Combined bands: wac({wac_ds.sizes['band']}) "
+                f"+ static({static_ds.sizes['band']}) = {combined_ds.sizes['band']}"
+            )
+
+        all_datasets.append(combined_ds)
+
+    if verbose:
+        print(f"\n{'='*60}")
+        total_bands = sum(ds.sizes['band'] for ds in all_datasets)
+        print(
+            f"✓ Extraction complete: {len(all_datasets)} combined datacubes, "
+            f"{total_bands} total bands across all cubes"
+        )
+        if all_datasets:
+            print(f"  Example shape: {all_datasets[0].shape}")
+
+    file_pairs = [
+        (cubes_by_tile[tid]['wac'], cubes_by_tile[tid]['static'])
+        for tid in cubes_by_tile
+    ]
+
+    return all_datasets, file_pairs
+
+
+def print_band_info(data_array, label="DataArray"):
+    """
+    Print information about bands in an xarray DataArray.
+    Useful for debugging/verification.
+    """
+    print(f"\n{label} band information:")
+    print(f"  Shape: {data_array.shape}")
+    print(f"  Number of bands: {data_array.sizes['band']}")
+
+    # Try to get band names if they exist
+    if 'long_name' in data_array.attrs:
+        print(f"  Bands: {data_array.attrs['long_name']}")
+
+    # Print first few band values to check
+    print(f"  Band dimension coordinates: {data_array.band.values}")
+
 
 
 def plot_data_cubes(
