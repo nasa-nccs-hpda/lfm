@@ -588,7 +588,7 @@ def get_dataloaders(
             print(f"Std per channel: {std}")
 
     # Calculate statistics if not loaded, or if we are doing a new filtering
-    if mean is None or std is None:
+    if mean is None or std is None and normalize_inputs:
         print("Computing dataset statistics...")
         mean, std = calculate_dataset_statistics(
             image_dir, input_file_type, debug
