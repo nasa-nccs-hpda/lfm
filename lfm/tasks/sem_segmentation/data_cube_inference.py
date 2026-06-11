@@ -646,7 +646,6 @@ def run_datacube_inference(
     # Transpose to (N, H, W, 12) for band-wise processing
     images_transposed = np.transpose(images_raw, (0, 2, 3, 1))
     print(f"Transposed to: {images_transposed.shape}")  # (N, 512, 512, 12)
-    return images_transposed, None
 
     # ============================================
     # STEP 1: Min-max scale each band to [0, 1]
@@ -663,28 +662,29 @@ def run_datacube_inference(
     # ============================================
     n_channels = 12
 
-    if mean.shape[0] != n_channels or std.shape[0] != n_channels:
-        raise ValueError(
-            f"Mean/std must have {n_channels} values (one per band). "
-            f"Got mean: {mean.shape[0]}, std: {std.shape[0]}"
-        )
+    # if mean.shape[0] != n_channels or std.shape[0] != n_channels:
+    #     raise ValueError(
+    #         f"Mean/std must have {n_channels} values (one per band). "
+    #         f"Got mean: {mean.shape[0]}, std: {std.shape[0]}"
+    #     )
 
-    print(f"Applying normalization with training statistics:")
-    print(f"  Mean shape: {mean.shape}")
-    print(f"  Std shape: {std.shape}")
-    print(f"  Mean (first 3 bands): {mean[:3]}")
-    print(f"  Std (first 3 bands): {std[:3]}")
+    # print(f"Applying normalization with training statistics:")
+    # print(f"  Mean shape: {mean.shape}")
+    # print(f"  Std shape: {std.shape}")
+    # print(f"  Mean (first 3 bands): {mean[:3]}")
+    # print(f"  Std (first 3 bands): {std[:3]}")
 
-    mean_reshaped = mean.reshape(1, 1, 1, n_channels)
-    std_reshaped = std.reshape(1, 1, 1, n_channels)
+    # mean_reshaped = mean.reshape(1, 1, 1, n_channels)
+    # std_reshaped = std.reshape(1, 1, 1, n_channels)
 
-    images_npy = (images_scaled - mean_reshaped) / (std_reshaped + 1e-8)
+    # images_npy = (images_scaled - mean_reshaped) / (std_reshaped + 1e-8)
 
-    print(f"\nAfter normalization:")
-    print(f"  Shape: {images_npy.shape}")
-    print(f"  Range: [{images_npy.min():.3f}, {images_npy.max():.3f}]")
-    print(f"  Mean per channel: {images_npy.mean(axis=(0,1,2))}")
-    print(f"  Std per channel: {images_npy.std(axis=(0,1,2))}")
+    # print(f"\nAfter normalization:")
+    # print(f"  Shape: {images_npy.shape}")
+    # print(f"  Range: [{images_npy.min():.3f}, {images_npy.max():.3f}]")
+    # print(f"  Mean per channel: {images_npy.mean(axis=(0,1,2))}")
+    # print(f"  Std per channel: {images_npy.std(axis=(0,1,2))}")
+    images_npy = images_scaled  # skip norm for now
 
     # ============================================
     # STEP 4: Run sliding window inference
