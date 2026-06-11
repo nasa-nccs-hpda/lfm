@@ -12,6 +12,7 @@ from typing import Tuple, Optional, List
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+import torch.nn.functional as F
 from tqdm import tqdm
 import rasterio
 
@@ -42,10 +43,12 @@ class LunarCraterDatasetMask2Former(Dataset):
         input_file_type: str = ".npy",
         label_file_type: str = ".npz",
         band_filter: List[int] = None,
+        normalize_inputs: bool = True,
     ):
         self.image_dir = image_dir
         self.label_dir = label_dir
         self.target_size = target_size
+        self.normalize_inputs = normalize_inputs
 
         # Used for m2f
         self.image_processor = image_processor
@@ -237,13 +240,14 @@ class LunarCraterDatasetMask2Former(Dataset):
 
         # Normalize image with dataset statistics
         # Filter mean/std to use our band indices filter
-        mean_filtered = self.mean[self.band_filter]
-        std_filtered = self.std[self.band_filter]
+        if self.normalize_inputs:
+            mean_filtered = self.mean[self.band_filter]
+            std_filtered = self.std[self.band_filter]
 
-        # Reshape mean and std to (1, 1, C) for broadcasting with (H, W, C)
-        mean_reshaped = mean_filtered.reshape(1, 1, -1)
-        std_reshaped = std_filtered.reshape(1, 1, -1)
-        # image = (image - mean_reshaped) / std_reshaped
+            # Reshape mean and std to (1, 1, C) for broadcasting with (H, W, C)
+            mean_reshaped = mean_filtered.reshape(1, 1, -1)
+            std_reshaped = std_filtered.reshape(1, 1, -1)
+            image = (image - mean_reshaped) / std_reshaped
 
         # ============================================
         # MANUAL PROCESSING (no image_processor for images)
@@ -253,7 +257,7 @@ class LunarCraterDatasetMask2Former(Dataset):
         image_tensor = torch.from_numpy(image).float().permute(2, 0, 1)
 
         # Resize image
-        image_tensor = torch.nn.functional.interpolate(
+        image_tensor = F.interpolate(
             image_tensor.unsqueeze(0),
             size=self.target_size,
             mode='bilinear',
@@ -262,7 +266,7 @@ class LunarCraterDatasetMask2Former(Dataset):
 
         # Resize instance mask
         instance_mask_tensor = torch.from_numpy(instance_mask).long()
-        instance_mask_resized = torch.nn.functional.interpolate(
+        instance_mask_resized = F.interpolate(
             instance_mask_tensor.unsqueeze(0).unsqueeze(0).float(),
             size=self.target_size,
             mode='nearest'
