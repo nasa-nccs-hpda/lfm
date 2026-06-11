@@ -548,6 +548,7 @@ def get_dataloaders(
     debug: bool = False,
     band_filter: List[int] = None,
     output_dir: str = "output",
+    normalize_inputs: bool = True,
 ):
     """
     Create train/val dataloaders with automatic statistics calculation.
@@ -610,6 +611,7 @@ def get_dataloaders(
         input_file_type=input_file_type,
         label_file_type=label_file_type,
         band_filter=band_filter,
+        normalize_inputs=normalize_inputs
     )
 
     # Split into train/val

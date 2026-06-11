@@ -551,6 +551,8 @@ def get_dataloaders(
     label_file_type: str = ".npy",
     debug: bool = False,
     band_filter: List[int] = None,
+    output_dir: str = "output",
+    normalize_inputs: bool = True,
 ):
     """
     Create train/val dataloaders with automatic statistics calculation.
@@ -590,7 +592,7 @@ def get_dataloaders(
             print(f"Std per channel: {std}")
 
     # Calculate statistics if not loaded
-    if mean is None or std is None:
+    if mean is None or std is None and normalize_inputs:
         print("Computing dataset statistics...")
         mean, std = calculate_dataset_statistics(
             image_dir, input_file_type, debug
@@ -614,6 +616,7 @@ def get_dataloaders(
         input_file_type=input_file_type,
         label_file_type=label_file_type,
         band_filter=band_filter,
+        normalize_inputs=normalize_inputs
     )
 
     # Split into train/val
