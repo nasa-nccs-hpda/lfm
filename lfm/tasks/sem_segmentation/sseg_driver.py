@@ -379,7 +379,7 @@ def train_epoch(
 
     progress_bar = tqdm(dataloader, desc=desc)
 
-    for images, labels in progress_bar:
+    for images, labels, image_paths, label_paths in progress_bar:
         images = images.to(device)
         labels = labels.to(device)
 
