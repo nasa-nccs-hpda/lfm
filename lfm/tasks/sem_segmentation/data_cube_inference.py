@@ -3,6 +3,7 @@ from datetime import datetime
 from glob import glob
 from pathlib import Path
 import math
+import re
 
 # Third-party imports
 import matplotlib.pyplot as plt
@@ -13,16 +14,238 @@ from tiler import Tiler, Merger
 import torch
 from transformers import AutoImageProcessor
 import xarray as xr
+from tqdm import tqdm
 
 
-def extract_images(
+import xarray as xr
+import rioxarray as rxr
+import rasterio
+import re
+from pathlib import Path
+import os
+from glob import glob
+
+# ============================================================
+# DATA LOADING
+# ============================================================
+
+def verify_band_selection(filepath, band_indices, pattern, verbose=True):
+    """
+    Verify that selected bands actually match the pattern.
+
+    Args:
+        filepath: Path to raster file
+        band_indices: List of 1-based band indices (from rasterio)
+        pattern: Regex pattern that was used for matching
+        verbose: Print verification details
+
+    Returns:
+        tuple: (all_match: bool, band_names: list, mismatches: list)
+    """
+    regex = re.compile(pattern)
+    band_names = []
+    mismatches = []
+
+    with rasterio.open(filepath) as src:
+        if verbose:
+            print(f"\n  Verifying bands for {Path(filepath).name}:")
+            print(f"  Pattern: '{pattern}'")
+            print(f"  Selected band indices (1-based): {band_indices}")
+            print(f"  Band verification:")
+
+        for band_idx in band_indices:
+            tags = src.tags(band_idx)
+            band_name = tags.get('Name', '')
+            band_names.append(band_name)
+
+            matches = bool(regex.search(band_name))
+            status = "✓" if matches else "✗"
+
+            if verbose:
+                print(f"    Band {band_idx}: {band_name} {status}")
+
+            if not matches:
+                mismatches.append((band_idx, band_name))
+
+    all_match = len(mismatches) == 0
+
+    if verbose:
+        if all_match:
+            print(f"  ✓ All {len(band_indices)} bands match pattern")
+        else:
+            print(f"  ✗ WARNING: {len(mismatches)} bands don't match pattern!")
+
+    return all_match, band_names, mismatches
+
+
+def check_bands_exist(filepath: Path, pattern: str) -> tuple:
+    """
+    Check if bands matching regex exist.
+
+    Args:
+        filepath: Path to raster file
+        pattern: Regex pattern to match against band names
+
+    Returns:
+        (exists: bool, band_numbers: list, error_message: str or None)
+    """
+    band_indices = []
+    try:
+        regex = re.compile(pattern)
+        with rasterio.open(filepath) as src:
+            for band_idx in range(1, src.count + 1):
+                tags = src.tags(band_idx)
+                band_name = tags.get('Name', '')
+
+                if regex.search(band_name):
+                    band_indices.append(band_idx)
+
+            if not band_indices:
+                return False, None, f"No bands matching pattern '{pattern}' found"
+
+            return True, band_indices, None
+
+    except re.error as e:
+        return False, None, f"Invalid regex pattern: {str(e)}"
+    except Exception as e:
+        return False, None, f"Error reading file: {str(e)}"
+
+
+def filter_static_bands(static_cubes, verbose=True, verify=True):
+    """
+    Filter static cube bands to only include those matching 'lola_kaguya' pattern.
+
+    Args:
+        static_cubes: List of file paths to static cube GeoTIFFs
+        verbose: Print filtering information
+        verify: Verify band selection is correct
+
+    Returns:
+        List of xarray DataArrays with filtered bands
+    """
+    static_datasets = []
+    STATIC_BAND_REGEX = r"lola_kaguya"
+
+    for cube in static_cubes:
+        bands_exist, band_indices, error_message = check_bands_exist(
+            cube, STATIC_BAND_REGEX
+        )
+
+        if not bands_exist:
+            if verbose:
+                print(f"  ⚠ Skipping {Path(cube).name}: {error_message}")
+            continue
+
+        # Verify the band selection if requested
+        if verify:
+            all_match, band_names, mismatches = verify_band_selection(
+                cube, band_indices, STATIC_BAND_REGEX, verbose=verbose
+            )
+            if not all_match:
+                raise ValueError(
+                    f"Band verification failed for {cube}. "
+                    f"Mismatches: {mismatches}"
+                )
+
+        # Convert from 1-based (rasterio) to 0-based (xarray) indexing
+        band_indices_0based = [idx - 1 for idx in band_indices]
+
+        if verbose:
+            print(f"  Converting indices: {band_indices} (rasterio) -> {band_indices_0based} (xarray)")
+
+        # Open with rioxarray and select matching bands
+        ds = rxr.open_rasterio(cube)
+
+        if verbose:
+            print(f"  Total bands in file: {ds.sizes['band']}")
+            print(f"  Selecting bands at 0-based indices: {band_indices_0based}")
+
+        ds_filtered = ds.isel(band=band_indices_0based)
+
+        if verbose:
+            print(f"  ✓ Result: {ds_filtered.sizes['band']} bands selected\n")
+
+        static_datasets.append(ds_filtered)
+
+    return static_datasets
+
+
+def group_cubes_by_tile(datacubes: list) -> tuple:
+    """
+    Group datacubes by tile ID.
+
+    Args:
+        datacubes: List of datacube file paths
+
+    Returns:
+        (cubes_by_tile: dict, ltm_dict: dict)
+    """
+    import re
+
+    # Extract cubes by modality
+    wac_datacubes = [cube for cube in datacubes if "Static" not in cube]
+    static_datacubes = [cube for cube in datacubes if "Static" in cube]
+
+    # Get LTM zones
+    ltm_pattern = r"Cube-LTM[0-9]+[NS]"
+    ltm_matches = [
+        re.search(ltm_pattern, cube).group() for cube in datacubes
+        if re.search(ltm_pattern, cube)
+    ]
+    ltm_unique = set(ltm_matches)
+    ltm_dict = {
+        "all_zones": ltm_matches,
+        "unique": ltm_unique,
+    }
+
+    # Get tile indices
+    tile_pattern = r"_Tile-[0-9]+-[0-9]+"
+    tile_matches = [
+        re.search(tile_pattern, cube).group() for cube in datacubes
+        if re.search(tile_pattern, cube)
+    ]
+
+    # Get unique tile indices
+    unique_tiles = set(tile_matches)
+    tile_ids = sorted([match.replace("_Tile-", "") for match in unique_tiles])
+
+    cubes_by_tile = {}
+
+    for tile_id in tile_ids:
+        wac_cubes = [f for f in wac_datacubes if tile_id in f]
+        static_cubes = [f for f in static_datacubes if tile_id in f]
+        if len(wac_cubes) > 0 and len(static_cubes) > 0:
+            wac_cube = wac_cubes[0]
+            static_cube = static_cubes[0]
+            cubes_by_tile[tile_id] = {"wac": wac_cube, "static": static_cube}
+        # otherwise we leave the dict without an element for this tile
+        #  this way rxr doesn't try to open an invalid filename
+
+    return cubes_by_tile, ltm_dict
+
+
+def get_datacube_data(
     input_paths,
     band_filter=None,
-    bands_per_slice=None,
     max_images=None,
     verbose=True,
+    verify_bands=True,
 ):
+    """
+    Extract and stack vis and static GeoTIFF data.
 
+    Args:
+        input_paths: Path(s) to directory or file(s)
+        band_filter: Not currently used
+        max_images: Maximum number of image pairs to process
+        verbose: Print progress information
+        verify_bands: Verify that band filtering worked correctly
+
+    Returns:
+        tuple: (stacked_data, file_pairs)
+            - stacked_data: numpy array of shape (N, bands, H, W)
+            - file_pairs: List of (vis_file, static_file) tuples
+    """
     # Convert input to list of file paths
     if isinstance(input_paths, (str, Path)):
         input_paths = [input_paths]
@@ -34,452 +257,393 @@ def extract_images(
             file_paths.append(str(path))
         elif path.is_dir():
             pattern = str(path / "**/*.tif")
-            print(f"Searching with pattern: {pattern}")
+            if verbose:
+                print(f"Searching with pattern: {pattern}")
             found = glob(pattern, recursive=True)
-            print(f"Found {len(found)} files")
+            if verbose:
+                print(f"Found {len(found)} files")
             file_paths.extend(found)
+
     if not file_paths:
         raise ValueError(f"No .tif files found in {input_paths}")
 
     file_paths = sorted(file_paths)
 
-    if max_images is not None:
-        file_paths = file_paths[:max_images]
-
-    if verbose:
-        print(f"Found {len(file_paths)} .tif files")
-
-    # Read first image to get dimensions
-    with rasterio.open(file_paths[0]) as src:
-        total_bands = src.count
-        height = src.height
-        width = src.width
-
-    # Determine band configuration
-    if band_filter is None:
-        bands_to_extract = list(range(total_bands))
-        if bands_per_slice is None:
-            bands_per_slice = total_bands
-    else:
-        bands_to_extract = band_filter
-        if bands_per_slice is None:
-            bands_per_slice = 7  # Default to 7-band slices for data cubes
-
-    n_bands_output = len(bands_to_extract)
+    cubes_by_tile, _ = group_cubes_by_tile(file_paths)
+    wac_cubes = [data_dict['wac'] for tile_id, data_dict in cubes_by_tile.items()]
+    static_cubes = [data_dict['static'] for tile_id, data_dict in cubes_by_tile.items()]
+    # Create file pairs
+    file_pairs = [
+        (cubes_by_tile[tid]['wac'], cubes_by_tile[tid]['static'])
+        for tid in cubes_by_tile
+    ]
 
     if verbose:
         print(
-            f"Extracting {n_bands_output} bands from {total_bands} total bands"
-        )
-        if band_filter is not None:
-            print(f"Band filter: {band_filter}")
-
-    # Extract data from each file
-    valid_data = []
-    valid_paths = []
-
-    for file_path in file_paths:
-        with rasterio.open(file_path) as src:
-            n_bands = src.count
-            n_slices = n_bands // bands_per_slice  # e.g., 70 // 7 = 10 slices
-
-            for slice_idx in range(n_slices):
-                start_band = slice_idx * bands_per_slice
-
-                # Read ALL bands in the slice first
-                slice_bands = list(
-                    range(start_band, start_band + bands_per_slice)
-                )
-
-                temp_data = np.zeros(
-                    (bands_per_slice, src.height, src.width), dtype=np.float32
-                )
-                for j, band_idx in enumerate(slice_bands):
-                    temp_data[j, :, :] = src.read(band_idx + 1)
-
-                # Check if all bands have positive values
-                if (temp_data > 0).all():
-                    # NOW filter to get only the requested bands
-                    if band_filter is not None:
-                        # Extract only the bands specified in band_filter
-                        filtered_data = temp_data[bands_to_extract, :, :]
-                        valid_data.append(filtered_data)
-                    else:
-                        valid_data.append(temp_data)
-
-                    valid_paths.append(f"{file_path}_slice{slice_idx}")
-                elif verbose:
-                    print(
-                        f"  ✗ Skipped {Path(file_path).name} slice {slice_idx}: contains values <= 0"
-                    )
-
-    data = np.stack(valid_data, axis=0)
-    file_paths = valid_paths
-
-    if max_images and len(data) > max_images:
-        data = data[:max_images]
-        file_paths = file_paths[:max_images]
-
-    if verbose:
-        print(
-            f"  ✓ Extraction complete: {len(file_paths)} valid images, shape {data.shape}"
+            f"\nFound {len(file_paths)} total .tif files. "
+            f"Wac: {len(wac_cubes)}, Static: {len(static_cubes)}"
         )
 
-    return data, file_paths
+    # Process each pair
+    all_datasets = []
 
-
-def plot_data_cubes(
-    input_paths,
-    mode="rgb",
-    mean=None,
-    std=None,
-    max_images=None,
-    band_filter=None,
-    bands_per_slice=7,
-    figsize=None,
-    titles=None,
-    cmap="viridis",
-    vmin=None,
-    vmax=None,
-    suptitle=None,
-    colorbar=False,
-    normalize_per_band=True,
-    apply_normalization=True,
-    output_path="output.png",
-    verbose=True,
-):
-    """
-    Extract and plot data cubes from .tif files as either RGB composites or individual bands.
-
-    Parameters:
-    -----------
-    input_paths : str, Path, or list
-        Path(s) to search for .tif files. Can be:
-        - Single directory path (will glob recursively)
-        - Single .tif file path
-        - List of paths
-    mode : str, default='rgb'
-        'rgb' for RGB composite or 'bands' for individual band plots
-    mean : np.ndarray or None
-        Mean values for normalization. Shape should be (n_bands,) or broadcastable.
-        If None and apply_normalization=True, computed from data.
-    std : np.ndarray or None
-        Std values for normalization. Shape should be (n_bands,) or broadcastable.
-        If None and apply_normalization=True, computed from data.
-    max_images : int, optional
-        Maximum number of image slices to extract and plot
-    band_filter : list of int, optional
-        Which bands to extract from each slice.
-        For RGB mode: e.g., [5, 3, 2] extracts bands 5, 3, 2 as R, G, B
-        For bands mode: e.g., [0, 1, 2, 3, 4] extracts first 5 bands
-        If None, uses all bands in slice (determined by bands_per_slice)
-    bands_per_slice : int, default=7
-        Total number of bands per complete slice in the TIFF file
-    figsize : tuple, optional
-        Figure size (width, height). If None, auto-calculated.
-    titles : list of str, optional
-        Titles for each row (image). If None, uses filenames.
-    cmap : str, default='viridis'
-        Colormap for individual bands (only used in 'bands' mode)
-    vmin, vmax : float, optional
-        Color scale limits for individual bands. If None, auto-scales.
-    suptitle : str, optional
-        Overall figure title
-    colorbar : bool, default=False
-        Add colorbar to band plots (only in 'bands' mode)
-    normalize_per_band : bool, default=True
-        If True, normalize each band independently for display.
-        Only applies to color scaling, not mean/std normalization.
-    apply_normalization : bool, default=True
-        If True, applies (data - mean) / std normalization
-    output_path : str, default='output.png'
-        Path to save the figure. If None, doesn't save.
-    verbose : bool, default=True
-        Print extraction progress
-
-    Returns:
-    --------
-    fig, axes : matplotlib figure and axes objects
-    data : np.ndarray
-        Extracted raw data array (N, bands, H, W)
-    data_normalized : np.ndarray
-        Normalized data array (N, H, W, bands)
-    file_paths : list
-        List of file paths that were loaded
-
-    Examples:
-    ---------
-    # RGB mode - extracts bands 5, 3, 2 as RGB
-    fig, axes, data, data_norm, paths = plot_data_cubes(
-        '/path/to/tifs/',
-        mode='rgb',
-        band_filter=[5, 3, 2],
-        mean=my_mean,
-        std=my_std,
-        max_images=10
-    )
-
-    # Individual bands mode - extracts all 7 bands
-    fig, axes, data, data_norm, paths = plot_data_cubes(
-        '/path/to/tifs/',
-        mode='bands',
-        bands_per_slice=7,
-        cmap='viridis',
-        max_images=5
-    )
-    """
-
-    # Determine band configuration based on mode
-    if mode == "rgb":
-        if band_filter is None:
-            band_filter = [3, 1, 0]  # Default RGB bands
-        if len(band_filter) != 3:
-            raise ValueError(
-                f"RGB mode requires exactly 3 bands in band_filter, got {len(band_filter)}"
-            )
-    elif mode == "bands":
-        if band_filter is None:
-            band_filter = list(range(bands_per_slice))  # Extract all bands
-    else:
-        raise ValueError(f"Unknown mode: '{mode}'. Use 'rgb' or 'bands'.")
-
-    if verbose:
-        print(f"Extracting data in '{mode}' mode...")
-        print(f"Band filter: {band_filter}")
-
-    # Extract images using extract_images
-    data, file_paths = extract_images(
-        input_paths=input_paths,
-        band_filter=band_filter,
-        bands_per_slice=bands_per_slice,
-        max_images=max_images,
-        verbose=verbose,
-    )
-
-    # data shape: (N, bands, H, W) - channels first, raw positive values
-    n_images, n_bands, height, width = data.shape
-
-    if verbose:
-        print(f"Extracted {n_images} images with {n_bands} bands each")
-        print(f"Image dimensions: {height}×{width}")
-
-    # Transpose to (N, H, W, bands) for processing
-    data_transposed = np.transpose(data, (0, 2, 3, 1))  # (N, H, W, bands)
-
-    # Apply min-max scaling to [0, 1]
-    data_scaled = np.zeros_like(data_transposed, dtype=np.float32)
-    for i in range(n_images):
-        for b in range(n_bands):
-            band = data_transposed[i, :, :, b]
-            band_min, band_max = band.min(), band.max()
-            if band_max > band_min:
-                data_scaled[i, :, :, b] = (band - band_min) / (
-                    band_max - band_min
-                )
-            else:
-                data_scaled[i, :, :, b] = band
-
-    if verbose:
-        print(
-            f"After min-max scaling: min={data_scaled.min():.3f}, max={data_scaled.max():.3f}"
-        )
-
-    # Apply mean/std normalization if requested
-    if apply_normalization:
-        if mean is None:
-            mean = data_scaled.mean(axis=(0, 1, 2))  # (n_bands,)
-            if verbose:
-                print(f"Computed mean from data: {mean}")
-        else:
-            mean = np.array(mean)
-            if mean.ndim == 1:
-                mean = mean.reshape(1, 1, 1, -1)  # (1, 1, 1, n_bands)
-
-        if std is None:
-            std = data_scaled.std(axis=(0, 1, 2))  # (n_bands,)
-            if verbose:
-                print(f"Computed std from data: {std}")
-        else:
-            std = np.array(std)
-            if std.ndim == 1:
-                std = std.reshape(1, 1, 1, -1)  # (1, 1, 1, n_bands)
-
-        data_normalized = (data_scaled - mean) / (std + 1e-8)
+    # We have already extracted only a single WAC/STATIC file per tile ID
+    for tile_id, dataset_dict in cubes_by_tile.items():
+        wac_file = dataset_dict['wac']
+        static_file = dataset_dict['static']
 
         if verbose:
+            print(f"\n{'='*60}")
+            print(f"Processing tile_id: {tile_id}")
+            print(f"  Wac: {wac_file}")
+            print(f"  Static: {static_file}")
+
+        # Load wac data, reorder to training order
+        wac_ds = rxr.open_rasterio(wac_file)
+        vis_uv_order = [2, 3, 4, 5, 6, 0, 1]
+        wac_ds = wac_ds.isel(band=vis_uv_order)
+        if verbose:
+            print(f"  Wac bands: {wac_ds.sizes['band']}")
+
+        # Load and filter static data
+        static_datasets = filter_static_bands(
+            [static_file],
+            verbose=verbose,
+            verify=verify_bands
+        )
+
+        if not static_datasets:
+            if verbose:
+                print(f"  ⚠ Skipping pair - no static bands matched")
+            continue
+
+        static_ds = static_datasets[0]
+
+        # Combine wac and static
+        combined_ds = xr.concat([wac_ds, static_ds], dim='band')
+        # clipped_combined_ds = np.clip(combined_ds.values, 0, 1)
+
+        if verbose:
+            print(f"  Combined shape: {combined_ds.shape}")
             print(
-                f"After normalization: min={data_normalized.min():.3f}, max={data_normalized.max():.3f}"
+                f"  Combined bands: wac({wac_ds.sizes['band']}) "
+                f"+ static({static_ds.sizes['band']}) = {combined_ds.sizes['band']}"
             )
-    else:
-        data_normalized = data_scaled.copy()
-        if verbose:
-            print("Skipping normalization")
+            print(f"  Combined min/max: {np.min(combined_ds.values), np.max(combined_ds.values)}")
 
-    # Generate titles from filenames if not provided
-    if titles is None:
-        titles = [Path(fp).stem for fp in file_paths]
+        # Convert to numpy and append
+        if not np.any(combined_ds.values == combined_ds.rio.nodata):
+            all_datasets.append(combined_ds)
+        elif verbose:
+            print(f"  ⚠ Skipping - contains nodata (value: {combined_ds.rio.nodata})")
 
-    # Create visualization
-    if mode == "rgb":
-        # ==================== RGB Composite Mode ====================
-        if figsize is None:
-            figsize = (5 * min(n_images, 5), 5 * math.ceil(n_images / 5))
-
-        # Calculate grid layout
-        n_cols = min(n_images, 5)
-        n_rows = math.ceil(n_images / n_cols)
-
-        fig, axes = plt.subplots(
-            n_rows, n_cols, figsize=figsize, squeeze=False
-        )
-        axes = axes.flatten()
-
-        for i in range(n_images):
-            # Use scaled data (pre-normalization) for visualization
-            # This keeps values in [0, 1] range which looks good
-            rgb = data_scaled[i, :, :, :]  # (H, W, 3)
-
-            # Display RGB image
-            axes[i].imshow(rgb)
-            axes[i].axis("off")
-
-            if i < len(titles):
-                axes[i].set_title(titles[i], fontsize=10)
-            else:
-                axes[i].set_title(f"Image {i}", fontsize=10)
-
-        # Turn off extra subplots
-        for i in range(n_images, len(axes)):
-            axes[i].axis("off")
-
-        if suptitle:
-            fig.suptitle(suptitle, fontsize=14, y=0.99)
-        else:
-            fig.suptitle(
-                f"RGB Data Cubes ({n_images} images)", fontsize=14, y=0.99
-            )
-
-    elif mode == "bands":
-        # ==================== Individual Bands Mode ====================
-        if figsize is None:
-            figsize = (2.5 * n_bands, 2.5 * n_images)
-
-        fig, axes = plt.subplots(
-            n_images, n_bands, figsize=figsize, squeeze=False
-        )
-
-        # Calculate global vmin/vmax if not provided and not normalizing per band
-        if not normalize_per_band:
-            if vmin is None:
-                vmin = data_scaled.min()  # Use scaled data for display
-            if vmax is None:
-                vmax = data_scaled.max()
-
-        for i in range(n_images):
-            for j in range(n_bands):
-                # Use scaled data (pre-normalization) for visualization
-                band_data = data_scaled[i, :, :, j]
-
-                # Determine color limits
-                if normalize_per_band:
-                    band_vmin = band_data.min() if vmin is None else vmin
-                    band_vmax = band_data.max() if vmax is None else vmax
-                else:
-                    band_vmin = vmin
-                    band_vmax = vmax
-
-                im = axes[i, j].imshow(
-                    band_data, cmap=cmap, vmin=band_vmin, vmax=band_vmax
-                )
-                axes[i, j].axis("off")
-
-                # Column titles (band index and value range) on each row
-                if band_filter is not None:
-                    original_band = band_filter[j]
-                else:
-                    original_band = j
-
-                band_min = band_data.min()
-                band_max = band_data.max()
-                axes[i, j].set_title(
-                    f"Band {original_band}\n[{band_min:.2f}, {band_max:.2f}]",
-                    fontsize=9,
-                )
-
-                # Add colorbar if requested
-                if colorbar:
-                    from mpl_toolkits.axes_grid1 import make_axes_locatable
-
-                    divider = make_axes_locatable(axes[i, j])
-                    cax = divider.append_axes("right", size="5%", pad=0.05)
-                    plt.colorbar(im, cax=cax)
-
-            # Row titles (image name) on left
-            if i < len(titles):
-                axes[i, 0].set_ylabel(
-                    titles[i],
-                    rotation=0,
-                    labelpad=80,
-                    fontsize=10,
-                    va="center",
-                    ha="right",
-                )
-            else:
-                axes[i, 0].set_ylabel(
-                    f"Image {i}",
-                    rotation=0,
-                    labelpad=80,
-                    fontsize=10,
-                    va="center",
-                    ha="right",
-                )
-
-        if suptitle:
-            fig.suptitle(suptitle, fontsize=14, y=0.99)
-        else:
-            fig.suptitle(
-                f"Data Cube Bands ({n_images} images × {n_bands} bands)",
-                fontsize=14,
-                y=0.99,
-            )
-
-    plt.tight_layout()
-
-    # Save figure if path provided
-    if output_path:
-        plt.savefig(output_path, dpi=150, bbox_inches="tight")
-        if verbose:
-            print(f"✓ Saved figure to: {output_path}")
+    # Apply max_images limit AFTER processing (not before)
+    if max_images is not None:
+        all_datasets = all_datasets[:max_images]
+        file_pairs = file_pairs[:max_images]
 
     if verbose:
-        print(f"✓ Plotted {n_images} images with {n_bands} bands each")
+        print(f"\n{'='*60}")
+        if all_datasets:
+            # FIX: Use numpy array properties instead of xarray
+            total_bands = sum(ds.shape[0] for ds in all_datasets)  # Changed from .sizes['band']
+            print(
+                f"✓ Extraction complete: {len(all_datasets)} combined datacubes, "
+                f"{total_bands} total bands across all cubes"
+            )
+            print(f"  Example shape: {all_datasets[0].shape}")
+        else:
+            print("⚠️ No datasets were extracted")
 
-    return fig, axes, data, data_normalized, file_paths
+    # Convert to numpy array with shape (N, bands, H, W)
+    if all_datasets:
+        return np.array(all_datasets), file_pairs
+    else:
+        return np.array([]), file_pairs
 
+# ============================================================
+# DATA PREPROCESSING (mimic training)
+# ============================================================
 
 def min_max_scale_bands(bands):
     """Min-max scale each band to [0, 1]"""
+    print(bands.shape)
     scaled = np.zeros_like(bands, dtype=np.float32)
-    for i in range(bands.shape[0]):
-        band = bands[i]
+    for i in range(bands.shape[-1]):
+        band = bands[:, :, i]
         band_min, band_max = band.min(), band.max()
         if band_max > band_min:
-            scaled[i] = (band - band_min) / (band_max - band_min)
+            scaled[:, :, i] = (band - band_min) / (band_max - band_min)
         else:
-            scaled[i] = band
+            scaled[:, :, i] = band
     return scaled
 
+# ============================================================
+# SLIDING WINDOW
+# ============================================================
+
+def calculate_tile_position(tile_id, data_shape, tile_shape, overlap, mode="reflect"):
+    """
+    Calculate the position of a tile in the image based on tile_id.
+
+    Args:
+        tile_id: Index of the tile
+        data_shape: Shape of full image (H, W, C)
+        tile_shape: Shape of tiles (tile_H, tile_W, C)
+        overlap: Overlap fraction or pixels
+        mode: Tiling mode
+
+    Returns:
+        (y_start, y_end, x_start, x_end)
+    """
+    img_h, img_w, channels = data_shape
+    tile_h, tile_w, _ = tile_shape
+
+    # Calculate step size (distance between tile starts)
+    if isinstance(overlap, float):
+        step_h = int(tile_h * (1 - overlap))
+        step_w = int(tile_w * (1 - overlap))
+    else:
+        step_h = tile_h - overlap
+        step_w = tile_w - overlap
+
+    # Calculate number of tiles in each dimension
+    n_tiles_h = int(np.ceil((img_h - tile_h) / step_h)) + 1
+    n_tiles_w = int(np.ceil((img_w - tile_w) / step_w)) + 1
+
+    # Calculate row and column from tile_id
+    row = tile_id // n_tiles_w
+    col = tile_id % n_tiles_w
+
+    # Calculate position
+    y_start = row * step_h
+    x_start = col * step_w
+
+    # Adjust end positions (may extend beyond image if using reflect mode)
+    y_end = min(y_start + tile_h, img_h)
+    x_end = min(x_start + tile_w, img_w)
+
+    return y_start, y_end, x_start, x_end
+
+
+def sliding_window_inference(
+    images_scaled,
+    model,
+    target_size=304,
+    device="cuda",
+    threshold=0.5,
+    n_channels=12,
+    overlap=0.25,
+    debug=False,
+    window='triang',
+    return_tiles=False
+):
+    """
+    Perform sliding window inference on large images.
+    Merges probabilities then thresholds for smoother results.
+
+    Args:
+        images_scaled: Input images (N, H, W, C) or (H, W, C)
+        model: PyTorch model for inference
+        target_size: Size of tiles for model input
+        device: Device to run inference on
+        threshold: Threshold for binary predictions
+        n_channels: Number of input channels
+        overlap: Tile overlap as fraction (0-1) or pixels (int)
+        debug: If True, print detailed debugging info
+        window: Blending window type
+        return_tiles: If True, also return individual tile predictions
+
+    Returns:
+        predictions: Binary predictions
+        probabilities: Probability maps
+        tile_info: (Optional) Dict with 'tile_predictions' and 'tile_positions'
+    """
+    if isinstance(target_size, int):
+        target_size = (target_size, target_size)
+
+    model.eval()
+
+    # Handle single image
+    single_image = False
+    if images_scaled.ndim == 3:
+        images_scaled = images_scaled[np.newaxis, ...]
+        single_image = True
+
+    all_predictions = []
+    all_probabilities = []
+    all_tile_info = []
+
+    # Process each image
+    for idx in range(images_scaled.shape[0]):
+        print(f"\nProcessing image {idx + 1}/{images_scaled.shape[0]}")
+        image = images_scaled[idx]  # Shape: (H, W, n_channels)
+
+        img_h, img_w = image.shape[0], image.shape[1]
+
+        if debug:
+            print(f"Image shape: {image.shape}")
+            print(f"Target tile size: {target_size}")
+
+        # Create INPUT tiler with overlap
+        input_tiler = Tiler(
+            data_shape=image.shape,
+            tile_shape=(target_size[0], target_size[1], n_channels),
+            channel_dimension=-1,
+            overlap=overlap,
+            mode="reflect",
+        )
+
+        # Create OUTPUT tiler
+        output_tiler = Tiler(
+            data_shape=(img_h, img_w, 1),
+            tile_shape=(target_size[0], target_size[1], 1),
+            channel_dimension=-1,
+            overlap=overlap,
+            mode="reflect",
+        )
+
+        # Verify tilers match
+        if len(input_tiler) != len(output_tiler):
+            raise ValueError(
+                f"Tile count mismatch! Input: {len(input_tiler)}, "
+                f"Output: {len(output_tiler)}"
+            )
+
+        # Create merger
+        output_merger = Merger(tiler=output_tiler, window=window)
+
+        print(f"Number of tiles: {len(input_tiler)}")
+
+        # Calculate and display effective overlap
+        if isinstance(overlap, float):
+            overlap_pixels = int(target_size[0] * overlap)
+            print(f"Tile overlap: {overlap*100:.0f}% ({overlap_pixels} pixels)")
+        else:
+            print(f"Tile overlap: {overlap} pixels")
+
+        # Storage for tile info
+        tile_predictions = []
+        tile_positions = []
+
+        # Iterate through tiles
+        tile_count = 0
+        with torch.no_grad():
+            for tile_id, tile_batch in input_tiler(
+                image, batch_size=1, progress_bar=True
+            ):
+                tile_count += 1
+                tile = tile_batch[0]
+
+                # Convert to torch tensor
+                tile_tensor = torch.from_numpy(tile).permute(2, 0, 1)
+                tile_tensor = tile_tensor.unsqueeze(0).float().to(device)
+
+                # Run inference
+                logits = model(tile_tensor)
+                probs = torch.sigmoid(logits)
+
+                # Get crater class
+                if probs.shape[1] == 2:
+                    probs = probs[:, 1:2]
+
+                # Convert to numpy
+                probs_np = probs.cpu().numpy()
+                probs_np = probs_np[0]
+                probs_np = np.transpose(probs_np, (1, 2, 0))
+
+                # Store tile prediction and position if requested
+                if return_tiles:
+                    # Threshold this tile
+                    tile_pred = (probs_np.squeeze() > threshold).astype(np.float32)
+
+                    # Calculate tile position manually
+                    y_start, y_end, x_start, x_end = calculate_tile_position(
+                        tile_id=tile_id,
+                        data_shape=image.shape,
+                        tile_shape=(target_size[0], target_size[1], n_channels),
+                        overlap=overlap,
+                        mode="reflect"
+                    )
+
+                    tile_predictions.append((tile_pred, tile_id))
+                    tile_positions.append((y_start, y_end, x_start, x_end))
+
+                # Add to merger
+                output_merger.add(tile_id, probs_np)
+
+        if debug:
+            print(f"\nProcessed {tile_count} tiles total")
+
+        # Merge all tiles
+        merged_probs = output_merger.merge(unpad=True)
+
+        print(f"Merged probabilities shape: {merged_probs.shape}")
+        print(f"Merged prob range: [{merged_probs.min():.4f}, {merged_probs.max():.4f}]")
+
+        # Check if merging actually blended values
+        unique_vals = np.unique(merged_probs)
+        if debug:
+            print(f"Number of unique probability values: {len(unique_vals)}")
+            if len(unique_vals) < 100:
+                print(f"Warning: Very few unique values, blending might not be working!")
+
+        # Threshold merged predictions
+        merged_preds = (merged_probs > threshold).astype(np.float32)
+        merged_preds = merged_preds.squeeze(-1)
+
+        all_predictions.append(merged_preds)
+        all_probabilities.append(merged_probs.squeeze(-1))
+
+        # Store tile info
+        if return_tiles:
+            all_tile_info.append({
+                'tile_predictions': tile_predictions,
+                'tile_positions': tile_positions,
+                'img_shape': (img_h, img_w),
+                'target_size': target_size
+            })
+
+        print(f"Final prediction shape: {merged_preds.shape}")
+        print(f"Prediction range: [{merged_preds.min():.2f}, {merged_preds.max():.2f}]")
+        print(f"Positive pixels: {(merged_preds > 0).sum()} / {merged_preds.size}")
+
+    predictions = np.stack(all_predictions, axis=0)
+    probabilities = np.stack(all_probabilities, axis=0)
+
+    if single_image:
+        predictions = predictions[0]
+        probabilities = probabilities[0]
+        if return_tiles:
+            all_tile_info = all_tile_info[0]
+
+    if return_tiles:
+        return predictions, probabilities, all_tile_info
+    else:
+        return predictions, probabilities
+
+# ============================================================
+# VIZ FCNS
+# ============================================================
 
 def create_binary_colormap(instance_mask):
     """
     Create a simple binary colormap: 0 -> black, any other value -> red.
 
     Args:
-        instance_mask: (H, W) array with instance IDs (0 = background)
+        instance_mask: (H, W) or (H, W, 1) array with instance IDs (0 = background)
 
     Returns:
         colored: (H, W, 3) RGB array with values in [0, 1]
     """
+    # Ensure 2D by squeezing any extra dimensions
+    if instance_mask.ndim > 2:
+        instance_mask = instance_mask.squeeze()
+
+    # If still not 2D after squeeze, take first channel
+    if instance_mask.ndim > 2:
+        instance_mask = instance_mask[:, :, 0]
+
     h, w = instance_mask.shape
     colored = np.zeros((h, w, 3), dtype=np.float32)
 
@@ -490,168 +654,222 @@ def create_binary_colormap(instance_mask):
     return colored
 
 
-def save_image_to_tif(i, image, n_bands=7, save_path="image.tif"):
-    """Writes 7-band image to save_path as .tif"""
-    driver = gdal.GetDriverByName("GTiff")
+def get_tile_color(tile_idx, n_colors=20):
+    """
+    Get consistent color for a tile index.
 
-    # Create output file with 7 bands
-    output_dataset = driver.Create(
-        save_path,
-        image.shape[2],  # width (columns)
-        image.shape[1],  # height (rows)
-        n_bands,  # number of bands
-        gdal.GDT_Float32,
-    )
+    Args:
+        tile_idx: Index of the tile
+        n_colors: Number of colors in colormap
 
-    # Write each band
-    for band_num in range(7):
-        output_band = output_dataset.GetRasterBand(
-            band_num + 1
-        )  # Band numbering starts at 1
-        output_band.WriteArray(image[band_num, :, :])
-        output_band.FlushCache()
-
-    print(f"Saved all bands to {save_path}")
-
-    # Close the dataset
-    output_dataset = None
-    return
+    Returns:
+        RGB tuple (R, G, B)
+    """
+    import matplotlib.pyplot as plt
+    cmap = plt.cm.tab20
+    color_idx = tile_idx % n_colors
+    return np.array(cmap(color_idx)[:3])  # RGB only
 
 
-def get_tilers_mergers(images_npy, TARGET_SIZE):
-    """Gets tilers and mergers used for sliding window inference."""
-    print("Creating tilers and mergers...")
-    input_tiler = Tiler(
-        data_shape=images_npy.shape,
-        tile_shape=(TARGET_SIZE[0], TARGET_SIZE[1], 3),
-        channel_dimension=-1,
-        mode="reflect",
-    )
-    # Model output should be (304, 304, 1), aka target size
-    output_tiler = Tiler(
-        data_shape=images_npy.shape,
-        tile_shape=(TARGET_SIZE[0], TARGET_SIZE[1], 1),
-        channel_dimension=-1,
-        mode="reflect",
-    )
-    output_merger = Merger(tiler=output_tiler, window="triang")
-    return input_tiler, output_tiler, output_merger
-
-
-def sliding_window_inference(
-    images_npy, model, target_size=304, device="cuda", threshold=0.5
+def visualize_tile_grid(
+    img_shape,
+    tile_positions,
+    target_size=(304, 304),
+    alpha=0.15,
+    border_width=3
 ):
     """
-    Perform sliding window inference on large images.
-    Merges probabilities then thresholds for smoother results.
+    Show tiles with transparent fills and solid colored borders.
+    Overlaps will show multiple borders.
     """
-    if isinstance(target_size, int):
-        target_size = (target_size, target_size)
+    # Start with black background
+    canvas = np.zeros((*img_shape, 3), dtype=np.float32)
 
-    model.eval()
+    for tile_idx, (y_start, y_end, x_start, x_end) in enumerate(tile_positions):
+        color_rgb = get_tile_color(tile_idx)
 
-    # Handle single image
-    single_image = False
-    if images_npy.ndim == 3:
-        images_npy = images_npy[np.newaxis, ...]
-        single_image = True
+        # Calculate TRUE tile extent (304x304)
+        true_y_end = y_start + target_size[0]
+        true_x_end = x_start + target_size[1]
 
-    all_predictions = []
-    all_probabilities = []  # Optional: keep probabilities too
+        # Clip to visible region
+        vis_y_end = min(true_y_end, img_shape[0])
+        vis_x_end = min(true_x_end, img_shape[1])
 
-    # Process each image
-    for idx in range(images_npy.shape[0]):
-        print(f"\nProcessing image {idx + 1}/{images_npy.shape[0]}")
-        image = images_npy[idx]  # Shape: (512, 512, 3)
+        # Fill with transparent color
+        canvas[y_start:vis_y_end, x_start:vis_x_end] += color_rgb * alpha
 
-        # Create INPUT tiler
-        input_tiler = Tiler(
-            data_shape=image.shape,  # (512, 512, 3)
-            tile_shape=(target_size[0], target_size[1], 3),
-            channel_dimension=-1,
-            mode="reflect",
-        )
+        # Draw solid borders (these will show overlaps clearly)
+        # Top border
+        if y_start < img_shape[0]:
+            canvas[y_start:min(y_start+border_width, vis_y_end), x_start:vis_x_end] = color_rgb
 
-        # Create OUTPUT tiler for SINGLE channel (crater probabilities only)
-        output_tiler = Tiler(
-            data_shape=(image.shape[0], image.shape[1], 1),  # (512, 512, 1)
-            tile_shape=(target_size[0], target_size[1], 1),  # (304, 304, 1)
-            channel_dimension=-1,
-            mode="reflect",
-        )
+        # Bottom border
+        if vis_y_end > border_width:
+            canvas[max(vis_y_end-border_width, y_start):vis_y_end, x_start:vis_x_end] = color_rgb
 
-        # Create merger based on OUTPUT tiler
-        output_merger = Merger(tiler=output_tiler, window="triang")
+        # Left border
+        if x_start < img_shape[1]:
+            canvas[y_start:vis_y_end, x_start:min(x_start+border_width, vis_x_end)] = color_rgb
 
-        print(f"Number of tiles: {len(input_tiler)}")
+        # Right border
+        if vis_x_end > border_width:
+            canvas[y_start:vis_y_end, max(vis_x_end-border_width, x_start):vis_x_end] = color_rgb
 
-        # Iterate through tiles
-        with torch.no_grad():
-            for tile_id, tile_batch in input_tiler(
-                image, batch_size=1, progress_bar=True
-            ):
-                # tile_batch shape: (1, 304, 304, 3)
-                tile = tile_batch[0]  # (304, 304, 3)
+    # Clip values
+    canvas = np.clip(canvas, 0, 1)
+    return canvas
 
-                # Convert to torch tensor and change to channels-first
-                tile_tensor = torch.from_numpy(tile).permute(
-                    2, 0, 1
-                )  # (3, 304, 304)
-                tile_tensor = (
-                    tile_tensor.unsqueeze(0).float().to(device)
-                )  # (1, 3, 304, 304)
 
-                # Run inference
-                logits = model(tile_tensor)  # Shape: (1, 2, 304, 304)
+def visualize_tiles_with_colors(
+    img_shape,
+    tile_predictions,
+    tile_positions,
+    merged_prediction,
+    target_size,
+    alpha=0.25
+):
+    """
+    Create visualization showing which tiles contributed to the FINAL merged predictions.
+    Only colors pixels that are actually predicted in the merged result.
+    Uses same colors as visualize_tile_grid for consistency.
 
-                # Convert to probabilities (same as training eval)
-                probs = torch.sigmoid(logits)  # (1, 2, 304, 304)
+    Args:
+        img_shape: Shape of full image (H, W)
+        tile_predictions: List of (tile_pred, tile_id) tuples
+        tile_positions: List of (y_start, y_end, x_start, x_end) for each tile
+        merged_prediction: Final merged prediction mask (H, W) - boolean or 0/1
+        target_size: Size of tiles (H, W)
+        alpha: Not used (kept for compatibility)
 
-                # Get crater class only (class 1)
-                if probs.shape[1] == 2:
-                    probs = probs[:, 1:2]  # (1, 1, 304, 304) - crater class
+    Returns:
+        RGB image with colored predictions (H, W, 3)
+    """
+    # Create output canvas (RGB)
+    canvas = np.zeros((*img_shape, 3), dtype=np.float32)
 
-                # Convert to numpy and channels-last
-                probs_np = probs.cpu().numpy()
-                probs_np = np.transpose(
-                    probs_np[0], (1, 2, 0)
-                )  # (304, 304, 1)
+    # Track which tiles contribute to each pixel
+    tile_contributions = np.zeros((*img_shape, len(tile_predictions)), dtype=np.float32)
 
-                # Add PROBABILITIES to merger (not thresholded yet!)
-                actual_tile_id = tile_id * 1  # Since batch_size=1
-                output_merger.add(actual_tile_id, probs_np)
+    # Record which tiles predicted positive at each pixel
+    for tile_idx, ((tile_pred, tile_id), (y_start, y_end, x_start, x_end)) in enumerate(
+        zip(tile_predictions, tile_positions)
+    ):
+        # Get tile region
+        tile_h = y_end - y_start
+        tile_w = x_end - x_start
 
-        # Merge all tiles - this gives smooth probability map
-        merged_probs = output_merger.merge(unpad=True)  # (512, 512, 1)
-        print(f"Merged probabilities shape: {merged_probs.shape}")
+        # Resize tile pred if needed
+        if tile_pred.shape != (tile_h, tile_w):
+            from scipy.ndimage import zoom
+            zoom_h = tile_h / tile_pred.shape[0]
+            zoom_w = tile_w / tile_pred.shape[1]
+            tile_pred_resized = zoom(tile_pred, (zoom_h, zoom_w), order=0)
+        else:
+            tile_pred_resized = tile_pred
 
-        # Threshold to get binary predictions (same as training eval)
-        merged_preds = (merged_probs > threshold).astype(
-            np.float32
-        )  # (512, 512, 1)
-        merged_preds = merged_preds.squeeze(
-            -1
-        )  # (512, 512) - squeeze channel dim
+        # Mark where this tile predicted positive
+        tile_contributions[y_start:y_end, x_start:x_end, tile_idx] = tile_pred_resized > 0
 
-        all_predictions.append(merged_preds)
-        all_probabilities.append(
-            merged_probs.squeeze(-1)
-        )  # Optional: keep probs
+    # Now, ONLY color pixels that are in the final merged prediction
+    merged_mask = merged_prediction > 0
 
-        print(f"Final prediction shape: {merged_preds.shape}")
-        print(
-            f"Prediction range: [{merged_preds.min():.2f}, {merged_preds.max():.2f}]"
-        )
+    # For each pixel in the merged prediction, color it based on contributing tiles
+    for y in range(img_shape[0]):
+        for x in range(img_shape[1]):
+            if merged_mask[y, x]:
+                # Find which tiles contributed to this pixel
+                contributing_tile_indices = np.where(tile_contributions[y, x, :] > 0)[0]
 
-    predictions = np.stack(all_predictions, axis=0)
-    probabilities = np.stack(all_probabilities, axis=0)
+                if len(contributing_tile_indices) > 0:
+                    # Use the maximum (last) contributing tile
+                    max_tile_idx = contributing_tile_indices.max()
+                    color = get_tile_color(max_tile_idx)
+                    canvas[y, x, :] = color
 
-    if single_image:
-        predictions = predictions[0]
-        probabilities = probabilities[0]
+    return canvas
 
-    return predictions, probabilities  # Return both
 
+def visualize_tiles_with_boundaries(
+    img_shape,
+    tile_predictions,
+    tile_positions,
+    target_size,
+    border_width=2
+):
+    """
+    Create visualization of prediction tiles with red boundaries.
+
+    Args:
+        img_shape: Shape of full image (H, W)
+        tile_predictions: List of (tile_pred, tile_id) tuples
+        tile_positions: List of (y_start, y_end, x_start, x_end) for each tile
+        target_size: Size of tiles (H, W)
+        border_width: Width of red border in pixels
+
+    Returns:
+        RGB image with tiles and boundaries (H, W, 3)
+    """
+    # Create output canvas (black background)
+    canvas = np.zeros((*img_shape, 3), dtype=np.float32)
+
+    # Place each tile prediction on canvas
+    for (tile_pred, tile_id), (y_start, y_end, x_start, x_end) in zip(
+        tile_predictions, tile_positions
+    ):
+        # Get tile region
+        tile_h = y_end - y_start
+        tile_w = x_end - x_start
+
+        # Resize tile pred if needed
+        if tile_pred.shape != (tile_h, tile_w):
+            from scipy.ndimage import zoom
+            zoom_h = tile_h / tile_pred.shape[0]
+            zoom_w = tile_w / tile_pred.shape[1]
+            tile_pred_resized = zoom(tile_pred, (zoom_h, zoom_w), order=0)
+        else:
+            tile_pred_resized = tile_pred
+
+        # Place tile (white for predictions)
+        canvas[y_start:y_end, x_start:x_end, :] = np.stack([
+            tile_pred_resized, tile_pred_resized, tile_pred_resized
+        ], axis=-1)
+
+    # Draw red borders around tiles
+    for y_start, y_end, x_start, x_end in tile_positions:
+        # Top border
+        canvas[
+            max(0, y_start):min(img_shape[0], y_start + border_width),
+            x_start:x_end,
+            0
+        ] = 1.0  # Red channel
+
+        # Bottom border
+        canvas[
+            max(0, y_end - border_width):min(img_shape[0], y_end),
+            x_start:x_end,
+            0
+        ] = 1.0
+
+        # Left border
+        canvas[
+            y_start:y_end,
+            max(0, x_start):min(img_shape[1], x_start + border_width),
+            0
+        ] = 1.0
+
+        # Right border
+        canvas[
+            y_start:y_end,
+            max(0, x_end - border_width):min(img_shape[1], x_end),
+            0
+        ] = 1.0
+
+    return canvas
+
+# ============================================================
+# DRIVER DATACUBE INFERENCE
+# ============================================================
 
 def run_datacube_inference(
     model,
@@ -664,123 +882,119 @@ def run_datacube_inference(
     model_native_size=304,
     tile_overlap=0.25,
     threshold=0.75,
-    normalize=True,
     save_inputs_dir=None,
-    use_sliding=True,
-    band_filter=None,
+    debug=False,
+    tile_window='triang',
+    visualize_tiles=True
 ):
+    """
+    Run inference on 12-band datacubes with detailed tile visualization.
+    """
     model.eval()
 
-    # Load numpy array of 3-band images at full resolution
-    print(f"Loading up to {n_images} images from TIFF files...")
+    print(f"Loading up to {n_images} datacubes from TIFF files...")
 
-    # NEW: extract_images now returns (data, file_paths)
-    # data shape: (N, bands, H, W) - channels first, unnormalized
-    images_raw, file_paths = extract_images(
+    # Load and preprocess data
+    images_raw, file_paths = get_datacube_data(
         input_paths=input_dir,
-        band_filter=band_filter,  # e.g., [3, 1, 0]
-        bands_per_slice=7,  # How many bands per slice in the original file
         max_images=n_images,
-        verbose=True,
+        verbose=False,
     )
 
-    print(
-        f"Extracted raw images shape: {images_raw.shape}"
-    )  # (N, 3, 512, 512)
+    print(f"Raw datacubes shape: {images_raw.shape}")
 
-    # NEW: Transpose from (N, bands, H, W) to (N, H, W, bands) for processing
-    images_transposed = np.transpose(
-        images_raw, (0, 2, 3, 1)
-    )  # (N, 512, 512, 3)
+    # Transpose and scale
+    images_transposed = np.transpose(images_raw, (0, 2, 3, 1))
     print(f"Transposed to: {images_transposed.shape}")
 
-    # NEW: Apply min-max scaling to [0, 1]
+    print("\nApplying min-max scaling per band...")
     images_scaled = np.zeros_like(images_transposed, dtype=np.float32)
     for i in range(len(images_transposed)):
         images_scaled[i] = min_max_scale_bands(images_transposed[i])
 
-    print(
-        f"After min-max scaling: min={images_scaled.min():.3f}, max={images_scaled.max():.3f}"
-    )
+    print(f"After scaling: min={images_scaled.min():.3f}, max={images_scaled.max():.3f}")
 
-    # NEW: Apply mean/std normalization
-    if mean is not None and std is not None:
-        # Reshape mean and std for broadcasting
-        mean_reshaped = mean.reshape(1, 1, 1, 3)  # (1, 1, 1, 3)
-        std_reshaped = std.reshape(1, 1, 1, 3)  # (1, 1, 1, 3)
-
-        images_npy = (images_scaled - mean_reshaped) / (std_reshaped + 1e-8)
-        print(
-            f"After normalization: min={images_npy.min():.3f}, max={images_npy.max():.3f}"
-        )
-    else:
-        images_npy = images_scaled
-        print(
-            "Warning: No mean/std provided, using scaled data without normalization"
-        )
-
-    print(
-        f"Final images shape ready for inference: {images_npy.shape}"
-    )  # (N, 512, 512, 3)
-
-    # Save inputs if specified
-    if save_inputs_dir:
-        save_inputs_dir = Path(save_inputs_dir)
-        save_inputs_dir.mkdir(exist_ok=True, parents=True)
-        for i, image in enumerate(images_npy):
-            save_path = save_inputs_dir / f"image_{i}.tif"
-            image_transposed = np.transpose(image, (2, 0, 1))
-            save_image_to_tif(
-                i, image_transposed, n_bands=3, save_path=str(save_path)
-            )
-
-    # Rest of inference code remains the same...
+    # Run inference
+    n_channels = images_scaled.shape[-1]
     print(f"\n{'='*60}")
-    print(f"Running inference:")
-    print(f"  Input images: {images_npy.shape[1]}×{images_npy.shape[2]}")
-    print(
-        f"  Model native resolution: {model_native_size}×{model_native_size}"
-    )
-    print(f"  Processing with sliding window (overlap={tile_overlap})")
+    print(f"Running inference with tile visualization: {visualize_tiles}")
     print(f"{'='*60}\n")
 
-    # Run sliding window inference
-    if use_sliding:
-        target_size = (model_native_size, model_native_size)
-        preds_list, probabilities = sliding_window_inference(
-            images_npy,
+    # Get predictions with tile info if visualizing
+    if visualize_tiles:
+        preds_list, probabilities, tile_info = sliding_window_inference(
+            images_scaled,
             model,
             target_size=model_native_size,
             device=device,
             threshold=threshold,
+            n_channels=n_channels,
+            overlap=tile_overlap,
+            debug=debug,
+            window=tile_window,
+            return_tiles=True
         )
-    else:  # add support for resizing of inputs then regular pred
-        preds_list = None
+    else:
+        preds_list, probabilities = sliding_window_inference(
+            images_scaled,
+            model,
+            target_size=model_native_size,
+            device=device,
+            threshold=threshold,
+            n_channels=n_channels,
+            overlap=tile_overlap,
+            debug=debug,
+            window=tile_window,
+            return_tiles=False
+        )
+        tile_info = None
 
-    print(f"\nGot {len(preds_list)} predictions")
-    print(
-        f"Output mask shapes: {[p.shape for p in preds_list[:3]]}"
-    )  # Should all be (512, 512)
+    print(f"\nGot predictions")
 
+    # ============================================
     # Create visualization
+    # ============================================
     print("\nCreating visualization...")
 
-    batch_size = min(len(images_npy), 10)  # Limit visualization to 10 images
-    fig, axes = plt.subplots(2, batch_size, figsize=(5 * batch_size, 10))
+    batch_size = min(len(images_scaled), 10)
+
+    # 5 rows if visualizing tiles, 2 rows otherwise
+    n_rows = 5 if visualize_tiles else 2
+    fig, axes = plt.subplots(n_rows, batch_size, figsize=(5 * batch_size, 5 * n_rows))
 
     if batch_size == 1:
         axes = axes.reshape(-1, 1)
 
-    # Use actual filenames from extract_images
-    display_filenames = [Path(fp).name for fp in file_paths[:batch_size]]
+    # Extract filenames
+    display_filenames = [
+        Path(wac_file).stem for wac_file, static_file in file_paths[:batch_size]
+    ]
 
     for i in range(batch_size):
-        # Use original scaled images (before normalization) for visualization
-        img = images_scaled[i]  # (512, 512, 3) in [0, 1]
-        pred_mask = preds_list[i]  # (512, 512)
+        img = images_scaled[i]
+
+        # Handle both single image and batch cases
+        if isinstance(preds_list, np.ndarray):
+            if preds_list.ndim == 3:  # Batch: (N, H, W)
+                pred_mask = preds_list[i]
+            elif preds_list.ndim == 2:  # Single image: (H, W)
+                pred_mask = preds_list
+            else:  # Unexpected shape, try to extract
+                pred_mask = np.squeeze(preds_list)
+                if pred_mask.ndim == 3:
+                    pred_mask = pred_mask[i]
+        else:
+            pred_mask = preds_list[i]
+
+        # Ensure pred_mask is 2D
+        if pred_mask.ndim > 2:
+            pred_mask = pred_mask.squeeze()
+
+        # Get single channel for visualization
+        img_vis = img[:, :, 0]
 
         # Row 0: Original image
-        axes[0, i].imshow(img)
+        axes[0, i].imshow(img_vis, cmap='gray')
         axes[0, i].set_title(
             f"{display_filenames[i]}",
             fontsize=11,
@@ -788,27 +1002,84 @@ def run_datacube_inference(
         )
         axes[0, i].axis("off")
 
-        # Row 1: Inference with binary colormap
+        if visualize_tiles:
+            # Get tile info for this image
+            if isinstance(tile_info, list):
+                img_tile_info = tile_info[i]
+            else:
+                img_tile_info = tile_info
+
+            # DEBUG: Print actual tile information
+            print(f"\nDEBUG for image {i}:")
+            print(f"  Number of tile_predictions: {len(img_tile_info['tile_predictions'])}")
+            print(f"  Number of tile_positions: {len(img_tile_info['tile_positions'])}")
+            print(f"  Tile positions:")
+            for idx, (y_start, y_end, x_start, x_end) in enumerate(img_tile_info['tile_positions']):
+                print(f"    Tile {idx}: ({y_start}, {y_end}, {x_start}, {x_end})")
+
+            # Row 1: Tile grid only (colored rectangles on black)
+            tile_grid = visualize_tile_grid(
+                img_shape=img_tile_info['img_shape'],
+                tile_positions=img_tile_info['tile_positions'],
+                alpha=0.25
+            )
+            axes[1, i].imshow(tile_grid)
+            axes[1, i].set_title(
+                f"Tile Grid (n={len(img_tile_info['tile_predictions'])})",
+                fontsize=11
+            )
+            axes[1, i].axis("off")
+
+            # Row 2: Tile predictions with red boundaries
+            tile_boundaries = visualize_tiles_with_boundaries(
+                img_shape=img_tile_info['img_shape'],
+                tile_predictions=img_tile_info['tile_predictions'],
+                tile_positions=img_tile_info['tile_positions'],
+                target_size=img_tile_info['target_size'],
+                border_width=3
+            )
+            axes[2, i].imshow(tile_boundaries)
+            axes[2, i].set_title(
+                f"Tile Predictions",
+                fontsize=11
+            )
+            axes[2, i].axis("off")
+
+            # Row 3: Colored prediction overlay of final pred
+            tile_colors = visualize_tiles_with_colors(
+                img_shape=img_tile_info['img_shape'],
+                tile_predictions=img_tile_info['tile_predictions'],
+                tile_positions=img_tile_info['tile_positions'],
+                merged_prediction=pred_mask,  # NEW: pass in final merged prediction
+                target_size=img_tile_info['target_size'],
+                alpha=0.25
+            )
+            axes[3, i].imshow(img_vis, cmap='gray')
+            axes[3, i].imshow(tile_colors, alpha=0.5)  # Can increase alpha since it matches now
+            axes[3, i].set_title(
+                f"Merged (Colored by Tile)",
+                fontsize=11
+            )
+            axes[3, i].axis("off")
+
+        # Row 4 (or 1 if no tiles): Merged prediction
+        row_idx = 4 if visualize_tiles else 1
         pred_colored = create_binary_colormap(pred_mask)
-        axes[1, i].imshow(pred_colored, vmin=0, vmax=1)
-        axes[1, i].set_title(
-            f"Inference",
-            fontsize=11,
-        )
-        axes[1, i].axis("off")
+        axes[row_idx, i].imshow(pred_colored, vmin=0, vmax=1)
+        axes[row_idx, i].set_title(f"Merged Prediction", fontsize=11)
+        axes[row_idx, i].axis("off")
 
     fig.suptitle(
-        f"Inference on {images_npy.shape[1]}×{images_npy.shape[2]} Images "
-        f"(processed with {model_native_size}×{model_native_size} tiles)\n"
-        f"Threshold={threshold}",
+        f"Inference on {images_scaled.shape[1]}×{images_scaled.shape[2]} Datacubes\n"
+        f"Model: {model_native_size}×{model_native_size} | "
+        f"Overlap: {tile_overlap} | Window: {tile_window} | "
+        f"Threshold: {threshold}",
         fontsize=14,
         fontweight="bold",
-        y=0.98,
+        y=0.995,
     )
 
     plt.tight_layout()
-
-    # Save figure
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
 
@@ -816,4 +1087,4 @@ def run_datacube_inference(
 
     model.train()
 
-    return images_npy, preds_list
+    return images_scaled, preds_list

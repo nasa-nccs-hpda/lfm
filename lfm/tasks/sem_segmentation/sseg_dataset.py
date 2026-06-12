@@ -42,10 +42,12 @@ class LunarCraterDataset(Dataset):
         input_file_type: str = ".npy",
         label_file_type: str = ".npy",
         band_filter: List[int] = None,
+        normalize_inputs: bool = True,
     ):
         self.image_dir = image_dir
         self.label_dir = label_dir
         self.target_size = target_size
+        self.normalize_inputs = True
 
         # Store mean and std as float32 for consistency
         self.mean = mean.astype(np.float32)
@@ -229,13 +231,14 @@ class LunarCraterDataset(Dataset):
 
         # Normalize image with dataset statistics
         # Filter mean/std to use our band indices filter
-        mean_filtered = self.mean[self.band_filter]
-        std_filtered = self.std[self.band_filter]
+        if self.normalize_inputs:
+            mean_filtered = self.mean[self.band_filter]
+            std_filtered = self.std[self.band_filter]
 
-        # Reshape mean and std to (1, 1, C) for broadcasting with (H, W, C)
-        mean_reshaped = mean_filtered.reshape(1, 1, -1)
-        std_reshaped = std_filtered.reshape(1, 1, -1)
-        image = (image - mean_reshaped) / std_reshaped
+            # Reshape mean and std to (1, 1, C) for broadcasting with (H, W, C)
+            mean_reshaped = mean_filtered.reshape(1, 1, -1)
+            std_reshaped = std_filtered.reshape(1, 1, -1)
+            image = (image - mean_reshaped) / std_reshaped
 
         # Convert to torch tensors in (C, H, W)/(H, W) for inputs, labels resp.
         image = torch.from_numpy(image).permute(2, 0, 1)
@@ -262,7 +265,7 @@ class LunarCraterDataset(Dataset):
             .long()
         )
 
-        return image, label
+        return image, label, img_path, label_path
 
 
 def calculate_dataset_statistics(
@@ -483,6 +486,53 @@ def calculate_dataset_statistics(
     return mean, std
 
 
+def save_val_paths(val_dataset, output_dir, filename="val_paths.txt"):
+    """
+    Save all validation dataset file paths to a text file.
+
+    Args:
+        val_dataset: Subset object from torch.utils.data.random_split
+        output_dir (str): Directory to save the text file
+        filename (str): Name of output text file (default: "val_paths.txt")
+    """
+
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Get the original dataset
+    original_dataset = val_dataset.dataset
+
+    # Get all validation indices
+    val_indices = val_dataset.indices
+
+    # Extract file paths
+    paths = []
+    for idx in val_indices:
+        # Try common dataset attributes
+        if hasattr(original_dataset, 'image_paths'):
+            path = original_dataset.image_paths[idx]
+        elif hasattr(original_dataset, 'samples'):
+            path = original_dataset.samples[idx][0]  # ImageFolder format
+        elif hasattr(original_dataset, 'imgs'):
+            path = original_dataset.imgs[idx][0]
+        else:
+            raise AttributeError(
+                "Dataset does not have 'image_paths', 'samples', or 'imgs' attribute. "
+                "Cannot extract file paths."
+            )
+        paths.append(path)
+
+    # Write to file
+    output_path = os.path.join(output_dir, filename)
+    with open(output_path, 'w') as f:
+        for path in paths:
+            f.write(f"{path}\n")
+
+    print(f"Saved {len(paths)} validation paths to {output_path}")
+
+    return output_path
+
+
 def get_dataloaders(
     image_dir: str,
     label_dir: str,
@@ -497,6 +547,8 @@ def get_dataloaders(
     label_file_type: str = ".npy",
     debug: bool = False,
     band_filter: List[int] = None,
+    output_dir: str = "output",
+    normalize_inputs: bool = True,
 ):
     """
     Create train/val dataloaders with automatic statistics calculation.
@@ -536,7 +588,7 @@ def get_dataloaders(
             print(f"Std per channel: {std}")
 
     # Calculate statistics if not loaded, or if we are doing a new filtering
-    if mean is None or std is None:
+    if (mean is None or std is None) and normalize_inputs:
         print("Computing dataset statistics...")
         mean, std = calculate_dataset_statistics(
             image_dir, input_file_type, debug
@@ -559,6 +611,7 @@ def get_dataloaders(
         input_file_type=input_file_type,
         label_file_type=label_file_type,
         band_filter=band_filter,
+        normalize_inputs=normalize_inputs
     )
 
     # Split into train/val
@@ -571,6 +624,9 @@ def get_dataloaders(
         [train_size, val_size],
         generator=torch.Generator().manual_seed(seed),
     )
+
+    # For debugging, saves a .txt file
+    save_val_paths(val_dataset, output_dir)
 
     # Create train dataloader
     train_loader = torch.utils.data.DataLoader(
