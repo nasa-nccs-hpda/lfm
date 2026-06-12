@@ -33,7 +33,6 @@ def load_dinov3_encoder(
         raise Exception("DinoV3 local checkpoint not found. Exiting.")
 
 
-
 class Adapter(nn.Module):
     """
     Adapter module to convert DINOv3 features to expected channels for Mask2Former head.
