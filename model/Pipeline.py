@@ -44,7 +44,7 @@ class Pipeline:
     # __init__
     # ------------------------------------------------------------------------
     def __init__(self, tileDbPath: Path, outDir: Path, debug: bool = False,
-                 target_product_id: str = None):
+                 targetProductID: str = None):
 
         if not tileDbPath.exists():
             raise ValueError('Invalid tile DB path: ', tileDbPath)
@@ -55,7 +55,7 @@ class Pipeline:
         self._outDir: Path = outDir
         self._tileDbPath: Path = tileDbPath
         self._debug: bool = debug
-        self._target_product_id: str = target_product_id  # NEW: Store target product ID
+        self._targetProductID: str = targetProductID  # NEW: Store target product ID
 
         # ---
         # When you return an ogr.Layer object from a function, the underlying
@@ -129,10 +129,10 @@ class Pipeline:
 
             fileName: Path = Path(feature['location'])
 
-            # NEW: Skip non-matching product IDs (only for WAC files, not static)
-            if self._target_product_id and not is_static:
+            # Skip non-matching product IDs (only for WAC files, not static)
+            if self._targetProductID and not is_static:
                 file_product_id = fileName.stem.split('.')[0]
-                if file_product_id != self._target_product_id:
+                if file_product_id != self._targetProductID:
                     skippedCount += 1
                     continue  # Skip this file entirely
 
@@ -302,9 +302,9 @@ class Pipeline:
                      zone: int,
                      zoomLevel: int) -> list[Path]:
 
-        # print('Processing (' + str(tileX) + ', ' + str(tileY) + \
-        #       ') / zone ' + str(zone) + \
-        #       ' / zoom ' + str(zoomLevel))
+        print('Processing (' + str(tileX) + ', ' + str(tileY) + \
+              ') / zone ' + str(zone) + \
+              ' / zoom ' + str(zoomLevel))
 
         tileDef: dict = TmsTileDef.initFromParams(zone, zoomLevel)
 
@@ -329,9 +329,9 @@ class Pipeline:
             print('Tile Bbox Lat/Lon:', ulLat, ulLon, lrLat, lrLon)
             print('Layers from Query:', layer.GetFeatureCount())
 
-        # if layer.GetFeatureCount() == 0:
+        if layer.GetFeatureCount() == 0:
 
-            # print('Tile does not overlap any images.')
+            print('Tile does not overlap any images.')
 
         else:
 
@@ -371,9 +371,9 @@ class Pipeline:
             print('Tile Bbox Lat/Lon:', ulLat, ulLon, lrLat, lrLon)
             print('Layers from Query:', layer.GetFeatureCount())
 
-        # if layer.GetFeatureCount() == 0:
+        if layer.GetFeatureCount() == 0:
 
-            # print('Tile does not overlap any static images.')
+            print('Tile does not overlap any static images.')
 
         else:
 
