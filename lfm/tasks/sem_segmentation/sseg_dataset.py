@@ -50,9 +50,8 @@ class LunarCraterDataset(Dataset):
         self.normalize_inputs = True
 
         # Store mean and std as float32 for consistency
-        self.mean = mean.astype(np.float32)
-        self.std = std.astype(np.float32)
-        self.num_channels = len(mean)
+        self.mean = mean.astype(np.float32) if mean else None
+        self.std = std.astype(np.float32) if std else None
 
         # Glob all images and labels
         if input_file_type not in [".npy", ".npz", ".tif"]:
@@ -72,6 +71,7 @@ class LunarCraterDataset(Dataset):
 
         # Load example to validate input band number
         example_band_number = self._load_example_input(self.image_paths[0])
+        self.num_channels = example_band_number
         if band_filter is not None:
             if example_band_number < len(band_filter):
                 raise ValueError(
