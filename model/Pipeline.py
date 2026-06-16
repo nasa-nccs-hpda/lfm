@@ -1,4 +1,3 @@
-
 from pathlib import Path
 from typing import List
 
@@ -16,11 +15,8 @@ from lfm.model.TmsTileDef import TmsTileDef
 
 gdal.UseExceptions()
 
-
 # ----------------------------------------------------------------------------
 # Class Pipeline
-#
-# TODO: Remove self._tileDef because it acts like a global variable.  Pass it.
 # ----------------------------------------------------------------------------
 class Pipeline:
 
@@ -47,7 +43,8 @@ class Pipeline:
     # ------------------------------------------------------------------------
     # __init__
     # ------------------------------------------------------------------------
-    def __init__(self, tileDbPath: Path, outDir: Path, debug: bool = False):
+    def __init__(self, tileDbPath: Path, outDir: Path, debug: bool = False,
+                 target_product_id: str = None):
 
         if not tileDbPath.exists():
             raise ValueError('Invalid tile DB path: ', tileDbPath)
@@ -58,7 +55,8 @@ class Pipeline:
         self._outDir: Path = outDir
         self._tileDbPath: Path = tileDbPath
         self._debug: bool = debug
-        
+        self._target_product_id: str = target_product_id  # NEW: Store target product ID
+
         # ---
         # When you return an ogr.Layer object from a function, the underlying
         # DataSource that owns the layer may be getting garbage collected,
@@ -66,33 +64,6 @@ class Pipeline:
         # prevent garbage collection.  This happens in _query().
         # ---
         self._layer = None
-
-    # ------------------------------------------------------------------------
-    # clip
-    # ------------------------------------------------------------------------
-    # def _clip(self,
-    #           ulx: float,
-    #           uly: float,
-    #           lrx: float,
-    #           lry: float,
-    #           srs: osr.SpatialReference,
-    #           ds: gdal.Dataset,
-    #           width: int,
-    #           height: int,
-    #           gridRes: float,  # Unused
-    #           resamplingMethod: rm) -> gdal.Dataset:
-    #
-    #     clipDs: gdal.Dataset = \
-    #         gdal.Translate('',
-    #                        ds,
-    #                        projWin=[ulx, uly, lrx, lry],
-    #                        projWinSRS=srs,
-    #                        width=width,
-    #                        height=height,
-    #                        format='MEM',
-    #                        resampleAlg=resamplingMethod.value)
-    #
-    #     return clipDs
 
     # ------------------------------------------------------------------------
     # clip
@@ -117,9 +88,9 @@ class Pipeline:
                 format='MEM',
                 resampleAlg=gdal.GRA_Bilinear,
             )
-    
+
         return clipDs
-        
+
     # ------------------------------------------------------------------------
     # createCube
     # ------------------------------------------------------------------------
@@ -131,7 +102,8 @@ class Pipeline:
                     lry: float,
                     srs: osr.SpatialReference,
                     width: float,
-                    height: float) -> dict:
+                    height: float,
+                    is_static: bool = False) -> dict:  # NEW: is_static parameter
 
         # ---
         # We cannot know the final number of 512 x 512 images in the stack
@@ -149,13 +121,21 @@ class Pipeline:
         numProcessed = 0
         nullCount = 0
         rasterCount = 0
+        skippedCount = 0  # NEW: Track skipped files
 
         for feature in layer:
 
             numProcessed += 1
 
             fileName: Path = Path(feature['location'])
-            
+
+            # NEW: Skip non-matching product IDs (only for WAC files, not static)
+            if self._target_product_id and not is_static:
+                file_product_id = fileName.stem.split('.')[0]
+                if file_product_id != self._target_product_id:
+                    skippedCount += 1
+                    continue  # Skip this file entirely
+
             ds: gdal.Dataset = gdal.Open(str(fileName), gdalconst.GA_ReadOnly)
 
             try:
@@ -181,7 +161,7 @@ class Pipeline:
                     cLry = corners['lowerRight'][1]
                     print('Clip result:', cUlx, cUly, cLrx, cLry)
                     print('Size:', clipDs.RasterXSize, clipDs.RasterYSize)
-                    
+
                     print('DS dtype:',
                           gdal.GetDataTypeName(ds.GetRasterBand(1).DataType))
 
@@ -207,12 +187,12 @@ class Pipeline:
             if numBands == 1:
 
                 ndv = ds.GetRasterBand(1).GetNoDataValue()
-                
+
                 if not (raster == ndv).all():
 
                     # Must do this here to avoid empty prod ids.
                     prodId = fileName.stem.split('.')[0]
-                    
+
                     if prodId not in prodIdDict:
                         prodIdDict[prodId]: list[tuple] = []
 
@@ -244,18 +224,18 @@ class Pipeline:
             if self._debug:
 
                 print('Raster count:', rasterCount)
-                
+
                 if numProcessed > 99:
 
                     print('Debug cube size reached.  Stopping.')
                     break
 
         if self._debug:
-
             print('Null count:', nullCount)
+            if skippedCount > 0:  # NEW: Report skipped count
+                print('Skipped count (non-matching product ID):', skippedCount)
 
         if nullCount == rasterCount:
-
             print('All bands were filled with no-data values.')
 
         print('Total product IDs:', len(prodIdDict))
@@ -322,9 +302,9 @@ class Pipeline:
                      zone: int,
                      zoomLevel: int) -> list[Path]:
 
-        print('Processing (' + str(tileX) + ', ' + str(tileY) + \
-              ') / zone ' + str(zone) + \
-              ' / zoom ' + str(zoomLevel))
+        # print('Processing (' + str(tileX) + ', ' + str(tileY) + \
+        #       ') / zone ' + str(zone) + \
+        #       ' / zoom ' + str(zoomLevel))
 
         tileDef: dict = TmsTileDef.initFromParams(zone, zoomLevel)
 
@@ -349,9 +329,9 @@ class Pipeline:
             print('Tile Bbox Lat/Lon:', ulLat, ulLon, lrLat, lrLon)
             print('Layers from Query:', layer.GetFeatureCount())
 
-        if layer.GetFeatureCount() == 0:
+        # if layer.GetFeatureCount() == 0:
 
-            print('Tile does not overlap any images.')
+            # print('Tile does not overlap any images.')
 
         else:
 
@@ -362,7 +342,8 @@ class Pipeline:
                                           lry,
                                           tileDef.srs,
                                           tileDef.tileWidth,
-                                          tileDef.tileHeight)
+                                          tileDef.tileHeight,
+                                          is_static=False)  # NEW: WAC files
 
             # Write the data cube as a CoG.
             if len(cube):
@@ -390,9 +371,9 @@ class Pipeline:
             print('Tile Bbox Lat/Lon:', ulLat, ulLon, lrLat, lrLon)
             print('Layers from Query:', layer.GetFeatureCount())
 
-        if layer.GetFeatureCount() == 0:
+        # if layer.GetFeatureCount() == 0:
 
-            print('Tile does not overlap any static images.')
+            # print('Tile does not overlap any static images.')
 
         else:
 
@@ -403,7 +384,8 @@ class Pipeline:
                                                 lry,
                                                 tileDef.srs,
                                                 tileDef.tileWidth,
-                                                tileDef.tileHeight)
+                                                tileDef.tileHeight,
+                                                is_static=True)  # NEW: Static files
 
             # Write the data cube as a CoG.
             if len(staticCube):
@@ -529,7 +511,7 @@ class Pipeline:
                 name = raster[0]
                 pixels = raster[1]
                 noDataValue = raster[2]
-                
+
                 # This would be better in createCube().
                 raster = np.where(pixels == noDataValue, NO_DATA_VAL, pixels)
 
@@ -554,7 +536,7 @@ class Pipeline:
                    uly: float) -> list[Path]:
 
         outFiles: list[Path] = []
-        
+
         for pid, rasters in prodIdDict.items():
 
             # Name the file.
@@ -608,7 +590,7 @@ class Pipeline:
                 name = raster[0]
                 pixels = raster[1]
                 noDataValue = raster[2]
-                
+
                 bandIndex += 1
                 band = ds.GetRasterBand(bandIndex)
                 band.WriteArray(pixels)
@@ -620,4 +602,3 @@ class Pipeline:
             outFiles.append(outFile)
 
         return outFiles
-
