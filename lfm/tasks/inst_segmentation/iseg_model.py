@@ -95,8 +95,10 @@ class DinoV3WithAdapterBackbone(nn.Module):
         # Layers to extract from DINOv3-Large (24 layers total, 0-indexed)
         self.layers_to_extract = [5, 11, 17, 23]
 
-        if num_bands not in [3, 5, 7, 8, 12]:
+        if num_bands <= 12 and num_bands not in [3, 5, 7, 8, 12]:
             raise ValueError("Instance Segmentation expects 3, 5, 7, 8, or 12 bands.")
+        elif num_bands > 12:
+            print("WARNING: >12 bands detected. Model may run out of memory during training.")
         self.num_bands = num_bands
 
         if num_bands > 3:

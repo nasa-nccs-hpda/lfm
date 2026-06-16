@@ -88,11 +88,12 @@ class DINOSegmentation(nn.Module):
 
         # 3 for RGB, 5 for all VIS, 7 for all VIS/UV (WAC)
         # 8 for SAM data, 12 for KAGUYA data
-        if num_bands not in [3, 5, 7, 8, 12]:
-            raise ValueError("Dino Segmentation expects 3, 5, 7, 8, or 12 bands.")
-
+        if num_bands <= 12 and num_bands not in [3, 5, 7, 8, 12]:
+            raise ValueError("Instance Segmentation expects 3, 5, 7, 8, or 12 bands.")
+        elif num_bands > 12:
+            print("WARNING: >12 bands detected. Model may run out of memory during training.")
         self.num_bands = num_bands
-        use_flexible = False
+
         if num_bands > 3:
             self._apply_flexible_weights(self.num_bands)
 
