@@ -1085,6 +1085,9 @@ def train_model(
     if mode == "eval" and checkpoint_path is None:
         raise ValueError("checkpoint_path must be provided when mode='eval'")
 
+    if warmup_epochs >= num_epochs:
+        raise ValueError("Warmup epochs must be less than total epochs.")
+
     # Set device
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
