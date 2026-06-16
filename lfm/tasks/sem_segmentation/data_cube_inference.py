@@ -880,8 +880,8 @@ def run_datacube_inference(
     output_dir="outputs/cube_inference",
     n_images=20,
     model_native_size=304,
-    tile_overlap=0.25,
-    threshold=0.75,
+    tile_overlap=0.75,
+    threshold=0.3,
     save_inputs_dir=None,
     debug=False,
     tile_window='triang',
@@ -1081,8 +1081,7 @@ def run_datacube_inference(
 
     plt.subplots_adjust(hspace=0.4)  # Adjust value as needed (0.3-0.5 typically works)
     plt.tight_layout()
-    date_str = datetime.now().strftime("_%m_%d")
-    output_path = f"{output_dir}/inference_viz_t_{int(thresh*100)}_d{date_str}.png"
+    output_path = f"{output_dir}/inference_viz.png"
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
 
