@@ -7,10 +7,10 @@ Working repo for LFM project. See finetuning notebook for an example workflow.
 To test one of the example crater segmentation workflows:
 
 1. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov`.
-   a. Select the ILAB session for 6 hours with 1 H100 GPU.
-2. Navigate to a folder where you would like to run the example workflow.
-3. Open a Terminal from JupyterHub.
-4. Download the semantic segmentation notebook with:
+2. Select the ILAB session for 6 hours with 1 H100 GPU.
+3. Navigate to a folder where you would like to run the example workflow.
+4. Open a Terminal from JupyterHub.
+5. Download the semantic segmentation notebook with:
 
    ```bash
    wget https://github.com/nasa-nccs-hpda/lfm/blob/develop/notebooks/semantic_seg.ipynb
