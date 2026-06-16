@@ -47,7 +47,7 @@ class LunarCraterDataset(Dataset):
         self.image_dir = image_dir
         self.label_dir = label_dir
         self.target_size = target_size
-        self.normalize_inputs = True
+        self.normalize_inputs = normalize_inputs
 
         # Store mean and std as float32 for consistency
         self.mean = mean.astype(np.float32) if mean else None
