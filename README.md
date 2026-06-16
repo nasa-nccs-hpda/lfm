@@ -6,19 +6,8 @@ Working repo for LFM project. See finetuning notebook for an example workflow.
 
 To test one of the example crater segmentation workflows:
 
-1. Open an ADAPT terminal, and run these commands:
-```bash
-module load mamba
-```
-```bash
-micromamba activate /explore/nobackup/projects/lfm/env
-```
-```bash
-python -m ipykernel install --user --name=lfm_env --display-name="LFM_ENV"
-```
-2. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov`.
-   1. Select the ILAB session for 6 hours with 1 V100 GPU.
-   2. From the top right corner, click the text that says Python [...]. Select "Python [conda env: ilab-pytorch]" from the dropdown.
+1. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov`.
+2. Select the ILAB session for 6 hours with 1 H100 GPU.
 3. Navigate to a folder where you would like to run the example workflow.
 4. Open a Terminal from JupyterHub.
 5. Download the semantic segmentation notebook with:
@@ -31,7 +20,7 @@ python -m ipykernel install --user --name=lfm_env --display-name="LFM_ENV"
    ```bash
    https://github.com/nasa-nccs-hpda/lfm/blob/develop/notebooks/instance_seg.ipynb
    ```
-7. Navigate to the top right where it says "Python 3 (ipykernel)" or something similar. Click on this, and select  ```LFM_ENV``` from the dropdown list.
+7. From the top right corner, click the text that says Python [...]. Select "NGC PyTorch..." from the dropdown, near the top.
 8. Run the Notebook.
 
 ## Full Repository usage
@@ -77,16 +66,16 @@ The SAT-493M ViT-L/16 distilled DinoV3 encoder was used (trained on Satellite da
 ### Data Specifications
 
 #### Input Data
-Input data was comprised of 2 UV bands and 5 vis bands. These were preprocessed by extracting all bands from the processed data geotiffs, matching them to the AOI of the (300, 300, 3) netCDF chips, and normalizing values to [0,1] range. Data was saved as georeferenced, 7-band geotiffs under the LFM project space.
+Input data was comprised of 2 UV bands and 5 vis bands, as well as the 5 KAGUYA static bands. These were preprocessed by extracting all bands from the processed data geotiffs, matching them to the AOI of the (300, 300, 3) netCDF chips, and normalizing values to [0,1] range. Data was saved as georeferenced, 12-band geotiffs under the LFM project space.
 
 #### Labels
 Labels were processed from the annotations JSON file. Annotations were sorted by corresponding filename, then all labels for a given filename were saved single composite (300, 300) shape .npy images under the LFM project space.
 
 #### Input/label matching
-Labels and inputs were matched by asset ID, as well as tile row/column ID. Since the AOI of the original images were used, labels could be reused for the 7-band geotiffs.
+Labels and inputs were matched by product ID, as well as tile row/column ID. Since the AOI of the original images were used, labels could be reused for the 12-band geotiffs.
 
 #### Data locations
 Data is kept under the LFM project space, under the ```/explore/nobackup/projects/lfm/model_inputs/300_300_inputs``` subdirectory. 3 band, 5_band vis data is kept there, as well as the primary 7-band vis/uv data. 3 and 5 band data is kept in .npy format, while 7-band is kept in .tif format. Data is separated into semantic segmentation and instance segmentation, due to their differing labels.
 
 ### Training specifications
-The toy models were trained on 500 input/label pairs for 50 epochs, using a PRISM JupyterHub job on 4 V100 GPUs (1 V100 will also work, but will be slower). When adding bands (5/7 bands), a H100 node was used for its larger VRAM capacity. The parameters used were: "focal dice" loss function (Focal Loss + Dice loss), 5e-5 initial learning rate, AdamW optimizer, and Cosine Annealing LR scheduling with warmup. A train/val split of 80/20% was used as well, with early stopping patience of 5 epochs.
+The toy models were trained on 500 input/label pairs for 50 epochs, using a PRISM JupyterHub job on 1 H100 GPU, chosen over a V100 for its larger VRAM capacity. The parameters used were: "focal dice" loss function (Focal Loss + Dice loss), 5e-5 initial learning rate, AdamW optimizer, and Cosine Annealing LR scheduling with warmup. A train/val split of 80/20% was used as well, and training was run for 100 epochs with no early stopping.
