@@ -18,6 +18,7 @@ import matplotlib.colors as mcolors
 import matplotlib.patches as patches
 from tqdm import tqdm
 from skimage.transform import resize
+from transformers import AutoImageProcessor
 
 
 # ============================================================================
@@ -1039,19 +1040,15 @@ def train_model(
     model,
     train_loader,
     val_loader,
-    image_processor,
     output_dir,
     num_epochs=50,
     learning_rate=1e-4,
     weight_decay=1e-4,
-    checkpoint_every=10,
-    visualize_every=10,
     device=None,
-    mode="both",
+    mode="train",
     checkpoint_path=None,
     max_grad_norm=1.0,
     early_stopping_patience=None,
-    warmup_epochs=None,
 ):
     """
     Main training/evaluation loop for Mask2Former instance segmentation.
@@ -1061,19 +1058,19 @@ def train_model(
         train_loader: Training dataloader
         val_loader: Validation dataloader
         image_processor: Image processor for post-processing
-        output_dir: Directory to save checkpoints and visualizations
-        num_epochs: Number of epochs to train
-        learning_rate: Learning rate
-        weight_decay: Weight decay for optimizer
-        checkpoint_every: Save checkpoint every N epochs
-        visualize_every: Visualize predictions every N epochs
+        output_dir (str): Directory to save checkpoints and visualizations
+        num_epochs (int): Number of epochs to train
+        learning_rate (float): Learning rate
+        weight_decay (float): Weight decay for optimizer
         device: torch device (if None, will use cuda if available)
-        mode: Operation mode - 'train', 'eval', or 'both'
-        checkpoint_path: Path to checkpoint file for loading/resuming
+        mode (str): Operation mode - 'train', 'eval', or 'both' (default train)
+        checkpoint_path (str): Path to checkpoint file for loading/resuming
+        max_grad_norm (float): Maximum gradient norm for clipping
+        early_stopping_patience (int): Number of epochs to wait before early stopping
 
     Returns:
-        train_losses: Training losses per epoch (None if mode='eval')
-        val_losses: Validation losses per epoch (None if mode='eval')
+        train_losses (list): Training losses per epoch (None if mode='eval')
+        val_losses (list): Validation losses per epoch (None if mode='eval')
     """
 
     # Validate arguments
@@ -1085,8 +1082,19 @@ def train_model(
     if mode == "eval" and checkpoint_path is None:
         raise ValueError("checkpoint_path must be provided when mode='eval'")
 
-    if warmup_epochs >= num_epochs:
-        raise ValueError("Warmup epochs must be less than total epochs.")
+    # 6/17: hardcoding these so config section is cleaner
+    warmup_epochs = max(num_epochs // 10, 10)
+    visualize_every = max(num_epochs // 10, 10)
+    checkpoint_every = max(num_epochs // 10, 10)
+    # Create image processor
+    BASE_MODEL = "facebook/mask2former-swin-large-coco-instance"
+    image_processor = AutoImageProcessor.from_pretrained(
+        BASE_MODEL,
+        do_resize=True,
+        size={"height": 304, "width": 304},
+        do_normalize=False,
+        do_reduce_labels=False,  # Keep background as 0
+    )
 
     # Set device
     if device is None:
@@ -1095,7 +1103,7 @@ def train_model(
     print(f"Using device: {device}")
     model = model.to(device)
 
-    # Create output directories
+    # Create output directory
     os.makedirs(output_dir, exist_ok=True)
     checkpoint_dir = os.path.join(output_dir, "checkpoints")
     visualization_dir = os.path.join(output_dir, "visualizations")
@@ -1104,37 +1112,57 @@ def train_model(
 
     # EVALUATION ONLY MODE
     if mode == "eval":
+        # Load model weights (handles both old and new formats)
         load_model_weights(model, checkpoint_path, device)
+
+        # Run evaluation
         evaluate_model(model, val_loader, image_processor, output_dir, device)
         return None, None
 
-    # TRAINING MODE
+    # TRAINING MODE (train or both)
 
     # NO CRITERION - Mask2Former computes loss internally!
     print(
         "Using Mask2Former's built-in loss (Hungarian matching + combined losses)"
     )
 
-    # Optimizer
+    # Optimizer: only affect unfrozen model parameters
     optimizer = AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=learning_rate,
         weight_decay=weight_decay,
     )
 
-    # Learning rate scheduler with optional warmup
-    if warmup_epochs is None or warmup_epochs <= 0:
+    # Learning rate scheduler
+    if warmup_epochs is None or warmup_epochs < 0:
         scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
     elif warmup_epochs > num_epochs:
         raise ValueError(
             "Number of warmup epochs must be less than or equal to total epochs."
+        )
+    elif warmup_epochs > 0.5 * num_epochs:
+        print("Warning: warmup epochs is greater than 1/2 of total epochs.")
+        warmup_scheduler = LinearLR(
+            optimizer, start_factor=0.1, total_iters=warmup_epochs
+        )
+        cosine_scheduler = CosineAnnealingLR(
+            optimizer,
+            T_max=num_epochs - warmup_epochs,
+            eta_min=1e-7,  # Lower minimum
+        )
+        scheduler = SequentialLR(
+            optimizer,
+            schedulers=[warmup_scheduler, cosine_scheduler],
+            milestones=[warmup_epochs],
         )
     else:
         warmup_scheduler = LinearLR(
             optimizer, start_factor=0.1, total_iters=warmup_epochs
         )
         cosine_scheduler = CosineAnnealingLR(
-            optimizer, T_max=num_epochs - warmup_epochs, eta_min=1e-7
+            optimizer,
+            T_max=num_epochs - warmup_epochs,
+            eta_min=1e-7,  # Lower minimum
         )
         scheduler = SequentialLR(
             optimizer,
@@ -1148,10 +1176,7 @@ def train_model(
     best_val_loss = float("inf")
     start_epoch = 1
 
-    # Early stopping
-    patience_counter = 0
-
-    # Load checkpoint if resuming
+    # Load checkpoint if resuming training
     if checkpoint_path is not None:
         start_epoch, train_losses, val_losses = load_checkpoint(
             model, optimizer, scheduler, checkpoint_path, device
@@ -1162,8 +1187,19 @@ def train_model(
 
     print(f"\nStarting training for {num_epochs} epochs...")
     print(f"Starting from epoch: {start_epoch}")
-    print(f"Checkpoints will be saved every {checkpoint_every} epochs")
-    print(f"Visualizations will be saved every {visualize_every} epochs")
+    print(
+        f"Checkpoints will be saved every {checkpoint_every} epochs to: "
+        f"{checkpoint_dir}"
+    )
+    print(
+        f"Visualizations will be saved every {visualize_every} epochs to: "
+        f"{visualization_dir}"
+    )
+
+    print_model_summary(model)
+
+    # Early stopping
+    patience_counter = 0
 
     # Start timing
     training_start_time = time.time()
@@ -1176,7 +1212,7 @@ def train_model(
         print(f"Epoch {epoch}/{num_epochs}")
         print(f"{'='*60}")
 
-        # Train (no criterion)
+        # Train (no criterion - Mask2Former computes internally)
         train_loss = train_epoch(
             model,
             train_loader,
@@ -1187,7 +1223,7 @@ def train_model(
         )
         train_losses.append(train_loss)
 
-        # Validate (no criterion)
+        # Validate (no criterion - Mask2Former computes internally)
         val_loss = validate_epoch(
             model,
             val_loader,
@@ -1238,10 +1274,11 @@ def train_model(
                 epoch,
             )
 
-        # Save best model & check early stopping
+        # Save best model
+        # Early stopping check
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            patience_counter = 0  # Reset counter
+            patience_counter = 0
             best_path = os.path.join(checkpoint_dir, "best_model.pt")
             save_checkpoint(
                 model,
@@ -1252,7 +1289,8 @@ def train_model(
                 val_losses,
                 best_path,
             )
-            print(f"\n  ✅ Saved best model (val_loss: {val_loss:.4f})")
+            print(f"  Saved best model (val_loss: {val_loss:.4f})")
+            # Save best model...
         else:
             patience_counter += 1
 
@@ -1322,7 +1360,7 @@ def train_model(
     )
     print(f"Saved final model to: {final_path}")
 
-    # Print training summary
+    # Print training summary (only if we have losses)
     if len(train_losses) > 0 and len(val_losses) > 0:
         print("\n" + "=" * 60)
         print("TRAINING SUMMARY")
@@ -1331,8 +1369,7 @@ def train_model(
         print(f"Final val loss: {val_losses[-1]:.4f}")
         print(f"Best val loss: {min(val_losses):.4f}")
         print(
-            f"Total training time: {total_training_time:.2f}s "
-            f"({total_training_time/60:.2f}m)"
+            f"Total training time: {total_training_time:.2f}s ({total_training_time/60:.2f}m)"
         )
         print(f"Average time per epoch: {avg_epoch_time:.2f}s")
         print(f"\nOutputs saved to: {output_dir}")

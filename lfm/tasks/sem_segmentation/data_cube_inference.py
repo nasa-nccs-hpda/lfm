@@ -875,8 +875,8 @@ def run_datacube_inference(
     model,
     device,
     input_dir,
-    mean=None,
-    std=None,
+    mean,
+    std,
     output_dir="outputs/cube_inference",
     n_images=20,
     model_native_size=304,
@@ -884,8 +884,8 @@ def run_datacube_inference(
     threshold=0.3,
     save_inputs_dir=None,
     debug=False,
-    tile_window='hann',
-    visualize_tiles=False
+    tile_window='triang',
+    visualize_tiles=True
 ):
     """
     Run inference on 12-band datacubes with detailed tile visualization.

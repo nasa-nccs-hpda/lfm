@@ -635,15 +635,12 @@ def train_model(
     num_epochs=50,
     learning_rate=1e-4,
     weight_decay=1e-4,
-    checkpoint_every=10,
-    visualize_every=10,
-    loss_type="cross_entropy",
+    loss_type="focal_dice",
     device=None,
-    mode="both",
+    mode="train",
     checkpoint_path=None,
     max_grad_norm=1.0,
     early_stopping_patience=None,
-    warmup_epochs=None,
 ):
     """
     Main training/evaluation loop for DINO segmentation.
@@ -683,8 +680,10 @@ def train_model(
     if mode == "eval" and checkpoint_path is None:
         raise ValueError("checkpoint_path must be provided when mode='eval'")
 
-    if warmup_epochs >= num_epochs:
-        raise ValueError("Warmup epochs must be less than total epochs.")
+    # 6/17: hardcoding these so config section is cleaner
+    warmup_epochs = max(num_epochs // 10, 10)
+    visualize_every = max(num_epochs // 10, 10)
+    checkpoint_every = max(num_epochs // 10, 10)
 
     # Set device
     if device is None:

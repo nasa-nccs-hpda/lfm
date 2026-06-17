@@ -11,71 +11,83 @@ from typing import Tuple, Optional, List
 
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, random_split, DataLoader
 import torch.nn.functional as F
 from tqdm import tqdm
 import rasterio
+from transformers import AutoImageProcessor
 
 
 class LunarCraterDatasetMask2Former(Dataset):
     """
-    Dataset for multi-channel images and segmentation masks.
-    Supports images with any number of channels (1=grayscale, 3=RGB, 4=RGBA, etc.).
+    Dataset for multi-channel images and segmentation masks for Mask2Former.
+    Images are expected to be .tif files in <base_dir>/chips/
+    Labels are expected to be .npz files in <base_dir>/labels/
 
     Args:
-        image_dir: Directory with .npy images (H, W, C) or (C, H, W)
-        label_dir: Directory with .npy label masks (H, W)
+        base_dir: Base directory containing 'chips' and 'labels' subdirectories
         mean: Mean values per channel for normalization (shape: [num_channels])
         std: Standard deviation per channel for normalization (shape: [num_channels])
+        image_processor: Mask2Former image processor
         target_size: Target size for model input. Default: (304, 304)
         max_samples: Max samples to use. None uses all samples.
+        band_filter: List of band indices to use. None uses all bands.
+        normalize_inputs: Whether to normalize inputs using mean/std.
     """
 
     def __init__(
         self,
-        image_dir: str,
-        label_dir: str,
+        base_dir: str,
         mean: np.ndarray,
         std: np.ndarray,
         image_processor,
         target_size: Tuple[int, int] = (304, 304),
         max_samples: Optional[int] = None,
-        input_file_type: str = ".npy",
-        label_file_type: str = ".npz",
         band_filter: List[int] = None,
         normalize_inputs: bool = True,
     ):
-        self.image_dir = image_dir
-        self.label_dir = label_dir
+        # Hardcoded directory structure and file types
+        self.image_dir = f"{base_dir}/chips"
+        self.label_dir = f"{base_dir}/labels"
+        self.image_file_type = ".tif"
+        self.label_file_type = ".npz"
+
         self.target_size = target_size
         self.normalize_inputs = normalize_inputs
-
-        # Used for m2f
         self.image_processor = image_processor
 
-        # Store mean and std as float32 for consisten
-        self.mean = mean.astype(np.float32) if mean else None
-        self.std = std.astype(np.float32) if std else None
+        # Validate directories exist
+        if not os.path.exists(self.image_dir):
+            raise ValueError(f"Image directory not found: {self.image_dir}")
+        if not os.path.exists(self.label_dir):
+            raise ValueError(f"Label directory not found: {self.label_dir}")
 
-        # Glob all images and labels
-        if input_file_type not in [".npy", ".npz", ".tif"]:
-            raise ValueError(
-                "Inputs are expected to be of type .npy, .npz, or .tif"
-            )
-        if label_file_type not in [".npy", ".npz"]:
-            raise ValueError("Inputs are expected to be of type .npy or .npz")
-        self.input_file_type = input_file_type
-        self.label_file_type = label_file_type
+        # Store mean and std as float32 for consistency
+        self.mean = mean.astype(np.float32) if mean is not None else None
+        self.std = std.astype(np.float32) if std is not None else None
+
+        # Glob all images and labels with expected file types
         self.image_paths = sorted(
-            glob(os.path.join(image_dir, f"*{self.input_file_type}"))
+            glob(os.path.join(self.image_dir, f"*{self.image_file_type}"))
         )
         label_paths = sorted(
-            glob(os.path.join(label_dir, f"*{self.label_file_type}"))
+            glob(os.path.join(self.label_dir, f"*{self.label_file_type}"))
         )
+
+        # Validate that files were found
+        if len(self.image_paths) == 0:
+            raise ValueError(
+                f"No {self.image_file_type} files found in {self.image_dir}"
+            )
+        if len(label_paths) == 0:
+            raise ValueError(
+                f"No {self.label_file_type} files found in {self.label_dir}"
+            )
 
         # Load example to validate input band number
         example_band_number = self._load_example_input(self.image_paths[0])
         self.num_channels = example_band_number
+
         if band_filter is not None:
             if example_band_number < len(band_filter):
                 raise ValueError(
@@ -107,15 +119,11 @@ class LunarCraterDatasetMask2Former(Dataset):
         }
 
         # Filter to only images that have matching labels
-        self.valid_indices = []
         self.valid_image_paths = []
         self.valid_label_paths = []
 
-        for idx, (img_path, basename) in enumerate(
-            zip(self.image_paths, self.image_basenames)
-        ):
+        for img_path, basename in zip(self.image_paths, self.image_basenames):
             if basename in self.label_lookup:
-                self.valid_indices.append(idx)
                 self.valid_image_paths.append(img_path)
                 self.valid_label_paths.append(self.label_lookup[basename])
 
@@ -128,7 +136,7 @@ class LunarCraterDatasetMask2Former(Dataset):
             print(f"Limited to {max_samples} samples")
 
         print(f"Found {len(self.valid_image_paths)} matched image-label pairs")
-        print(f"Dataset configured for {self.num_channels} channel(s)")
+        print(f"Dataset configured for {len(self.band_filter)} channel(s)")
 
         if len(self.valid_image_paths) == 0:
             raise ValueError(
@@ -136,31 +144,28 @@ class LunarCraterDatasetMask2Former(Dataset):
                 "Check that basenames match between image_dir and label_dir"
             )
 
-    def _load_example_input(self, img_path: str):
-        if self.input_file_type in [".npy", ".npz"]:
-            image = np.load(img_path).astype(
-                np.float32
-            )  # (H, W, C) or (C, H, W)
-        else:  # .tif
-            image = rasterio.open(img_path).read()
+    def _load_example_input(self, img_path: str) -> int:
+        """
+        Load an example .tif image to determine number of bands.
+
+        Returns:
+            Number of channels in the image
+        """
+        image = rasterio.open(img_path).read()  # Shape: (C, H, W)
 
         if image.ndim == 3:
-            # Determine format: if first dimension is smallest, assume (C, H, W)
-            if image.shape[0] < min(image.shape[1], image.shape[2]):
-                image = image.transpose(1, 2, 0)  # Convert to (H, W, C)
-            # Otherwise, assume already in (H, W, C) format
-
+            # TIF format is (C, H, W)
+            return image.shape[0]
         elif image.ndim == 2:
-            # Handle grayscale images without explicit channel dimension
-            image = image[:, :, np.newaxis]  # Shape: (H, W, 1)
+            # Grayscale image
+            return 1
         else:
             raise ValueError(
                 f"Unexpected image dimensions: {image.shape} for {img_path}"
             )
-        return image.shape[2]  # Return channel, which is final idx
 
     @staticmethod
-    def _min_max_scale_bands(img: np.array):
+    def _min_max_scale_bands(img: np.ndarray) -> np.ndarray:
         """
         Min-max scale each band to [0, 1]
 
@@ -172,9 +177,8 @@ class LunarCraterDatasetMask2Former(Dataset):
         """
         scaled = np.zeros_like(img, dtype=np.float32)
 
-        # Iterate over channels (last dimension for H, W, C format)
-        for i in range(img.shape[2]):  # Changed from shape[0] to shape[2]
-            band = img[:, :, i]  # Get channel i
+        for i in range(img.shape[2]):
+            band = img[:, :, i]
             band_min, band_max = band.min(), band.max()
             if band_max > band_min:
                 scaled[:, :, i] = (band - band_min) / (band_max - band_min)
@@ -186,39 +190,33 @@ class LunarCraterDatasetMask2Former(Dataset):
     def __len__(self) -> int:
         return len(self.valid_image_paths)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> dict:
         """
         Returns:
-            image (torch.Tensor): Normalized and resized image (C, H, W)
-            label (torch.Tensor): Resized label mask (H, W)
+            dict with keys:
+                - pixel_values: Normalized and resized image (C, H, W)
+                - mask_labels: Instance masks (num_instances, H, W)
+                - class_labels: Class labels (num_instances,)
+                - original_size: Original (height, width) before resizing
         """
-        # Load image and label
         img_path = self.valid_image_paths[idx]
         label_path = self.valid_label_paths[idx]
 
-        if self.input_file_type in [".npy", ".npz"]:
-            # Image is (H, W, C) or (C, H, W)
-            image = np.load(img_path).astype(np.float32)
-        else:  # .tif
-            image = rasterio.open(img_path).read()
+        # Load .tif image (C, H, W) and .npz label
+        image = rasterio.open(img_path).read()  # Shape: (C, H, W)
 
-        # Load label from label_path (.npz)
+        # Load label from .npz file
         seg_data = np.load(label_path)
-        # (H, W) with instance IDs
-        instance_mask = seg_data["mask"].astype(np.int8)
+        instance_mask = seg_data["mask"].astype(np.int8)  # (H, W) with instance IDs
 
-        # Used for postprocessing in m2f
+        # Store original dimensions for postprocessing
         original_height, original_width = instance_mask.shape
 
-        # Handle different image shapes: (H, W, C), (C, H, W), or (H, W)
+        # Convert image to (H, W, C) format for processing
         if image.ndim == 3:
-            # Determine format: if first dimension is smallest, assume (C, H, W)
-            if image.shape[0] < min(image.shape[1], image.shape[2]):
-                image = image.transpose(1, 2, 0)  # Convert to (H, W, C)
-            # Otherwise, assume already in (H, W, C) format
+            image = image.transpose(1, 2, 0)  # (C, H, W) -> (H, W, C)
         elif image.ndim == 2:
-            # Handle grayscale images without explicit channel dimension
-            image = image[:, :, np.newaxis]  # Shape: (H, W, 1)
+            image = image[:, :, np.newaxis]  # (H, W) -> (H, W, 1)
         else:
             raise ValueError(
                 f"Unexpected image dimensions: {image.shape} for {img_path}"
@@ -232,19 +230,15 @@ class LunarCraterDatasetMask2Former(Dataset):
             )
 
         # Filter down to desired bands
-        image = image[:, :, self.band_filter]
+        image = image[:, :, self.band_filter].astype(np.float32)
 
-        # .tif inputs have been saved as raw values; needs min/max
-        if self.input_file_type == ".tif":
-            image = LunarCraterDatasetMask2Former._min_max_scale_bands(image)
+        # Min-max scale .tif inputs
+        image = LunarCraterDatasetMask2Former._min_max_scale_bands(image)
 
         # Normalize image with dataset statistics
-        # Filter mean/std to use our band indices filter
         if self.normalize_inputs:
             mean_filtered = self.mean[self.band_filter]
             std_filtered = self.std[self.band_filter]
-
-            # Reshape mean and std to (1, 1, C) for broadcasting with (H, W, C)
             mean_reshaped = mean_filtered.reshape(1, 1, -1)
             std_reshaped = std_filtered.reshape(1, 1, -1)
             image = (image - mean_reshaped) / std_reshaped
@@ -537,22 +531,18 @@ def calculate_dataset_statistics(
 
 
 def get_dataloaders(
-    image_dir: str,
-    label_dir: str,
-    image_processor,
+    base_dir: str,
     batch_size: int = 8,
     train_split: float = 0.8,
-    num_workers: int = 4,
+    num_workers: int = 8,
     target_size: Tuple[int, int] = (304, 304),
     max_samples: Optional[int] = None,
     seed: int = 42,
     stats_save_dir: Optional[str] = None,
-    input_file_type: str = ".npy",
-    label_file_type: str = ".npy",
     debug: bool = False,
     band_filter: List[int] = None,
     output_dir: str = "output",
-    normalize_inputs: bool = True,
+    normalize_inputs: bool = False,
 ):
     """
     Create train/val dataloaders with automatic statistics calculation.
@@ -560,8 +550,7 @@ def get_dataloaders(
     Automatically handles images with any number of channels.
 
     Args:
-        image_dir: Directory with multi-channel images
-        label_dir: Directory with label masks
+        base_dir: Base directory containing 'chips' and 'labels' subdirectories
         batch_size: Batch size for dataloaders
         train_split: Fraction of data for training
         num_workers: Workers for data loading
@@ -569,17 +558,31 @@ def get_dataloaders(
         max_samples: Max samples to use. None uses all.
         seed: Random seed for reproducibility
         stats_save_dir: Directory to save/load stats. None skips saving.
+        debug: Debug mode flag
+        band_filter: List of band indices to use
+        output_dir: Output directory
+        normalize_inputs: Whether to normalize inputs
 
     Returns:
         Tuple of (train_loader, val_loader, mean, std)
     """
+    # Create image processor
+    BASE_MODEL = "facebook/mask2former-swin-large-coco-instance"
+    image_processor = AutoImageProcessor.from_pretrained(
+        BASE_MODEL,
+        do_resize=True,
+        size={"height": 304, "width": 304},
+        do_normalize=False,
+        do_reduce_labels=False,  # Keep background as 0
+    )
+
     # Check if statistics already exist
     mean_path = None
     std_path = None
     mean = None
     std = None
 
-    if stats_save_dir is not None:
+    if stats_save_dir is not None and normalize_inputs:
         os.makedirs(stats_save_dir, exist_ok=True)
         mean_path = os.path.join(stats_save_dir, "dataset_mean.npy")
         std_path = os.path.join(stats_save_dir, "dataset_std.npy")
@@ -594,8 +597,10 @@ def get_dataloaders(
     # Calculate statistics if not loaded
     if (mean is None or std is None) and normalize_inputs:
         print("Computing dataset statistics...")
+        # Note: calculate_dataset_statistics should be updated to use base_dir
+        image_dir = f"{base_dir}/chips"
         mean, std = calculate_dataset_statistics(
-            image_dir, input_file_type, debug
+            image_dir, ".tif", debug
         )
 
         # Save statistics if directory provided
@@ -606,15 +611,12 @@ def get_dataloaders(
 
     # Create full dataset, normalize using mean/std of loaded data
     full_dataset = LunarCraterDatasetMask2Former(
-        image_dir=image_dir,
-        label_dir=label_dir,
+        base_dir=base_dir,
         mean=mean,
         std=std,
         image_processor=image_processor,
         target_size=target_size,
         max_samples=max_samples,
-        input_file_type=input_file_type,
-        label_file_type=label_file_type,
         band_filter=band_filter,
         normalize_inputs=normalize_inputs
     )
@@ -624,14 +626,14 @@ def get_dataloaders(
     train_size = int(train_split * dataset_size)
     val_size = dataset_size - train_size
 
-    train_dataset, val_dataset = torch.utils.data.random_split(
+    train_dataset, val_dataset = random_split(
         full_dataset,
         [train_size, val_size],
         generator=torch.Generator().manual_seed(seed),
     )
 
     # Create train dataloader
-    train_loader = torch.utils.data.DataLoader(
+    train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
@@ -641,7 +643,7 @@ def get_dataloaders(
     )
 
     # Create val dataloader
-    val_loader = torch.utils.data.DataLoader(
+    val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
