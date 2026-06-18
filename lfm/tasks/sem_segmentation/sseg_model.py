@@ -74,8 +74,8 @@ class DINOSegmentation(nn.Module):
         encoder,
         num_classes=2,
         img_size=(304, 304),
-        num_bands=3,
-        freeze_encoder=False
+        freeze_encoder=False,
+        weight_assignments=None
     ):
         super().__init__()
         self.encoder = encoder
@@ -87,15 +87,14 @@ class DINOSegmentation(nn.Module):
         # UNet decoder
         self.decoder = UNetDecoder(self.embed_dim, num_classes)
 
-        # 3 for RGB, 5 for all VIS, 7 for all VIS/UV (WAC)
-        # 8 for SAM data, 12 for KAGUYA data
-        if num_bands not in [3, 5, 7, 8, 12]:
-            raise ValueError("Dino Segmentation expects 3, 5, 7, 8, or 12 bands.")
+        if weight_assignments is None:
+            raise ValueError("Model didn't receive weight assignments.")
+        else:
+            self.weight_assignments = weight_assignments
+            self.num_bands = len(weight_assignments)
 
-        self.num_bands = num_bands
-        use_flexible = False
-        if num_bands > 3:
-            self._apply_flexible_weights(self.num_bands)
+        if self.num_bands > 3:
+            self._apply_flexible_weights()
 
         self.freeze_encoder = freeze_encoder
         if  self.freeze_encoder:
@@ -134,36 +133,27 @@ class DINOSegmentation(nn.Module):
         """Load model state (encoder + decoder)."""
         self.load_state_dict(torch.load(filename))
 
-    def _apply_flexible_weights(self, num_bands=5):
-        """Weight modification for >3-band input
+    def _apply_flexible_weights(self):
+        """
+        Apply flexible weight modifications for multi-band input.
 
-        Band mapping:
-        - Channel 0 (Blue) <- Blue weights from DINOv3
-        - Channel 1 (Green) <- Green weights from DINOv3
-        - Channel 2 (Orange) <- Mean of Red and Green weights
-        - Channel 3 (Red) <- Red weights from DINOv3
-        - Channel 4 (NIR) <- Red weights (spectrally closest)
-        - Channel 5 (UV 1) <- Blue weights (spectrally closest)
-        - Channel 6 (UV 2) <- Blue weights (spectrally closest)
-        - Channel 7 (STATIC 3) <- Red weights (spectrally closest)
+        Uses self.weight_assignments to dynamically map input bands to
+        DINOv3's RGB pretrained weights based on spectral similarity.
         """
 
-        print("Modifying input weights for > 3 bands...")
+        print(f"Modifying input weights for {self.num_bands} bands...")
 
         # Access the patch embedding
         patch_embed = self.encoder.patch_embed.proj
 
         with torch.no_grad():
-            original_weights = (
-                patch_embed.weight.data.clone()
-            )  # Shape: (out_channels, 3, 16, 16)
+            original_weights = patch_embed.weight.data.clone()  # Shape: (out_channels, 3, H, W)
             # original_weights channels: [0]=Red, [1]=Green, [2]=Blue
 
-            # Create new weights for >3-band input
-            # new_weights shape: [:, n_bands, :, :]
+            # Create new weights for multi-band input
             new_weights = torch.zeros(
                 original_weights.shape[0],
-                num_bands,  # 5/7/8 input bands
+                self.num_bands,
                 original_weights.shape[2],
                 original_weights.shape[3],
             ).to(original_weights.device)
@@ -172,32 +162,27 @@ class DINOSegmentation(nn.Module):
             green_weights = original_weights[:, 1, :, :]
             blue_weights = original_weights[:, 2, :, :]
 
-            # Correct mapping based on RGB order in original_weights
-            new_weights[:, :5, :, :] = torch.stack([
-                blue_weights,
-                green_weights,
-                0.7 * red_weights + 0.3 * green_weights,
-                red_weights,
-                0.95 * red_weights
-            ], dim=1)
-            if num_bands >= 7:  # add 2 additional weights for 7-band input
-                new_weights[:, 5:7, :, :] = blue_weights.unsqueeze(1).expand(
-                    -1, 2, -1, -1
-                )
-            if num_bands >= 8:
-                # For STATIC data, just use red embeddings for all bands
-                for idx in range(7, num_bands):
-                    new_weights[:, 7:, :, :] = red_weights.unsqueeze(1).expand(
-                        -1, num_bands - 7, -1, -1
-                    )
+            # Dynamically assign weights based on weight_assignments
+            for i, assignment in enumerate(self.weight_assignments):
+                if assignment == "blue":
+                    new_weights[:, i, :, :] = blue_weights
+                elif assignment == "green":
+                    new_weights[:, i, :, :] = green_weights
+                elif assignment == "red":
+                    new_weights[:, i, :, :] = red_weights
+                elif assignment == "0.95*red":
+                    new_weights[:, i, :, :] = 0.95 * red_weights
+                elif assignment == "0.7*red+0.3*green":
+                    new_weights[:, i, :, :] = 0.7 * red_weights + 0.3 * green_weights
+                else:
+                    # Default fallback to red weights
+                    print(f"Warning: Unknown weight assignment '{assignment}' for band {i}, using red weights")
+                    new_weights[:, i, :, :] = red_weights
 
             # Replace patch embedding weights
             patch_embed.weight.data = new_weights
 
-        print(
-            "Applied flexible embedding approach to match input bands. "
-            f"Bands specified: {num_bands}"
-        )
+        print(f"Applied flexible embedding approach: {self.weight_assignments}")
 
 
 def load_dinov3_encoder(

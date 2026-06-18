@@ -530,6 +530,69 @@ def calculate_dataset_statistics(
     return mean, std
 
 
+def get_input_metadata(base_dir: str, band_filter: Optional[List[int]] = None) -> List[str]:
+    """
+    Extract band metadata and return RGB weight assignments for each band.
+
+    Args:
+        base_dir: Base directory containing 'chips' subdirectory
+        band_filter: Optional list of band indices to use. None uses all bands.
+
+    Returns:
+        List of weight assignment strings (e.g., ["blue", "green", "0.7*red+0.3*green"])
+        Index corresponds to band position after filtering.
+    """
+
+    image_dir = f"{base_dir}/chips"
+    all_image_paths = glob(os.path.join(image_dir, "*.tif"))
+    image_path = all_image_paths[0]
+
+    # Known wavelengths for visible bands (indices 0-4)
+    wavelengths = {0: 415, 1: 566, 2: 604, 3: 643, 4: 689}
+
+    def _get_weight_assignment(description: str, band_idx: int) -> str:
+        """Determine RGB weight assignment for a band."""
+        desc_lower = description.lower()
+
+        # Check wavelength-based assignment for visible bands
+        if band_idx in wavelengths:
+            wl = wavelengths[band_idx]
+            if wl < 500:
+                return "blue"
+            elif wl < 580:
+                return "green"
+            elif wl < 620:  # Orange range - blend
+                return "0.7*red+0.3*green"
+            elif wl < 680:
+                return "red"
+            else:  # NIR
+                return "0.95*red"
+
+        # UV bands -> blue
+        if "uv" in desc_lower:
+            return "blue"
+
+        # Everything else (static data) -> red
+        return "red"
+
+    # Read band descriptions
+    with rasterio.open(image_path) as src:
+        num_bands = src.count
+        descriptions = [src.descriptions[i] or f"Band {i+1}" for i in range(num_bands)]
+
+    # Apply band filter
+    if band_filter is None:
+        band_filter = list(range(num_bands))
+
+    # Get weight assignments for filtered bands
+    weight_assignments = [
+        _get_weight_assignment(descriptions[idx], idx)
+        for idx in band_filter
+    ]
+
+    return weight_assignments
+
+
 def get_dataloaders(
     base_dir: str,
     batch_size: int = 8,
@@ -609,6 +672,8 @@ def get_dataloaders(
             np.save(std_path, std)
             print(f"✓ Saved statistics to {stats_save_dir}")
 
+    weight_assignments = get_input_metadata(base_dir, band_filter)
+
     # Create full dataset, normalize using mean/std of loaded data
     full_dataset = LunarCraterDatasetMask2Former(
         base_dir=base_dir,
@@ -655,4 +720,4 @@ def get_dataloaders(
     print(f"Train samples: {len(train_dataset)}")
     print(f"Val samples: {len(val_dataset)}")
 
-    return train_loader, val_loader, mean, std
+    return train_loader, val_loader, weight_assignments
