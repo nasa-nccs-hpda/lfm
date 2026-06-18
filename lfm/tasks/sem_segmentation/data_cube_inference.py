@@ -230,6 +230,7 @@ def get_datacube_data(
     max_images=None,
     verbose=True,
     verify_bands=True,
+    band_filter=None
 ):
     """
     Extract and stack vis and static GeoTIFF data.
@@ -321,6 +322,8 @@ def get_datacube_data(
 
         # Combine wac and static
         combined_ds = xr.concat([wac_ds, static_ds], dim='band')
+        if band_filter is not None:
+            combined_ds = combined_ds.isel(band=band_filter)
         # clipped_combined_ds = np.clip(combined_ds.values, 0, 1)
 
         if verbose:
@@ -875,17 +878,18 @@ def run_datacube_inference(
     model,
     device,
     input_dir,
-    mean,
-    std,
-    output_dir="outputs/cube_inference",
-    n_images=20,
+    mean=None,
+    std=None,
+    output_dir="outputs/inference",
+    n_images=10,
     model_native_size=304,
     tile_overlap=0.75,
     threshold=0.3,
     save_inputs_dir=None,
     debug=False,
-    tile_window='triang',
-    visualize_tiles=True
+    tile_window='hann',
+    visualize_tiles=True,
+    band_filter=None
 ):
     """
     Run inference on 12-band datacubes with detailed tile visualization.
@@ -899,6 +903,7 @@ def run_datacube_inference(
         input_paths=input_dir,
         max_images=n_images,
         verbose=False,
+        band_filter
     )
 
     print(f"Raw datacubes shape: {images_raw.shape}")

@@ -15,9 +15,10 @@ import os
 
 logger = logging.getLogger(__name__)
 
+CKPT = '/explore/nobackup/projects/lfm/model_weights/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth'
 
 def load_dinov3_encoder(
-    weights_local_checkpoint, device="cuda", model="dinov3_vitl16"
+    weights_local_checkpoint=CKPT, device="cuda", model="dinov3_vitl16"
 ):
     if os.path.exists(weights_local_checkpoint):
         print(f"Loading model from {weights_local_checkpoint}")

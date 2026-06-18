@@ -22,7 +22,7 @@ def install_termcolor_locally():
         return
     except subprocess.CalledProcessError:
         print("Standard pip install failed, attempting local installation...")
-        
+
         # If standard install fails, fall back to local installation
         home_dir = os.path.expanduser("~")
         python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
@@ -32,7 +32,7 @@ def install_termcolor_locally():
             f"--target={target_path}",
             "termcolor", "--force-reinstall", "--no-deps"
         ])
-        
+
         print(f"Termcolor installed to: {target_path}")
 
 
@@ -40,8 +40,8 @@ class FocalLoss(nn.Module):
     """
     Focal Loss for addressing class imbalance.
     Focuses on hard-to-classify examples (small craters).
-    
-    Note: Operates on output logits (class predictions), independent of 
+
+    Note: Operates on output logits (class predictions), independent of
     input image channels. Works with any number of input channels.
 
     Args:
@@ -60,7 +60,7 @@ class FocalLoss(nn.Module):
         Args:
             logits: Model output logits (B, num_classes, H, W)
             targets: Ground truth labels (B, H, W)
-        
+
         Returns:
             Focal loss value
         """
@@ -74,8 +74,8 @@ class DiceLoss(nn.Module):
     """
     Dice Loss for segmentation.
     Better for handling imbalanced classes and boundary detection.
-    
-    Note: Operates on output logits (class predictions), independent of 
+
+    Note: Operates on output logits (class predictions), independent of
     input image channels. Works with any number of input channels.
 
     Args:
@@ -91,7 +91,7 @@ class DiceLoss(nn.Module):
         Args:
             logits: Model output logits (B, num_classes, H, W)
             targets: Ground truth labels (B, H, W)
-        
+
         Returns:
             Dice loss value
         """
@@ -111,8 +111,8 @@ class BoundaryLoss(nn.Module):
     """
     Boundary Loss to penalize blob predictions.
     Encourages discrete crater boundaries by comparing edge gradients.
-    
-    Note: Operates on output logits (class predictions), independent of 
+
+    Note: Operates on output logits (class predictions), independent of
     input image channels. Works with any number of input channels.
 
     Args:
@@ -143,7 +143,7 @@ class BoundaryLoss(nn.Module):
         Args:
             logits: Model output logits (B, num_classes, H, W)
             targets: Ground truth labels (B, H, W)
-        
+
         Returns:
             Boundary loss value
         """
@@ -170,8 +170,8 @@ class CombinedLoss(nn.Module):
     """
     Combined Loss: CrossEntropy + Dice Loss.
     Balances pixel-wise classification with region overlap.
-    
-    Note: Operates on output logits (class predictions), independent of 
+
+    Note: Operates on output logits (class predictions), independent of
     input image channels. Works with any number of input channels.
 
     Args:
@@ -191,7 +191,7 @@ class CombinedLoss(nn.Module):
         Args:
             logits: Model output logits (B, num_classes, H, W)
             targets: Ground truth labels (B, H, W)
-        
+
         Returns:
             Combined loss value
         """
@@ -204,8 +204,8 @@ class FullLoss(nn.Module):
     """
     Full Loss: CrossEntropy + Dice + Boundary Loss.
     Most comprehensive loss for crater detection with discrete boundaries.
-    
-    Note: Operates on output logits (class predictions), independent of 
+
+    Note: Operates on output logits (class predictions), independent of
     input image channels. Works with any number of input channels.
 
     Args:
@@ -228,7 +228,7 @@ class FullLoss(nn.Module):
         Args:
             logits: Model output logits (B, num_classes, H, W)
             targets: Ground truth labels (B, H, W)
-        
+
         Returns:
             Total loss value
         """
@@ -243,13 +243,14 @@ class FullLoss(nn.Module):
         )
         return total_loss
 
+
 class FocalDiceLoss(nn.Module):
     """
     Combined Focal Loss and Dice Loss for binary segmentation.
-    
+
     Focal Loss handles class imbalance (sparse craters).
     Dice Loss optimizes for segmentation overlap.
-    
+
     Args:
         focal_weight (float): Weight for focal loss component
         dice_weight (float): Weight for dice loss component
@@ -257,10 +258,10 @@ class FocalDiceLoss(nn.Module):
         gamma (float): Focal loss gamma parameter (focus on hard examples)
         smooth (float): Smoothing factor for dice loss
     """
-    
+
     def __init__(
-        self, 
-        focal_weight=0.3, 
+        self,
+        focal_weight=0.3,
         dice_weight=0.7,
         alpha=0.25,
         gamma=2.0,
@@ -271,7 +272,7 @@ class FocalDiceLoss(nn.Module):
         self.dice_weight = dice_weight
         self.focal_loss = FocalLoss(alpha=alpha, gamma=gamma)
         self.dice_loss = DiceLoss(smooth=smooth)
-        
+
     def forward(self, logits, targets):
         """
         Args:
@@ -280,11 +281,11 @@ class FocalDiceLoss(nn.Module):
         """
         focal = self.focal_loss(logits, targets)
         dice = self.dice_loss(logits, targets)
-        
+
         total_loss = self.focal_weight * focal + self.dice_weight * dice
-        
+
         return total_loss
-    
+
     def __repr__(self):
         return (f"FocalDiceLoss(focal_weight={self.focal_weight}, "
                 f"dice_weight={self.dice_weight})")
@@ -293,7 +294,7 @@ class FocalDiceLoss(nn.Module):
 def get_loss_function(loss_type="cross_entropy"):
     """
     Factory function to get loss function by name.
-    
+
     All loss functions operate on model output logits and are independent
     of input image channels. They work with grayscale, RGB, multispectral,
     or any other multi-channel input format.
@@ -314,7 +315,7 @@ def get_loss_function(loss_type="cross_entropy"):
         "focal": FocalLoss(alpha=0.25, gamma=2.0),
         "dice": DiceLoss(smooth=1.0),
         "combined": CombinedLoss(ce_weight=0.5, dice_weight=0.5),
-        "focal_dice": FocalDiceLoss(focal_weight=0.3, dice_weight=0.7),  
+        "focal_dice": FocalDiceLoss(focal_weight=0.3, dice_weight=0.7),
         "full": FullLoss(ce_weight=0.4, dice_weight=0.4, boundary_weight=0.2),
     }
 
