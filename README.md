@@ -25,7 +25,12 @@ To test one of the example crater segmentation workflows:
    ```bash
    wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/cube_inference_sseg.ipynb
    ```
-   
+
+   To get the tiling notebook, run:
+   ```bash
+   wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/run_tiling.ipynb
+   ```
+
 7. From the top right corner, click the text that says Python [...]. Select "NGC PyTorch..." from the dropdown, near the top.
 8. Run the Notebook.
 
