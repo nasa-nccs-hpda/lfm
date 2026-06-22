@@ -6,6 +6,7 @@ WAC_DIR = DATA_DIR / "LRO_WAC_Pho_Sites"
 
 # Training paths
 TRAIN_DIR = PROJECT_DIR / "model_inputs/300_300_inputs/7_band_vis_uv/sem_seg"
+LABEL_DIR = TRAIN_DIR / "labels"
 CHIP_DIR = TRAIN_DIR / "chips"
 GPKG_PATH = CHIP_DIR / "WAC_TILES.gpkg"
 
