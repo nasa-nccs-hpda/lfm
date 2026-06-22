@@ -52,7 +52,7 @@ class TmsIntersector:
             # Check if bbox intersects this zone
             if zoneDef.intersectsBbox(ulLat, ulLon, lrLat, lrLon):
 
-                print('Found intersection:', zone)
+                print('Found LTM zone intersection:', zone)
 
                 # Get overlapping tile indices
                 indices = zoneDef.getIntersectingTiles(

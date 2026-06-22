@@ -139,7 +139,7 @@ def run_pipeline_for_sample(
     geom_bounds: tuple,
     datacube_dir: Path,
     TILE_DB_PATH: Path,
-    logger, 
+    logger,
     zoom_level,
 ) -> tuple:
     """
@@ -175,8 +175,9 @@ def run_pipeline_for_sample(
                 TILE_DB_PATH,
                 datacube_dir,
                 debug=False,
-                target_product_id=product_id  # Only process matching product ID
+                targetProductID=product_id  # Only process matching product ID
             )
+            print(f'Created pipeline instance for PID: {product_id}')
 
             # Run pipeline for this sample's bbox
             cube_files = pipeline.run(
@@ -669,7 +670,7 @@ def process_train_sample(
             geom_bounds=geom_bounds,
             datacube_dir=datacube_dir,
             TILE_DB_PATH=TILE_DB_PATH,
-            logger=logger, 
+            logger=logger,
             zoom_level=zoom_level,
         )
 

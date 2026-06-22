@@ -238,7 +238,8 @@ class Pipeline:
         if nullCount == rasterCount:
             print('All bands were filled with no-data values.')
 
-        print('Total product IDs:', len(prodIdDict))
+        modality = "WAC" if not is_static else "Static"
+        print(f'Total {modality} product IDs: {len(prodIdDict)}')
 
         return prodIdDict
 
@@ -302,7 +303,7 @@ class Pipeline:
                      zone: int,
                      zoomLevel: int) -> list[Path]:
 
-        print('Processing (' + str(tileX) + ', ' + str(tileY) + \
+        print('Processing tile (' + str(tileX) + ', ' + str(tileY) + \
               ') / zone ' + str(zone) + \
               ' / zoom ' + str(zoomLevel))
 
