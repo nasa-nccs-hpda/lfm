@@ -11,3 +11,5 @@ GPKG_PATH = CHIP_DIR / "WAC_TILES.gpkg"
 
 # Tile database
 TILE_DB_PATH = WAC_DIR / "output_index.shp"
+
+ZOOM_LEVEL = 5
