@@ -37,8 +37,7 @@ class Pipeline:
                 'REMARK["Source of IAU Coordinate systems:'
                 ' https://doi.org/10.1007/s10569-017-9805-5"]]')
 
-    STATIC_FILE_DB = Path('/explore/nobackup/projects/ilab/' +
-                          'projects/Lunar_FM/data/staticLinks')
+    STATIC_FILE_DB = Path('/explore/nobackup/projects/lfm/staticLinks')
 
     # ------------------------------------------------------------------------
     # __init__
