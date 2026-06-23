@@ -538,6 +538,7 @@ def get_input_metadata(base_dir: str, band_filter: Optional[List[int]] = None) -
     """
 
     image_dir = f"{base_dir}/chips"
+    print(f"Using image dir: {image_dir}")
     all_image_paths = glob(os.path.join(image_dir, "*.tif"))
     image_path = all_image_paths[0]
 
