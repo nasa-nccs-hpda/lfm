@@ -7,7 +7,9 @@ Working repo for LFM project. See finetuning notebook for an example workflow.
 To test one of the example crater segmentation workflows:
 
 1. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov`.
-2. Select the ILAB session for 6 hours; if you are running the training/inference notebooks, select the H100 session near the top. If running tiling/chip creation, choose a V100 session near the bottom.
+2. Select a JupyterHub session;
+   - If you are running the training/inference notebooks, select the H100 session near the top. It has the name "[aarch64] 1 H100...".
+   - If running tiling/chip creation, choose a V100 session near the bottom. It has the name "ILAB ([x86] 1 V100...".
 3. Use the file explorer interface on the left to navigate to a folder where you would like to run the example workflow.
 4. Open a Terminal from JupyterHub using the "launcher" screen (is open by default in a new Jupyter session). The terminal option is at the very bottom of this screen.
 5. Download the notebooks you want to experiment with, by running a wget command for each (listed below).
