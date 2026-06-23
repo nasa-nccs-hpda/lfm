@@ -230,7 +230,6 @@ def get_datacube_data(
     max_images=None,
     verbose=True,
     verify_bands=True,
-    band_filter=None
 ):
     """
     Extract and stack vis and static GeoTIFF data.
@@ -903,7 +902,7 @@ def run_datacube_inference(
         input_paths=input_dir,
         max_images=n_images,
         verbose=False,
-        band_filter
+        band_filter=band_filter
     )
 
     print(f"Raw datacubes shape: {images_raw.shape}")
