@@ -6,6 +6,10 @@ Working repo for LFM project. See finetuning notebook for an example workflow.
 - **Mike Barker**: [michael.k.barker@nasa.gov](mailto:michael.k.barker@nasa.gov)
 - **Vishnu Viswanathan**: [vishnu.viswanathan@nasa.gov](mailto:vishnu.viswanathan@nasa.gov)
 - **Andrew Annex**: [andrew.m.annex@nasa.gov](mailto:andrew.m.annex@nasa.gov)
+- **Alexander Kerr**: [alexander.j.kerr@nasa.gov](mailto:alexander.j.kerr@nasa.gov)
+- **Roger Gill**: [roger.l.gill@nasa.gov](mailto:roger.l.gill@nasa.gov)
+- **Jordan Caraballo-Vega**: [jordan.a.caraballo-vega@nasa.gov](mailto:jordan.a.caraballo-vega@nasa.gov)
+- **Mark Carroll**: : [mark.carroll@nasa.gov](mailto:mark.carroll@nasa.gov)
 
 ## Quickstart
 
