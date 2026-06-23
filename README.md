@@ -1,6 +1,6 @@
 # Lunar Foundation Model Working Repository
 
-Working repo for LFM project. Current workflows are found in the notebooks, listed in the quickstart section below. 
+Working repo for LFM project. Current workflows are found in the notebooks, listed in the quickstart section below.
 
 ## Collaborators
 - **Mike Barker**: [michael.k.barker@nasa.gov](mailto:michael.k.barker@nasa.gov)
@@ -16,12 +16,16 @@ Working repo for LFM project. Current workflows are found in the notebooks, list
 To test one of the example crater segmentation workflows:
 
 1. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov`.
-2. Select a JupyterHub session;
-   - If you are running the training/inference notebooks, select the H100 session near the top. It has the name "[aarch64] 1 H100...".
-   - If running tiling/chip creation, choose a V100 session near the bottom. It has the name "ILAB ([x86] 1 V100...".
-3. Use the file explorer interface on the left to navigate to a folder where you would like to run the example workflow.
-4. Open a Terminal from JupyterHub using the "launcher" screen (is open by default in a new Jupyter session). The terminal option is at the very bottom of this screen.
-5. Download the notebooks you want to experiment with, by running a wget command for each (listed below).
+2. Run the following command to set up your kernel (modifying the path to the repo):
+
+   ```bash
+   wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/copy_kernel.sh && \
+   bash copy_kernel.sh
+   ```
+3. Select the correct JupyterHub GPU session: "[aarch64] 1 H100..." for 6 hours.
+4. Use the file explorer interface on the left to navigate to a folder where you would like to run the example workflow.
+5. Open a Terminal from JupyterHub using the "launcher" screen (is open by default in a new Jupyter session). The terminal option is at the very bottom of this screen.
+6. Download the notebooks you want to experiment with, by running a wget command for each (listed below).
 
    To get the semantic segmentation training notebook, run:
    ```bash
@@ -43,7 +47,7 @@ To test one of the example crater segmentation workflows:
    wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/run_tiling.ipynb
    ```
 
-7. From the top right corner, click the text that says Python [...]. Select "NGC PyTorch..." from the dropdown, near the top.
+7. From the top right corner, click the text that says Python [...] to select the Jupyter kernel. From this list, select "lfm_container".
 8. Run the Notebook, using the button that looks like the fast-forward icon (>>).
 
 ## Full Repository usage
