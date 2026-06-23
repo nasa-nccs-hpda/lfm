@@ -7,21 +7,22 @@ Working repo for LFM project. See finetuning notebook for an example workflow.
 To test one of the example crater segmentation workflows:
 
 1. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov`.
-2. Select the ILAB session for 6 hours with 1 H100 GPU.
-3. Navigate to a folder where you would like to run the example workflow.
-4. Open a Terminal from JupyterHub.
-5. Download the semantic segmentation notebook with:
+2. Select the ILAB session for 6 hours; if you are running the training/inference notebooks, select the H100 session near the top. If running tiling/chip creation, choose a V100 session near the bottom.
+3. Use the file explorer interface on the left to navigate to a folder where you would like to run the example workflow.
+4. Open a Terminal from JupyterHub using the "launcher" screen (is open by default in a new Jupyter session). The terminal option is at the very bottom of this screen.
+5. Download the notebooks you want to experiment with, by running a wget command for each (listed below).
 
+   To get the semantic segmentation training notebook, run:
    ```bash
    wget https://github.com/nasa-nccs-hpda/lfm/blob/develop/notebooks/semantic_seg.ipynb
    ```
 
-    Or download the instance segmentation notebook with:
+   To get the instance segmentation training notebook, run:
    ```bash
    wget https://github.com/nasa-nccs-hpda/lfm/blob/develop/notebooks/instance_seg.ipynb
    ```
 
-   Or, if you've run the semantic segmentation training, semantic segmentation inference notebook with:
+   If you've run the semantic segmentation training, get the inference notebook:
    ```bash
    wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/cube_inference_sseg.ipynb
    ```
@@ -32,7 +33,7 @@ To test one of the example crater segmentation workflows:
    ```
 
 7. From the top right corner, click the text that says Python [...]. Select "NGC PyTorch..." from the dropdown, near the top.
-8. Run the Notebook.
+8. Run the Notebook, using the button that looks like the fast-forward icon (>>).
 
 ## Full Repository usage
 
