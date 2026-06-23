@@ -1,6 +1,6 @@
 # Lunar Foundation Model Working Repository
 
-Working repo for LFM project. See finetuning notebook for an example workflow.
+Working repo for LFM project. Current workflows are found in the notebooks, listed in the quickstart section below. 
 
 ## Collaborators
 - **Mike Barker**: [michael.k.barker@nasa.gov](mailto:michael.k.barker@nasa.gov)
