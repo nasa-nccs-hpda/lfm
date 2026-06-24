@@ -44,7 +44,7 @@ To test one of the example crater segmentation workflows:
 
       - **Verify that "lfm_container" now appears in the top-right corner**
 
-11. Run the notebook, using the button that looks like the fast-forward icon (>>).
+11. Run the notebook, using the button that looks like the fast-forward icon (>>). Click the red "Restart" button.
 
 
 ## Model and data specifications
