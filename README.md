@@ -19,36 +19,27 @@ To test one of the example crater segmentation workflows:
 2. Select the JupyterHub GPU session: "[aarch64] 1 H100..." for 6 hours.
 3. Use the file explorer interface on the left to navigate to a folder where you would like to run the example workflow. Feel free to create a new folder to run these workflows as well!
 4. Open a Terminal from JupyterHub using the "launcher" screen (is open by default in a new Jupyter session). The terminal option is at the very bottom of this screen.
-5. Run the following command in the terminal (this will set up your Python environment):
+5. Retrieve the LFM code with this command (**note: you do not need a GitHub account to run this, it will work for anyone on the JupyterHub**):
    ```bash
-   wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/copy_kernel.sh && bash copy_kernel.sh
+   git clone https://github.com/nasa-nccs-hpda/lfm.git
    ```
-6. Use the commands below to download the notebooks you want to experiment with. Each command gets a different notebook.
-   a. Semantic segmentation workflow:
-      i. To get the tiling notebook, run:
-         ```bash
-         wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/run_tiling.ipynb
-         ```
-      ii. To get the chip creation notebook, run:
+6. Using the file explorer interface again, navigate to the folder at: `lfm/notebooks`. This contains Jupyter Notebooks for different steps of the toy model workflows, for the two machine learning tasks (instance/semantic segmentation)
+   - The two toy model notebooks are called `instance_seg_train.ipynb` and `semantic_seg_train.ipynb`, respectively. These are the notebooks to create/train the model for those tasks.
+   - The inference notebook, `inference_sseg.ipynb`, only works after running the semantic segmentation notebook, which saves a model "checkpoint" file to disk. This checkpoint will be used to load the model, and perform inference on new data.
+   - The other two notebooks, `tiling_example.ipynb` and `chip_example.ipynb`, are used as examples for how we created the training dataset used for the training notebooks. These will run limited examples of tiling/chip creation.
+7. After navigating to the `lfm/notebooks` folder, open your notebook of choice by double-clicking it.
+8. Before running the notebook, you must select the kernel environment:
 
-   To get the semantic segmentation training notebook, run:
-   ```bash
-   wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/semantic_seg_train.ipynb
-   ```
+   a. Look for a dropdown menu to select "lfm_container" as your kernel:
+      - OPTION 1: This dropdown may appear automatically when you first open the notebook
+      - OPTION 2: If it doesn't appear automatically, click the kernel name in the top-right
+      corner (it might display "Python 3" or similar)
 
-   To get the instance segmentation training notebook, run:
-   ```bash
-   wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/instance_seg_train.ipynb
-   ```
+   b. From the dropdown list, select "lfm_container"
 
-   If you've run the semantic segmentation training, get the inference notebook:
-   ```bash
-   wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/cube_inference_sseg.ipynb
-   ```
+   c. Verify that "lfm_container" now appears in the top-right corner
 
-7. After running those commands, you should see a notebook with the corresponding name in the file explorer view. Double-click it to open the notebok.
-8. To run the notebook, the environment must be configured. You will need to select the "lfm_container" kernel option from a dropdown. This dropdown menu will sometimes pop up as you open the notebook; other times, you will have to navigate to the top right of the screen, where it says "Python [...]" or something similar. Click this option to open the dropdown.
-9. Run the Notebook, using the button that looks like the fast-forward icon (>>).
+9. Run the notebook, using the button that looks like the fast-forward icon (>>).
 
 ## Full Repository usage
 
