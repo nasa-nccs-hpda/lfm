@@ -9,23 +9,27 @@ Working repo for LFM project. Current workflows are found in the notebooks, list
 - **Alexander Kerr**: [alexander.j.kerr@nasa.gov](mailto:alexander.j.kerr@nasa.gov)
 - **Roger Gill**: [roger.l.gill@nasa.gov](mailto:roger.l.gill@nasa.gov)
 - **Jordan Caraballo-Vega**: [jordan.a.caraballo-vega@nasa.gov](mailto:jordan.a.caraballo-vega@nasa.gov)
-- **Mark Carroll**: : [mark.carroll@nasa.gov](mailto:mark.carroll@nasa.gov)
+- **Mark Carroll**: [mark.carroll@nasa.gov](mailto:mark.carroll@nasa.gov)
 
 ## Quickstart
 
 To test one of the example crater segmentation workflows:
 
 1. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov`.
-2. Run the following command to set up your kernel (modifying the path to the repo):
-
+2. Select the JupyterHub GPU session: "[aarch64] 1 H100..." for 6 hours.
+3. Use the file explorer interface on the left to navigate to a folder where you would like to run the example workflow. Feel free to create a new folder to run these workflows as well!
+4. Open a Terminal from JupyterHub using the "launcher" screen (is open by default in a new Jupyter session). The terminal option is at the very bottom of this screen.
+5. Run the following command in the terminal (this will set up your Python environment):
    ```bash
-   wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/copy_kernel.sh && \
-   bash copy_kernel.sh
+   wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/copy_kernel.sh && bash copy_kernel.sh
    ```
-3. Select the correct JupyterHub GPU session: "[aarch64] 1 H100..." for 6 hours.
-4. Use the file explorer interface on the left to navigate to a folder where you would like to run the example workflow.
-5. Open a Terminal from JupyterHub using the "launcher" screen (is open by default in a new Jupyter session). The terminal option is at the very bottom of this screen.
-6. Download the notebooks you want to experiment with, by running a wget command for each (listed below).
+6. Use the commands below to download the notebooks you want to experiment with. Each command gets a different notebook.
+   a. Semantic segmentation workflow:
+      i. To get the tiling notebook, run:
+         ```bash
+         wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/run_tiling.ipynb
+         ```
+      ii. To get the chip creation notebook, run:
 
    To get the semantic segmentation training notebook, run:
    ```bash
@@ -42,20 +46,16 @@ To test one of the example crater segmentation workflows:
    wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/cube_inference_sseg.ipynb
    ```
 
-   To get the tiling notebook, run:
-   ```bash
-   wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/run_tiling.ipynb
-   ```
-
-7. From the top right corner, click the text that says Python [...] to select the Jupyter kernel. From this list, select "lfm_container".
-8. Run the Notebook, using the button that looks like the fast-forward icon (>>).
+7. After running those commands, you should see a notebook with the corresponding name in the file explorer view. Double-click it to open the notebok.
+8. To run the notebook, the environment must be configured. You will need to select the "lfm_container" kernel option from a dropdown. This dropdown menu will sometimes pop up as you open the notebook; other times, you will have to navigate to the top right of the screen, where it says "Python [...]" or something similar. Click this option to open the dropdown.
+9. Run the Notebook, using the button that looks like the fast-forward icon (>>).
 
 ## Full Repository usage
 
 To fully utilize this Repo, you will need a fine-grained access token:
 
 1. Create an account:
-   1. Create an account on github: https://github.com/signup. Connecting to Google account is usually pretty easy/convenient.
+   1. Create an account on github: https://github.com/signup. This can be done with your personal Google account, or your official NASA email, for example.
    2. After creating the account, sign in.
 2. Create an access token: this will be needed to do things like "git clone" in the command-line.
    1. Generating a token:
