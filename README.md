@@ -19,27 +19,32 @@ To test one of the example crater segmentation workflows:
 2. Select the JupyterHub GPU session: "[aarch64] 1 H100..." for 6 hours.
 3. Use the file explorer interface on the left to navigate to a folder where you would like to run the example workflow. Feel free to create a new folder to run these workflows as well!
 4. Open a Terminal from JupyterHub using the "launcher" screen (is open by default in a new Jupyter session). The terminal option is at the very bottom of this screen.
-5. Retrieve the LFM code with this command (**note: you do not need a GitHub account to run this, it will work for anyone on the JupyterHub**):
+5. Retrieve the LFM code with this command (**note: you do not need a GitHub account to run this**):
    ```bash
    git clone https://github.com/nasa-nccs-hpda/lfm.git
    ```
-6. Using the file explorer interface again, navigate to the folder at: `lfm/notebooks`. This contains Jupyter Notebooks for different steps of the toy model workflows, for the two machine learning tasks (instance/semantic segmentation)
+6. With the terminal still open, run the following command to set up your environment:
+   ```bash
+   cd lfm && bash copy_kernel.sh
+   ```
+7. Close the terminal tab by clicking "x".
+8. Using the file explorer interface again, navigate to the folder at: `lfm/notebooks`. This contains Jupyter Notebooks for different steps of the toy model workflows, for the two machine learning tasks (instance/semantic segmentation)
    - The two toy model notebooks are called `instance_seg_train.ipynb` and `semantic_seg_train.ipynb`, respectively. These are the notebooks to create/train the model for those tasks.
-   - The inference notebook, `inference_sseg.ipynb`, only works after running the semantic segmentation notebook, which saves a model "checkpoint" file to disk. This checkpoint will be used to load the model, and perform inference on new data.
-   - The other two notebooks, `tiling_example.ipynb` and `chip_example.ipynb`, are used as examples for how we created the training dataset used for the training notebooks. These will run limited examples of tiling/chip creation.
-7. After navigating to the `lfm/notebooks` folder, open your notebook of choice by double-clicking it.
-8. Before running the notebook, you must select the kernel environment:
+   - The inference notebook, `inference_sseg.ipynb`, only works after running the **semantic segmentation training notebook**, which saves a model "checkpoint" file to disk. This checkpoint will be used to load the model, and perform inference on new data.
+   - The other two notebooks, `tiling_example.ipynb` and `chip_example.ipynb`, are used as examples for how we created the **semantic segmentation training dataset** used for the training notebooks. These will run limited examples of tiling/chip creation.
+9. Open your notebook of choice by double-clicking it.
+10. Before running the notebook, you must select the kernel environment:
 
-   a. Look for a dropdown menu to select "lfm_container" as your kernel:
-      - OPTION 1: This dropdown may appear automatically when you first open the notebook
-      - OPTION 2: If it doesn't appear automatically, click the kernel name in the top-right
-      corner (it might display "Python 3" or similar)
+      - **Look for a dropdown menu to select "lfm_container" as your kernel**:
+         - OPTION 1: This dropdown may appear automatically when you first open the notebook
+         - OPTION 2: If it doesn't appear automatically, click the kernel name in the top-right
+         corner (it might display "Python 3" or similar)
 
-   b. From the dropdown list, select "lfm_container"
+      - **From the dropdown list, select "lfm_container"**
 
-   c. Verify that "lfm_container" now appears in the top-right corner
+      - **Verify that "lfm_container" now appears in the top-right corner**
 
-9. Run the notebook, using the button that looks like the fast-forward icon (>>).
+11. Run the notebook, using the button that looks like the fast-forward icon (>>).
 
 
 ## Model and data specifications
