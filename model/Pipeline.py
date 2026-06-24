@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import List
 
+import os
 import numpy as np
 import xarray as xr
 
@@ -267,28 +268,51 @@ class Pipeline:
     # query
     # ------------------------------------------------------------------------
     def _query(self,
-               ulLat: float,
-               ulLon: float,
-               lrLat: float,
-               lrLon: float,
-               dbFile: Path = None) -> ogr.Layer:
+            ulLat: float,
+            ulLon: float,
+            lrLat: float,
+            lrLon: float,
+            dbFile: Path = None) -> ogr.Layer:
 
         if not dbFile:
             dbFile = self._tileDbPath
 
+        if not dbFile.exists():
+            raise FileNotFoundError(f"Tile database file not found: {dbFile}")
+
         driver: ogr.Driver = ogr.GetDriverByName('ESRI Shapefile')
         ds: ogr.Dataset = driver.Open(str(dbFile), 0)
+
+        if ds is None:
+            # Get the last GDAL error
+            err = gdal.GetLastErrorMsg()
+            err_num = gdal.GetLastErrorNo()
+
+            # Build informative error message
+            error_msg = f"Failed to open shapefile: {dbFile}"
+
+            if err:
+                error_msg += f"\nGDAL Error ({err_num}): {err}"
+
+            # Check for common issues
+            if not os.access(str(dbFile), os.R_OK):
+                error_msg += f"\n  → Permission denied: You don't have read access to this file"
+                error_msg += f"\n  → Current permissions: {oct(os.stat(dbFile).st_mode)[-3:]}"
+            elif not dbFile.stat().st_size > 0:
+                error_msg += f"\n  → File is empty or corrupted"
+            else:
+                error_msg += f"\n  → The file may be corrupted or in an unsupported format"
+
+            raise RuntimeError(error_msg)
+
         layer: ogr.Layer = ds.GetLayer()
+
+        if layer is None:
+            raise RuntimeError(f"No layers found in shapefile: {dbFile}")
 
         # minX, minY, maxX, maxY
         layer.SetSpatialFilterRect(ulLon, lrLat, lrLon, ulLat)
 
-        # ---
-        # When you return an ogr.Layer object from a function, the underlying
-        # DataSource that owns the layer may be getting garbage collected,
-        # making the layer invalid.  Attach the datasource to the layer to
-        # prevent garbage collection.
-        # ---
         layer._ds = ds
 
         return layer
