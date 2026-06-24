@@ -13,7 +13,7 @@ Working repo for LFM project. Current workflows are found in the notebooks, list
 
 ## Quickstart
 
-To test one of the example crater segmentation workflows:
+To run one of the notebooks:
 
 1. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov`.
 2. Select the JupyterHub GPU session: "[aarch64] 1 H100..." for 6 hours.
