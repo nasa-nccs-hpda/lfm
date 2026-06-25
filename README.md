@@ -2,88 +2,49 @@
 
 Working repo for LFM project. Current workflows are found in the notebooks, listed in the quickstart section below.
 
-## Collaborators
-- **Mike Barker**: [michael.k.barker@nasa.gov](mailto:michael.k.barker@nasa.gov)
-- **Vishnu Viswanathan**: [vishnu.viswanathan@nasa.gov](mailto:vishnu.viswanathan@nasa.gov)
-- **Andrew Annex**: [andrew.m.annex@nasa.gov](mailto:andrew.m.annex@nasa.gov)
-- **Alexander Kerr**: [alexander.j.kerr@nasa.gov](mailto:alexander.j.kerr@nasa.gov)
-- **Roger Gill**: [roger.l.gill@nasa.gov](mailto:roger.l.gill@nasa.gov)
-- **Jordan Caraballo-Vega**: [jordan.a.caraballo-vega@nasa.gov](mailto:jordan.a.caraballo-vega@nasa.gov)
-- **Mark Carroll**: : [mark.carroll@nasa.gov](mailto:mark.carroll@nasa.gov)
-
 ## Quickstart
 
-To test one of the example crater segmentation workflows:
+To run one of the notebooks:
 
-1. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov`.
-2. Run the following command to set up your kernel (modifying the path to the repo):
+1. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov` using your NCCS LDAP credentials.
+2. Select the JupyterHub GPU profile: "[aarch64] 1 H100, 70 CPU Cores, 550GB Memory, 6 Hour Session" from the dropdown menu. Click on "Start" after the selection.
+3. As your session starts, your session should take you directly to a "Launcher" section. If, on the other hand, you are prompted to select a kernel, you can go ahead and click on "Select" within that window. If your session does not start, this could be related to waiting on available resources, and you will need to try again.
+4. Use the file explorer interface on the left to navigate to a directory where you would like to run the example workflow. We suggest you use a directory in your $NOBACKUP space (e.g. /explore/nobackup/people/your_username/lfm). Feel free to create a new directory to run these workflows as well. To create a new directory, click on the directory icon in the upper left corner, and set the name of the new directory.
+5. Open a Terminal from JupyterHub using the "Launcher" screen (it is open by default in a new Jupyter session). The Terminal option is at the very bottom of this screen with a "$_" symbol under the "Other" section.
 
-   ```bash
-   wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/copy_kernel.sh && \
-   bash copy_kernel.sh
-   ```
-3. Select the correct JupyterHub GPU session: "[aarch64] 1 H100..." for 6 hours.
-4. Use the file explorer interface on the left to navigate to a folder where you would like to run the example workflow.
-5. Open a Terminal from JupyterHub using the "launcher" screen (is open by default in a new Jupyter session). The terminal option is at the very bottom of this screen.
-6. Download the notebooks you want to experiment with, by running a wget command for each (listed below).
+6. From the newly opened Terminal:
 
-   To get the semantic segmentation training notebook, run:
-   ```bash
-   wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/semantic_seg_train.ipynb
-   ```
+    a. Make sure you are in the directory you intend to locate the code on. You can verify with the pwd command:
 
-   To get the instance segmentation training notebook, run:
-   ```bash
-   wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/instance_seg_train.ipynb
-   ```
+    ```
+    pwd
+    ```
 
-   If you've run the semantic segmentation training, get the inference notebook:
-   ```bash
-   wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/cube_inference_sseg.ipynb
-   ```
+      Assuming I wanted to be in the directory `/explore/nobackup/people/my_username/lfm`, after running the `pwd` command, that directory should be the one shown in the terminal. If that is not the case, you will need to go to the intended directory using the `cd` command as shown below:
 
-   To get the tiling notebook, run:
-   ```bash
-   wget https://raw.githubusercontent.com/nasa-nccs-hpda/lfm/refs/heads/main/notebooks/run_tiling.ipynb
-   ```
+    ```
+    cd /explore/nobackup/people/my_username/lfm
+    ```
 
-7. From the top right corner, click the text that says Python [...] to select the Jupyter kernel. From this list, select "lfm_container".
-8. Run the Notebook, using the button that looks like the fast-forward icon (>>).
+   b. Now, you can retrieve the LFM code with this command (**note: you do not need a GitHub account to run this**):
 
-## Full Repository usage
+      ```
+      git clone https://github.com/nasa-nccs-hpda/lfm.git
+      ```
 
-To fully utilize this Repo, you will need a fine-grained access token:
+   c. With the terminal still open, run the following command to set up your environment:
 
-1. Create an account:
-   1. Create an account on github: https://github.com/signup. Connecting to Google account is usually pretty easy/convenient.
-   2. After creating the account, sign in.
-2. Create an access token: this will be needed to do things like "git clone" in the command-line.
-   1. Generating a token:
-      1. Click on your profile picture in the top right, click settings (2/3 of the way down the dropdown).
-      2. On the settings page, note the different options on the left (public profile, account, etc). Scroll down all the way until you see "Developer Settings" in this left-hand menu.
-      3. Click on developer settings.
-      4. Click on personal access tokens, then select "tokens (classic)".
-      5. Click "generate new token".
-   2. Configuring the token:
-      1. Name your token using the "note" field, set an expiration date as long as you would like (shorter is considered more secure).
-      2. Scroll down to "select scopes".
-      3. Check the main "repo" checkbox -- this allows you to modify repos.
-      4. Scroll down further until you see "admin:org"; don't check this box, but do check "read" org option under this box. This allows you to access the lfm repo, which is part of a nasa organization.
-   3. Confirm token creation: click "generate token" in green at the bottom of the screen. A screen will pop up to confirm your choice.
-   4. Copy and paste the token, keep it somewhere secure like a password manager. This will be used instead of your password to login to github when using the CLI.
-3. Clone the lfm repo:
-   1. Verify you have access to the repo at this URL: ```https://github.com/nasa-nccs-hpda/lfm```. If you don't have access, let Sandy know.
-   2. Go to an ADAPT terminal window; navigate to the lfm project space: ```cd /explore/nobackup/projects/lfm```
-   3. Create your own subdirectory in the lfm space: ```mkdir <dir_name>```
-   4. Enter your new directory: ```cd <dir_name>```
-   5. To retrieve the code from the git repo, run: ```git clone https://github.com/nasa-nccs-hpda/lfm.git```. This should fetch the LFM code into your new directory.
-   6. Start a PRISM JH session with 1 V100 GPU.
-   7. Once the session has started, navigate to <dir_name>.
-   8. Select the "Python [conda env: ilab-pytorch]" kernel in the top right of the screen where you see "Python 3 (ipykernel)".
-   9. Read the introduction section of the notebook for information on the model, etc. If you want to modify the behavior of the notebook, various values can be changed under "configuration". Some standouts:
-      - **INPUT_DIR**: if you want to load your own data. By default this path points to the data Sandy created in the LFM space. Data must be preprocessed to be the proper dimensions if loaded into the model.
-      - **OUTPUT_DIR**: change this if you want to have the output of the workflow be somewhere specific.
-   10. Click on the button on the top of the screen that looks like the "fast forward button" (restart kernel and run all cells". This will run the workflow!
+      ```bash
+      cd lfm && bash copy_kernel.sh
+      ```
+
+8. Close the terminal tab by clicking "x".
+9. Using the file explorer interface again, navigate to the folder at: `lfm/notebooks`. This contains Jupyter Notebooks for different steps of the toy model workflows, for the two machine learning tasks (instance/semantic segmentation)
+   - The two toy model notebooks are called `instance_seg_train.ipynb` and `semantic_seg_train.ipynb`, respectively. These are the notebooks to create/train the model for those tasks.
+   - The inference notebook, `inference_sseg.ipynb`, only works after running the **semantic segmentation training notebook**, which saves a model "checkpoint" file to disk. This checkpoint will be used to load the model, and perform inference on new data.
+   - The other two notebooks, `tiling_example.ipynb` and `chip_example.ipynb`, are used as examples for how we created the **semantic segmentation training dataset** used for the training notebooks. These will run limited examples of tiling/chip creation.
+10. After navigating to the `lfm/notebooks` folder, open your notebook of choice by double-clicking it. If this is your first time opening the notebook, you will get a box asking to select a kernel profile. **Select "lfm_container"**. If this box does not appear automatically, click the kernel name in the top-right corner (it might display "Python 3" or similar), and select "lfm_container" from the dropdown menu. **Verify that "lfm_container" now appears in the top-right corner**
+11. Run the notebook, using the button that looks like the fast-forward icon (>>). Click the red "Restart" button. This will execute all the cells from the notebook in order. One notebook should be run at a time.
 
 ## Model and data specifications
 
@@ -106,3 +67,12 @@ Data is kept under the LFM project space, under the ```/explore/nobackup/project
 
 ### Training specifications
 The toy models were trained on 500 input/label pairs for 50 epochs, using a PRISM JupyterHub job on 1 H100 GPU, chosen over a V100 for its larger VRAM capacity. The parameters used were: "focal dice" loss function (Focal Loss + Dice loss), 5e-5 initial learning rate, AdamW optimizer, and Cosine Annealing LR scheduling with warmup. A train/val split of 80/20% was used as well, and training was run for 100 epochs with no early stopping.
+
+## Collaborators
+- **Mike Barker**: [michael.k.barker@nasa.gov](mailto:michael.k.barker@nasa.gov)
+- **Vishnu Viswanathan**: [vishnu.viswanathan@nasa.gov](mailto:vishnu.viswanathan@nasa.gov)
+- **Andrew Annex**: [andrew.m.annex@nasa.gov](mailto:andrew.m.annex@nasa.gov)
+- **Alexander Kerr**: [alexander.j.kerr@nasa.gov](mailto:alexander.j.kerr@nasa.gov)
+- **Roger Gill**: [roger.l.gill@nasa.gov](mailto:roger.l.gill@nasa.gov)
+- **Jordan Caraballo-Vega**: [jordan.a.caraballo-vega@nasa.gov](mailto:jordan.a.caraballo-vega@nasa.gov)
+- **Mark Carroll**: [mark.carroll@nasa.gov](mailto:mark.carroll@nasa.gov)
