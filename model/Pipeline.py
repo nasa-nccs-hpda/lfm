@@ -554,7 +554,7 @@ class Pipeline:
             # gid = grp.getgrnam(self.PROJECT_GROUP).gr_gid
             # os.chown(outFile, -1, gid)  # -1 means don't change owner
             cmd = f"chgrp {outFile} {self.PROJECT_GROUP}"
-            os.system()
+            os.system(cmd)
         except (PermissionError, KeyError, OSError) as e:
             print(f"Warning: Could not set group to {self.PROJECT_GROUP}: {e}")
 
@@ -641,7 +641,7 @@ class Pipeline:
                 # gid = grp.getgrnam(self.PROJECT_GROUP).gr_gid
                 # os.chown(outFile, -1, gid)  # -1 means don't change owner
                 cmd = f"chgrp {outFile} {self.PROJECT_GROUP}"
-                os.system()
+                os.system(cmd)
             except (PermissionError, KeyError, OSError) as e:
                 print(f"Warning: Could not set group to {self.PROJECT_GROUP}: {e}")
 
