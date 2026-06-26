@@ -3,7 +3,7 @@ from typing import List
 
 import os
 import numpy as np
-import shutil
+import grp
 
 from osgeo import gdal
 from osgeo import gdal_array
@@ -551,8 +551,9 @@ class Pipeline:
 
         # 6/26: making cubes group-accessible
         try:
-            shutil.chown(outFile, group=self.PROJECT_GROUP)
-        except (PermissionError, KeyError) as e:
+            gid = grp.getgrnam(self.PROJECT_GROUP).gr_gid
+            os.chown(outFile, -1, gid)  # -1 means don't change owner
+        except (PermissionError, KeyError, OSError) as e:
             print(f"Warning: Could not set group to {self.PROJECT_GROUP}: {e}")
 
         outFile.chmod(0o664)  # rw-rw-r--
@@ -635,8 +636,9 @@ class Pipeline:
 
             # 6/26: making cubes group-accessible
             try:
-                shutil.chown(outFile, group=self.PROJECT_GROUP)
-            except (PermissionError, KeyError) as e:
+                gid = grp.getgrnam(self.PROJECT_GROUP).gr_gid
+                os.chown(outFile, -1, gid)  # -1 means don't change owner
+            except (PermissionError, KeyError, OSError) as e:
                 print(f"Warning: Could not set group to {self.PROJECT_GROUP}: {e}")
 
             outFile.chmod(0o664)  # rw-rw-r--
