@@ -13,6 +13,9 @@ from transformers import AutoModel, AutoModelForUniversalSegmentation
 import logging
 import os
 
+import warnings
+warnings.filterwarnings("ignore", message=".*HF Hub.*")
+
 logger = logging.getLogger(__name__)
 
 CKPT = '/explore/nobackup/projects/lfm/model_weights/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth'
@@ -27,6 +30,7 @@ def load_dinov3_encoder(
             model=model,
             source="github",
             weights=weights_local_checkpoint,
+            force_reload=True,
         ).to(device)
         print("Encoder loaded with pretrained weights.")
         return encoder

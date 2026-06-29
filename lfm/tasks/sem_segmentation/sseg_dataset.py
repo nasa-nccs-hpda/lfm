@@ -5,6 +5,13 @@ Supports images with any number of channels (grayscale, RGB, multispectral, etc.
 """
 
 import os
+os.environ['HF_HUB_DISABLE_PROGRESS_BARS'] = '1'
+os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = '1'
+
+import warnings
+warnings.filterwarnings("ignore", message=".*HF Hub.*")
+warnings.filterwarnings("ignore", message=".*unauthenticated.*")
+
 from pathlib import Path
 from glob import glob
 from typing import Tuple, Optional, List

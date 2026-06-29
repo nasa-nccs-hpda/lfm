@@ -377,7 +377,6 @@ def visualize_predictions(
         n_samples (int): Number of samples to visualize
     """
     model.eval()
-
     os.makedirs(output_dir, exist_ok=True)
 
     # Get a batch of data
@@ -414,7 +413,7 @@ def visualize_predictions(
             if sum(len(x) for x in images_list) >= n_samples:
                 break
 
-    # Concatenate batches
+    # Concatenate batches, limit to n_samples
     all_images = torch.cat(images_list, dim=0)[:n_samples]
     all_labels = torch.cat(labels_list, dim=0)[:n_samples]
     all_preds = torch.cat(preds_list, dim=0)[:n_samples]
@@ -493,6 +492,8 @@ def visualize_predictions(
         y=0.995,
     )
 
+    fig.patch.set_visible(True)  # Make patch visible
+    fig.patch.set_facecolor('white')  # Set to white
     plt.tight_layout()
 
     # Handle epoch formatting (can be "eval" or a number)

@@ -21,6 +21,9 @@ from tqdm import tqdm
 from skimage.transform import resize
 from transformers import AutoImageProcessor
 
+import warnings
+warnings.filterwarnings("ignore", message=".*HF Hub.*")
+
 
 # ============================================================================
 # UTILITIES
@@ -674,16 +677,17 @@ def visualize_predictions(
             if len(preds_list) >= n_samples:
                 break
 
-    # Limit to n_samples
+    # Concatenate batches, limit to n_samples
     all_images = torch.cat(images_list, dim=0)[:n_samples]
     all_labels = labels_list[:n_samples]
     all_preds = preds_list[:n_samples]
 
+    # Get number of channels from first image
     num_channels = all_images.shape[1]
-    batch_size = min(n_samples, len(all_preds))
 
-    # Create 5-row visualization (maintaining original 4 rows + 1 header = 5 rows)
-    fig, axes = plt.subplots(5, batch_size, figsize=(4 * batch_size, 20))
+    # Create 4 row viz: img, pred, img/pred composite, ground truth
+    batch_size = min(n_samples, len(all_images))
+    fig, axes = plt.subplots(4, batch_size, figsize=(4 * batch_size, 16))
 
     if batch_size == 1:
         axes = axes.reshape(-1, 1)
@@ -813,30 +817,6 @@ def visualize_predictions(
         )
         axes[3, i].axis("off")
 
-        # Row 4: GT overlay on image with RED bounding boxes
-        gt_overlay = create_instance_overlay(img_vis, gt_mask, alpha=0.5)
-        axes[4, i].imshow(gt_overlay, vmin=0, vmax=1)
-
-        # Draw red bounding boxes around ground truth
-        for bbox in gt_bboxes:  # Reuse gt_bboxes from Row 3
-            x_min, y_min, width, height = bbox
-            rect = patches.Rectangle(
-                (x_min, y_min),
-                width,
-                height,
-                linewidth=2,
-                edgecolor="red",
-                facecolor="none",
-            )
-            axes[4, i].add_patch(rect)
-
-        axes[4, i].set_title(
-            f"Ground Truth Overlay\n"
-            f"Matched: {inst_metrics['num_matched']}",
-            fontsize=11,
-        )
-        axes[4, i].axis("off")
-
     # Calculate average metrics
     if len(instance_metrics) > 0:
         avg_inst_f1 = np.mean([m["f1"] for m in instance_metrics])
@@ -854,11 +834,13 @@ def visualize_predictions(
         f"Precision: {avg_precision:.3f} | Recall: {avg_recall:.3f} | "
         f"Mean IoU: {avg_iou:.3f}\n"
         f"Input: {num_channels}ch",
-        fontsize=16,
+        fontsize=20,
         fontweight="bold",
         y=0.995,
     )
 
+    fig.patch.set_visible(True)  # Make patch visible
+    fig.patch.set_facecolor('white')  # Set to white
     plt.tight_layout()
 
     # Save figure
