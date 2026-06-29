@@ -7,6 +7,8 @@ Handles images with any number of channels (grayscale, RGB, multispectral, etc.)
 
 import os
 import time
+import shutil
+import math
 
 import torch
 from torch.optim import AdamW
@@ -22,51 +24,6 @@ from .sseg_utils import get_loss_function
 # ============================================================================
 # UTILITIES
 # ============================================================================
-def confirm_and_clear_output_dir(output_dir):
-    """
-    Check if output directory exists and prompt user to clear it.
-
-    Args:
-        output_dir: Path to output directory
-
-    Returns:
-        bool: True if directory is ready to use, False if user cancelled
-    """
-    import shutil
-
-    if os.path.exists(output_dir):
-        # Check if directory has contents
-        contents = os.listdir(output_dir)
-        if len(contents) > 0:
-            print(f"\n{'='*60}")
-            print(f"⚠️  Output directory exists and is not empty:")
-            print(f"    {output_dir}")
-            print(f"    Contents: {len(contents)} items")
-            print(f"{'='*60}")
-
-            response = input("Clear this directory? (yes/no): ").strip().lower()
-
-            if response in ['yes', 'y']:
-                print(f"🗑️  Clearing {output_dir}...")
-                shutil.rmtree(output_dir)
-                os.makedirs(output_dir)
-                print(f"✅ Directory cleared and recreated")
-                return True
-            elif response in ['no', 'n']:
-                print("❌ Training cancelled. Please backup your files and try again.")
-                return False
-            else:
-                print("Invalid response. Training cancelled.")
-                return False
-        else:
-            print(f"✅ Output directory exists and is empty: {output_dir}")
-            return True
-    else:
-        print(f"✅ Creating new output directory: {output_dir}")
-        os.makedirs(output_dir)
-        return True
-
-
 def print_model_summary(model):
     encoder_trainable = sum(
         p.numel() for p in model.encoder.parameters() if p.requires_grad
@@ -739,20 +696,36 @@ def train_model(
         train_losses (list): Training losses per epoch
         val_losses (list): Validation losses per epoch
     """
-    if not confirm_and_clear_output_dir(output_dir):
-        return None, None  # User cancelled
+    if not os.path.exists(output_dir):
+        raise RuntimeError(
+            f"Output directory does not exist: {output_dir}\n"
+            f"Please run prepare_output_dir(output_dir) in the notebook before training."
+        )
 
-    warmup_epochs = max(num_epochs // 10, 10)
-
-    # Ensure warmup doesn't exceed or equal total epochs
-    if warmup_epochs >= num_epochs:
-        warmup_epochs = max(num_epochs - 1, 0)
-        if warmup_epochs > 0:
-            print(f"Note: Adjusted warmup to {warmup_epochs} epoch(s) for {num_epochs} total epochs")
+    # Special case: single epoch training
+    if num_epochs == 1:
+        warmup_epochs = 0  # No warmup, just cosine for 1 epoch
+        print("Warmup epochs set to 0 for single-epoch training.")
+    else:
+        # Use 10% of epochs, but at least 1 and at most 10
+        warmup_epochs = max(1, min(10, math.ceil(0.1 * num_epochs)))
+        # Ensure at least 1 epoch remains for cosine annealing
+        warmup_epochs = min(warmup_epochs, num_epochs - 1)
+        print(f"Warmup epochs set to {warmup_epochs} for {num_epochs} total epochs.")
 
     # 6/17: hardcoding these so config section is cleaner
-    visualize_every = min(max(num_epochs // 10, 1), num_epochs)
-    checkpoint_every = min(max(num_epochs // 10, 1), num_epochs)
+    if num_epochs > 10 and num_epochs % 10 == 0:
+        visualize_every = 10
+        checkpoint_every = 10
+    elif num_epochs < 10:
+        visualize_every = 1
+        checkpoint_every = 1
+    elif num_epochs > 10 and num_epochs < 20:
+        visualize_every = 5
+        checkpoint_every = 5
+    else:
+        visualize_every = num_epochs // 10
+        checkpoint_every = num_epochs // 10
 
     # Set device
     if device is None:
@@ -764,8 +737,8 @@ def train_model(
     # Create output directory
     checkpoint_dir = os.path.join(output_dir, "checkpoints")
     visualization_dir = os.path.join(output_dir, "visualizations")
-    os.makedirs(checkpoint_dir)
-    os.makedirs(visualization_dir)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    os.makedirs(visualization_dir, exist_ok=True)
 
     # Loss function - get from utils based on loss_type
     criterion = get_loss_function(loss_type)

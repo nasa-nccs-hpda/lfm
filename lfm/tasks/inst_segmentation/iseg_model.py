@@ -236,6 +236,10 @@ def create_mask2former_dinov3_model(
     label2id = {"background": 0, "crater": 1}
     id2label = {v: k for k, v in label2id.items()}
 
+    transformers_logger = logging.getLogger("transformers")
+    original_level = transformers_logger.level
+    transformers_logger.setLevel(logging.ERROR)  # Only show errors, not warnings
+
     # 1. Load base Mask2Former-Large model
     model = AutoModelForUniversalSegmentation.from_pretrained(
         mask2former_model_name,
@@ -244,6 +248,8 @@ def create_mask2former_dinov3_model(
         ignore_mismatched_sizes=True,
         token=hub_token,
     )
+
+    transformers_logger.setLevel(original_level)
 
     # 2. Create custom DINOv3-Large backbone with adapter
     custom_backbone = DinoV3WithAdapterBackbone(
