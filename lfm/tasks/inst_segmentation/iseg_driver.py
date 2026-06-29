@@ -1083,9 +1083,17 @@ def train_model(
         raise ValueError("checkpoint_path must be provided when mode='eval'")
 
     # 6/17: hardcoding these so config section is cleaner
+    # Learning rate scheduler
     warmup_epochs = max(num_epochs // 10, 10)
-    visualize_every = max(num_epochs // 10, 10)
-    checkpoint_every = max(num_epochs // 10, 10)
+
+    # Ensure warmup doesn't exceed or equal total epochs
+    if warmup_epochs >= num_epochs:
+        warmup_epochs = max(num_epochs - 1, 0)
+        if warmup_epochs > 0:
+            print(f"Note: Adjusted warmup to {warmup_epochs} epoch(s) for {num_epochs} total epochs")
+
+    visualize_every = min(max(num_epochs // 10, 1), num_epochs)
+    checkpoint_every = min(max(num_epochs // 10, 1), num_epochs)
     # Create image processor
     BASE_MODEL = "facebook/mask2former-swin-large-coco-instance"
     image_processor = AutoImageProcessor.from_pretrained(
@@ -1119,8 +1127,6 @@ def train_model(
         evaluate_model(model, val_loader, image_processor, output_dir, device)
         return None, None
 
-    # TRAINING MODE (train or both)
-
     # NO CRITERION - Mask2Former computes loss internally!
     print(
         "Using Mask2Former's built-in loss (Hungarian matching + combined losses)"
@@ -1134,35 +1140,18 @@ def train_model(
     )
 
     # Learning rate scheduler
-    if warmup_epochs is None or warmup_epochs < 0:
-        scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
-    elif warmup_epochs > num_epochs:
-        raise ValueError(
-            "Number of warmup epochs must be less than or equal to total epochs."
-        )
-    elif warmup_epochs > 0.5 * num_epochs:
-        print("Warning: warmup epochs is greater than 1/2 of total epochs.")
-        warmup_scheduler = LinearLR(
-            optimizer, start_factor=0.1, total_iters=warmup_epochs
-        )
-        cosine_scheduler = CosineAnnealingLR(
-            optimizer,
-            T_max=num_epochs - warmup_epochs,
-            eta_min=1e-7,  # Lower minimum
-        )
-        scheduler = SequentialLR(
-            optimizer,
-            schedulers=[warmup_scheduler, cosine_scheduler],
-            milestones=[warmup_epochs],
-        )
+    if warmup_epochs == 0:
+        # No warmup, just cosine annealing
+        scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-7)
     else:
+        # Warmup + cosine annealing
         warmup_scheduler = LinearLR(
             optimizer, start_factor=0.1, total_iters=warmup_epochs
         )
         cosine_scheduler = CosineAnnealingLR(
             optimizer,
             T_max=num_epochs - warmup_epochs,
-            eta_min=1e-7,  # Lower minimum
+            eta_min=1e-7,
         )
         scheduler = SequentialLR(
             optimizer,
