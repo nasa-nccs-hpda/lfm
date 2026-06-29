@@ -21,6 +21,7 @@ import rioxarray as rxr
 from rasterio.enums import Resampling
 from rasterio.crs import CRS
 from tqdm import tqdm
+from rioxarray.merge import merge_arrays
 
 try:
     import psutil
@@ -289,40 +290,43 @@ def get_band_names(filepath: Path, band_indices: list = None) -> list:
         return [f'band_{idx}' for idx in (band_indices or [])]
 
 
-def check_bands_exist(filepath: Path, pattern: str) -> tuple:
+def check_bands_exist(filepath: Path, static_band_list: list) -> tuple:
     """
-    Check if bands matching regex exist.
+    Check if bands matching the static band list exist.
 
     Args:
         filepath: Path to raster file
-        pattern: Regex pattern to match against band names
+        static_band_list: List of exact band names to match
 
     Returns:
         (exists: bool, band_numbers: list, error_message: str or None)
     """
-    import re
-    import rasterio
-
-    band_indices = []
     try:
-        regex = re.compile(pattern)
         with rasterio.open(filepath) as src:
+            # Create a mapping of band names to indices
+            band_name_to_idx = {}
             for band_idx in range(1, src.count + 1):
                 tags = src.tags(band_idx)
                 band_name = tags.get('Name', '')
+                if band_name:
+                    band_name_to_idx[band_name] = band_idx
 
-                if regex.search(band_name):
-                    band_indices.append(band_idx)
+            # Check all required bands exist and preserve order
+            band_indices = []
+            missing_bands = []
+            for band_name in static_band_list:
+                if band_name in band_name_to_idx:
+                    band_indices.append(band_name_to_idx[band_name])
+                else:
+                    missing_bands.append(band_name)
 
-            if not band_indices:
-                return False, None, f"No bands matching pattern '{pattern}' found"
+            if missing_bands:
+                return False, [], f"Missing bands: {missing_bands}"
 
             return True, band_indices, None
 
-    except re.error as e:
-        return False, None, f"Invalid regex pattern: {str(e)}"
     except Exception as e:
-        return False, None, f"Error reading file: {str(e)}"
+        return False, [], f"Error reading file: {str(e)}"
 
 
 def merge_and_reproject_datasets(
@@ -332,7 +336,7 @@ def merge_and_reproject_datasets(
     target_transform,
     target_height: int,
     target_width: int,
-    band_regex: str,
+    static_band_list: list,
     logger
 ) -> tuple:
     """
@@ -345,14 +349,13 @@ def merge_and_reproject_datasets(
         target_transform: Target affine transform
         target_height: Target height in pixels
         target_width: Target width in pixels
-        band_regex: Regex for filtering static bands
+        static_band_list: list of exact static band names to use
         logger: Logger instance
 
     Returns:
         (merged_wac: xr.DataArray, merged_static: xr.DataArray,
          wac_band_names: list, static_band_names: list, status: str)
     """
-    from rioxarray.merge import merge_arrays
 
     try:
         # ====================================================================
@@ -374,7 +377,9 @@ def merge_and_reproject_datasets(
 
         for static_file in static_files:
             # Check if required bands exist
-            bands_exist, band_nums, error_msg = check_bands_exist(static_file, band_regex)
+            bands_exist, band_nums, error_msg = check_bands_exist(
+                static_file, static_band_list
+            )
             if not bands_exist:
                 logger.error(f"  Static bands not found: {error_msg}")
                 return None, None, None, None, "error_static_bands_missing"
@@ -1012,7 +1017,6 @@ def create_chips(band_regex=r"^lola_kaguya.*", expected_static=5, zoom_level=5, 
     logger.info(f"  Workers: {MAX_WORKERS}")
     logger.info(f"  Max entries: {MAX_ENTRIES}")
     logger.info(f"  Verbose: {VERBOSE}")
-    logger.info(f"  Band regex: {band_regex}")
     logger.info(f"  Expected static bands: {expected_static}")
     logger.info(f"  Zoom level: {zoom_level}")
     logger.info("=" * 80)
