@@ -22,6 +22,193 @@ from transformers import AutoImageProcessor
 
 
 # ============================================================================
+# UTILITIES
+# ============================================================================
+
+def confirm_and_clear_output_dir(output_dir):
+    """
+    Check if output directory exists and prompt user to clear it.
+
+    Args:
+        output_dir: Path to output directory
+
+    Returns:
+        bool: True if directory is ready to use, False if user cancelled
+    """
+    import shutil
+
+    if os.path.exists(output_dir):
+        # Check if directory has contents
+        contents = os.listdir(output_dir)
+        if len(contents) > 0:
+            print(f"\n{'='*60}")
+            print(f"⚠️  Output directory exists and is not empty:")
+            print(f"    {output_dir}")
+            print(f"    Contents: {len(contents)} items")
+            print(f"{'='*60}")
+
+            response = input("Clear this directory? (yes/no): ").strip().lower()
+
+            if response in ['yes', 'y']:
+                print(f"🗑️  Clearing {output_dir}...")
+                shutil.rmtree(output_dir)
+                os.makedirs(output_dir)
+                print(f"✅ Directory cleared and recreated")
+                return True
+            elif response in ['no', 'n']:
+                print("❌ Training cancelled. Please backup your files and try again.")
+                return False
+            else:
+                print("Invalid response. Training cancelled.")
+                return False
+        else:
+            print(f"✅ Output directory exists and is empty: {output_dir}")
+            return True
+    else:
+        print(f"✅ Creating new output directory: {output_dir}")
+        os.makedirs(output_dir)
+        return True
+
+
+def print_model_summary(model):
+    """
+    Print model parameter summary.
+
+    Note: May not work correctly with Mask2Former's structure.
+    Use try/except when calling this function.
+    """
+    try:
+        # Try to access encoder/decoder (might not exist in Mask2Former)
+        if hasattr(model, "encoder") and hasattr(model, "decoder"):
+            encoder_trainable = sum(
+                p.numel()
+                for p in model.encoder.parameters()
+                if p.requires_grad
+            )
+            encoder_total = sum(p.numel() for p in model.encoder.parameters())
+
+            decoder_trainable = sum(
+                p.numel()
+                for p in model.decoder.parameters()
+                if p.requires_grad
+            )
+            decoder_total = sum(p.numel() for p in model.decoder.parameters())
+
+            print(f"\n{'='*60}")
+            print("MODEL PARAMETER SUMMARY")
+            print(f"{'='*60}")
+            print("Encoder:")
+            print(
+                f"  Trainable: {encoder_trainable:,} / {encoder_total:,} "
+                f"({100*encoder_trainable/encoder_total:.2f}%)"
+            )
+            print("\nDecoder:")
+            print(
+                f"  Trainable: {decoder_trainable:,} / {decoder_total:,} "
+                f"({100*decoder_trainable/decoder_total:.2f}%)"
+            )
+
+        # Total parameters (always works)
+        trainable_params = sum(
+            p.numel() for p in model.parameters() if p.requires_grad
+        )
+        total_params = sum(p.numel() for p in model.parameters())
+
+        print("\nTotal Model:")
+        print(
+            f"  Trainable: {trainable_params:,} / {total_params:,} "
+            f"({100*trainable_params/total_params:.2f}%)"
+        )
+        print(f"{'='*60}\n")
+
+    except Exception as e:
+        print(f"Could not generate detailed model summary: {e}")
+        print("Printing basic parameter count only...")
+
+        trainable_params = sum(
+            p.numel() for p in model.parameters() if p.requires_grad
+        )
+        total_params = sum(p.numel() for p in model.parameters())
+
+        print(f"\n{'='*60}")
+        print("MODEL PARAMETER SUMMARY")
+        print(f"{'='*60}")
+        print(
+            f"Trainable: {trainable_params:,} / {total_params:,} "
+            f"({100*trainable_params/total_params:.2f}%)"
+        )
+        print(f"{'='*60}\n")
+
+
+def save_checkpoint(
+    model,
+    optimizer,
+    scheduler,
+    epoch,
+    train_losses,
+    val_losses,
+    checkpoint_path,
+):
+    """Save full checkpoint."""
+    checkpoint = {
+        "epoch": epoch,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict(),
+        "train_losses": train_losses,
+        "val_losses": val_losses,
+    }
+    torch.save(checkpoint, checkpoint_path)
+    print(f"Saved checkpoint to: {checkpoint_path}")
+
+
+def load_checkpoint(model, optimizer, scheduler, checkpoint_path, device):
+    """Load checkpoint and restore training state."""
+    print(f"Loading checkpoint from: {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+
+    start_epoch = checkpoint["epoch"] + 1
+    train_losses = checkpoint["train_losses"]
+    val_losses = checkpoint["val_losses"]
+
+    print(f"Resumed from epoch {checkpoint['epoch']}")
+    print(f"Training history loaded: {len(train_losses)} epochs")
+
+    return start_epoch, train_losses, val_losses
+
+
+def load_model_weights(model, checkpoint_path, device):
+    """Load model weights from checkpoint."""
+    print(f"Loading model weights from: {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        model.load_state_dict(checkpoint["model_state_dict"])
+        epoch = checkpoint.get("epoch", None)
+        print(f"Loaded model from checkpoint (new format)")
+        if epoch is not None:
+            print(f"Checkpoint was from epoch: {epoch}")
+        return epoch
+    else:
+        try:
+            model.load_state_dict(checkpoint)
+            print(f"Loaded model from checkpoint (old format - state_dict)")
+        except:
+            if hasattr(model, "load_parameters"):
+                model.load_parameters(checkpoint_path)
+                print(f"Loaded model using model.load_parameters() method")
+            else:
+                raise ValueError(
+                    "Unable to load checkpoint. Format not recognized."
+                )
+        return None
+
+
+# ============================================================================
 # METRICS
 # ============================================================================
 
@@ -739,7 +926,7 @@ def visualize_predictions(
 
 
 # ============================================================================
-# TRAINING
+# TRAINING HELPERS
 # ============================================================================
 
 
@@ -853,147 +1040,8 @@ def validate_epoch(model, dataloader, device, desc="Validation"):
 
 
 # ============================================================================
-# UTILITIES
+# EVALUATION
 # ============================================================================
-
-
-def print_model_summary(model):
-    """
-    Print model parameter summary.
-
-    Note: May not work correctly with Mask2Former's structure.
-    Use try/except when calling this function.
-    """
-    try:
-        # Try to access encoder/decoder (might not exist in Mask2Former)
-        if hasattr(model, "encoder") and hasattr(model, "decoder"):
-            encoder_trainable = sum(
-                p.numel()
-                for p in model.encoder.parameters()
-                if p.requires_grad
-            )
-            encoder_total = sum(p.numel() for p in model.encoder.parameters())
-
-            decoder_trainable = sum(
-                p.numel()
-                for p in model.decoder.parameters()
-                if p.requires_grad
-            )
-            decoder_total = sum(p.numel() for p in model.decoder.parameters())
-
-            print(f"\n{'='*60}")
-            print("MODEL PARAMETER SUMMARY")
-            print(f"{'='*60}")
-            print("Encoder:")
-            print(
-                f"  Trainable: {encoder_trainable:,} / {encoder_total:,} "
-                f"({100*encoder_trainable/encoder_total:.2f}%)"
-            )
-            print("\nDecoder:")
-            print(
-                f"  Trainable: {decoder_trainable:,} / {decoder_total:,} "
-                f"({100*decoder_trainable/decoder_total:.2f}%)"
-            )
-
-        # Total parameters (always works)
-        trainable_params = sum(
-            p.numel() for p in model.parameters() if p.requires_grad
-        )
-        total_params = sum(p.numel() for p in model.parameters())
-
-        print("\nTotal Model:")
-        print(
-            f"  Trainable: {trainable_params:,} / {total_params:,} "
-            f"({100*trainable_params/total_params:.2f}%)"
-        )
-        print(f"{'='*60}\n")
-
-    except Exception as e:
-        print(f"Could not generate detailed model summary: {e}")
-        print("Printing basic parameter count only...")
-
-        trainable_params = sum(
-            p.numel() for p in model.parameters() if p.requires_grad
-        )
-        total_params = sum(p.numel() for p in model.parameters())
-
-        print(f"\n{'='*60}")
-        print("MODEL PARAMETER SUMMARY")
-        print(f"{'='*60}")
-        print(
-            f"Trainable: {trainable_params:,} / {total_params:,} "
-            f"({100*trainable_params/total_params:.2f}%)"
-        )
-        print(f"{'='*60}\n")
-
-
-def save_checkpoint(
-    model,
-    optimizer,
-    scheduler,
-    epoch,
-    train_losses,
-    val_losses,
-    checkpoint_path,
-):
-    """Save full checkpoint."""
-    checkpoint = {
-        "epoch": epoch,
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "scheduler_state_dict": scheduler.state_dict(),
-        "train_losses": train_losses,
-        "val_losses": val_losses,
-    }
-    torch.save(checkpoint, checkpoint_path)
-    print(f"Saved checkpoint to: {checkpoint_path}")
-
-
-def load_checkpoint(model, optimizer, scheduler, checkpoint_path, device):
-    """Load checkpoint and restore training state."""
-    print(f"Loading checkpoint from: {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-
-    model.load_state_dict(checkpoint["model_state_dict"])
-    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-    scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-
-    start_epoch = checkpoint["epoch"] + 1
-    train_losses = checkpoint["train_losses"]
-    val_losses = checkpoint["val_losses"]
-
-    print(f"Resumed from epoch {checkpoint['epoch']}")
-    print(f"Training history loaded: {len(train_losses)} epochs")
-
-    return start_epoch, train_losses, val_losses
-
-
-def load_model_weights(model, checkpoint_path, device):
-    """Load model weights from checkpoint."""
-    print(f"Loading model weights from: {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-
-    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-        model.load_state_dict(checkpoint["model_state_dict"])
-        epoch = checkpoint.get("epoch", None)
-        print(f"Loaded model from checkpoint (new format)")
-        if epoch is not None:
-            print(f"Checkpoint was from epoch: {epoch}")
-        return epoch
-    else:
-        try:
-            model.load_state_dict(checkpoint)
-            print(f"Loaded model from checkpoint (old format - state_dict)")
-        except:
-            if hasattr(model, "load_parameters"):
-                model.load_parameters(checkpoint_path)
-                print(f"Loaded model using model.load_parameters() method")
-            else:
-                raise ValueError(
-                    "Unable to load checkpoint. Format not recognized."
-                )
-        return None
-
 
 def evaluate_model(model, val_loader, image_processor, output_dir, device):
     """
@@ -1007,7 +1055,7 @@ def evaluate_model(model, val_loader, image_processor, output_dir, device):
         device: torch device
     """
     print(f"\n{'='*60}")
-    print("EVALUATION MODE")
+    print("EVALUATING MODEL")
     print(f"{'='*60}\n")
 
     os.makedirs(output_dir, exist_ok=True)
@@ -1032,7 +1080,7 @@ def evaluate_model(model, val_loader, image_processor, output_dir, device):
 
 
 # ============================================================================
-# MAIN TRAINING FUNCTION
+# DRIVER
 # ============================================================================
 
 
@@ -1045,7 +1093,6 @@ def train_model(
     learning_rate=1e-4,
     weight_decay=1e-4,
     device=None,
-    mode="train",
     checkpoint_path=None,
     max_grad_norm=1.0,
     early_stopping_patience=None,
@@ -1063,24 +1110,16 @@ def train_model(
         learning_rate (float): Learning rate
         weight_decay (float): Weight decay for optimizer
         device: torch device (if None, will use cuda if available)
-        mode (str): Operation mode - 'train', 'eval', or 'both' (default train)
         checkpoint_path (str): Path to checkpoint file for loading/resuming
         max_grad_norm (float): Maximum gradient norm for clipping
         early_stopping_patience (int): Number of epochs to wait before early stopping
 
     Returns:
-        train_losses (list): Training losses per epoch (None if mode='eval')
-        val_losses (list): Validation losses per epoch (None if mode='eval')
+        train_losses (list): Training losses per epoch
+        val_losses (list): Validation losses per epoch
     """
-
-    # Validate arguments
-    if mode not in ["train", "eval", "both"]:
-        raise ValueError(
-            f"Invalid mode: {mode}. Must be 'train', 'eval', or 'both'"
-        )
-
-    if mode == "eval" and checkpoint_path is None:
-        raise ValueError("checkpoint_path must be provided when mode='eval'")
+    if not confirm_and_clear_output_dir(output_dir):
+        return None, None  # User cancelled
 
     # 6/17: hardcoding these so config section is cleaner
     # Learning rate scheduler
@@ -1117,16 +1156,6 @@ def train_model(
     visualization_dir = os.path.join(output_dir, "visualizations")
     os.makedirs(checkpoint_dir, exist_ok=True)
     os.makedirs(visualization_dir, exist_ok=True)
-
-    # EVALUATION ONLY MODE
-    if mode == "eval":
-        # Load model weights (handles both old and new formats)
-        load_model_weights(model, checkpoint_path, device)
-
-        # Run evaluation
-        evaluate_model(model, val_loader, image_processor, output_dir, device)
-        return None, None
-
     # NO CRITERION - Mask2Former computes loss internally!
     print(
         "Using Mask2Former's built-in loss (Hungarian matching + combined losses)"
