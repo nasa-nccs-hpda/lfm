@@ -12,6 +12,9 @@ import sys
 import os
 import subprocess
 
+import warnings
+warnings.filterwarnings("ignore", message=".*HF Hub.*")
+
 
 # ============================================================================
 # DISCRIMINATIVE LOSS FOR INSTANCE SEGMENTATION

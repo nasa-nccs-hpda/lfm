@@ -7,6 +7,8 @@ Handles images with any number of channels (grayscale, RGB, multispectral, etc.)
 
 import os
 import time
+import shutil
+import math
 
 import torch
 from torch.optim import AdamW
@@ -19,6 +21,159 @@ from tqdm import tqdm
 
 from .sseg_utils import get_loss_function
 
+# ============================================================================
+# UTILITIES
+# ============================================================================
+def print_model_summary(model):
+    encoder_trainable = sum(
+        p.numel() for p in model.encoder.parameters() if p.requires_grad
+    )
+    encoder_total = sum(p.numel() for p in model.encoder.parameters())
+
+    # Calculate trainable parameters for decoder
+    decoder_trainable = sum(
+        p.numel() for p in model.decoder.parameters() if p.requires_grad
+    )
+    decoder_total = sum(p.numel() for p in model.decoder.parameters())
+
+    # Calculate trainable parameters for combined model
+    trainable_params = sum(
+        p.numel() for p in model.parameters() if p.requires_grad
+    )
+    total_params = sum(p.numel() for p in model.parameters())
+
+    print(f"\n{'='*60}")
+    print("MODEL PARAMETER SUMMARY")
+    print(f"{'='*60}")
+    print("Encoder:")
+    print(
+        f"  Trainable: {encoder_trainable:,} / {encoder_total:,} "
+        f"({100*encoder_trainable/encoder_total:.2f}%)"
+    )
+    print("\nDecoder:")
+    print(
+        f"  Trainable: {decoder_trainable:,} / {decoder_total:,} "
+        f"({100*decoder_trainable/decoder_total:.2f}%)"
+    )
+    print("\nCombined Model:")
+    print(
+        f"  Trainable: {trainable_params:,} / {total_params:,} "
+        f"({100*trainable_params/total_params:.2f}%)"
+    )
+    print(f"{'='*60}\n")
+
+
+def save_checkpoint(
+    model,
+    optimizer,
+    scheduler,
+    epoch,
+    train_losses,
+    val_losses,
+    checkpoint_path,
+):
+    """
+    Save full checkpoint including optimizer and scheduler state.
+
+    Args:
+        model: Model to save
+        optimizer: Optimizer
+        scheduler: Learning rate scheduler
+        epoch: Current epoch
+        train_losses: List of training losses
+        val_losses: List of validation losses
+        checkpoint_path: Path to save checkpoint
+    """
+    checkpoint = {
+        "epoch": epoch,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict(),
+        "train_losses": train_losses,
+        "val_losses": val_losses,
+    }
+    torch.save(checkpoint, checkpoint_path)
+    print(f"Saved checkpoint to: {checkpoint_path}")
+
+
+def load_checkpoint(model, optimizer, scheduler, checkpoint_path, device):
+    """
+    Load checkpoint and restore training state.
+
+    Args:
+        model: Model to load weights into
+        optimizer: Optimizer to restore state
+        scheduler: Scheduler to restore state
+        checkpoint_path: Path to checkpoint file
+        device: Device to load checkpoint on
+
+    Returns:
+        start_epoch: Epoch to resume from
+        train_losses: Training loss history
+        val_losses: Validation loss history
+    """
+    print(f"Loading checkpoint from: {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+
+    start_epoch = checkpoint["epoch"] + 1
+    train_losses = checkpoint["train_losses"]
+    val_losses = checkpoint["val_losses"]
+
+    print(f"Resumed from epoch {checkpoint['epoch']}")
+    print(f"Training history loaded: {len(train_losses)} epochs")
+
+    return start_epoch, train_losses, val_losses
+
+
+def load_model_weights(model, checkpoint_path, device):
+    """
+    Load model weights from checkpoint, handling both old and new formats.
+
+    Args:
+        model: Model to load weights into
+        checkpoint_path: Path to checkpoint file
+        device: Device to load checkpoint on
+
+    Returns:
+        epoch: Epoch number if available, else None
+    """
+    print(f"Loading model weights from: {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+
+    # Check if it's the new format (dict with 'model_state_dict')
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        model.load_state_dict(checkpoint["model_state_dict"])
+        epoch = checkpoint.get("epoch", None)
+        print(f"Loaded model from checkpoint (new format)")
+        if epoch is not None:
+            print(f"Checkpoint was from epoch: {epoch}")
+        return epoch
+    else:
+        # Old format - directly load state dict or use model's load method
+        try:
+            # Try loading as state_dict directly
+            model.load_state_dict(checkpoint)
+            print(f"Loaded model from checkpoint (old format - state_dict)")
+        except:
+            # If model has custom load_parameters method (like DINOEncoderLoRA)
+            if hasattr(model, "load_parameters"):
+                model.load_parameters(checkpoint_path)
+                print(f"Loaded model using model.load_parameters() method")
+            else:
+                raise ValueError(
+                    "Unable to load checkpoint. Format not recognized and "
+                    "model doesn't have load_parameters() method."
+                )
+        return None
+
+
+# ============================================================================
+# METRICS
+# ============================================================================
 
 def calculate_f1_score(pred, label):
     """
@@ -43,6 +198,11 @@ def calculate_f1_score(pred, label):
     f1 = 2 * (precision * recall) / (precision + recall + 1e-8)
 
     return f1
+
+
+# ============================================================================
+# VISUALIZATION
+# ============================================================================
 
 
 def prepare_image_for_display(
@@ -217,7 +377,6 @@ def visualize_predictions(
         n_samples (int): Number of samples to visualize
     """
     model.eval()
-
     os.makedirs(output_dir, exist_ok=True)
 
     # Get a batch of data
@@ -254,7 +413,7 @@ def visualize_predictions(
             if sum(len(x) for x in images_list) >= n_samples:
                 break
 
-    # Concatenate batches
+    # Concatenate batches, limit to n_samples
     all_images = torch.cat(images_list, dim=0)[:n_samples]
     all_labels = torch.cat(labels_list, dim=0)[:n_samples]
     all_preds = torch.cat(preds_list, dim=0)[:n_samples]
@@ -333,6 +492,8 @@ def visualize_predictions(
         y=0.995,
     )
 
+    fig.patch.set_visible(True)  # Make patch visible
+    fig.patch.set_facecolor('white')  # Set to white
     plt.tight_layout()
 
     # Handle epoch formatting (can be "eval" or a number)
@@ -348,6 +509,11 @@ def visualize_predictions(
     print(f"Mean F1 Score: {mean_f1:.3f}")
 
     model.train()
+
+
+# ============================================================================
+# TRAINING HELPERS
+# ============================================================================
 
 
 def train_epoch(
@@ -451,151 +617,9 @@ def validate_epoch(model, dataloader, criterion, device, desc="Validation"):
     return avg_loss
 
 
-def print_model_summary(model):
-    encoder_trainable = sum(
-        p.numel() for p in model.encoder.parameters() if p.requires_grad
-    )
-    encoder_total = sum(p.numel() for p in model.encoder.parameters())
-
-    # Calculate trainable parameters for decoder
-    decoder_trainable = sum(
-        p.numel() for p in model.decoder.parameters() if p.requires_grad
-    )
-    decoder_total = sum(p.numel() for p in model.decoder.parameters())
-
-    # Calculate trainable parameters for combined model
-    trainable_params = sum(
-        p.numel() for p in model.parameters() if p.requires_grad
-    )
-    total_params = sum(p.numel() for p in model.parameters())
-
-    print(f"\n{'='*60}")
-    print("MODEL PARAMETER SUMMARY")
-    print(f"{'='*60}")
-    print("Encoder:")
-    print(
-        f"  Trainable: {encoder_trainable:,} / {encoder_total:,} "
-        f"({100*encoder_trainable/encoder_total:.2f}%)"
-    )
-    print("\nDecoder:")
-    print(
-        f"  Trainable: {decoder_trainable:,} / {decoder_total:,} "
-        f"({100*decoder_trainable/decoder_total:.2f}%)"
-    )
-    print("\nCombined Model:")
-    print(
-        f"  Trainable: {trainable_params:,} / {total_params:,} "
-        f"({100*trainable_params/total_params:.2f}%)"
-    )
-    print(f"{'='*60}\n")
-
-
-def save_checkpoint(
-    model,
-    optimizer,
-    scheduler,
-    epoch,
-    train_losses,
-    val_losses,
-    checkpoint_path,
-):
-    """
-    Save full checkpoint including optimizer and scheduler state.
-
-    Args:
-        model: Model to save
-        optimizer: Optimizer
-        scheduler: Learning rate scheduler
-        epoch: Current epoch
-        train_losses: List of training losses
-        val_losses: List of validation losses
-        checkpoint_path: Path to save checkpoint
-    """
-    checkpoint = {
-        "epoch": epoch,
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "scheduler_state_dict": scheduler.state_dict(),
-        "train_losses": train_losses,
-        "val_losses": val_losses,
-    }
-    torch.save(checkpoint, checkpoint_path)
-    print(f"Saved checkpoint to: {checkpoint_path}")
-
-
-def load_checkpoint(model, optimizer, scheduler, checkpoint_path, device):
-    """
-    Load checkpoint and restore training state.
-
-    Args:
-        model: Model to load weights into
-        optimizer: Optimizer to restore state
-        scheduler: Scheduler to restore state
-        checkpoint_path: Path to checkpoint file
-        device: Device to load checkpoint on
-
-    Returns:
-        start_epoch: Epoch to resume from
-        train_losses: Training loss history
-        val_losses: Validation loss history
-    """
-    print(f"Loading checkpoint from: {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-
-    model.load_state_dict(checkpoint["model_state_dict"])
-    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-    scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-
-    start_epoch = checkpoint["epoch"] + 1
-    train_losses = checkpoint["train_losses"]
-    val_losses = checkpoint["val_losses"]
-
-    print(f"Resumed from epoch {checkpoint['epoch']}")
-    print(f"Training history loaded: {len(train_losses)} epochs")
-
-    return start_epoch, train_losses, val_losses
-
-
-def load_model_weights(model, checkpoint_path, device):
-    """
-    Load model weights from checkpoint, handling both old and new formats.
-
-    Args:
-        model: Model to load weights into
-        checkpoint_path: Path to checkpoint file
-        device: Device to load checkpoint on
-
-    Returns:
-        epoch: Epoch number if available, else None
-    """
-    print(f"Loading model weights from: {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-
-    # Check if it's the new format (dict with 'model_state_dict')
-    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-        model.load_state_dict(checkpoint["model_state_dict"])
-        epoch = checkpoint.get("epoch", None)
-        print(f"Loaded model from checkpoint (new format)")
-        if epoch is not None:
-            print(f"Checkpoint was from epoch: {epoch}")
-        return epoch
-    else:
-        # Old format - directly load state dict or use model's load method
-        try:
-            # Try loading as state_dict directly
-            model.load_state_dict(checkpoint)
-            print(f"Loaded model from checkpoint (old format - state_dict)")
-        except:
-            # If model has custom load_parameters method (like DINOEncoderLoRA)
-            if hasattr(model, "load_parameters"):
-                model.load_parameters(checkpoint_path)
-                print(f"Loaded model using model.load_parameters() method")
-            else:
-                raise ValueError(
-                    "Unable to load checkpoint. Format not recognized and "
-                    "model doesn't have load_parameters() method."
-                )
-        return None
+# ============================================================================
+# EVALUATION
+# ============================================================================
 
 
 def evaluate_model(model, val_loader, output_dir, device):
@@ -609,7 +633,7 @@ def evaluate_model(model, val_loader, output_dir, device):
         device: Device to run evaluation on
     """
     print(f"\n{'='*60}")
-    print("EVALUATION MODE")
+    print("EVALUATING MODEL")
     print(f"{'='*60}\n")
 
     os.makedirs(output_dir, exist_ok=True)
@@ -627,6 +651,11 @@ def evaluate_model(model, val_loader, output_dir, device):
     print(f"{'='*60}\n")
 
 
+# ============================================================================
+# DRIVER
+# ============================================================================
+
+
 def train_model(
     model,
     train_loader,
@@ -637,7 +666,6 @@ def train_model(
     weight_decay=1e-4,
     loss_type="focal_dice",
     device=None,
-    mode="train",
     checkpoint_path=None,
     max_grad_norm=1.0,
     early_stopping_patience=None,
@@ -663,27 +691,42 @@ def train_model(
             - 'combined': CrossEntropy + Dice (recommended)
             - 'full': CrossEntropy + Dice + Boundary (unstable)
         device: torch device (if None, will use cuda if available)
-        mode (str): Operation mode - 'train', 'eval', or 'both' (default both)
         checkpoint_path (str): Path to checkpoint file for loading/resuming
 
     Returns:
-        train_losses (list): Training losses per epoch (None if mode='eval')
-        val_losses (list): Validation losses per epoch (None if mode='eval')
+        train_losses (list): Training losses per epoch
+        val_losses (list): Validation losses per epoch
     """
-
-    # Validate arguments
-    if mode not in ["train", "eval", "both"]:
-        raise ValueError(
-            f"Invalid mode: {mode}. Must be 'train', 'eval', or 'both'"
+    if not os.path.exists(output_dir):
+        raise RuntimeError(
+            f"Output directory does not exist: {output_dir}\n"
+            f"Please run prepare_output_dir(output_dir) in the notebook before training."
         )
 
-    if mode == "eval" and checkpoint_path is None:
-        raise ValueError("checkpoint_path must be provided when mode='eval'")
+    # Special case: single epoch training
+    if num_epochs == 1:
+        warmup_epochs = 0  # No warmup, just cosine for 1 epoch
+        print("Warmup epochs set to 0 for single-epoch training.")
+    else:
+        # Use 10% of epochs, but at least 1 and at most 10
+        warmup_epochs = max(1, min(10, math.ceil(0.1 * num_epochs)))
+        # Ensure at least 1 epoch remains for cosine annealing
+        warmup_epochs = min(warmup_epochs, num_epochs - 1)
+        print(f"Warmup epochs set to {warmup_epochs} for {num_epochs} total epochs.")
 
     # 6/17: hardcoding these so config section is cleaner
-    warmup_epochs = max(num_epochs // 10, 10)
-    visualize_every = max(num_epochs // 10, 10)
-    checkpoint_every = max(num_epochs // 10, 10)
+    if num_epochs > 10 and num_epochs % 10 == 0:
+        visualize_every = 10
+        checkpoint_every = 10
+    elif num_epochs < 10:
+        visualize_every = 1
+        checkpoint_every = 1
+    elif num_epochs > 10 and num_epochs < 20:
+        visualize_every = 5
+        checkpoint_every = 5
+    else:
+        visualize_every = num_epochs // 10
+        checkpoint_every = num_epochs // 10
 
     # Set device
     if device is None:
@@ -693,22 +736,10 @@ def train_model(
     model = model.to(device)
 
     # Create output directory
-    os.makedirs(output_dir, exist_ok=True)
     checkpoint_dir = os.path.join(output_dir, "checkpoints")
     visualization_dir = os.path.join(output_dir, "visualizations")
     os.makedirs(checkpoint_dir, exist_ok=True)
     os.makedirs(visualization_dir, exist_ok=True)
-
-    # EVALUATION ONLY MODE
-    if mode == "eval":
-        # Load model weights (handles both old and new formats)
-        load_model_weights(model, checkpoint_path, device)
-
-        # Run evaluation
-        evaluate_model(model, val_loader, output_dir, device)
-        return None, None
-
-    # TRAINING MODE (train or both)
 
     # Loss function - get from utils based on loss_type
     criterion = get_loss_function(loss_type)
@@ -723,23 +754,19 @@ def train_model(
         weight_decay=weight_decay,
     )
 
-    # # Learning rate scheduler
-    if warmup_epochs is None or warmup_epochs < 0:
-        scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
-    elif warmup_epochs > num_epochs:
-        raise ValueError(
-            "Number of warmup epochs must be less than or equal to total epochs."
-        )
-    elif warmup_epochs > 0.5 * num_epochs:
-        print("Warning: warmup epochs is greater than 1/2 of total epochs.")
+    # Learning rate scheduler
+    if warmup_epochs == 0:
+        # No warmup, just cosine annealing
+        scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-7)
     else:
+        # Warmup + cosine annealing
         warmup_scheduler = LinearLR(
             optimizer, start_factor=0.1, total_iters=warmup_epochs
         )
         cosine_scheduler = CosineAnnealingLR(
             optimizer,
             T_max=num_epochs - warmup_epochs,
-            eta_min=1e-7,  # Lower minimum
+            eta_min=1e-7,
         )
         scheduler = SequentialLR(
             optimizer,

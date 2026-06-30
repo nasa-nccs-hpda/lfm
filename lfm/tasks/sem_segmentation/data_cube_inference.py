@@ -874,7 +874,7 @@ def run_datacube_inference(
     input_dir,
     mean=None,
     std=None,
-    output_dir="outputs/inference",
+    output_dir=Path("outputs/inference"),
     model_native_size=304,
     tile_overlap=0.75,
     threshold=0.3,

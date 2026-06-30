@@ -196,6 +196,7 @@ def load_dinov3_encoder(
             model=model,
             source="github",
             weights=weights_local_checkpoint,
+            force_reload=True,
         ).to(device)
         print("Encoder loaded with pretrained weights.")
         return encoder

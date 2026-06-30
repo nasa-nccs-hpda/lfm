@@ -3,7 +3,7 @@ from typing import List
 
 import os
 import numpy as np
-import xarray as xr
+import grp
 
 from osgeo import gdal
 from osgeo import gdal_array
@@ -39,6 +39,8 @@ class Pipeline:
                 ' https://doi.org/10.1007/s10569-017-9805-5"]]')
 
     STATIC_FILE_DB = Path('/explore/nobackup/projects/lfm/staticLinks')
+
+    PROJECT_GROUP = 'j1123'
 
     # ------------------------------------------------------------------------
     # __init__
@@ -547,6 +549,17 @@ class Pipeline:
 
         ds = None
 
+        # 6/26: making cubes group-accessible
+        # try:
+        #     # gid = grp.getgrnam(self.PROJECT_GROUP).gr_gid
+        #     # os.chown(outFile, -1, gid)  # -1 means don't change owner
+        #     cmd = f"chgrp {self.PROJECT_GROUP} {outFile}"
+        #     os.system(cmd)
+        # except (PermissionError, KeyError, OSError) as e:
+        #     print(f"Warning: Could not set group to {self.PROJECT_GROUP}: {e}")
+
+        outFile.chmod(0o664)  # rw-rw-r--
+
         return outFile
 
     # ------------------------------------------------------------------------
@@ -622,6 +635,17 @@ class Pipeline:
                 band.SetNoDataValue(noDataValue)
 
             ds = None
+
+            # 6/26: making cubes group-accessible
+            # try:
+            #     # gid = grp.getgrnam(self.PROJECT_GROUP).gr_gid
+            #     # os.chown(outFile, -1, gid)  # -1 means don't change owner
+            #     cmd = f"chgrp {self.PROJECT_GROUP} {outFile}"
+            #     os.system(cmd)
+            # except (PermissionError, KeyError, OSError) as e:
+            #     print(f"Warning: Could not set group to {self.PROJECT_GROUP}: {e}")
+
+            outFile.chmod(0o664)  # rw-rw-r--
 
             outFiles.append(outFile)
 

@@ -7,6 +7,7 @@ Handles images with any number of channels and instance-level predictions.
 
 import os
 import time
+import math
 
 import torch
 from torch.optim import AdamW
@@ -19,6 +20,152 @@ import matplotlib.patches as patches
 from tqdm import tqdm
 from skimage.transform import resize
 from transformers import AutoImageProcessor
+
+import warnings
+warnings.filterwarnings("ignore", message=".*HF Hub.*")
+
+
+# ============================================================================
+# UTILITIES
+# ============================================================================
+
+
+def print_model_summary(model):
+    """
+    Print model parameter summary.
+
+    Note: May not work correctly with Mask2Former's structure.
+    Use try/except when calling this function.
+    """
+    try:
+        # Try to access encoder/decoder (might not exist in Mask2Former)
+        if hasattr(model, "encoder") and hasattr(model, "decoder"):
+            encoder_trainable = sum(
+                p.numel()
+                for p in model.encoder.parameters()
+                if p.requires_grad
+            )
+            encoder_total = sum(p.numel() for p in model.encoder.parameters())
+
+            decoder_trainable = sum(
+                p.numel()
+                for p in model.decoder.parameters()
+                if p.requires_grad
+            )
+            decoder_total = sum(p.numel() for p in model.decoder.parameters())
+
+            print(f"\n{'='*60}")
+            print("MODEL PARAMETER SUMMARY")
+            print(f"{'='*60}")
+            print("Encoder:")
+            print(
+                f"  Trainable: {encoder_trainable:,} / {encoder_total:,} "
+                f"({100*encoder_trainable/encoder_total:.2f}%)"
+            )
+            print("\nDecoder:")
+            print(
+                f"  Trainable: {decoder_trainable:,} / {decoder_total:,} "
+                f"({100*decoder_trainable/decoder_total:.2f}%)"
+            )
+
+        # Total parameters (always works)
+        trainable_params = sum(
+            p.numel() for p in model.parameters() if p.requires_grad
+        )
+        total_params = sum(p.numel() for p in model.parameters())
+
+        print("\nTotal Model:")
+        print(
+            f"  Trainable: {trainable_params:,} / {total_params:,} "
+            f"({100*trainable_params/total_params:.2f}%)"
+        )
+        print(f"{'='*60}\n")
+
+    except Exception as e:
+        print(f"Could not generate detailed model summary: {e}")
+        print("Printing basic parameter count only...")
+
+        trainable_params = sum(
+            p.numel() for p in model.parameters() if p.requires_grad
+        )
+        total_params = sum(p.numel() for p in model.parameters())
+
+        print(f"\n{'='*60}")
+        print("MODEL PARAMETER SUMMARY")
+        print(f"{'='*60}")
+        print(
+            f"Trainable: {trainable_params:,} / {total_params:,} "
+            f"({100*trainable_params/total_params:.2f}%)"
+        )
+        print(f"{'='*60}\n")
+
+
+def save_checkpoint(
+    model,
+    optimizer,
+    scheduler,
+    epoch,
+    train_losses,
+    val_losses,
+    checkpoint_path,
+):
+    """Save full checkpoint."""
+    checkpoint = {
+        "epoch": epoch,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict(),
+        "train_losses": train_losses,
+        "val_losses": val_losses,
+    }
+    torch.save(checkpoint, checkpoint_path)
+    print(f"Saved checkpoint to: {checkpoint_path}")
+
+
+def load_checkpoint(model, optimizer, scheduler, checkpoint_path, device):
+    """Load checkpoint and restore training state."""
+    print(f"Loading checkpoint from: {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+
+    start_epoch = checkpoint["epoch"] + 1
+    train_losses = checkpoint["train_losses"]
+    val_losses = checkpoint["val_losses"]
+
+    print(f"Resumed from epoch {checkpoint['epoch']}")
+    print(f"Training history loaded: {len(train_losses)} epochs")
+
+    return start_epoch, train_losses, val_losses
+
+
+def load_model_weights(model, checkpoint_path, device):
+    """Load model weights from checkpoint."""
+    print(f"Loading model weights from: {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        model.load_state_dict(checkpoint["model_state_dict"])
+        epoch = checkpoint.get("epoch", None)
+        print(f"Loaded model from checkpoint (new format)")
+        if epoch is not None:
+            print(f"Checkpoint was from epoch: {epoch}")
+        return epoch
+    else:
+        try:
+            model.load_state_dict(checkpoint)
+            print(f"Loaded model from checkpoint (old format - state_dict)")
+        except:
+            if hasattr(model, "load_parameters"):
+                model.load_parameters(checkpoint_path)
+                print(f"Loaded model using model.load_parameters() method")
+            else:
+                raise ValueError(
+                    "Unable to load checkpoint. Format not recognized."
+                )
+        return None
 
 
 # ============================================================================
@@ -530,16 +677,17 @@ def visualize_predictions(
             if len(preds_list) >= n_samples:
                 break
 
-    # Limit to n_samples
+    # Concatenate batches, limit to n_samples
     all_images = torch.cat(images_list, dim=0)[:n_samples]
     all_labels = labels_list[:n_samples]
     all_preds = preds_list[:n_samples]
 
+    # Get number of channels from first image
     num_channels = all_images.shape[1]
-    batch_size = min(n_samples, len(all_preds))
 
-    # Create 5-row visualization (maintaining original 4 rows + 1 header = 5 rows)
-    fig, axes = plt.subplots(5, batch_size, figsize=(4 * batch_size, 20))
+    # Create 4 row viz: img, pred, img/pred composite, ground truth
+    batch_size = min(n_samples, len(all_images))
+    fig, axes = plt.subplots(4, batch_size, figsize=(4 * batch_size, 16))
 
     if batch_size == 1:
         axes = axes.reshape(-1, 1)
@@ -669,30 +817,6 @@ def visualize_predictions(
         )
         axes[3, i].axis("off")
 
-        # Row 4: GT overlay on image with RED bounding boxes
-        gt_overlay = create_instance_overlay(img_vis, gt_mask, alpha=0.5)
-        axes[4, i].imshow(gt_overlay, vmin=0, vmax=1)
-
-        # Draw red bounding boxes around ground truth
-        for bbox in gt_bboxes:  # Reuse gt_bboxes from Row 3
-            x_min, y_min, width, height = bbox
-            rect = patches.Rectangle(
-                (x_min, y_min),
-                width,
-                height,
-                linewidth=2,
-                edgecolor="red",
-                facecolor="none",
-            )
-            axes[4, i].add_patch(rect)
-
-        axes[4, i].set_title(
-            f"Ground Truth Overlay\n"
-            f"Matched: {inst_metrics['num_matched']}",
-            fontsize=11,
-        )
-        axes[4, i].axis("off")
-
     # Calculate average metrics
     if len(instance_metrics) > 0:
         avg_inst_f1 = np.mean([m["f1"] for m in instance_metrics])
@@ -710,11 +834,13 @@ def visualize_predictions(
         f"Precision: {avg_precision:.3f} | Recall: {avg_recall:.3f} | "
         f"Mean IoU: {avg_iou:.3f}\n"
         f"Input: {num_channels}ch",
-        fontsize=16,
+        fontsize=20,
         fontweight="bold",
         y=0.995,
     )
 
+    fig.patch.set_visible(True)  # Make patch visible
+    fig.patch.set_facecolor('white')  # Set to white
     plt.tight_layout()
 
     # Save figure
@@ -739,7 +865,7 @@ def visualize_predictions(
 
 
 # ============================================================================
-# TRAINING
+# TRAINING HELPERS
 # ============================================================================
 
 
@@ -853,147 +979,8 @@ def validate_epoch(model, dataloader, device, desc="Validation"):
 
 
 # ============================================================================
-# UTILITIES
+# EVALUATION
 # ============================================================================
-
-
-def print_model_summary(model):
-    """
-    Print model parameter summary.
-
-    Note: May not work correctly with Mask2Former's structure.
-    Use try/except when calling this function.
-    """
-    try:
-        # Try to access encoder/decoder (might not exist in Mask2Former)
-        if hasattr(model, "encoder") and hasattr(model, "decoder"):
-            encoder_trainable = sum(
-                p.numel()
-                for p in model.encoder.parameters()
-                if p.requires_grad
-            )
-            encoder_total = sum(p.numel() for p in model.encoder.parameters())
-
-            decoder_trainable = sum(
-                p.numel()
-                for p in model.decoder.parameters()
-                if p.requires_grad
-            )
-            decoder_total = sum(p.numel() for p in model.decoder.parameters())
-
-            print(f"\n{'='*60}")
-            print("MODEL PARAMETER SUMMARY")
-            print(f"{'='*60}")
-            print("Encoder:")
-            print(
-                f"  Trainable: {encoder_trainable:,} / {encoder_total:,} "
-                f"({100*encoder_trainable/encoder_total:.2f}%)"
-            )
-            print("\nDecoder:")
-            print(
-                f"  Trainable: {decoder_trainable:,} / {decoder_total:,} "
-                f"({100*decoder_trainable/decoder_total:.2f}%)"
-            )
-
-        # Total parameters (always works)
-        trainable_params = sum(
-            p.numel() for p in model.parameters() if p.requires_grad
-        )
-        total_params = sum(p.numel() for p in model.parameters())
-
-        print("\nTotal Model:")
-        print(
-            f"  Trainable: {trainable_params:,} / {total_params:,} "
-            f"({100*trainable_params/total_params:.2f}%)"
-        )
-        print(f"{'='*60}\n")
-
-    except Exception as e:
-        print(f"Could not generate detailed model summary: {e}")
-        print("Printing basic parameter count only...")
-
-        trainable_params = sum(
-            p.numel() for p in model.parameters() if p.requires_grad
-        )
-        total_params = sum(p.numel() for p in model.parameters())
-
-        print(f"\n{'='*60}")
-        print("MODEL PARAMETER SUMMARY")
-        print(f"{'='*60}")
-        print(
-            f"Trainable: {trainable_params:,} / {total_params:,} "
-            f"({100*trainable_params/total_params:.2f}%)"
-        )
-        print(f"{'='*60}\n")
-
-
-def save_checkpoint(
-    model,
-    optimizer,
-    scheduler,
-    epoch,
-    train_losses,
-    val_losses,
-    checkpoint_path,
-):
-    """Save full checkpoint."""
-    checkpoint = {
-        "epoch": epoch,
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "scheduler_state_dict": scheduler.state_dict(),
-        "train_losses": train_losses,
-        "val_losses": val_losses,
-    }
-    torch.save(checkpoint, checkpoint_path)
-    print(f"Saved checkpoint to: {checkpoint_path}")
-
-
-def load_checkpoint(model, optimizer, scheduler, checkpoint_path, device):
-    """Load checkpoint and restore training state."""
-    print(f"Loading checkpoint from: {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-
-    model.load_state_dict(checkpoint["model_state_dict"])
-    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-    scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-
-    start_epoch = checkpoint["epoch"] + 1
-    train_losses = checkpoint["train_losses"]
-    val_losses = checkpoint["val_losses"]
-
-    print(f"Resumed from epoch {checkpoint['epoch']}")
-    print(f"Training history loaded: {len(train_losses)} epochs")
-
-    return start_epoch, train_losses, val_losses
-
-
-def load_model_weights(model, checkpoint_path, device):
-    """Load model weights from checkpoint."""
-    print(f"Loading model weights from: {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-
-    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-        model.load_state_dict(checkpoint["model_state_dict"])
-        epoch = checkpoint.get("epoch", None)
-        print(f"Loaded model from checkpoint (new format)")
-        if epoch is not None:
-            print(f"Checkpoint was from epoch: {epoch}")
-        return epoch
-    else:
-        try:
-            model.load_state_dict(checkpoint)
-            print(f"Loaded model from checkpoint (old format - state_dict)")
-        except:
-            if hasattr(model, "load_parameters"):
-                model.load_parameters(checkpoint_path)
-                print(f"Loaded model using model.load_parameters() method")
-            else:
-                raise ValueError(
-                    "Unable to load checkpoint. Format not recognized."
-                )
-        return None
-
 
 def evaluate_model(model, val_loader, image_processor, output_dir, device):
     """
@@ -1007,7 +994,7 @@ def evaluate_model(model, val_loader, image_processor, output_dir, device):
         device: torch device
     """
     print(f"\n{'='*60}")
-    print("EVALUATION MODE")
+    print("EVALUATING MODEL")
     print(f"{'='*60}\n")
 
     os.makedirs(output_dir, exist_ok=True)
@@ -1032,7 +1019,7 @@ def evaluate_model(model, val_loader, image_processor, output_dir, device):
 
 
 # ============================================================================
-# MAIN TRAINING FUNCTION
+# DRIVER
 # ============================================================================
 
 
@@ -1045,7 +1032,6 @@ def train_model(
     learning_rate=1e-4,
     weight_decay=1e-4,
     device=None,
-    mode="train",
     checkpoint_path=None,
     max_grad_norm=1.0,
     early_stopping_patience=None,
@@ -1063,29 +1049,45 @@ def train_model(
         learning_rate (float): Learning rate
         weight_decay (float): Weight decay for optimizer
         device: torch device (if None, will use cuda if available)
-        mode (str): Operation mode - 'train', 'eval', or 'both' (default train)
         checkpoint_path (str): Path to checkpoint file for loading/resuming
         max_grad_norm (float): Maximum gradient norm for clipping
         early_stopping_patience (int): Number of epochs to wait before early stopping
 
     Returns:
-        train_losses (list): Training losses per epoch (None if mode='eval')
-        val_losses (list): Validation losses per epoch (None if mode='eval')
+        train_losses (list): Training losses per epoch
+        val_losses (list): Validation losses per epoch
     """
-
-    # Validate arguments
-    if mode not in ["train", "eval", "both"]:
-        raise ValueError(
-            f"Invalid mode: {mode}. Must be 'train', 'eval', or 'both'"
+    if not os.path.exists(output_dir):
+        raise RuntimeError(
+            f"Output directory does not exist: {output_dir}\n"
+            f"Please run prepare_output_dir(output_dir) in the notebook before training."
         )
 
-    if mode == "eval" and checkpoint_path is None:
-        raise ValueError("checkpoint_path must be provided when mode='eval'")
+    # Special case: single epoch training
+    if num_epochs == 1:
+        warmup_epochs = 0  # No warmup, just cosine for 1 epoch
+        print("Warmup epochs set to 0 for single-epoch training.")
+    else:
+        # Use 10% of epochs, but at least 1 and at most 10
+        warmup_epochs = max(1, min(10, math.ceil(0.1 * num_epochs)))
+        # Ensure at least 1 epoch remains for cosine annealing
+        warmup_epochs = min(warmup_epochs, num_epochs - 1)
+        print(f"Warmup epochs set to {warmup_epochs} for {num_epochs} total epochs.")
 
     # 6/17: hardcoding these so config section is cleaner
-    warmup_epochs = max(num_epochs // 10, 10)
-    visualize_every = max(num_epochs // 10, 10)
-    checkpoint_every = max(num_epochs // 10, 10)
+    if num_epochs > 10 and num_epochs % 10 == 0:
+        visualize_every = 10
+        checkpoint_every = 10
+    elif num_epochs < 10:
+        visualize_every = 1
+        checkpoint_every = 1
+    elif num_epochs > 10 and num_epochs < 20:
+        visualize_every = 5
+        checkpoint_every = 5
+    else:
+        visualize_every = num_epochs // 10
+        checkpoint_every = num_epochs // 10
+
     # Create image processor
     BASE_MODEL = "facebook/mask2former-swin-large-coco-instance"
     image_processor = AutoImageProcessor.from_pretrained(
@@ -1104,22 +1106,10 @@ def train_model(
     model = model.to(device)
 
     # Create output directory
-    os.makedirs(output_dir, exist_ok=True)
     checkpoint_dir = os.path.join(output_dir, "checkpoints")
     visualization_dir = os.path.join(output_dir, "visualizations")
     os.makedirs(checkpoint_dir, exist_ok=True)
     os.makedirs(visualization_dir, exist_ok=True)
-
-    # EVALUATION ONLY MODE
-    if mode == "eval":
-        # Load model weights (handles both old and new formats)
-        load_model_weights(model, checkpoint_path, device)
-
-        # Run evaluation
-        evaluate_model(model, val_loader, image_processor, output_dir, device)
-        return None, None
-
-    # TRAINING MODE (train or both)
 
     # NO CRITERION - Mask2Former computes loss internally!
     print(
@@ -1134,35 +1124,18 @@ def train_model(
     )
 
     # Learning rate scheduler
-    if warmup_epochs is None or warmup_epochs < 0:
-        scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
-    elif warmup_epochs > num_epochs:
-        raise ValueError(
-            "Number of warmup epochs must be less than or equal to total epochs."
-        )
-    elif warmup_epochs > 0.5 * num_epochs:
-        print("Warning: warmup epochs is greater than 1/2 of total epochs.")
-        warmup_scheduler = LinearLR(
-            optimizer, start_factor=0.1, total_iters=warmup_epochs
-        )
-        cosine_scheduler = CosineAnnealingLR(
-            optimizer,
-            T_max=num_epochs - warmup_epochs,
-            eta_min=1e-7,  # Lower minimum
-        )
-        scheduler = SequentialLR(
-            optimizer,
-            schedulers=[warmup_scheduler, cosine_scheduler],
-            milestones=[warmup_epochs],
-        )
+    if warmup_epochs == 0:
+        # No warmup, just cosine annealing
+        scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-7)
     else:
+        # Warmup + cosine annealing
         warmup_scheduler = LinearLR(
             optimizer, start_factor=0.1, total_iters=warmup_epochs
         )
         cosine_scheduler = CosineAnnealingLR(
             optimizer,
             T_max=num_epochs - warmup_epochs,
-            eta_min=1e-7,  # Lower minimum
+            eta_min=1e-7,
         )
         scheduler = SequentialLR(
             optimizer,
