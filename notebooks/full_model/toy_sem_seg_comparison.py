@@ -184,6 +184,7 @@ def create_lightning_module(
 
 
 def create_trainer(config: ToyComparisonConfig, output_dir: Path) -> Trainer:
+    print("Creating Lightning trainer...", flush=True)
     return Trainer(
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=1,
@@ -256,12 +257,16 @@ def main() -> None:
     model = create_model(config, datamodule.weight_assignments)
     task = create_lightning_module(config, model)
     trainer = create_trainer(config, output_dir)
+    print("Lightning trainer created.", flush=True)
 
     if args.no_fit:
         print("Skipping trainer.fit() because --no-fit was set.")
         return
+    print("Starting trainer.fit()...", flush=True)
     trainer.fit(task, datamodule=datamodule)
+    print("trainer.fit() complete. Starting trainer.test()...", flush=True)
     trainer.test(task, datamodule=datamodule, ckpt_path="best")
+    print("trainer.test() complete.", flush=True)
 
 
 if __name__ == "__main__":

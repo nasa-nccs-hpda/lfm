@@ -33,6 +33,8 @@ echo "Working directory: ${REPO_DIR}"
 echo "CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-unset}"
 echo
 
+module load miniforge
+mamba activate graha-lunar-fm
 python -m lfm.full_model.lfm_seg_finetuning_direct "$@"
 
 END_TIME="$(date +%s)"

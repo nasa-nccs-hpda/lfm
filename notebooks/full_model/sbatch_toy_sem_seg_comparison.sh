@@ -35,6 +35,8 @@ echo "Working directory: ${REPO_DIR}"
 echo "CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-unset}"
 echo
 
+module load miniforge
+mamba activate graha-lunar-fm
 python notebooks/full_model/toy_sem_seg_comparison.py "$@"
 
 END_TIME="$(date +%s)"
