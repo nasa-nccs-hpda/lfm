@@ -1,0 +1,115 @@
+# Lunar Crater Detection — NAC only, FM backbone, TUNED for fine-tuning
+# Head-to-head vs. ResNet baseline. Changes vs. the original FM run:
+#   - Lower base LR (2e-5) — backbone is fully unfrozen and dominates params;
+#     1e-4 was drifting the pretrained ViT features and killing generalization.
+#   - Linear warmup (3 epochs) then cosine — lets the FRCNN head stabilize
+#     before large gradients propagate into the backbone.
+#   - Shorter schedule (50 epochs) + EarlyStopping on val_map (patience 10):
+#     the previous 100-epoch run plateaued on val_map around epoch ~50 while
+#     train_loss kept dropping = pure overfitting tail.
+#   - Weight decay kept at 0.05, betas at (0.9, 0.98) — standard ViT recipe.
+#   - Gradient clip 1.0 — cheap insurance against the occasional spike from
+#     RPN/ROI losses in the first epoch.
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 50
+  gradient_clip_val: 1.0
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 5
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/
+      name: crater-detection-nac-only-fm-tuned
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/crater-detection-nac-only-fm-tuned
+        monitor: val_map
+        mode: max
+        filename: best-{epoch:02d}-{val_map:.3f}
+        save_top_k: 3
+        save_last: true
+    - class_path: EarlyStopping
+      init_args:
+        monitor: val_map
+        mode: max
+        patience: 10
+        min_delta: 0.001
+
+data:
+  class_path: terratorch_integration.data_adapter.LunarNACDTMDataModule
+  init_args:
+    data_dir: data/NAC_handlabeled_1m_256
+    metadata_file: data/NAC_handlabeled_1m_256/metadata.parquet
+    annotations_file: data/NAC_handlabeled_1m_256/nac_nac_handlabeled_annotations.json
+    modalities: [nac]
+    output_mode: packed
+    batch_size: 4
+    num_workers: 0
+    image_size: 256
+    min_diameter_m: 5.0
+    nac_mask_threshold: -1.0
+    nac_mask_fill_value: 0.0
+    nac_norm_mean: 0.451789
+    nac_norm_std: 0.169636
+
+model:
+  class_path: terratorch.tasks.ObjectDetectionTask
+  init_args:
+    model_factory: ObjectDetectionModelFactory
+    model_args:
+      framework: faster-rcnn
+      backbone: lunarmind_v1_base
+      backbone_checkpoint_path: weights/backbone/checkpoint_weights_final.pt
+      backbone_cfg: weights/backbone/full_config.yaml
+      num_classes: 2
+      framework_min_size: 256
+      framework_max_size: 256
+      backbone_modalities:
+        - nac
+
+      backbone_patch_size: 16
+      backbone_remove_register_tokens: false
+      backbone_merge_method: null
+
+      in_channels: 1
+      necks:
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]
+        - name: ReshapeTokensToImage
+          remove_cls_token: false
+          h: 16
+        - name: LearnedInterpolateToPyramidal
+        - name: FeaturePyramidNetworkNeck
+
+    freeze_backbone: false
+    freeze_decoder: false
+
+    class_names:
+      - Background
+      - Crater
+
+optimizer:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 2.0e-5
+    weight_decay: 0.05
+    betas: [0.9, 0.98]
+
+# Cosine to a tiny floor. At this base LR (2e-5) explicit warmup is less
+# critical — if you still see instability in the first few epochs, swap in
+# SequentialLR(LinearLR warmup 3ep → CosineAnnealingLR 47ep, milestones=[3]).
+lr_scheduler:
+  class_path: CosineAnnealingLR
+  init_args:
+    T_max: 50
+    eta_min: 1.0e-7

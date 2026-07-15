@@ -1,0 +1,141 @@
+# Lunar IMP Semantic Segmentation — NAC only, ViT-Base ImageNet baseline
+#
+# PURPOSE — this is the scientifically most important comparison for the
+# IMP task: same architecture as the lunar FM (ViT-Base, ~86M params), but
+# pretrained on natural images (ImageNet, MAE self-supervised) instead of
+# lunar data. If the FM beats this baseline by a real margin, it isolates
+# the contribution of lunar-domain pretraining from "having a ViT with
+# pretrained weights".
+#
+# Recipe: same LLRD as the FM's winning IMP config, since we want
+# "same architecture + same fine-tuning recipe, only pretraining data
+# differs" to be the clean isolated variable.
+#
+# RUN:
+#   PYTHONPATH=. \
+#   terratorch fit --config terratorch_integration/configs/imp_segmentation_nac_vit_imagenet.yaml
+
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 100
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 5
+  gradient_clip_val: 1.0
+  gradient_clip_algorithm: norm
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/
+      name: imp-segmentation-nac-vit-imagenet
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: step
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/imp-segmentation-nac-vit-imagenet
+        monitor: val/loss
+        mode: min
+        filename: best-{epoch:02d}-{val/loss:.3f}
+        save_top_k: 1
+        save_last: false
+
+data:
+  class_path: terratorch.datamodules.GenericNonGeoSegmentationDataModule
+  init_args:
+    batch_size: 16
+    num_workers: 1
+    rgb_indices:
+      - 0
+      - 0
+      - 0
+    train_data_root: data/imp_dataset_tiff/train
+    train_label_data_root: data/imp_dataset_tiff/train
+    val_data_root: data/imp_dataset_tiff/val
+    val_label_data_root: data/imp_dataset_tiff/val
+    test_data_root: data/imp_dataset_tiff/test
+    test_label_data_root: data/imp_dataset_tiff/test
+    predict_data_root:  data/imp_dataset_tiff/test
+    train_split: data/imp_dataset_tiff/train_0_1.txt
+    val_split: data/imp_dataset_tiff/val.txt
+    test_split: data/imp_dataset_tiff/test.txt
+    num_classes: 2
+    ignore_split_file_extensions: false
+    img_grep: "*_img.tif"
+    label_grep: "*_mask.tif"
+    no_label_replace: -1
+    no_data_replace: 0
+    means:
+      - 0.030510
+    stds:
+      - 0.017363
+    train_transform:
+      - class_path: albumentations.D4
+      - class_path: albumentations.RandomBrightnessContrast
+        init_args:
+          brightness_limit: 0.15
+          contrast_limit: 0.15
+          p: 0.5
+      - class_path: albumentations.pytorch.transforms.ToTensorV2
+
+model:
+  class_path: terratorch_integration.LunarSegmentationTask
+  init_args:
+    # Same LLRD recipe as the FM run — this is the point of the comparison.
+    backbone_lr: 5.0e-5
+    head_lr: 2.0e-4
+    layer_decay: 0.75
+    weight_decay: 0.05
+    head_weight_decay: 0.05
+    betas: [0.9, 0.98]
+    warmup_steps: 200
+    eta_min: 1.0e-6
+
+    model_factory: EncoderDecoderFactory
+    model_args:
+      # timm ViT-Base at patch 16, MAE self-supervised on ImageNet-1k.
+      # img_size=256 → timm interpolates the pretrained pos_emb from 224²
+      # (14 grid) to 256² (16 grid). in_chans=1 uses adapt_input_conv to
+      # average the 3-channel patch-embed weights.
+      backbone: timm_vit_base_patch16_224.mae
+      backbone_pretrained: true
+      backbone_in_chans: 1
+      backbone_img_size: 256
+      # Return outputs from every block; the SelectIndices neck picks the 4
+      # we want. Mirrors the FM crater config's style: layer selection happens
+      # in the neck stack, not at the timm level.
+      backbone_out_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+
+      necks:
+        # Same neck stack as the FM IMP run.
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]           # 4 equidistant layers from 12-layer encoder
+        - name: ReshapeTokensToImage
+          remove_cls_token: true           # timm ViT prepends CLS by default
+          h: 16                             # 256 / patch_size(16) = 16
+        - name: LearnedInterpolateToPyramidal
+
+      decoder: UNetDecoder
+      decoder_channels: [512, 256, 128, 64]
+      head_channel_list: [256]
+      head_dropout: 0.1
+      num_classes: 2
+
+    loss: dice
+    aux_loss:
+      aux_head: 1.0
+    freeze_backbone: false
+    freeze_decoder: false
+    ignore_index: -1
+    plot_on_val: 10
+
+# NOTE: LLRD depends on backbone-param naming. LunarSegmentationTask's
+# `_encoder_block_index` matches both the FM's `.model.encoder.<i>.` and
+# timm ViT's `.blocks.<i>.` — LLRD works out of the box. Check the printed
+# param-group table on startup: ~13 backbone groups (blocks 0..11 +
+# embeddings/norm) with LRs descending from 5e-5 by factor 0.75 per layer.

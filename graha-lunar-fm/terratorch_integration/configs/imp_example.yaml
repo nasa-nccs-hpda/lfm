@@ -1,0 +1,117 @@
+# Lunar Crater Detection with TerraTorch Integration - NAC Modality
+# Using checkpoint from lunarmind_tiny_15k_overfit_text_v4 experiment
+# lightning.pytorch==2.1.1
+#
+# RUN with PYTHONPATH:
+# PYTHONPATH=<path to Lunar-FM>:$PYTHONPATH terratorch fit --config terratorch_integration/configs/imp_example.yaml
+#
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 100
+  check_val_every_n_epoch: 2
+  log_every_n_steps: 2
+  logger:
+    class_path: WandbLogger
+    init_args:
+      project: project
+      name: name
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    - class_path: EarlyStopping
+      init_args:
+        monitor: val_map
+        mode: max
+        patience: 5
+
+data:
+  class_path: terratorch_integration.data_adapter_imp.LunarImpDataModule
+  init_args:
+    root: data/imp_dataset_tiff
+    batch_size: 64
+    num_workers: 8  # Set to 0 to avoid multiprocessing pickle issues with collate_fn
+    image_size: 256  # Match pretraining image size
+    preprocessing: minmax
+    # Min-max scaling parameters (used when preprocessing='minmax')
+    # valid_min: -0.032122209668159485  # Minimum value for scaling (if null, uses data min)
+    # valid_max: 0.29346248507499695  # Maximum value for scaling (if null, uses data max)
+    mask_eps: 1e-6  # Small epsilon to avoid exact 0.0 values after scaling
+    # Mask filling parameters (used with preprocessing='minmax' or 'none')
+    mask_threshold: -1e30  # Threshold for valid data (pixels > threshold are valid, <= are masked)
+    mask_fill_value: 0.0  # Fill value for invalid/masked pixels
+    # Normalization parameters (used when preprocessing="norm")
+    norm_means: [0.5]  # Mean for grayscale normalization
+    norm_stds: [0.25]  # Std for grayscale normalization
+    max_pixel_value: 1.0  # Max pixel value for scaling before normalization
+
+model:
+  class_path: terratorch.tasks.ObjectDetectionTask
+  init_args:
+    model_factory: ObjectDetectionModelFactory
+    model_args:
+      framework: faster-rcnn
+      backbone: lunarmind_v1_base
+      backbone_checkpoint_path: weights/backbone/checkpoint_weights_final.pt
+      backbone_cfg: weights/backbone/full_config.yaml
+      backbone_modalities:
+        - nac  # NAC single-channel grayscale imagery
+      backbone_remove_register_tokens: true  # Remove 4 register tokens before neck
+      backbone_encoder_embedding_params:
+        _global_:
+          use_rff_pos_emb: true
+          rff_num_freqs: 64
+          rff_sigma: 10.0
+        nac:
+          use_spatial_embedder: true
+          rf_size: null
+          token_type_id: 0
+          native_gsd_m: 1.0  # NAC native resolution ~1m/pixel
+      num_classes: 2  # background + crater
+      framework_min_size: 256
+      framework_max_size: 256
+      
+      in_channels: 1  # Grayscale input
+      
+      # Neck configuration for tiny model (12 encoder layers)
+      necks:
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]  # Select 4 layers from 12-layer encoder
+        - name: ReshapeTokensToImage
+          remove_cls_token: false
+          h: 16
+        - name: LearnedInterpolateToPyramidal
+        - name: FeaturePyramidNetworkNeck
+    
+    # Training configuration
+    freeze_backbone: false  # Fine-tune the entire backbone
+    freeze_decoder: false   # Train detection head
+    
+    # Class names for crater detection
+    class_names:
+      - Background
+      - Imp
+
+
+optimizer:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 1e-4
+    weight_decay: 0.05
+    betas: [0.9, 0.98]  # Matching checkpoint optimizer config
+
+lr_scheduler:
+  class_path: CosineAnnealingLR
+  init_args:
+    T_max: 100
+    eta_min: 1e-6
+
+
+# Additional notes:
+# - Checkpoint for base model: embed_dim=768, 12 encoder layers, 4 decoder layers
+# - Model supports multiple modalities, but for IMP task, using only 'nac' modality (grayscale)

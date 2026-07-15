@@ -1,0 +1,141 @@
+# Lunar Crater Detection — NAC + DTM + Metadata, multimodal
+# Backbone: lunarmind_v1_base from 100k pretraining (matrix_base_vit_4g_8w_128b_1r_250s_6pf)
+#
+# RUN:
+#   PYTHONPATH=/u/fraccaro/Projects/Lunar-FM:$PYTHONPATH \
+#   terratorch fit --config terratorch_integration/configs/crater_detection_nac_dtm_meta.yaml
+##   PYTHONPATH=. \
+#   terratorch fit --config terratorch_integration/configs/crater_detection_nac_dtm_meta.yaml
+# Checkpoint facts (derived from weights):
+#   embed_dim=768, encoder_depth=12, patch_size=16 (nac.pos_emb=(1,256,768)),
+#   num_register_tokens=0, in_domains=[nac, dtm_3m, metadata]
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 100
+  check_val_every_n_epoch: 5
+  log_every_n_steps: 10
+  enable_checkpointing: false
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/
+      name: crater-detection-new-nac-only-ps8
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    # - class_path: ModelCheckpoint
+    #   init_args:
+    #     dirpath: /proj/lunar-fm/tb_logs/checkpoints/crater-detection-nac-dtm-meta
+    #     monitor: val_map
+    #     mode: max
+    #     filename: best-{epoch:02d}-{val_map:.3f}
+    #     save_top_k: 3
+    #     save_last: true
+
+data:
+  class_path: terratorch_integration.data_adapter.LunarNACDTMDataModule
+  init_args:
+    data_dir: data/NAC_handlabeled_1m_256
+    metadata_file: data/NAC_handlabeled_1m_256/metadata.parquet
+    annotations_file: data/NAC_handlabeled_1m_256/nac_nac_handlabeled_annotations.json
+    # modalities: [nac, dtm, metadata]
+    modalities: [nac]
+
+    # # tokenizer/binning default to bundled files; override here if needed:
+    metadata_tokenizer_path: terramind/utils/tokenizer/trained/text_tokenizer_terramind_wordpiece_30k_binned_xyxy_reindexed.json
+    metadata_binning_config_path: terramind/utils/tokenizer/trained/metadata_binning_config.csv
+    output_mode: packed          # NAC+DTM stacked into "image" plus one metadata channel; backbone unpacks it
+    batch_size: 4
+    num_workers: 4               # keep 0 — collate_fn uses lambdas
+    image_size: 256              # matches pretraining patch grid (16×16 patches)
+    min_diameter_m: 10.0         # discard craters smaller than 5 px
+    drop_no_crater_images: true
+    used_for_labeling_only: true
+    # NAC: raw DN stored as -9999 (nodata) or integers 1-253 in the .nc files.
+    # nac_scale_factor=1/255 (default) brings valid pixels into [0, 1].
+    # nac_mask_threshold=-1 masks out the -9999 nodata sentinel.
+    # Stats computed from the 29 training-split images (valid pixels only):
+    #   mean=0.4518  std=0.1696
+    # nac_mask_threshold: -1.0
+    # nac_mask_fill_value: 0.0
+    nac_norm_mean: 0.030591336778881636
+    nac_norm_std: 0.027601087108837487
+    # DTM: -9999 nodata filtered, then local normalisation (dtm - image_mean) / global_std.
+    # global_std computed from per-image deviations over the 29 training images: 15.53
+    # dtm_mask_threshold: -9999.0
+    # dtm_mask_fill_value: 0.0
+    dtm_global_std: 44.24927615891305
+
+model:
+  class_path: terratorch.tasks.ObjectDetectionTask
+  init_args:
+    model_factory: ObjectDetectionModelFactory
+    model_args:
+      framework: faster-rcnn
+      backbone: lunarmind_v1_base
+      backbone_checkpoint_path: weights/backbone/checkpoint_weights_final.pt
+      backbone_cfg: weights/backbone/full_config.yaml
+      backbone_modality_info_path: weights/backbone/modality_info.yaml
+    
+      num_classes: 2             # background + crater
+      framework_min_size: 256
+      framework_max_size: 256
+
+      # Three modalities fed simultaneously; backbone merges their tokens
+      backbone_modalities:
+        - nac                    # (B, 1, 256, 256) — NAC grayscale
+        # - dtm_3m                 # (B, 1, 256, 256) — DTM elevation
+        # - metadata               # (B, 10)          — tokenised observation metadata
+
+      backbone_patch_size: 8   # confirmed from nac.pos_emb shape (1, 256, 768) at 256px
+      backbone_remove_register_tokens: false  # checkpoint has 0 register tokens
+      # backbone_merge_method: concat
+
+      # Each modality produces 256 spatial tokens (16×16).
+      # The backbone concatenates nac + dtm_3m tokens → 512 total image tokens.
+      # Metadata tokens (10) are appended as sequence tokens.
+      # SelectIndices picks 4 of the 12 encoder blocks for the FPN neck.
+      # ReshapeTokensToImage must see only the image tokens; set remove_cls_token
+      # to false (no CLS) and h=16 for the 16×16 spatial grid per modality.
+      # With two image modalities concatenated, the backbone aggregation must
+      # be left at the default (None / no merge) so the neck receives the full
+      # concat token sequence split by modality via the backbone forward.
+      # Use merge_method: "mean" if you want the neck to see a single 256-token
+      # stream averaged across nac and dtm_3m.
+      in_channels: 1             # packed: 1 NAC channel (add 1 per extra modality)
+      necks:
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]  # 4 equidistant layers from 12-layer encoder
+        # - name: LearnedTokenProjection
+        #   output_dim: 768
+        - name: ReshapeTokensToImage
+          remove_cls_token: false
+          h: 32                  # 256 tokens = 16×16 spatial grid at patch_size=16
+        - name: LearnedInterpolateToPyramidal
+        - name: FeaturePyramidNetworkNeck
+
+    freeze_backbone: false
+    freeze_decoder: false
+
+    class_names:
+      - Background
+      - Crater
+
+optimizer:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 1.0e-4
+    weight_decay: 0.05
+    betas: [0.9, 0.98]
+
+lr_scheduler:
+  class_path: CosineAnnealingLR
+  init_args:
+    T_max: 100
+    eta_min: 1.0e-6

@@ -1,0 +1,106 @@
+Goal: compare the Graha/Lunar-FM semantic segmentation model against the
+existing LFM semantic segmentation model from lfm/tasks/sem_segmentation using
+as similar an experiment as possible.
+
+Core principle:
+- Maintain paired notebook and script artifacts for each workflow.
+- The notebook is for interactive Jupyter development, debugging, plots, and
+  inspection.
+- The .py script contains the same training/evaluation logic in functions with
+  a main() block so it can be launched with sbatch and run unattended.
+- Keep shared logic in importable Python helpers where practical so the
+  notebook and sbatch script do not drift.
+
+Plan:
+
+1. Create comparable old-model artifacts
+   - Copy lfm/notebooks/semantic_seg_train.ipynb to a new comparison notebook.
+   - Create a matching .py script for the old semantic segmentation workflow.
+   - Add an sbatch wrapper for the .py script, similar to the Graha wrapper.
+   - Do not overwrite the original semantic_seg_train.ipynb.
+
+2. Use the same split dataset
+   - Point both workflows at the same data directory with:
+     data/train/chips
+     data/train/labels
+     data/val/chips
+     data/val/labels
+     data/test/chips
+     data/test/labels
+   - Avoid random train/val splitting for the comparison.
+   - Save the exact train/val/test file lists used by each run.
+
+3. Align input data handling
+   - Use the same 7 WAC bands for both models.
+   - Use the same label files and binarization behavior.
+   - Use the same spatial handling where possible; prefer 256x256 center crop
+     for both so it matches the Graha path.
+   - Add batch sanity checks for image shape, dtype, mask shape, mask values,
+     foreground fraction, and filenames.
+
+4. Keep normalization and architecture differences explicit
+   - Graha uses its current datamodule-side per-band z-score normalization.
+   - The old model should use its equivalent expected preprocessing, but record
+     exactly what normalization was applied.
+   - Do not hide architecture differences; document model, checkpoint, input
+     adaptation, decoder, loss, optimizer, and scheduler in each output dir.
+
+5. Align training configuration where reasonable
+   - Run 100 epochs for both workflows.
+   - Use batch size 16 if it fits for both.
+   - Use one GPU initially for both.
+   - Keep optimizer/loss differences documented unless we deliberately create
+     a second controlled variant.
+   - Use the same plotting cadence, likely every 10 epochs plus final.
+
+6. Standardize output directories
+   - Use timestamped output dirs for both workflows.
+   - Save checkpoints, plots, config snapshots, losses, metrics, and file lists
+     under the run output dir.
+   - Keep notebook output and sbatch output naming consistent.
+
+7. Create shared evaluation code
+   - Build evaluator helpers that can consume either model through a small
+     prediction adapter.
+   - Evaluate both models on the same validation/test split.
+   - Compute the same metrics:
+     pixel accuracy
+     foreground precision
+     foreground recall
+     foreground F1
+     IoU
+     predicted foreground fraction
+     ground-truth foreground fraction
+   - Save metrics as CSV and/or JSON.
+
+8. Create side-by-side plots
+   - For the same validation/test samples, save panels with:
+     input RGB composite
+     ground truth
+     old-model prediction
+     Graha prediction
+     old-model overlay
+     Graha overlay
+   - Use the same thresholding, colors, sample order, and filenames.
+
+9. Smoke test before long runs
+   - Run both workflows for 1 epoch.
+   - Confirm batches load, losses compute, checkpoints save, plots save, and
+     shared evaluation runs.
+   - Confirm the sbatch scripts work without relying on an interactive Jupyter
+     session.
+
+10. Run the 100-epoch comparison
+    - Submit the old-model script with sbatch.
+    - Submit the Graha script with sbatch.
+    - Run shared evaluation on the same held-out split.
+    - Compare metrics and inspect side-by-side plots.
+
+Preferred implementation order:
+1. Refactor or wrap the old semantic segmentation dataset so it can read the
+   split data directory.
+2. Create the old-model comparison notebook.
+3. Create the matching old-model .py script and sbatch wrapper.
+4. Add shared evaluation and side-by-side plotting helpers.
+5. Run 1-epoch smoke tests.
+6. Launch 100-epoch runs.

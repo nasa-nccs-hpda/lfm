@@ -1,0 +1,113 @@
+# Lunar Crater Detection — NAC only, ConvNeXt-Base baseline (fair-fight)
+#
+# Purpose: "modern CNN" comparison against the FM. ConvNeXt-Base has ~89M
+# params (very close to ViT-Base's 86M) and is pretrained on ImageNet-22k
+# → ImageNet-1k. This is the CNN reviewers expect to see benchmarked
+# alongside ResNet50.
+#
+# Recipe: same anchor override and image_size as the FM's winning run.
+# LLRD is DISABLED (layer_decay=1.0) — LLRD is a ViT-specific trick.
+# Applying it to a CNN is nonstandard and would invite "did you tune the
+# baseline unfairly?" questions.
+#
+# RUN:
+#   PYTHONPATH=. \
+#   terratorch fit --config terratorch_integration/configs/crater_detection_nac_convnext.yaml
+
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 100
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 5
+  gradient_clip_val: 1.0
+  gradient_clip_algorithm: norm
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/
+      name: crater-detection-nac-convnext
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: step
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/crater-detection-nac-convnext
+        monitor: val_map
+        mode: max
+        filename: best-{epoch:02d}-{val_map:.3f}
+        save_top_k: 3
+        save_last: true
+
+data:
+  class_path: terratorch_integration.data_adapter.LunarNACDTMDataModule
+  init_args:
+    data_dir: data/NAC_handlabeled_1m_256
+    metadata_file: data/NAC_handlabeled_1m_256/metadata.parquet
+    annotations_file: data/NAC_handlabeled_1m_256/nac_nac_handlabeled_annotations.json 
+    modalities: [nac]
+    output_mode: packed          # single 1-channel NAC tensor (B, 1, H, W)
+    batch_size: 4
+    num_workers: 0
+    image_size: 256
+    min_diameter_m: 5.0
+    nac_mask_threshold: -1.0
+    nac_mask_fill_value: 0.0
+    nac_norm_mean: 0.451789
+    nac_norm_std: 0.169636
+
+model:
+  class_path: terratorch_integration.LunarObjectDetectionTask
+  init_args:
+    model_factory: ObjectDetectionModelFactory
+    model_args:
+      framework: faster-rcnn
+
+      # ConvNeXt-Base, ImageNet-22k pretrained → 1k fine-tuned. timm handles
+      # 1-channel adaptation via adapt_input_conv (averages RGB pretrained
+      # weights when in_chans=1 + pretrained=True).
+      backbone: timm_convnext_base.fb_in22k_ft_in1k
+      backbone_pretrained: true
+      backbone_in_chans: 1
+      backbone_out_indices: [0, 1, 2, 3]   # 4 stages, strides 4/8/16/32
+
+      num_classes: 2
+      framework_min_size: 256
+      framework_max_size: 256
+
+      in_channels: 1
+      necks:
+        # ConvNeXt with features_only returns 4 multi-scale maps. Straight
+        # into the FPN — no reshape / interpolation needed (unlike ViT).
+        - name: FeaturePyramidNetworkNeck
+
+    freeze_backbone: false
+    freeze_decoder: false
+
+    class_names:
+      - Background
+      - Crater
+
+    # ------ Anchors: identical to the FM's winning config ------
+    anchor_sizes: [[8], [16], [32], [64]]
+    anchor_aspect_ratios: [0.5, 1.0, 2.0]
+
+    # ------ LR / regularisation ------
+    # LLRD disabled: flat 1e-4 AdamW everywhere. Standard CNN detection
+    # recipe. Do NOT enable LLRD for ConvNeXt — it's a ViT technique and
+    # applying it here would look like an unfair tuning of the baseline.
+    #
+    # weight_decay=1e-4 is CNN-standard (vs the ViT default 0.05).
+    backbone_lr: 1.0e-4
+    head_lr: 1.0e-4
+    layer_decay: 1.0
+    weight_decay: 1.0e-4
+    head_weight_decay: 1.0e-4
+    betas: [0.9, 0.999]
+    warmup_steps: 500
+    eta_min: 1.0e-6

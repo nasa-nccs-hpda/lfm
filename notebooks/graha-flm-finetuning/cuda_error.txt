@@ -1,0 +1,245 @@
+---------------------------------------------------------------------------
+RuntimeError                              Traceback (most recent call last)
+File ~/.local/lib/python3.12/site-packages/lightning/pytorch/trainer/call.py:49, in _call_and_handle_interrupt(trainer, trainer_fn, *args, **kwargs)
+     48         return trainer.strategy.launcher.launch(trainer_fn, *args, trainer=trainer, **kwargs)
+---> 49     return trainer_fn(*args, **kwargs)
+     51 except _TunerExitException:
+
+File ~/.local/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py:630, in Trainer._fit_impl(self, model, train_dataloaders, val_dataloaders, datamodule, ckpt_path, weights_only)
+    624 ckpt_path = self._checkpoint_connector._select_ckpt_path(
+    625     self.state.fn,
+    626     ckpt_path,
+    627     model_provided=True,
+    628     model_connected=self.lightning_module is not None,
+    629 )
+--> 630 self._run(model, ckpt_path=ckpt_path, weights_only=weights_only)
+    632 assert self.state.stopped
+
+File ~/.local/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py:1079, in Trainer._run(self, model, ckpt_path, weights_only)
+   1076 # ----------------------------
+   1077 # RUN THE TRAINER
+   1078 # ----------------------------
+-> 1079 results = self._run_stage()
+   1081 # ----------------------------
+   1082 # POST-Training CLEAN UP
+   1083 # ----------------------------
+
+File ~/.local/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py:1121, in Trainer._run_stage(self)
+   1120 with isolate_rng():
+-> 1121     self._run_sanity_check()
+   1122 with torch.autograd.set_detect_anomaly(self._detect_anomaly):
+
+File ~/.local/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py:1150, in Trainer._run_sanity_check(self)
+   1149 # run eval step
+-> 1150 val_loop.run()
+   1152 call._call_callback_hooks(self, "on_sanity_check_end")
+
+File ~/.local/lib/python3.12/site-packages/lightning/pytorch/loops/utilities.py:179, in _no_grad_context.<locals>._decorator(self, *args, **kwargs)
+    178 with context_manager():
+--> 179     return loop_run(self, *args, **kwargs)
+
+File ~/.local/lib/python3.12/site-packages/lightning/pytorch/loops/evaluation_loop.py:146, in _EvaluationLoop.run(self)
+    145     # run step hooks
+--> 146     self._evaluation_step(batch, batch_idx, dataloader_idx, dataloader_iter)
+    147 except StopIteration:
+    148     # this needs to wrap the `*_step` call too (not just `next`) for `dataloader_iter` support
+
+File ~/.local/lib/python3.12/site-packages/lightning/pytorch/loops/evaluation_loop.py:441, in _EvaluationLoop._evaluation_step(self, batch, batch_idx, dataloader_idx, dataloader_iter)
+    436 step_args = (
+    437     self._build_step_args_from_hook_kwargs(hook_kwargs, hook_name)
+    438     if not using_dataloader_iter
+    439     else (dataloader_iter,)
+    440 )
+--> 441 output = call._call_strategy_hook(trainer, hook_name, *step_args)
+    443 self.batch_progress.increment_processed()
+
+File ~/.local/lib/python3.12/site-packages/lightning/pytorch/trainer/call.py:329, in _call_strategy_hook(trainer, hook_name, *args, **kwargs)
+    328 with trainer.profiler.profile(f"[Strategy]{trainer.strategy.__class__.__name__}.{hook_name}"):
+--> 329     output = fn(*args, **kwargs)
+    331 # restore current_fx when nested context
+
+File ~/.local/lib/python3.12/site-packages/lightning/pytorch/strategies/strategy.py:412, in Strategy.validation_step(self, *args, **kwargs)
+    411     return self._forward_redirection(self.model, self.lightning_module, "validation_step", *args, **kwargs)
+--> 412 return self.lightning_module.validation_step(*args, **kwargs)
+
+Cell In[4], line 28, in NotebookLunarShapeSegmentationTask.validation_step(self, batch, *args, **kwargs)
+     27     def validation_step(self, batch, *args, **kwargs):
+---> 28         return super().validation_step(self._drop_extra_batch_metadata(batch), *args, **kwargs)
+
+File /panfs/ccds02/nobackup/people/ajkerr1/Lunar_FM/full_model_lfm/lfm/graha-lunar-fm/terratorch_integration/lunar_segmentation_task.py:516, in LunarShapeSegmentationTask.validation_step(self, batch, batch_idx, dataloader_idx)
+    513 model_output = self.handle_full_or_tiled_inference(
+    514     x, self.tiled_inference_on_validation, **rest
+    515 )
+--> 516 loss = self.val_loss_handler.compute_loss(
+    517     model_output, y, self.criterion, self.aux_loss
+    518 )
+    519 loss["loss"] = self._add_shape_loss(loss["loss"], model_output, crater_boxes, "val")
+
+File ~/.conda/envs/graha-lunar-fm/lib/python3.12/site-packages/terratorch/tasks/loss_handler.py:45, in LossHandler.compute_loss(self, model_output, ground_truth, criterion, aux_loss_weights)
+     27 """Compute the loss for the mean decode head as well as other heads
+     28
+     29 Args:
+   (...)     42         All other heads are returned with the same key as their name.
+     43 """
+---> 45 loss = self._compute_loss(model_output.output, ground_truth, criterion)
+     46 if isinstance(loss, Tensor):
+
+File ~/.conda/envs/graha-lunar-fm/lib/python3.12/site-packages/terratorch/tasks/loss_handler.py:78, in LossHandler._compute_loss(self, y_hat, ground_truth, criterion)
+     77 def _compute_loss(self, y_hat: Tensor, ground_truth: Tensor, criterion: Callable):
+---> 78     loss: Tensor = criterion(y_hat, ground_truth)
+     79     return loss
+
+File ~/.conda/envs/graha-lunar-fm/lib/python3.12/site-packages/torch/nn/modules/module.py:1736, in Module._wrapped_call_impl(self, *args, **kwargs)
+   1735 else:
+-> 1736     return self._call_impl(*args, **kwargs)
+
+File ~/.conda/envs/graha-lunar-fm/lib/python3.12/site-packages/torch/nn/modules/module.py:1747, in Module._call_impl(self, *args, **kwargs)
+   1744 if not (self._backward_hooks or self._backward_pre_hooks or self._forward_hooks or self._forward_pre_hooks
+   1745         or _global_backward_pre_hooks or _global_backward_hooks
+   1746         or _global_forward_hooks or _global_forward_pre_hooks):
+-> 1747     return forward_call(*args, **kwargs)
+   1749 result = None
+
+File ~/.conda/envs/graha-lunar-fm/lib/python3.12/site-packages/segmentation_models_pytorch/losses/dice.py:109, in DiceLoss.forward(self, y_pred, y_true)
+    107         y_true = y_true * mask
+--> 109 scores = self.compute_score(
+    110     y_pred, y_true.type_as(y_pred), smooth=self.smooth, eps=self.eps, dims=dims
+    111 )
+    113 if self.log_loss:
+
+File ~/.conda/envs/graha-lunar-fm/lib/python3.12/site-packages/segmentation_models_pytorch/losses/dice.py:137, in DiceLoss.compute_score(self, output, target, smooth, eps, dims)
+    134 def compute_score(
+    135     self, output, target, smooth=0.0, eps=1e-7, dims=None
+    136 ) -> torch.Tensor:
+--> 137     return soft_dice_score(output, target, smooth, eps, dims)
+
+File ~/.conda/envs/graha-lunar-fm/lib/python3.12/site-packages/segmentation_models_pytorch/losses/_functional.py:173, in soft_dice_score(output, target, smooth, eps, dims)
+    172 assert output.size() == target.size()
+--> 173 dice_score = soft_tversky_score(output, target, 0.5, 0.5, smooth, eps, dims)
+    174 return dice_score
+
+File ~/.conda/envs/graha-lunar-fm/lib/python3.12/site-packages/segmentation_models_pytorch/losses/_functional.py:196, in soft_tversky_score(output, target, alpha, beta, smooth, eps, dims)
+    195 if dims is not None:
+--> 196     output_sum = torch.sum(output, dim=dims)
+    197     target_sum = torch.sum(target, dim=dims)
+
+RuntimeError: CUDA error: device-side assert triggered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+
+During handling of the above exception, another exception occurred:
+
+RuntimeError                              Traceback (most recent call last)
+Cell In[12], line 2
+      1 # Run fine-tuning when ready.
+----> 2 trainer.fit(task, datamodule=datamodule)
+
+File ~/.local/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py:584, in Trainer.fit(self, model, train_dataloaders, val_dataloaders, datamodule, ckpt_path, weights_only)
+    582 self.training = True
+    583 self.should_stop = False
+--> 584 call._call_and_handle_interrupt(
+    585     self,
+    586     self._fit_impl,
+    587     model,
+    588     train_dataloaders,
+    589     val_dataloaders,
+    590     datamodule,
+    591     ckpt_path,
+    592     weights_only,
+    593 )
+
+File ~/.local/lib/python3.12/site-packages/lightning/pytorch/trainer/call.py:70, in _call_and_handle_interrupt(trainer, trainer_fn, *args, **kwargs)
+     68 except BaseException as exception:
+     69     _interrupt(trainer, exception)
+---> 70     trainer._teardown()
+     71     # teardown might access the stage so we reset it after
+     72     trainer.state.stage = None
+
+File ~/.local/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py:1102, in Trainer._teardown(self)
+   1099 def _teardown(self) -> None:
+   1100     """This is the Trainer's internal teardown, unrelated to the `teardown` hooks in LightningModule and Callback;
+   1101     those are handled by :meth:`_call_teardown_hook`."""
+-> 1102     self.strategy.teardown()
+   1103     loop = self._active_loop
+   1104     # loop should never be `None` here but it can because we don't know the trainer stage with `ddp_spawn`
+
+File ~/.local/lib/python3.12/site-packages/lightning/pytorch/strategies/strategy.py:536, in Strategy.teardown(self)
+    534 if self.lightning_module is not None:
+    535     log.debug(f"{self.__class__.__name__}: moving model to CPU")
+--> 536     self.lightning_module.cpu()
+    537 self.precision_plugin.teardown()
+    538 assert self.accelerator is not None
+
+File ~/.local/lib/python3.12/site-packages/lightning/fabric/utilities/device_dtype_mixin.py:86, in _DeviceDtypeModuleMixin.cpu(self)
+     84 """See :meth:`torch.nn.Module.cpu`."""
+     85 _update_properties(self, device=torch.device("cpu"))
+---> 86 return super().cpu()
+
+File ~/.conda/envs/graha-lunar-fm/lib/python3.12/site-packages/torch/nn/modules/module.py:1118, in Module.cpu(self)
+   1109 def cpu(self: T) -> T:
+   1110     r"""Move all model parameters and buffers to the CPU.
+   1111
+   1112     .. note::
+   (...)   1116         Module: self
+   1117     """
+-> 1118     return self._apply(lambda t: t.cpu())
+
+File ~/.conda/envs/graha-lunar-fm/lib/python3.12/site-packages/torch/nn/modules/module.py:900, in Module._apply(self, fn, recurse)
+    898 if recurse:
+    899     for module in self.children():
+--> 900         module._apply(fn)
+    902 def compute_should_use_set_data(tensor, tensor_applied):
+    903     if torch._has_compatible_shallow_copy_type(tensor, tensor_applied):
+    904         # If the new tensor has compatible tensor type as the existing tensor,
+    905         # the current behavior is to change the tensor in-place using `.data =`,
+   (...)    910         # global flag to let the user control whether they want the future
+    911         # behavior of overwriting the existing tensor or not.
+
+File ~/.conda/envs/graha-lunar-fm/lib/python3.12/site-packages/torch/nn/modules/module.py:900, in Module._apply(self, fn, recurse)
+    898 if recurse:
+    899     for module in self.children():
+--> 900         module._apply(fn)
+    902 def compute_should_use_set_data(tensor, tensor_applied):
+    903     if torch._has_compatible_shallow_copy_type(tensor, tensor_applied):
+    904         # If the new tensor has compatible tensor type as the existing tensor,
+    905         # the current behavior is to change the tensor in-place using `.data =`,
+   (...)    910         # global flag to let the user control whether they want the future
+    911         # behavior of overwriting the existing tensor or not.
+
+    [... skipping similar frames: Module._apply at line 900 (3 times)]
+
+File ~/.conda/envs/graha-lunar-fm/lib/python3.12/site-packages/torch/nn/modules/module.py:900, in Module._apply(self, fn, recurse)
+    898 if recurse:
+    899     for module in self.children():
+--> 900         module._apply(fn)
+    902 def compute_should_use_set_data(tensor, tensor_applied):
+    903     if torch._has_compatible_shallow_copy_type(tensor, tensor_applied):
+    904         # If the new tensor has compatible tensor type as the existing tensor,
+    905         # the current behavior is to change the tensor in-place using `.data =`,
+   (...)    910         # global flag to let the user control whether they want the future
+    911         # behavior of overwriting the existing tensor or not.
+
+File ~/.conda/envs/graha-lunar-fm/lib/python3.12/site-packages/torch/nn/modules/module.py:927, in Module._apply(self, fn, recurse)
+    923 # Tensors stored in modules are graph leaves, and we don't want to
+    924 # track autograd history of `param_applied`, so we have to use
+    925 # `with torch.no_grad():`
+    926 with torch.no_grad():
+--> 927     param_applied = fn(param)
+    928 p_should_use_set_data = compute_should_use_set_data(param, param_applied)
+    930 # subclasses may have multiple child tensors so we need to use swap_tensors
+
+File ~/.conda/envs/graha-lunar-fm/lib/python3.12/site-packages/torch/nn/modules/module.py:1118, in Module.cpu.<locals>.<lambda>(t)
+   1109 def cpu(self: T) -> T:
+   1110     r"""Move all model parameters and buffers to the CPU.
+   1111
+   1112     .. note::
+   (...)   1116         Module: self
+   1117     """
+-> 1118     return self._apply(lambda t: t.cpu())
+
+RuntimeError: CUDA error: device-side assert triggered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.

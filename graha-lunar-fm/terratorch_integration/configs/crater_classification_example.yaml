@@ -1,0 +1,101 @@
+# Lunar Crater Classification with TerraTorch Integration
+# lightning.pytorch==2.1.1
+#
+# RUN with PYTHONPATH:
+# PYTHONPATH=<path to Lunar-FM>:$PYTHONPATH terratorch fit --config terratorch_integration/configs/crater_classification_example.yaml
+#
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: mps
+  devices: 1
+  precision: "32"
+  max_epochs: 100
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 10
+  enable_checkpointing: false  # debug run — do not write any checkpoints
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb/
+      name: lunar-crater-classification
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    # ModelCheckpoint intentionally removed for debug runs. Re-add (and remove
+    # ``enable_checkpointing: false`` above) before any real training.
+
+data:
+  class_path: terratorch_integration.data_adapter_classification.LunarClassificationDataModule
+  init_args:
+    root: data/crater_classification_nasa
+    batch_size: 32
+    num_workers: 4
+    image_size: 256          # match pretraining image size
+    grayscale: true          # NAC modality is single-channel
+    norm_means: [0.5]
+    norm_stds: [0.25]
+    max_pixel_value: 255.0
+    # Pin label order so train/val/test agree even if a split is missing a class folder.
+    class_names:
+      - ejecta
+      - none
+      - oldcrater
+
+model:
+  class_path: terratorch.tasks.ClassificationTask
+  init_args:
+    model_factory: EncoderDecoderFactory
+    model_args:
+      backbone: lunarmind_v1_base
+      backbone_cfg: weights/backbone/full_config.yaml
+      backbone_checkpoint_path: weights/backbone/checkpoint_weights_final.pt
+      backbone_modalities:
+        - nac                # single-channel grayscale visual modality
+      backbone_patch_size: 8
+      backbone_remove_register_tokens: true
+
+      # Necks: take the final encoder block and reshape tokens to a (B, D, H, W) map
+      # so ClassificationHead can flatten spatial dims and pool. Without these the
+      # head receives raw (B, N, D) tokens and the inner Linear shape-mismatches.
+      necks:
+        - name: SelectIndices
+          indices: [-1]
+        - name: ReshapeTokensToImage
+          remove_cls_token: false
+          h: 16              # 256 / 8 = 32 tokens per side
+
+      decoder: IdentityDecoder
+
+      num_classes: 3         # ejecta, none, oldcrater
+      # head_dropout: 0.1
+      # head_dim_list:
+      #   - 192                # tiny embed_dim
+      #   - 96
+
+    loss: ce
+    # Optional: counter the class imbalance (none ≈ 70% of train).
+    # Computed from train counts — none:2656, ejecta:358, oldcrater:594 → 3543 total.
+    # weight_i = total / (num_classes * count_i)
+    class_weights: [3.299, 0.445, 1.988]
+    freeze_backbone: true
+    freeze_decoder: false
+    class_names:
+      - ejecta
+      - none
+      - oldcrater
+
+optimizer:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 1e-4
+    weight_decay: 0.05
+    betas: [0.9, 0.98]
+
+lr_scheduler:
+  class_path: CosineAnnealingLR
+  init_args:
+    T_max: 100
+    eta_min: 1e-6

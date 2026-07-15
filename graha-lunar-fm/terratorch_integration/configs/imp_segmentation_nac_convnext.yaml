@@ -1,0 +1,124 @@
+# Lunar IMP Semantic Segmentation — NAC only, ConvNeXt-Base ImageNet baseline
+#
+# Purpose: "modern CNN" comparison against the FM. ConvNeXt-Base is ~89M
+# params (close to ViT-Base's 86M) and pretrained on ImageNet-22k → 1k.
+# The CNN reviewers expect to see alongside ResNet50.
+#
+# Recipe: flat AdamW at 1e-4, weight_decay 1e-4. LLRD disabled — it's a
+# ViT-specific trick and applying it to a CNN is nonstandard.
+#
+# RUN:
+#   PYTHONPATH=. \
+#   terratorch fit --config terratorch_integration/configs/imp_segmentation_nac_convnext.yaml
+
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 100
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 5
+  gradient_clip_val: 1.0
+  gradient_clip_algorithm: norm
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/
+      name: imp-segmentation-nac-convnext
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: step
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/imp-segmentation-nac-convnext
+        monitor: val/loss
+        mode: min
+        filename: best-{epoch:02d}-{val/loss:.3f}
+        save_top_k: 1
+        save_last: false
+
+data:
+  class_path: terratorch.datamodules.GenericNonGeoSegmentationDataModule
+  init_args:
+    batch_size: 16
+    num_workers: 1
+    rgb_indices:
+      - 0
+      - 0
+      - 0
+    train_data_root: data/imp_dataset_tiff/train
+    train_label_data_root: data/imp_dataset_tiff/train
+    val_data_root: data/imp_dataset_tiff/val
+    val_label_data_root: data/imp_dataset_tiff/val
+    test_data_root: data/imp_dataset_tiff/test
+    test_label_data_root: data/imp_dataset_tiff/test
+    predict_data_root:  data/imp_dataset_tiff/test
+    train_split: data/imp_dataset_tiff/train_0_1.txt
+    val_split: data/imp_dataset_tiff/val.txt
+    test_split: data/imp_dataset_tiff/test.txt
+    num_classes: 2
+    ignore_split_file_extensions: false
+    img_grep: "*_img.tif"
+    label_grep: "*_mask.tif"
+    no_label_replace: -1
+    no_data_replace: 0
+    means:
+      - 0.030510
+    stds:
+      - 0.017363
+    train_transform:
+      - class_path: albumentations.D4
+      - class_path: albumentations.RandomBrightnessContrast
+        init_args:
+          brightness_limit: 0.15
+          contrast_limit: 0.15
+          p: 0.5
+      - class_path: albumentations.pytorch.transforms.ToTensorV2
+
+model:
+  class_path: terratorch_integration.LunarSegmentationTask
+  init_args:
+    # Flat CNN recipe — do NOT enable LLRD (unfair baseline tuning).
+    backbone_lr: 1.0e-4
+    head_lr: 1.0e-4
+    layer_decay: 1.0
+    weight_decay: 1.0e-4
+    head_weight_decay: 1.0e-4
+    betas: [0.9, 0.999]
+    warmup_steps: 500
+    eta_min: 1.0e-6
+
+    model_factory: EncoderDecoderFactory
+    model_args:
+      # ConvNeXt-Base, ImageNet-22k → 1k. timm handles 1-channel adaptation
+      # via adapt_input_conv (averages RGB pretrained weights). Return all
+      # 4 stages; the neck's SelectIndices picks which go to the decoder,
+      # mirroring the FM config's "layer selection lives in the neck" style.
+      backbone: timm_convnext_base.fb_in22k_ft_in1k
+      backbone_pretrained: true
+      backbone_in_chans: 1
+      backbone_out_indices: [0, 1, 2, 3]  # 4 stages, strides 4/8/16/32
+
+      necks:
+        # All 4 ConvNeXt stages go into the UNet decoder — no reshape /
+        # interpolation (unlike the ViT).
+        - name: SelectIndices
+          indices: [0, 1, 2, 3]
+
+      decoder: UNetDecoder
+      decoder_channels: [512, 256, 128, 64]
+      head_channel_list: [256]
+      head_dropout: 0.1
+      num_classes: 2
+
+    loss: dice
+    aux_loss:
+      aux_head: 1.0
+    freeze_backbone: false
+    freeze_decoder: false
+    ignore_index: -1
+    plot_on_val: 10

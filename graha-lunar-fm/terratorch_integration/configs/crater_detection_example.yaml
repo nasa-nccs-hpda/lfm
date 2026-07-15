@@ -1,0 +1,101 @@
+# Lunar Crater Detection with TerraTorch Integration
+# lightning.pytorch==2.1.1
+#
+# RUN with PYTHONPATH:
+# PYTHONPATH=<path to Lunar-FM>:$PYTHONPATH terratorch fit --config terratorch_integration/configs/crater_detection_example.yaml
+#
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 100
+  check_val_every_n_epoch: 5
+  log_every_n_steps: 10
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/
+      name: lunar-crater-detection
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/crater_detection_example
+        monitor: val_map
+        mode: max
+        filename: best-{epoch:02d}-{val_map:.3f}
+        save_top_k: 3
+        save_last: true
+
+data:
+  class_path: terratorch_integration.data_adapter.LunarCraterDataModule
+  init_args:
+    root: data/LRO_craters
+    batch_size: 4
+    num_workers: 0  # Set to 0 to avoid multiprocessing pickle issues with collate_fn
+    image_size: 256  # Match pretraining image size
+    apply_norm_in_datamodule: true
+    norm_means: [0.5]  # Grayscale normalization
+    norm_stds: [0.25]
+
+model:
+  class_path: terratorch.tasks.ObjectDetectionTask
+  init_args:
+    model_factory: ObjectDetectionModelFactory
+    model_args:
+      framework: faster-rcnn
+      backbone: lunarmind_v1_base
+      num_classes: 2  # background + crater
+      framework_min_size: 256
+      framework_max_size: 256
+      
+      # Model configuration matching the checkpoint
+      backbone_modalities:
+        - nac  # Single-channel grayscale visual modality
+      
+      backbone_patch_size: 8  # Optional override for modality-derived patch size
+      backbone_remove_register_tokens: true  # Remove register tokens before neck
+      
+      in_channels: 1  # Grayscale input
+      
+      # Neck configuration for tiny model (12 encoder layers)
+      necks:
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]  # Select 4 layers from 12-layer encoder
+        - name: ReshapeTokensToImage
+          remove_cls_token: false
+          h: 32
+        - name: LearnedInterpolateToPyramidal
+        - name: FeaturePyramidNetworkNeck
+    
+    # Training configuration
+    freeze_backbone: false  # Fine-tune the entire backbone
+    freeze_decoder: false   # Train detection head
+    
+    # Class names for crater detection
+    class_names:
+      - Background
+      - Crater
+
+optimizer:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 1e-4
+    weight_decay: 0.05
+    betas: [0.9, 0.98]  # Matching checkpoint optimizer config
+
+lr_scheduler:
+  class_path: CosineAnnealingLR
+  init_args:
+    T_max: 100
+    eta_min: 1e-6
+
+
+# Additional notes:
+# - Checkpoint for base model: embed_dim=768, 12 encoder layers, 12 decoder layers
+# - Model supports multiple modalities, but for crater detection, using only 'nac' modality (grayscale)
