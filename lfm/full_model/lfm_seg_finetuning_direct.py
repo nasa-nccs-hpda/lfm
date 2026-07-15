@@ -144,8 +144,8 @@ def validate_required_paths(config: FineTuningConfig) -> None:
 def import_project_dependencies() -> dict[str, Any]:
     """Import local helpers after sys.path has been configured."""
     import terratorch_integration  # noqa: F401
-    from lfm.full_model.datamodule import LunarSemanticSegmentationDatamodule
-    from lfm.full_model.plot_utils import ValidationPlotCallback
+    from lfm.full_model.datamodules import LunarSemanticSegmentationDatamodule
+    from lfm.full_model.utils import ValidationPlotCallback
     from terratorch_integration.lunar_segmentation_task import LunarShapeSegmentationTask
     from lfm.full_model.utils import create_timestamped_output_dir
 
