@@ -13,7 +13,7 @@ Core principle:
 
 Plan:
 
-1. Bring the old toy semantic segmentation code up to the new data standard
+1. [Completed] Bring the old toy semantic segmentation code up to the new data standard
    - Add comparison-specific Lightning/DataModule wrappers under
      lfm/toy_model/sem_seg/lightning_wrappers rather than rewriting the
      existing toy_model driver.
@@ -38,25 +38,28 @@ Plan:
      reuse the old loss helpers, and reproduce the old optimizer/scheduler
      behavior where practical.
 
-2. Create comparable old-model artifacts
+2. [In-Progress] Create comparable old-model artifacts
    - Copy lfm/notebooks/toy_model/semantic_seg_train.ipynb to a new comparison
      notebook under notebooks/full_model.
    - Edit the comparison notebook cells so their structure, section order,
      naming, and interactive flow stay as close to the original semantic
      segmentation notebook as practical while still using the new split-folder
      comparison logic.
+   - Restore validation visualization behavior from the original semantic
+     segmentation notebook for both interactive notebook runs and sbatch script
+     runs, saving plots into the timestamped output directory.
    - Create a matching .py script for the old semantic segmentation workflow
      under lfm/full_model.
    - Add an sbatch wrapper under notebooks/full_model for the .py script.
    - Do not overwrite the original toy_model semantic_seg_train.ipynb.
 
-3. Standardize output directories
+3. [Completed] Standardize output directories
    - Use timestamped output dirs for both workflows.
    - Save checkpoints, plots, config snapshots, losses, metrics, and file lists
      under the run output dir.
    - Keep notebook output and sbatch output naming consistent.
 
-4. Align high-level training configuration
+4. [In-Progress] Align high-level training configuration
    - Run 100 epochs for both workflows.
    - Use batch size 16 if it fits for both.
    - Use one GPU initially for both.
@@ -66,7 +69,7 @@ Plan:
      create a second controlled variant.
    - Use the same plotting cadence, likely every 10 epochs plus final.
 
-5. Keep model-specific behavior explicit
+5. [In-Progress] Keep model-specific behavior explicit
    - Graha uses its current datamodule-side per-band z-score normalization.
    - The old toy model comparison baseline keeps normalize_inputs=False.
    - The old toy model resizes to 304x304.
@@ -75,7 +78,7 @@ Plan:
    - Document model, checkpoint, input adaptation, decoder, loss, optimizer,
      scheduler, image size, and preprocessing in each output dir.
 
-6. Create shared evaluation code
+6. [Pending] Create shared evaluation code
    - Build evaluator helpers that can consume either model through a small
      prediction adapter.
    - Evaluate both models on the same validation/test split.
@@ -89,7 +92,7 @@ Plan:
        ground-truth foreground fraction
    - Save metrics as CSV and/or JSON.
 
-7. Create side-by-side plots
+7. [Pending] Create side-by-side plots
    - For the same validation/test samples, save panels with:
        input RGB composite
        ground truth
@@ -99,27 +102,30 @@ Plan:
        Graha overlay
    - Use the same thresholding, colors, sample order, and filenames.
 
-8. Smoke test before long runs
+8. [In-Progress] Smoke test before long runs
    - Run both workflows for 1 epoch.
    - Confirm batches load, losses compute, checkpoints save, plots save, and
      shared evaluation runs.
    - Confirm the sbatch scripts work without relying on an interactive Jupyter
      session.
 
-9. Run the 100-epoch comparison
+9. [Pending] Run the 100-epoch comparison
    - Submit the old-model script with sbatch.
    - Submit the Graha script with sbatch.
    - Run shared evaluation on the same held-out split.
    - Compare metrics and inspect side-by-side plots.
 
 Preferred implementation order:
-1. Add comparison-specific DataModule and LightningModule wrappers under
+1. [Completed] Add comparison-specific DataModule and LightningModule wrappers under
    lfm/toy_model/sem_seg/lightning_wrappers for the old toy semantic
    segmentation model.
-2. Create the old-model comparison notebook.
-3. Refine the comparison notebook cells to mirror the original semantic
+2. [Completed] Create the old-model comparison notebook.
+3. [Pending] Refine the comparison notebook cells to mirror the original semantic
    segmentation notebook's layout and interactive flow as closely as practical.
-4. Create the matching old-model .py script and sbatch wrapper.
-5. Add shared evaluation and side-by-side plotting helpers.
-6. Run 1-epoch smoke tests.
-7. Launch 100-epoch runs.
+4. [Pending] Add validation visualization to the comparison notebook and script
+   so both match the original semantic segmentation notebook's expected visual
+   debugging behavior.
+5. [Completed] Create the matching old-model .py script and sbatch wrapper.
+6. [Pending] Add shared evaluation and side-by-side plotting helpers.
+7. [In-Progress] Run 1-epoch smoke tests.
+8. [Pending] Launch 100-epoch runs.
