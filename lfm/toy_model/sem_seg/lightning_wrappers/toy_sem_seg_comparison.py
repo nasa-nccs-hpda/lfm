@@ -45,7 +45,7 @@ class ToyComparisonConfig:
 
 def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
     package_dir = Path(__file__).resolve().parent
-    repo_root = package_dir.parents[1]
+    repo_root = package_dir.parents[3]
     notebook_dir = repo_root / "notebooks" / "full_model"
     data_root = Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
     base_output_dir = (
