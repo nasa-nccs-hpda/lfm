@@ -41,6 +41,10 @@ Plan:
 2. Create comparable old-model artifacts
    - Copy lfm/notebooks/toy_model/semantic_seg_train.ipynb to a new comparison
      notebook under notebooks/full_model.
+   - Edit the comparison notebook cells so their structure, section order,
+     naming, and interactive flow stay as close to the original semantic
+     segmentation notebook as practical while still using the new split-folder
+     comparison logic.
    - Create a matching .py script for the old semantic segmentation workflow
      under lfm/full_model.
    - Add an sbatch wrapper under notebooks/full_model for the .py script.
@@ -113,7 +117,9 @@ Preferred implementation order:
    lfm/toy_model/sem_seg/lightning_wrappers for the old toy semantic
    segmentation model.
 2. Create the old-model comparison notebook.
-3. Create the matching old-model .py script and sbatch wrapper.
-4. Add shared evaluation and side-by-side plotting helpers.
-5. Run 1-epoch smoke tests.
-6. Launch 100-epoch runs.
+3. Refine the comparison notebook cells to mirror the original semantic
+   segmentation notebook's layout and interactive flow as closely as practical.
+4. Create the matching old-model .py script and sbatch wrapper.
+5. Add shared evaluation and side-by-side plotting helpers.
+6. Run 1-epoch smoke tests.
+7. Launch 100-epoch runs.
