@@ -44,9 +44,8 @@ class ToyComparisonConfig:
 
 
 def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
-    package_dir = Path(__file__).resolve().parent
-    repo_root = package_dir.parents[3]
-    notebook_dir = repo_root / "notebooks" / "full_model"
+    notebook_dir = Path(__file__).resolve().parent
+    repo_root = notebook_dir.parents[1]
     data_root = Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
     base_output_dir = (
         Path(args.base_output_dir).resolve()
@@ -73,6 +72,37 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         normalize_inputs=False,
         seed=args.seed,
     )
+
+
+def ensure_data_symlink(simlink_dest: str | None, notebook_dir: Path) -> None:
+    if simlink_dest is None:
+        print("SIMLINK_DEST is None; leaving ./data unchanged.")
+        return
+
+    source = Path(simlink_dest).expanduser().resolve()
+    data_symlink = notebook_dir / "data"
+
+    if not source.exists():
+        raise FileNotFoundError(f"SIMLINK_DEST does not exist: {source}")
+    if not source.is_dir():
+        raise NotADirectoryError(f"SIMLINK_DEST must be a directory: {source}")
+
+    if data_symlink.is_symlink():
+        current_target = data_symlink.resolve()
+        if current_target != source:
+            raise FileExistsError(
+                f"{data_symlink} already points to {current_target}, not SIMLINK_DEST {source}. "
+                "Remove or update the symlink explicitly before continuing."
+            )
+        print(f"Symlink created successfully: {data_symlink} -> {source}")
+    elif data_symlink.exists():
+        raise FileExistsError(
+            f"{data_symlink} already exists and is not a symlink. "
+            "Move it before creating the data symlink."
+        )
+    else:
+        data_symlink.symlink_to(source, target_is_directory=True)
+        print(f"Symlink created successfully: {data_symlink} -> {source}")
 
 
 def validate_data_paths(config: ToyComparisonConfig) -> None:
@@ -181,6 +211,17 @@ def create_trainer(config: ToyComparisonConfig, output_dir: Path) -> Trainer:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--simlink-dest",
+        "--symlink-dest",
+        dest="simlink_dest",
+        type=str,
+        default=None,
+        help=(
+            "Optional source directory for notebooks/full_model/data. If ./data is already a "
+            "symlink, it must point to this same directory."
+        ),
+    )
     parser.add_argument("--data-root", type=str, default=None)
     parser.add_argument("--base-output-dir", type=str, default=None)
     parser.add_argument("--dino-checkpoint", type=str, default=None)
@@ -200,6 +241,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    notebook_dir = Path(__file__).resolve().parent
+    ensure_data_symlink(args.simlink_dest, notebook_dir)
     config = build_config(args)
     validate_data_paths(config)
     output_dir = create_timestamped_output_dir(config.base_output_dir)

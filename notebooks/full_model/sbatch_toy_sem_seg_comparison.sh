@@ -14,12 +14,14 @@ START_TIME="$(date +%s)"
 START_READABLE="$(date)"
 
 SUBMIT_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
-if [[ -f "${SUBMIT_DIR}/lfm/toy_model/sem_seg/lightning_wrappers/toy_sem_seg_comparison.py" ]]; then
+if [[ -f "${SUBMIT_DIR}/notebooks/full_model/toy_sem_seg_comparison.py" ]]; then
   REPO_DIR="${SUBMIT_DIR}"
-elif [[ -f "${SUBMIT_DIR}/../../lfm/toy_model/sem_seg/lightning_wrappers/toy_sem_seg_comparison.py" ]]; then
+elif [[ -f "${SUBMIT_DIR}/toy_sem_seg_comparison.py" ]]; then
+  REPO_DIR="$(cd "${SUBMIT_DIR}/../.." && pwd)"
+elif [[ -f "${SUBMIT_DIR}/../../notebooks/full_model/toy_sem_seg_comparison.py" ]]; then
   REPO_DIR="$(cd "${SUBMIT_DIR}/../.." && pwd)"
 else
-  echo "Could not locate lfm/toy_model/sem_seg/lightning_wrappers/toy_sem_seg_comparison.py from submit directory: ${SUBMIT_DIR}" >&2
+  echo "Could not locate notebooks/full_model/toy_sem_seg_comparison.py from submit directory: ${SUBMIT_DIR}" >&2
   exit 1
 fi
 
@@ -33,7 +35,7 @@ echo "Working directory: ${REPO_DIR}"
 echo "CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-unset}"
 echo
 
-python -m lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_comparison "$@"
+python notebooks/full_model/toy_sem_seg_comparison.py "$@"
 
 END_TIME="$(date +%s)"
 END_READABLE="$(date)"
