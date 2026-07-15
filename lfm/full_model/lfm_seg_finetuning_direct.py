@@ -22,6 +22,7 @@ from lightning.pytorch.loggers import TensorBoardLogger
 
 @dataclass(frozen=True)
 class FineTuningConfig:
+    package_dir: Path
     notebook_dir: Path
     lfm_root: Path
     repo_root: Path
@@ -62,9 +63,10 @@ def configure_proj_environment() -> None:
 
 def build_config(args: argparse.Namespace) -> FineTuningConfig:
     """Create the script configuration from defaults plus CLI overrides."""
-    notebook_dir = Path(__file__).resolve().parent
-    lfm_root = notebook_dir.parents[1]
-    repo_root = lfm_root / "graha-lunar-fm"
+    package_dir = Path(__file__).resolve().parent
+    lfm_root = package_dir.parents[1]
+    notebook_dir = lfm_root / "notebooks" / "full_model"
+    repo_root = package_dir / "graha-lunar-fm"
 
     pretrain_dir = Path(
         "/explore/nobackup/projects/lfm/gabby/Lunar-FM/experiments/"
@@ -81,6 +83,7 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
     )
 
     return FineTuningConfig(
+        package_dir=package_dir,
         notebook_dir=notebook_dir,
         lfm_root=lfm_root,
         repo_root=repo_root,
@@ -102,13 +105,14 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
 
 def configure_python_paths(config: FineTuningConfig) -> None:
     """Make local notebook helpers and Graha/Lunar-FM code importable."""
-    for path in [config.repo_root, config.notebook_dir]:
+    for path in [config.repo_root, config.lfm_root]:
         if str(path) not in sys.path:
             sys.path.insert(0, str(path))
 
 
 def print_config(config: FineTuningConfig) -> None:
-    print("Script directory:", config.notebook_dir)
+    print("Package directory:", config.package_dir)
+    print("Notebook directory:", config.notebook_dir)
     print("Graha/Lunar-FM code root:", config.repo_root)
     print("Data root:", config.data_root)
     print("Backbone weights:", config.backbone_weights)
@@ -140,10 +144,10 @@ def validate_required_paths(config: FineTuningConfig) -> None:
 def import_project_dependencies() -> dict[str, Any]:
     """Import local helpers after sys.path has been configured."""
     import terratorch_integration  # noqa: F401
-    from datamodule import LunarSemanticSegmentationDatamodule
-    from plot_utils import ValidationPlotCallback
+    from lfm.full_model.datamodule import LunarSemanticSegmentationDatamodule
+    from lfm.full_model.plot_utils import ValidationPlotCallback
     from terratorch_integration.lunar_segmentation_task import LunarShapeSegmentationTask
-    from utils import create_timestamped_output_dir
+    from lfm.full_model.utils import create_timestamped_output_dir
 
     return {
         "LunarSemanticSegmentationDatamodule": LunarSemanticSegmentationDatamodule,

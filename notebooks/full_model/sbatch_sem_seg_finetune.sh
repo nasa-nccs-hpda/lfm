@@ -5,8 +5,8 @@
 #SBATCH --mem=256G
 #SBATCH --cpus-per-gpu=10
 #SBATCH --time=24:00:00
-#SBATCH --output=notebooks/graha-flm-finetuning/logs/sem_seg_finetune_%j.out
-#SBATCH --error=notebooks/graha-flm-finetuning/logs/sem_seg_finetune_%j.err
+#SBATCH --output=notebooks/full_model/logs/sem_seg_finetune_%j.out
+#SBATCH --error=notebooks/full_model/logs/sem_seg_finetune_%j.err
 
 set -euo pipefail
 
@@ -14,26 +14,26 @@ START_TIME="$(date +%s)"
 START_READABLE="$(date)"
 
 SUBMIT_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
-if [[ -f "${SUBMIT_DIR}/notebooks/graha-flm-finetuning/lfm_seg_finetuning_direct.py" ]]; then
-  SCRIPT_DIR="${SUBMIT_DIR}/notebooks/graha-flm-finetuning"
-elif [[ -f "${SUBMIT_DIR}/lfm_seg_finetuning_direct.py" ]]; then
-  SCRIPT_DIR="${SUBMIT_DIR}"
+if [[ -f "${SUBMIT_DIR}/lfm/full_model/lfm_seg_finetuning_direct.py" ]]; then
+  REPO_DIR="${SUBMIT_DIR}"
+elif [[ -f "${SUBMIT_DIR}/../../lfm/full_model/lfm_seg_finetuning_direct.py" ]]; then
+  REPO_DIR="$(cd "${SUBMIT_DIR}/../.." && pwd)"
 else
-  echo "Could not locate lfm_seg_finetuning_direct.py from submit directory: ${SUBMIT_DIR}" >&2
+  echo "Could not locate lfm/full_model/lfm_seg_finetuning_direct.py from submit directory: ${SUBMIT_DIR}" >&2
   exit 1
 fi
 
-cd "${SCRIPT_DIR}"
-mkdir -p logs
+cd "${REPO_DIR}"
+mkdir -p notebooks/full_model/logs
 
 echo "Job started at: ${START_READABLE}"
 echo "Job ID: ${SLURM_JOB_ID:-unknown}"
 echo "Node list: ${SLURM_NODELIST:-unknown}"
-echo "Working directory: ${SCRIPT_DIR}"
+echo "Working directory: ${REPO_DIR}"
 echo "CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-unset}"
 echo
 
-python lfm_seg_finetuning_direct.py "$@"
+python -m lfm.full_model.lfm_seg_finetuning_direct "$@"
 
 END_TIME="$(date +%s)"
 END_READABLE="$(date)"

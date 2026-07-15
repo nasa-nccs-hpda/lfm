@@ -10,7 +10,7 @@ import torch
 from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader, Dataset, random_split
 
-from datamodule_utils import (
+from .datamodule_utils import (
     boxes_to_tensor,
     center_crop,
     collate_instance_segmentation,
