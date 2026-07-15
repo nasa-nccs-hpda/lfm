@@ -9,7 +9,7 @@ To run one of the notebooks:
 1. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov` using your NCCS LDAP credentials.
 2. Select the JupyterHub GPU profile: "[aarch64] 1 H100, 70 CPU Cores, 550GB Memory, 6 Hour Session" from the dropdown menu. Click on "Start" after the selection.
 3. As your session starts, your session should take you directly to a "Launcher" section. If, on the other hand, you are prompted to select a kernel, you can go ahead and click on "Select" within that window. If your session does not start, this could be related to waiting on available resources, and you will need to try again.
-4. Use the file explorer interface on the left to navigate to a directory where you would like to run the example workflow. We suggest you use a directory in your $NOBACKUP space (e.g. /explore/nobackup/people/your_username/lfm). Feel free to create a new directory to run these workflows as well. To create a new directory, click on the directory icon in the upper left corner, and set the name of the new directory.
+4. Use the file explorer interface on the left to navigate to a directory where you would like to run the example workflow. We suggest you use a directory in your nobackup space, at /explore/nobackup/people/your_username/lfm. Feel free to create a new directory to run these workflows as well. To create a new directory, click on the directory icon in the upper left corner, and set the name of the new directory.
 5. Open a Terminal from JupyterHub using the "Launcher" screen (it is open by default in a new Jupyter session). The Terminal option is at the very bottom of this screen with a "$_" symbol under the "Other" section.
 
 6. From the newly opened Terminal:
@@ -46,10 +46,32 @@ To run one of the notebooks:
 10. After navigating to the `lfm/notebooks` folder, open your notebook of choice by double-clicking it. If this is your first time opening the notebook, you will get a box asking to select a kernel profile. **Select "lfm_kernel"**. If this box does not appear automatically, click the kernel name in the top-right corner (it might display "Python 3" or similar), and select "lfm_kernel" from the dropdown menu. **Verify that "lfm_kernel" now appears in the top-right corner**
 11. Run the notebook, using the button that looks like the fast-forward icon (>>). Click the red "Restart" button. This will execute all the cells from the notebook in order. One notebook should be run at a time.
 
+## FAQ
+
+### The outputs are too long/too short in the notebooks. How can I change this?
+Jupyter notebooks have a feature where you can collapse or expand the outputs, which helps manage information in long notebooks, or helps to see figures or text outputs. To collapse/expand a notebook output:
+
+1. Navigate to the cell whose output you're interested in.
+2. Ensure that you've run the cell and that it's generated an output. You can verify this by looking to the left of the cell; it should say `[1]` (for the first cell, for instance), or the corresponding cell number.
+3. Click to the left of the notebook cell, right where you see the cell number.
+4. You will see two blue bars; one will be right next to the cell itself, and one will be next to the output (image, text, etc)
+5. Hover to the right of the blue bar that's to the left of the output (this bar will be below the first blue bar).
+6. You should see a gray rectangle next to the blue bar; click this to either collapse the output (creating a scrollable view) or expand the output (showing the full contents).
+**Note**: clicking the blue bar next to the output will hide the output. You can reverse this by clicking on the blue bar again.
+
+### I did something and the code in the cell no longer works/looks different. How can I reverse this?
+You have likely changed the cell from code to markdown, or vice versa! Markdown is just another form of text that's easy to read and format, and can easily be converted back to code. To change the cell type, follow these steps:
+
+1. Navigate to the cell that you wish to change.
+2. Click to the left of the cell, where you see either `[ ]`, or the corresponding cell number in parentheses. For example, the first cell would have `[ ]` or `[1]`.
+3. After clicking this area, you should see the cell highlighted with a blue outline.
+4. At the top of the notebook, look for the dropdown that says either "Code" or "Markdown".
+5. Click this dropdown, and select the appropriate cell type. The appropriate cell type for plain english is markdown, while everything else should be code.
+
 ## Model and data specifications
 
 ### Model specifications
-The SAT-493M ViT-L/16 distilled DinoV3 encoder was used (trained on Satellite data). All encoder parameters were unfrozen for fine-tuning. See the [DinoV3 repo](https://github.com/facebookresearch/dinov3) for more info. For instance segmentation, the Mask2Former architecture was used as part of the encoder, on top of the DinoV3 SAT-493M encoder ([M2F Example](https://github.com/Carti-97/DINOv3-Mask2former), [M2F Website](https://arxiv.org/abs/2112.01527](https://mask2former.com/)).
+The SAT-493M ViT-L/16 distilled DinoV3 encoder was used (trained on Satellite data). All encoder parameters were unfrozen for fine-tuning. See the [DinoV3 repo](https://github.com/facebookresearch/dinov3) for more info. For instance segmentation, the Mask2Former architecture was used as part of the encoder, on top of the DinoV3 SAT-493M encoder ([M2F Example](https://github.com/Carti-97/DINOv3-Mask2former), [M2F Website](https://arxiv.org/abs/2112.01527](https://mask2former.com/))).
 
 ### Data Specifications
 

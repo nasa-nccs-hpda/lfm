@@ -1,4 +1,4 @@
-# lfm/tasks/segmentation/__init__.py
+# lfm/toy_model/sem_seg/__init__.py
 
 import sys
 import os

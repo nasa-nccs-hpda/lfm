@@ -195,8 +195,7 @@ def load_dinov3_encoder(
             repo_or_dir="facebookresearch/dinov3",  # GitHub repo
             model=model,
             source="github",
-            weights=weights_local_checkpoint,
-            force_reload=True,
+            weights=weights_local_checkpoint
         ).to(device)
         print("Encoder loaded with pretrained weights.")
         return encoder
