@@ -59,7 +59,7 @@ Linear refactor plan:
    - Confirm batches load, loss computes, checkpoints save, and both workflows
      can run outside the interactive notebook.
 
-6. [In-Progress] Change the old toy comparison baseline to 256x256 crop inputs
+6. [Completed] Change the old toy comparison baseline to 256x256 crop inputs
    - Add an explicit spatial transform option to the toy comparison data path:
      resize or crop.
    - Implement crop behavior so images and labels use the same crop window.
@@ -71,7 +71,7 @@ Linear refactor plan:
      crop behavior clearly.
    - Smoke-test notebook and sbatch for 1 epoch after this change.
 
-7. [Pending] Refine the comparison notebook to mirror the original semantic
+7. [Completed] Refine the comparison notebook to mirror the original semantic
    segmentation notebook
    - Reorder and rename cells to match the original notebook's interactive flow
      as closely as practical.
@@ -80,7 +80,7 @@ Linear refactor plan:
    - Avoid duplicating large logic in notebook cells when the script helper
      functions already provide it.
 
-8. [Pending] Restore validation visualization for the old toy comparison
+8. [In-Progress] Restore validation visualization for the old toy comparison
    - Add validation plotting for both notebook and sbatch script runs.
    - Match the original semantic segmentation notebook's expected visual
      debugging behavior as closely as practical.

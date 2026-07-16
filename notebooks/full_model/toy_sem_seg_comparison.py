@@ -33,6 +33,9 @@ class ToyComparisonConfig:
     band_filter: list[int]
     target_size: tuple[int, int]
     spatial_transform: str
+    max_train_samples: int | None
+    max_val_samples: int | None
+    max_test_samples: int | None
     batch_size: int
     num_workers: int
     max_epochs: int
@@ -64,6 +67,9 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         band_filter=args.band_filter,
         target_size=(args.target_size, args.target_size),
         spatial_transform=args.spatial_transform,
+        max_train_samples=args.max_train_samples,
+        max_val_samples=args.max_val_samples,
+        max_test_samples=args.max_test_samples,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         max_epochs=args.max_epochs,
@@ -145,6 +151,9 @@ def create_datamodule(config: ToyComparisonConfig, output_dir: Path) -> ToySemSe
         spatial_transform=config.spatial_transform,
         band_filter=config.band_filter,
         normalize_inputs=config.normalize_inputs,
+        max_train_samples=config.max_train_samples,
+        max_val_samples=config.max_val_samples,
+        max_test_samples=config.max_test_samples,
         output_dir=output_dir,
     )
     datamodule.setup("fit")
@@ -232,6 +241,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6])
     parser.add_argument("--target-size", type=int, default=256)
     parser.add_argument("--spatial-transform", choices=["resize", "crop"], default="crop")
+    parser.add_argument("--max-train-samples", type=int, default=None)
+    parser.add_argument("--max-val-samples", type=int, default=None)
+    parser.add_argument("--max-test-samples", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=10)
     parser.add_argument("--max-epochs", type=int, default=100)
