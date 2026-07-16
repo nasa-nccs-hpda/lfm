@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 import torch
+from argparse import Namespace
 from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
 
+from lfm.full_model import lfm_seg_finetuning_direct as graha_workflow
 from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_datamodule import (
     ToySemSegSplitDataModule,
 )
@@ -22,6 +25,8 @@ from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_lightning import (
 from lfm.full_model.utils import (
     ValidationPlotCallback,
     create_timestamped_output_dir,
+    evaluate_prediction_caches,
+    plot_prediction_cache_comparison,
     save_prediction_cache,
 )
 from lfm.full_model.utils.utils import ensure_data_symlink
@@ -54,6 +59,11 @@ class ToyComparisonConfig:
     cache_predictions: bool
     prediction_split: str
     prediction_n_samples: int
+    graha_base_output_dir: Path
+    graha_pretrain_dir: Path | None
+    graha_stats_batch_size: int
+    graha_batch_size: int
+    graha_num_workers: int
     seed: int
 
 
@@ -67,6 +77,14 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         else notebook_dir / "outputs" / "toy_sem_seg_comparison"
     )
     dino_checkpoint = Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None
+    graha_base_output_dir = (
+        Path(args.graha_base_output_dir).resolve()
+        if args.graha_base_output_dir
+        else notebook_dir / "outputs" / "graha_finetuning"
+    )
+    graha_pretrain_dir = (
+        Path(args.graha_pretrain_dir).resolve() if args.graha_pretrain_dir else None
+    )
 
     return ToyComparisonConfig(
         repo_root=repo_root,
@@ -93,6 +111,11 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         cache_predictions=args.cache_predictions,
         prediction_split=args.prediction_split,
         prediction_n_samples=args.prediction_n_samples,
+        graha_base_output_dir=graha_base_output_dir,
+        graha_pretrain_dir=graha_pretrain_dir,
+        graha_stats_batch_size=args.graha_stats_batch_size,
+        graha_batch_size=args.graha_batch_size,
+        graha_num_workers=args.graha_num_workers,
         seed=args.seed,
     )
 
@@ -213,6 +236,82 @@ def create_trainer(config: ToyComparisonConfig, output_dir: Path) -> Trainer:
     )
 
 
+def run_graha_workflow(
+    config: ToyComparisonConfig,
+    *,
+    no_fit: bool,
+) -> tuple[Path, Path | None]:
+    """Run the Graha/Lunar-FM path with the same split data and cache settings."""
+    graha_workflow.configure_proj_environment()
+    graha_args = Namespace(
+        data_root=str(config.data_root),
+        base_output_dir=str(config.graha_base_output_dir),
+        pretrain_dir=str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None,
+        crop_size=config.target_size[0],
+        stats_batch_size=config.graha_stats_batch_size,
+        batch_size=config.graha_batch_size,
+        num_workers=config.graha_num_workers,
+        max_epochs=config.max_epochs,
+        cache_predictions=config.cache_predictions,
+        prediction_split=config.prediction_split,
+        prediction_n_samples=config.prediction_n_samples,
+        seed=config.seed,
+        no_fit=no_fit,
+    )
+    graha_config = graha_workflow.build_config(graha_args)
+    graha_workflow.configure_python_paths(graha_config)
+    graha_workflow.print_config(graha_config)
+    graha_workflow.validate_required_paths(graha_config)
+
+    deps = graha_workflow.import_project_dependencies()
+    datamodule_cls = deps["LunarSemanticSegmentationDatamodule"]
+    task_cls = graha_workflow.make_notebook_task_class(deps["LunarShapeSegmentationTask"])
+
+    output_dir = graha_workflow.create_output_dirs(
+        graha_config,
+        deps["create_timestamped_output_dir"],
+    )
+    seed_everything(graha_config.seed)
+    means, stds = graha_workflow.calculate_train_stats(graha_config, datamodule_cls)
+    datamodule = graha_workflow.create_datamodule(
+        graha_config,
+        datamodule_cls,
+        means,
+        stds,
+    )
+    sample_batch = graha_workflow.inspect_batch(datamodule)
+    task = graha_workflow.create_task(graha_config, task_cls, sample_batch)
+    graha_workflow.inspect_backbone(task)
+    trainer = graha_workflow.create_trainer(
+        graha_config,
+        output_dir,
+        deps["ValidationPlotCallback"],
+    )
+
+    if no_fit:
+        print("Skipping Graha trainer.fit() because --no-fit was set.")
+    else:
+        trainer.fit(task, datamodule=datamodule)
+
+    prediction_cache = None
+    if config.cache_predictions:
+        prediction_cache = save_prediction_cache(
+            task=task,
+            datamodule=datamodule,
+            output_dir=output_dir,
+            model_name="graha",
+            split=config.prediction_split,
+            n_samples=config.prediction_n_samples,
+        )
+
+    del trainer, task, datamodule, sample_batch
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    print("Released Graha model objects and cleared CUDA cache.", flush=True)
+    return output_dir, prediction_cache
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -247,6 +346,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cache-predictions", action="store_true")
     parser.add_argument("--prediction-split", choices=["train", "val", "test"], default="val")
     parser.add_argument("--prediction-n-samples", type=int, default=20)
+    parser.add_argument("--graha-base-output-dir", type=str, default=None)
+    parser.add_argument("--graha-pretrain-dir", type=str, default=None)
+    parser.add_argument("--graha-stats-batch-size", type=int, default=16)
+    parser.add_argument("--graha-batch-size", type=int, default=16)
+    parser.add_argument("--graha-num-workers", type=int, default=10)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-fit", action="store_true", help="Build data/model/trainer but skip fit.")
     return parser.parse_args()
@@ -272,15 +376,17 @@ def main() -> None:
     print("Lightning trainer created.", flush=True)
 
     if args.no_fit:
-        print("Skipping trainer.fit() because --no-fit was set.")
-        return
-    print("Starting trainer.fit()...", flush=True)
-    trainer.fit(task, datamodule=datamodule)
-    print("trainer.fit() complete. Starting trainer.test()...", flush=True)
-    trainer.test(task, datamodule=datamodule, ckpt_path="best")
-    print("trainer.test() complete.", flush=True)
+        print("Skipping DINO trainer.fit() because --no-fit was set.")
+    else:
+        print("Starting DINO trainer.fit()...", flush=True)
+        trainer.fit(task, datamodule=datamodule)
+        print("DINO trainer.fit() complete. Starting trainer.test()...", flush=True)
+        trainer.test(task, datamodule=datamodule, ckpt_path="best")
+        print("DINO trainer.test() complete.", flush=True)
+
+    toy_prediction_cache = None
     if config.cache_predictions:
-        save_prediction_cache(
+        toy_prediction_cache = save_prediction_cache(
             task=task,
             datamodule=datamodule,
             output_dir=output_dir,
@@ -288,6 +394,32 @@ def main() -> None:
             split=config.prediction_split,
             n_samples=config.prediction_n_samples,
         )
+
+    del trainer, task, model, datamodule
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    print("Released DINO model objects and cleared CUDA cache.", flush=True)
+
+    _, graha_prediction_cache = run_graha_workflow(config, no_fit=args.no_fit)
+
+    if config.cache_predictions and toy_prediction_cache and graha_prediction_cache:
+        comparison_caches = {
+            "toy": toy_prediction_cache,
+            "graha": graha_prediction_cache,
+        }
+        plot_prediction_cache_comparison(
+            comparison_caches,
+            output_dir / "comparison_plots",
+            n_samples=min(5, config.prediction_n_samples),
+        )
+        _, metric_summary = evaluate_prediction_caches(
+            comparison_caches,
+            output_dir / "comparison_metrics",
+        )
+        print("Comparison metric summary:")
+        for row in metric_summary:
+            print("  " + json.dumps(row, sort_keys=True))
 
 
 if __name__ == "__main__":

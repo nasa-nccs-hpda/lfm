@@ -37,7 +37,7 @@ echo
 
 module load miniforge
 mamba activate graha-lunar-fm
-python notebooks/full_model/toy_sem_seg_comparison.py "$@"
+python notebooks/full_model/toy_sem_seg_comparison.py --cache-predictions "$@"
 
 END_TIME="$(date +%s)"
 END_READABLE="$(date)"
