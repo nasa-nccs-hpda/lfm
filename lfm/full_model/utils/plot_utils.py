@@ -129,6 +129,11 @@ def _sample_key(image_path: str | None, sample_idx: int) -> str:
     return f"sample_{sample_idx:04d}"
 
 
+def _display_sample_key(sample_key: str) -> str:
+    """Shorten chip stem to the stable M..._r..._c... identifier."""
+    return sample_key.split("_input", 1)[0]
+
+
 def _get_split_dataloader(datamodule, split: str):
     if split == "train":
         return datamodule.train_dataloader()
@@ -367,7 +372,7 @@ def plot_prediction_cache_comparison(
         cmap_image = "gray" if img_vis.ndim == 2 else None
 
         axes[0, col].imshow(img_vis, cmap=cmap_image)
-        axes[0, col].set_title(f"{sample_key}\n{display_note}", fontsize=10)
+        axes[0, col].set_title(f"{_display_sample_key(sample_key)}\n{display_note}", fontsize=10)
         axes[1, col].imshow(label, cmap=cmap_label, vmin=0, vmax=1)
         axes[1, col].set_title("Ground Truth", fontsize=10)
 
@@ -388,9 +393,14 @@ def plot_prediction_cache_comparison(
         for row_idx in range(n_rows):
             axes[row_idx, col].axis("off")
 
-    fig.suptitle("Side-by-Side Segmentation Predictions", fontsize=16, fontweight="bold")
+    fig.suptitle(
+        "Side-by-Side Segmentation Predictions",
+        fontsize=16,
+        fontweight="bold",
+        y=0.995,
+    )
     fig.patch.set_facecolor("white")
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.94])
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
