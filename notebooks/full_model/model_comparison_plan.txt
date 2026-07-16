@@ -80,14 +80,27 @@ Linear refactor plan:
    - Avoid duplicating large logic in notebook cells when the script helper
      functions already provide it.
 
-8. [In-Progress] Restore validation visualization for the old toy comparison
+8. [Completed] Restore validation visualization for the old toy comparison
    - Add validation plotting for both notebook and sbatch script runs.
    - Match the original semantic segmentation notebook's expected visual
      debugging behavior as closely as practical.
    - Save plots into the timestamped output directory.
    - Ensure a 1-epoch run produces at least one validation plot.
 
-9. [Pending] Add shared evaluation metrics
+9. [In-Progress] Refactor the comparison notebook for side-by-side model comparison
+   - Keep training jobs separate for the toy model and Graha/full model.
+   - Load one trained model at a time for inference to avoid holding both large
+     models in VRAM/RAM simultaneously.
+   - Save per-sample predictions, probabilities/logits if useful, and metadata
+     into the timestamped output directory.
+   - Build side-by-side notebook cells that load saved predictions from both
+     runs and plot the same samples together.
+   - Prefer a lightweight prediction-cache format so the notebook can compare
+     results without rerunning both models.
+   - Only consider simultaneous model loading later if the one-at-a-time path
+     is too slow and measured VRAM usage shows it is safe.
+
+10. [Pending] Add shared evaluation metrics
    - Build evaluator helpers that can consume either model through a small
      prediction adapter.
    - Evaluate both models on the same validation/test split.
@@ -101,7 +114,7 @@ Linear refactor plan:
        ground-truth foreground fraction
    - Save metrics as CSV and/or JSON.
 
-10. [Pending] Add side-by-side Graha vs toy plots
+11. [Pending] Add side-by-side Graha vs toy plots
     - For the same validation/test samples, save panels with:
         input RGB composite
         ground truth
@@ -111,7 +124,7 @@ Linear refactor plan:
         Graha overlay
     - Use the same thresholding, colors, sample order, and filenames.
 
-11. [Pending] Run the 100-epoch comparison
+12. [Pending] Run the 100-epoch comparison
     - Submit the toy-model script with sbatch.
     - Submit the Graha/full-model script with sbatch.
     - Run shared evaluation on the same held-out split.

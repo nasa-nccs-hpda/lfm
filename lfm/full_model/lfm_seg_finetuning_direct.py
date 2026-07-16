@@ -38,6 +38,9 @@ class FineTuningConfig:
     batch_size: int
     num_workers: int
     max_epochs: int
+    cache_predictions: bool
+    prediction_split: str
+    prediction_n_samples: int
     seed: int
 
 
@@ -99,6 +102,9 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         max_epochs=args.max_epochs,
+        cache_predictions=args.cache_predictions,
+        prediction_split=args.prediction_split,
+        prediction_n_samples=args.prediction_n_samples,
         seed=args.seed,
     )
 
@@ -148,12 +154,14 @@ def import_project_dependencies() -> dict[str, Any]:
     from lfm.full_model.utils import ValidationPlotCallback
     from terratorch_integration.lunar_segmentation_task import LunarShapeSegmentationTask
     from lfm.full_model.utils import create_timestamped_output_dir
+    from lfm.full_model.utils import save_prediction_cache
 
     return {
         "LunarSemanticSegmentationDatamodule": LunarSemanticSegmentationDatamodule,
         "LunarShapeSegmentationTask": LunarShapeSegmentationTask,
         "ValidationPlotCallback": ValidationPlotCallback,
         "create_timestamped_output_dir": create_timestamped_output_dir,
+        "save_prediction_cache": save_prediction_cache,
     }
 
 
@@ -377,6 +385,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=10)
     parser.add_argument("--max-epochs", type=int, default=100)
+    parser.add_argument("--cache-predictions", action="store_true")
+    parser.add_argument("--prediction-split", choices=["train", "val", "test"], default="val")
+    parser.add_argument("--prediction-n-samples", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-fit", action="store_true", help="Build everything but skip trainer.fit().")
     return parser.parse_args()
@@ -408,6 +419,15 @@ def main() -> None:
         print("Skipping trainer.fit() because --no-fit was set.")
         return
     trainer.fit(task, datamodule=datamodule)
+    if config.cache_predictions:
+        deps["save_prediction_cache"](
+            task=task,
+            datamodule=datamodule,
+            output_dir=output_dir,
+            model_name="graha",
+            split=config.prediction_split,
+            n_samples=config.prediction_n_samples,
+        )
 
 
 if __name__ == "__main__":

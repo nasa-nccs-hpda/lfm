@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -96,6 +97,48 @@ def _extract_logits(model_output) -> torch.Tensor:
     raise TypeError(f"Unsupported model output type for plotting: {type(model_output)}")
 
 
+def _extract_paths(batch) -> tuple[list[str | None], list[str | None]]:
+    if isinstance(batch, dict):
+        filenames = batch.get("filename")
+        if filenames is None:
+            batch_size = batch["image"].shape[0]
+            return [None] * batch_size, [None] * batch_size
+        if isinstance(filenames, (str, Path)):
+            filenames = [str(filenames)]
+        return [str(path) for path in filenames], [None] * len(filenames)
+    if isinstance(batch, (tuple, list)):
+        batch_size = batch[0].shape[0]
+        image_paths = batch[2] if len(batch) > 2 else [None] * batch_size
+        label_paths = batch[3] if len(batch) > 3 else [None] * batch_size
+        return (
+            [str(path) if path is not None else None for path in image_paths],
+            [str(path) if path is not None else None for path in label_paths],
+        )
+    return [None], [None]
+
+
+def _prediction_probabilities(output: torch.Tensor) -> torch.Tensor:
+    if output.shape[1] > 1:
+        return torch.softmax(output, dim=1)[:, 1]
+    return torch.sigmoid(output[:, 0])
+
+
+def _sample_key(image_path: str | None, sample_idx: int) -> str:
+    if image_path:
+        return Path(image_path).stem
+    return f"sample_{sample_idx:04d}"
+
+
+def _get_split_dataloader(datamodule, split: str):
+    if split == "train":
+        return datamodule.train_dataloader()
+    if split == "val":
+        return datamodule.val_dataloader()
+    if split == "test":
+        return datamodule.test_dataloader()
+    raise ValueError(f"Unsupported split: {split}")
+
+
 def plot_validation_predictions(
     task,
     datamodule,
@@ -175,6 +218,186 @@ def plot_validation_predictions(
     plt.close(fig)
     task.train(was_training)
     print(f"Saved validation plot to {save_path}")
+    return save_path
+
+
+def save_prediction_cache(
+    task,
+    datamodule,
+    output_dir: str | Path,
+    *,
+    model_name: str,
+    split: str = "val",
+    n_samples: int = 20,
+    setup_datamodule: bool = True,
+) -> Path:
+    """Run one model over a split and save lightweight prediction .npz files."""
+    cache_dir = Path(output_dir) / "prediction_cache" / model_name / split
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    if setup_datamodule:
+        datamodule.setup("fit" if split in {"train", "val"} else split)
+    dataloader = _get_split_dataloader(datamodule, split)
+
+    was_training = task.training
+    task.eval()
+
+    manifest = []
+    saved = 0
+    device = task.device
+
+    with torch.no_grad():
+        for batch in dataloader:
+            image_paths, label_paths = _extract_paths(batch)
+            batch = _move_batch_to_device(batch, device)
+            x, y = _extract_image_and_mask(batch)
+            output = _extract_logits(task(x))
+            probs = _prediction_probabilities(output)
+            preds = (probs > 0.5).long()
+
+            images = x.detach().cpu()
+            labels = y.detach().cpu()
+            probs = probs.detach().cpu()
+            preds = preds.detach().cpu()
+
+            for i in range(images.shape[0]):
+                if saved >= n_samples:
+                    break
+                image_path = image_paths[i] if i < len(image_paths) else None
+                label_path = label_paths[i] if i < len(label_paths) else None
+                sample_key = _sample_key(image_path, saved)
+                filename = f"{saved:04d}_{sample_key}.npz"
+                save_path = cache_dir / filename
+
+                np.savez_compressed(
+                    save_path,
+                    image=images[i].numpy(),
+                    label=labels[i].numpy(),
+                    pred=preds[i].numpy(),
+                    prob=probs[i].numpy(),
+                    sample_key=sample_key,
+                    model_name=model_name,
+                    image_path=image_path or "",
+                    label_path=label_path or "",
+                )
+                manifest.append(
+                    {
+                        "index": saved,
+                        "sample_key": sample_key,
+                        "file": filename,
+                        "image_path": image_path,
+                        "label_path": label_path,
+                    }
+                )
+                saved += 1
+            if saved >= n_samples:
+                break
+
+    task.train(was_training)
+    manifest_path = cache_dir / "manifest.json"
+    with manifest_path.open("w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+    print(f"Saved {saved} prediction cache file(s) to {cache_dir}")
+    return cache_dir
+
+
+def _load_prediction_cache(cache_dir: str | Path) -> dict[str, dict]:
+    cache_dir = Path(cache_dir)
+    manifest_path = cache_dir / "manifest.json"
+    if manifest_path.exists():
+        with manifest_path.open("r", encoding="utf-8") as f:
+            manifest = json.load(f)
+        files = [cache_dir / item["file"] for item in manifest]
+    else:
+        files = sorted(cache_dir.glob("*.npz"))
+
+    samples = {}
+    for path in files:
+        data = np.load(path, allow_pickle=False)
+        sample_key = str(data["sample_key"])
+        samples[sample_key] = {
+            "file": path,
+            "image": data["image"],
+            "label": data["label"],
+            "pred": data["pred"],
+            "prob": data["prob"],
+            "image_path": str(data["image_path"]),
+            "label_path": str(data["label_path"]),
+        }
+    return samples
+
+
+def plot_prediction_cache_comparison(
+    cache_dirs: dict[str, str | Path],
+    output_dir: str | Path,
+    *,
+    n_samples: int = 5,
+    filename: str = "side_by_side_predictions.png",
+    display_method: str = "minmax",
+    dpi: int = 200,
+) -> Path:
+    """Create side-by-side plots from saved prediction caches."""
+    loaded = {name: _load_prediction_cache(path) for name, path in cache_dirs.items()}
+    if not loaded:
+        raise ValueError("No prediction caches were provided.")
+
+    first_model = next(iter(loaded))
+    shared_keys = set(loaded[first_model])
+    for samples in loaded.values():
+        shared_keys &= set(samples)
+    sample_keys = sorted(shared_keys)[:n_samples]
+    if not sample_keys:
+        raise ValueError("Prediction caches do not contain matching sample keys.")
+
+    model_names = list(loaded)
+    n_rows = 2 + (2 * len(model_names))
+    n_cols = len(sample_keys)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 3.5 * n_rows))
+    if n_cols == 1:
+        axes = axes.reshape(n_rows, 1)
+
+    cmap_pred = ListedColormap(["black", "yellow"])
+    cmap_label = ListedColormap(["black", "red"])
+
+    for col, sample_key in enumerate(sample_keys):
+        reference = loaded[first_model][sample_key]
+        img = reference["image"].transpose(1, 2, 0)
+        label = reference["label"]
+        img_vis, display_note = prepare_image_for_display(img, method=display_method)
+        cmap_image = "gray" if img_vis.ndim == 2 else None
+
+        axes[0, col].imshow(img_vis, cmap=cmap_image)
+        axes[0, col].set_title(f"{sample_key}\n{display_note}", fontsize=10)
+        axes[1, col].imshow(label, cmap=cmap_label, vmin=0, vmax=1)
+        axes[1, col].set_title("Ground Truth", fontsize=10)
+
+        row = 2
+        for model_name in model_names:
+            sample = loaded[model_name][sample_key]
+            pred = sample["pred"]
+            f1 = calculate_f1_score(pred, label)
+
+            axes[row, col].imshow(pred, cmap=cmap_pred, vmin=0, vmax=1)
+            axes[row, col].set_title(f"{model_name} Pred\nF1: {f1:.3f}", fontsize=10)
+            row += 1
+
+            axes[row, col].imshow(create_overlay_image(img_vis, pred))
+            axes[row, col].set_title(f"{model_name} Overlay", fontsize=10)
+            row += 1
+
+        for row_idx in range(n_rows):
+            axes[row_idx, col].axis("off")
+
+    fig.suptitle("Side-by-Side Segmentation Predictions", fontsize=16, fontweight="bold")
+    fig.patch.set_facecolor("white")
+    plt.tight_layout()
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    save_path = output_dir / filename
+    plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved side-by-side comparison plot to {save_path}")
     return save_path
 
 

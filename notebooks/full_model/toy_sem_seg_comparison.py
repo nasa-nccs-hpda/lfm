@@ -19,7 +19,11 @@ from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_datamodule import (
 from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_lightning import (
     ToySemSegLightningModule,
 )
-from lfm.full_model.utils import ValidationPlotCallback, create_timestamped_output_dir
+from lfm.full_model.utils import (
+    ValidationPlotCallback,
+    create_timestamped_output_dir,
+    save_prediction_cache,
+)
 from lfm.full_model.utils.utils import ensure_data_symlink
 from lfm.toy_model.sem_seg.sseg_model import DINOSegmentation, load_dinov3_encoder
 
@@ -47,6 +51,9 @@ class ToyComparisonConfig:
     normalize_inputs: bool
     plot_every_n_epochs: int
     plot_n_samples: int
+    cache_predictions: bool
+    prediction_split: str
+    prediction_n_samples: int
     seed: int
 
 
@@ -83,6 +90,9 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         normalize_inputs=False,
         plot_every_n_epochs=args.plot_every_n_epochs,
         plot_n_samples=args.plot_n_samples,
+        cache_predictions=args.cache_predictions,
+        prediction_split=args.prediction_split,
+        prediction_n_samples=args.prediction_n_samples,
         seed=args.seed,
     )
 
@@ -234,6 +244,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--freeze-encoder", action="store_true")
     parser.add_argument("--plot-every-n-epochs", type=int, default=1)
     parser.add_argument("--plot-n-samples", type=int, default=5)
+    parser.add_argument("--cache-predictions", action="store_true")
+    parser.add_argument("--prediction-split", choices=["train", "val", "test"], default="val")
+    parser.add_argument("--prediction-n-samples", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-fit", action="store_true", help="Build data/model/trainer but skip fit.")
     return parser.parse_args()
@@ -266,6 +279,15 @@ def main() -> None:
     print("trainer.fit() complete. Starting trainer.test()...", flush=True)
     trainer.test(task, datamodule=datamodule, ckpt_path="best")
     print("trainer.test() complete.", flush=True)
+    if config.cache_predictions:
+        save_prediction_cache(
+            task=task,
+            datamodule=datamodule,
+            output_dir=output_dir,
+            model_name="toy",
+            split=config.prediction_split,
+            n_samples=config.prediction_n_samples,
+        )
 
 
 if __name__ == "__main__":
