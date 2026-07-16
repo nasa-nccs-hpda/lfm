@@ -19,7 +19,8 @@ from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_datamodule import (
 from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_lightning import (
     ToySemSegLightningModule,
 )
-from lfm.full_model.utils import create_timestamped_output_dir, ensure_data_symlink
+from lfm.full_model.utils import create_timestamped_output_dir
+from lfm.full_model.utils.utils import ensure_data_symlink
 from lfm.toy_model.sem_seg.sseg_model import DINOSegmentation, load_dinov3_encoder
 
 
