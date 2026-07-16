@@ -107,6 +107,7 @@ class ToySemSegSplitDataModule(LightningDataModule):
             max_samples=self.max_samples[split],
             band_filter=self.band_filter,
             normalize_inputs=self.normalize_inputs,
+            split_name=split,
         )
 
     def train_dataloader(self) -> DataLoader:

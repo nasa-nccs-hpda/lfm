@@ -48,7 +48,9 @@ class LunarSegmentationDataset(Dataset):
         no_data_replace: float | None = None,
         no_label_replace: int | None = None,
         transform: Callable[[dict], dict] | None = None,
+        split_name: str | None = None,
     ) -> None:
+        self.split_name = split_name or Path(chips_dir).parent.name
         self.crop_size = crop_size
         self.means = means
         self.stds = stds
@@ -63,6 +65,10 @@ class LunarSegmentationDataset(Dataset):
             label_glob=label_glob,
             image_suffix=image_suffix,
             label_suffix=label_suffix,
+        )
+        print(
+            f"[{self.split_name}] Found {len(self.records)} matched image-label pairs "
+            f"in {Path(chips_dir).parent}"
         )
 
     def __len__(self) -> int:
@@ -205,7 +211,13 @@ class LunarSegmentationDatamodule(LightningDataModule):
         self.val_dataset = None
         self.test_dataset = None
 
-    def _make_dataset(self, chips_dir: Path, labels_dir: Path) -> Dataset:
+    def _make_dataset(
+        self,
+        chips_dir: Path,
+        labels_dir: Path,
+        *,
+        split_name: str | None = None,
+    ) -> Dataset:
         return self.dataset_cls(
             chips_dir=chips_dir,
             labels_dir=labels_dir,
@@ -219,18 +231,21 @@ class LunarSegmentationDatamodule(LightningDataModule):
             binarize_mask=self.binarize_mask,
             no_data_replace=self.no_data_replace,
             no_label_replace=self.no_label_replace,
+            split_name=split_name,
         )
 
     def _dataset_for_split(self, split: str) -> Dataset:
         return self._make_dataset(
             chips_dir=self.data_root / split / self.chips_subdir,
             labels_dir=self.data_root / split / self.labels_subdir,
+            split_name=split,
         )
 
     def _flat_dataset(self) -> Dataset:
         return self._make_dataset(
             chips_dir=self.data_root / self.chips_subdir,
             labels_dir=self.data_root / self.labels_subdir,
+            split_name="full",
         )
 
     def setup(self, stage: str | None = None) -> None:

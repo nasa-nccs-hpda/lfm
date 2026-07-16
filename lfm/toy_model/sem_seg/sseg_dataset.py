@@ -52,12 +52,15 @@ class LunarCraterDataset(Dataset):
         band_filter: List[int] = None,
         normalize_inputs: bool = True,
         spatial_transform: str = "resize",
+        split_name: Optional[str] = None,
     ):
         # Hardcoded directory structure and file types
         self.image_dir = f"{base_dir}/chips"
         self.label_dir = f"{base_dir}/labels"
         self.image_file_type = ".tif"
         self.label_file_type = ".npy"
+        self.split_name = split_name or Path(base_dir).name
+        self.log_prefix = f"[{self.split_name}] "
 
         self.target_size = target_size
         self.normalize_inputs = normalize_inputs
@@ -107,10 +110,10 @@ class LunarCraterDataset(Dataset):
                     f"Band filter: {band_filter}, "
                     f"len={len(band_filter)}"
                 )
-            print(f"Filtered inputs and mean/std to channels: {band_filter}")
+            print(f"{self.log_prefix}Filtered inputs and mean/std to channels: {band_filter}")
             self.band_filter = band_filter
         else:
-            print(f"No band filter, using all {example_band_number} bands.")
+            print(f"{self.log_prefix}No band filter, using all {example_band_number} bands.")
             self.band_filter = list(range(example_band_number))
 
         # Extract basenames for matching
@@ -144,10 +147,10 @@ class LunarCraterDataset(Dataset):
         ):
             self.valid_image_paths = self.valid_image_paths[:max_samples]
             self.valid_label_paths = self.valid_label_paths[:max_samples]
-            print(f"Limited to {max_samples} samples")
+            print(f"{self.log_prefix}Limited to {max_samples} samples")
 
-        print(f"Found {len(self.valid_image_paths)} matched image-label pairs")
-        print(f"Dataset configured for {len(self.band_filter)} channel(s)")
+        print(f"{self.log_prefix}Found {len(self.valid_image_paths)} matched image-label pairs")
+        print(f"{self.log_prefix}Dataset configured for {len(self.band_filter)} channel(s)")
 
         if len(self.valid_image_paths) == 0:
             raise ValueError(
