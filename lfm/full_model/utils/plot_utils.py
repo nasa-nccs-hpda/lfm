@@ -59,6 +59,15 @@ def prepare_image_for_display(
 
 
 def create_overlay_image(img_vis: np.ndarray, pred_mask: np.ndarray) -> np.ndarray:
+    return create_colored_overlay_image(img_vis, pred_mask, color=(1.0, 1.0, 0.0))
+
+
+def create_colored_overlay_image(
+    img_vis: np.ndarray,
+    pred_mask: np.ndarray,
+    *,
+    color: tuple[float, float, float],
+) -> np.ndarray:
     if img_vis.ndim == 2:
         img_rgb = np.stack([img_vis] * 3, axis=2)
     else:
@@ -66,9 +75,9 @@ def create_overlay_image(img_vis: np.ndarray, pred_mask: np.ndarray) -> np.ndarr
 
     overlay = img_rgb.copy()
     mask_bool = pred_mask == 1
-    overlay[mask_bool, 0] = 1.0
-    overlay[mask_bool, 1] = 1.0
-    overlay[mask_bool, 2] = 0.0
+    overlay[mask_bool, 0] = color[0]
+    overlay[mask_bool, 1] = color[1]
+    overlay[mask_bool, 2] = color[2]
     alpha = np.where(mask_bool[:, :, None], 0.5, 0.0)
     return np.clip(overlay * alpha + img_rgb * (1 - alpha), 0, 1)
 
@@ -332,6 +341,20 @@ def _load_prediction_cache(cache_dir: str | Path) -> dict[str, dict]:
     return samples
 
 
+def _model_display_name(model_name: str) -> str:
+    if model_name.lower() == "toy":
+        return "Toy"
+    if model_name.lower() == "graha":
+        return "Graha"
+    return model_name.replace("_", " ").title()
+
+
+def _model_color(model_name: str) -> tuple[float, float, float]:
+    if model_name.lower() == "graha":
+        return (0.0, 0.85, 1.0)
+    return (1.0, 1.0, 0.0)
+
+
 def plot_prediction_cache_comparison(
     cache_dirs: dict[str, str | Path],
     output_dir: str | Path,
@@ -361,9 +384,7 @@ def plot_prediction_cache_comparison(
     if n_cols == 1:
         axes = axes.reshape(n_rows, 1)
 
-    cmap_pred = ListedColormap(["black", "yellow"])
     cmap_label = ListedColormap(["black", "red"])
-
     for col, sample_key in enumerate(sample_keys):
         reference = loaded[first_model][sample_key]
         img = reference["image"].transpose(1, 2, 0)
@@ -381,13 +402,18 @@ def plot_prediction_cache_comparison(
             sample = loaded[model_name][sample_key]
             pred = sample["pred"]
             f1 = calculate_f1_score(pred, label)
+            display_name = _model_display_name(model_name)
+            model_color = _model_color(model_name)
+            cmap_pred = ListedColormap(["black", model_color])
 
             axes[row, col].imshow(pred, cmap=cmap_pred, vmin=0, vmax=1)
-            axes[row, col].set_title(f"{model_name} Pred\nF1: {f1:.3f}", fontsize=10)
+            axes[row, col].set_title(f"{display_name} Pred\nF1: {f1:.3f}", fontsize=10)
             row += 1
 
-            axes[row, col].imshow(create_overlay_image(img_vis, pred))
-            axes[row, col].set_title(f"{model_name} Overlay", fontsize=10)
+            axes[row, col].imshow(
+                create_colored_overlay_image(img_vis, pred, color=model_color)
+            )
+            axes[row, col].set_title(f"{display_name} Overlay", fontsize=10)
             row += 1
 
         for row_idx in range(n_rows):
