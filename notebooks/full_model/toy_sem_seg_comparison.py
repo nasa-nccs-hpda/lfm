@@ -19,7 +19,7 @@ from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_datamodule import (
 from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_lightning import (
     ToySemSegLightningModule,
 )
-from lfm.full_model.utils import create_timestamped_output_dir
+from lfm.full_model.utils import ValidationPlotCallback, create_timestamped_output_dir
 from lfm.full_model.utils.utils import ensure_data_symlink
 from lfm.toy_model.sem_seg.sseg_model import DINOSegmentation, load_dinov3_encoder
 
@@ -45,6 +45,8 @@ class ToyComparisonConfig:
     loss_type: str
     freeze_encoder: bool
     normalize_inputs: bool
+    plot_every_n_epochs: int
+    plot_n_samples: int
     seed: int
 
 
@@ -79,6 +81,8 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         loss_type=args.loss_type,
         freeze_encoder=args.freeze_encoder,
         normalize_inputs=False,
+        plot_every_n_epochs=args.plot_every_n_epochs,
+        plot_n_samples=args.plot_n_samples,
         seed=args.seed,
     )
 
@@ -188,6 +192,13 @@ def create_trainer(config: ToyComparisonConfig, output_dir: Path) -> Trainer:
                 save_top_k=3,
                 save_last=True,
             ),
+            ValidationPlotCallback(
+                output_dir=output_dir,
+                n_samples=config.plot_n_samples,
+                every_n_epochs=config.plot_every_n_epochs,
+                display_method="minmax",
+                dpi=150,
+            ),
         ],
     )
 
@@ -221,6 +232,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-decay", type=float, default=1e-3)
     parser.add_argument("--loss-type", type=str, default="focal_dice")
     parser.add_argument("--freeze-encoder", action="store_true")
+    parser.add_argument("--plot-every-n-epochs", type=int, default=1)
+    parser.add_argument("--plot-n-samples", type=int, default=5)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-fit", action="store_true", help="Build data/model/trainer but skip fit.")
     return parser.parse_args()

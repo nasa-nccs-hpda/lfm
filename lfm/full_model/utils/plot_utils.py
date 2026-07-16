@@ -72,8 +72,28 @@ def create_overlay_image(img_vis: np.ndarray, pred_mask: np.ndarray) -> np.ndarr
     return np.clip(overlay * alpha + img_rgb * (1 - alpha), 0, 1)
 
 
-def _move_batch_to_device(batch: dict, device: torch.device) -> dict:
-    return {k: v.to(device) if torch.is_tensor(v) else v for k, v in batch.items()}
+def _move_batch_to_device(batch, device: torch.device):
+    if isinstance(batch, dict):
+        return {k: v.to(device) if torch.is_tensor(v) else v for k, v in batch.items()}
+    if isinstance(batch, (tuple, list)):
+        return tuple(v.to(device) if torch.is_tensor(v) else v for v in batch)
+    return batch.to(device) if torch.is_tensor(batch) else batch
+
+
+def _extract_image_and_mask(batch) -> tuple[torch.Tensor, torch.Tensor]:
+    if isinstance(batch, dict):
+        return batch["image"], batch["mask"]
+    if isinstance(batch, (tuple, list)) and len(batch) >= 2:
+        return batch[0], batch[1]
+    raise TypeError(f"Unsupported validation batch type for plotting: {type(batch)}")
+
+
+def _extract_logits(model_output) -> torch.Tensor:
+    if torch.is_tensor(model_output):
+        return model_output
+    if hasattr(model_output, "output"):
+        return model_output.output
+    raise TypeError(f"Unsupported model output type for plotting: {type(model_output)}")
 
 
 def plot_validation_predictions(
@@ -96,13 +116,12 @@ def plot_validation_predictions(
         datamodule.setup("fit")
     batch = next(iter(datamodule.val_dataloader()))
     batch = _move_batch_to_device(batch, task.device)
-    x = batch["image"]
-    y = batch["mask"]
+    x, y = _extract_image_and_mask(batch)
 
     was_training = task.training
     task.eval()
     with torch.no_grad():
-        output = task(x).output
+        output = _extract_logits(task(x))
         if output.shape[1] > 1:
             pred = output.argmax(dim=1)
         else:
