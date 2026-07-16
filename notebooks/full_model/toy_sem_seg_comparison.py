@@ -19,7 +19,7 @@ from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_datamodule import (
 from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_lightning import (
     ToySemSegLightningModule,
 )
-from lfm.full_model.utils import create_timestamped_output_dir
+from lfm.full_model.utils import create_timestamped_output_dir, ensure_data_symlink
 from lfm.toy_model.sem_seg.sseg_model import DINOSegmentation, load_dinov3_encoder
 
 
@@ -80,37 +80,6 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         normalize_inputs=False,
         seed=args.seed,
     )
-
-
-def ensure_data_symlink(simlink_dest: str | None, notebook_dir: Path) -> None:
-    if simlink_dest is None:
-        print("SIMLINK_DEST is None; leaving ./data unchanged.")
-        return
-
-    source = Path(simlink_dest).expanduser().resolve()
-    data_symlink = notebook_dir / "data"
-
-    if not source.exists():
-        raise FileNotFoundError(f"SIMLINK_DEST does not exist: {source}")
-    if not source.is_dir():
-        raise NotADirectoryError(f"SIMLINK_DEST must be a directory: {source}")
-
-    if data_symlink.is_symlink():
-        current_target = data_symlink.resolve()
-        if current_target != source:
-            raise FileExistsError(
-                f"{data_symlink} already points to {current_target}, not SIMLINK_DEST {source}. "
-                "Remove or update the symlink explicitly before continuing."
-            )
-        print(f"Symlink created successfully: {data_symlink} -> {source}")
-    elif data_symlink.exists():
-        raise FileExistsError(
-            f"{data_symlink} already exists and is not a symlink. "
-            "Move it before creating the data symlink."
-        )
-    else:
-        data_symlink.symlink_to(source, target_is_directory=True)
-        print(f"Symlink created successfully: {data_symlink} -> {source}")
 
 
 def validate_data_paths(config: ToyComparisonConfig) -> None:
@@ -259,7 +228,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     notebook_dir = Path(__file__).resolve().parent
-    ensure_data_symlink(args.simlink_dest, notebook_dir)
+    ensure_data_symlink(args.simlink_dest, notebook_dir / "data")
     config = build_config(args)
     validate_data_paths(config)
     output_dir = create_timestamped_output_dir(config.base_output_dir)
