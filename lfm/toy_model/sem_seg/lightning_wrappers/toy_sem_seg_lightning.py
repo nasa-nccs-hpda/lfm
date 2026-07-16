@@ -58,7 +58,7 @@ class ToySemSegLightningModule(LightningModule):
         learning_rate: float = 5e-5,
         weight_decay: float = 1e-3,
         max_epochs: int = 100,
-        max_grad_norm: float = 1.0,
+        max_grad_norm: float | None = 1.0,
     ) -> None:
         super().__init__()
         self.model = model
@@ -144,6 +144,8 @@ class ToySemSegLightningModule(LightningModule):
         gradient_clip_val: float | None = None,
         gradient_clip_algorithm: str | None = None,
     ) -> None:
+        if self.max_grad_norm is None:
+            return
         self.clip_gradients(
             optimizer,
             gradient_clip_val=self.max_grad_norm,

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import torch
 from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader
@@ -19,8 +20,10 @@ class ToySemSegSplitDataModule(LightningDataModule):
     """Use the old toy semantic-seg dataset with explicit train/val/test splits.
 
     This wrapper intentionally preserves the old model data behavior for the
-    comparison baseline: .npy labels, per-sample band min-max scaling inside
-    ``LunarCraterDataset``, and ``normalize_inputs=False``.
+    comparison baseline: .npy labels and per-sample band min-max scaling inside
+    ``LunarCraterDataset``. If ``normalize_inputs=True``, per-band z-score
+    statistics are computed from the training split after the same crop/min-max
+    preprocessing used by the model.
     """
 
     def __init__(
@@ -56,6 +59,8 @@ class ToySemSegSplitDataModule(LightningDataModule):
         self.pin_memory = pin_memory
 
         self.weight_assignments: list[str] | None = None
+        self.mean: np.ndarray | None = None
+        self.std: np.ndarray | None = None
         self.train_dataset = None
         self.val_dataset = None
         self.test_dataset = None
@@ -67,6 +72,8 @@ class ToySemSegSplitDataModule(LightningDataModule):
                 str(self.data_root / "train"),
                 self.band_filter,
             )
+        if self.normalize_inputs and (self.mean is None or self.std is None):
+            self._calculate_train_stats()
 
         if stage in (None, "fit"):
             self.train_dataset = self._make_dataset("train")
@@ -100,8 +107,8 @@ class ToySemSegSplitDataModule(LightningDataModule):
     def _make_dataset(self, split: str) -> LunarCraterDataset:
         return LunarCraterDataset(
             base_dir=str(self.data_root / split),
-            mean=None,
-            std=None,
+            mean=self.mean,
+            std=self.std,
             target_size=self.target_size,
             spatial_transform=self.spatial_transform,
             max_samples=self.max_samples[split],
@@ -109,6 +116,44 @@ class ToySemSegSplitDataModule(LightningDataModule):
             normalize_inputs=self.normalize_inputs,
             split_name=split,
         )
+
+    def _calculate_train_stats(self) -> None:
+        stats_dataset = LunarCraterDataset(
+            base_dir=str(self.data_root / "train"),
+            mean=None,
+            std=None,
+            target_size=self.target_size,
+            spatial_transform=self.spatial_transform,
+            max_samples=self.max_samples["train"],
+            band_filter=self.band_filter,
+            normalize_inputs=False,
+            split_name="train-stats",
+        )
+        pixel_sum = None
+        pixel_sq_sum = None
+        pixel_count = 0
+
+        for index in range(len(stats_dataset)):
+            image, _, _, _ = stats_dataset[index]
+            image = image.to(torch.float64)
+            if pixel_sum is None:
+                pixel_sum = torch.zeros(image.shape[0], dtype=torch.float64)
+                pixel_sq_sum = torch.zeros(image.shape[0], dtype=torch.float64)
+            pixel_sum += image.sum(dim=(1, 2))
+            pixel_sq_sum += (image**2).sum(dim=(1, 2))
+            pixel_count += image.shape[1] * image.shape[2]
+
+        if pixel_sum is None or pixel_sq_sum is None or pixel_count == 0:
+            raise ValueError("Could not compute toy train statistics from an empty dataset.")
+
+        mean = pixel_sum / pixel_count
+        variance = (pixel_sq_sum / pixel_count) - (mean**2)
+        std = torch.sqrt(torch.clamp(variance, min=1e-12))
+        self.mean = mean.numpy().astype(np.float32)
+        self.std = std.numpy().astype(np.float32)
+
+        print("[train] Toy z-score mean:", self.mean.tolist())
+        print("[train] Toy z-score std:", self.std.tolist())
 
     def train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -180,6 +225,8 @@ class ToySemSegSplitDataModule(LightningDataModule):
             "spatial_transform": self.spatial_transform,
             "band_filter": self.band_filter,
             "normalize_inputs": self.normalize_inputs,
+            "mean": self.mean.tolist() if self.mean is not None else None,
+            "std": self.std.tolist() if self.std is not None else None,
             "weight_assignments": self.weight_assignments,
             "train_samples": len(self.train_dataset),
             "val_samples": len(self.val_dataset) if self.val_dataset is not None else None,

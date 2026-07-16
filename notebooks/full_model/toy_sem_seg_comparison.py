@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import gc
 import json
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -54,6 +56,7 @@ class ToyComparisonConfig:
     loss_type: str
     freeze_encoder: bool
     normalize_inputs: bool
+    toy_gradient_clip_val: float | None
     plot_every_n_epochs: int
     plot_n_samples: int
     cache_predictions: bool
@@ -105,7 +108,10 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         weight_decay=args.weight_decay,
         loss_type=args.loss_type,
         freeze_encoder=args.freeze_encoder,
-        normalize_inputs=False,
+        normalize_inputs=args.normalize_inputs,
+        toy_gradient_clip_val=None
+        if args.disable_toy_gradient_clipping
+        else args.toy_gradient_clip_val,
         plot_every_n_epochs=args.plot_every_n_epochs,
         plot_n_samples=args.plot_n_samples,
         cache_predictions=args.cache_predictions,
@@ -147,6 +153,51 @@ def save_config(config: ToyComparisonConfig, output_dir: Path) -> None:
     payload = {key: encode(value) for key, value in asdict(config).items()}
     with (output_dir / "config.json").open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
+
+
+def _format_seconds(seconds: float) -> str:
+    whole_seconds = int(round(seconds))
+    hours, remainder = divmod(whole_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def save_timing_summary(timing_rows: list[dict[str, Any]], output_dir: Path) -> None:
+    if not timing_rows:
+        return
+
+    json_path = output_dir / "timing_summary.json"
+    csv_path = output_dir / "timing_summary.csv"
+    fieldnames = ["model", "stage", "seconds", "elapsed_hms"]
+
+    with json_path.open("w", encoding="utf-8") as f:
+        json.dump(timing_rows, f, indent=2)
+
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(timing_rows)
+
+    print(f"Saved timing summary to {csv_path}")
+
+
+def record_timing(
+    timing_rows: list[dict[str, Any]],
+    *,
+    model: str,
+    stage: str,
+    started_at: float,
+) -> None:
+    elapsed = time.perf_counter() - started_at
+    timing_rows.append(
+        {
+            "model": model,
+            "stage": stage,
+            "seconds": round(elapsed, 3),
+            "elapsed_hms": _format_seconds(elapsed),
+        }
+    )
+    print(f"[timing] {model} {stage}: {_format_seconds(elapsed)} ({elapsed:.3f}s)", flush=True)
 
 
 def create_datamodule(config: ToyComparisonConfig, output_dir: Path) -> ToySemSegSplitDataModule:
@@ -199,10 +250,16 @@ def create_lightning_module(
         learning_rate=config.learning_rate,
         weight_decay=config.weight_decay,
         max_epochs=config.max_epochs,
+        max_grad_norm=config.toy_gradient_clip_val,
     )
 
 
-def create_trainer(config: ToyComparisonConfig, output_dir: Path) -> Trainer:
+def create_trainer(
+    config: ToyComparisonConfig,
+    output_dir: Path,
+    *,
+    plots_subdir: str | Path = "plots",
+) -> Trainer:
     print("Creating Lightning trainer...", flush=True)
     return Trainer(
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
@@ -229,6 +286,7 @@ def create_trainer(config: ToyComparisonConfig, output_dir: Path) -> Trainer:
                 output_dir=output_dir,
                 n_samples=config.plot_n_samples,
                 every_n_epochs=config.plot_every_n_epochs,
+                plots_subdir=plots_subdir,
                 display_method="minmax",
                 dpi=150,
             ),
@@ -240,12 +298,15 @@ def run_graha_workflow(
     config: ToyComparisonConfig,
     *,
     no_fit: bool,
+    comparison_output_dir: Path,
+    timing_rows: list[dict[str, Any]] | None = None,
 ) -> tuple[Path, Path | None]:
     """Run the Graha/Lunar-FM path with the same split data and cache settings."""
+    graha_total_started_at = time.perf_counter()
     graha_workflow.configure_proj_environment()
     graha_args = Namespace(
         data_root=str(config.data_root),
-        base_output_dir=str(config.graha_base_output_dir),
+        base_output_dir=str(comparison_output_dir / "full_model"),
         pretrain_dir=str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None,
         crop_size=config.target_size[0],
         stats_batch_size=config.graha_stats_batch_size,
@@ -270,9 +331,18 @@ def run_graha_workflow(
     output_dir = graha_workflow.create_output_dirs(
         graha_config,
         deps["create_timestamped_output_dir"],
+        use_timestamp=False,
     )
     seed_everything(graha_config.seed)
+    stats_started_at = time.perf_counter()
     means, stds = graha_workflow.calculate_train_stats(graha_config, datamodule_cls)
+    if timing_rows is not None:
+        record_timing(
+            timing_rows,
+            model="Graha",
+            stage="stats",
+            started_at=stats_started_at,
+        )
     datamodule = graha_workflow.create_datamodule(
         graha_config,
         datamodule_cls,
@@ -286,15 +356,26 @@ def run_graha_workflow(
         graha_config,
         output_dir,
         deps["ValidationPlotCallback"],
+        plot_output_dir=comparison_output_dir,
+        plots_subdir=Path("plots") / "full_model",
     )
 
     if no_fit:
         print("Skipping Graha trainer.fit() because --no-fit was set.")
     else:
+        fit_started_at = time.perf_counter()
         trainer.fit(task, datamodule=datamodule)
+        if timing_rows is not None:
+            record_timing(
+                timing_rows,
+                model="Graha",
+                stage="fit",
+                started_at=fit_started_at,
+            )
 
     prediction_cache = None
     if config.cache_predictions:
+        cache_started_at = time.perf_counter()
         prediction_cache = save_prediction_cache(
             task=task,
             datamodule=datamodule,
@@ -303,12 +384,26 @@ def run_graha_workflow(
             split=config.prediction_split,
             n_samples=config.prediction_n_samples,
         )
+        if timing_rows is not None:
+            record_timing(
+                timing_rows,
+                model="Graha",
+                stage="prediction_cache",
+                started_at=cache_started_at,
+            )
 
     del trainer, task, datamodule, sample_batch
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     print("Released Graha model objects and cleared CUDA cache.", flush=True)
+    if timing_rows is not None:
+        record_timing(
+            timing_rows,
+            model="Graha",
+            stage="total",
+            started_at=graha_total_started_at,
+        )
     return output_dir, prediction_cache
 
 
@@ -341,6 +436,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-decay", type=float, default=1e-3)
     parser.add_argument("--loss-type", type=str, default="focal_dice")
     parser.add_argument("--freeze-encoder", action="store_true")
+    parser.add_argument(
+        "--normalize-inputs",
+        action="store_true",
+        help="Enable toy DINO z-score normalization using train-split stats.",
+    )
+    parser.add_argument("--toy-gradient-clip-val", type=float, default=1.0)
+    parser.add_argument(
+        "--disable-toy-gradient-clipping",
+        action="store_true",
+        help="Disable toy DINO gradient clipping to match Graha's current trainer path.",
+    )
     parser.add_argument("--plot-every-n-epochs", type=int, default=1)
     parser.add_argument("--plot-n-samples", type=int, default=5)
     parser.add_argument("--cache-predictions", action="store_true")
@@ -364,28 +470,36 @@ def main() -> None:
     validate_data_paths(config)
     output_dir = create_timestamped_output_dir(config.base_output_dir)
     save_config(config, output_dir)
+    timing_rows: list[dict[str, Any]] = []
 
     seed_everything(config.seed)
+    dino_total_started_at = time.perf_counter()
     datamodule = create_datamodule(config, output_dir)
     if datamodule.weight_assignments is None:
         raise RuntimeError("DataModule did not create weight assignments.")
 
     model = create_model(config, datamodule.weight_assignments)
     task = create_lightning_module(config, model)
-    trainer = create_trainer(config, output_dir)
+    trainer = create_trainer(config, output_dir, plots_subdir=Path("plots") / "toy_model")
     print("Lightning trainer created.", flush=True)
 
     if args.no_fit:
         print("Skipping DINO trainer.fit() because --no-fit was set.")
     else:
         print("Starting DINO trainer.fit()...", flush=True)
+        fit_started_at = time.perf_counter()
         trainer.fit(task, datamodule=datamodule)
-        print("DINO trainer.fit() complete. Starting trainer.test()...", flush=True)
-        trainer.test(task, datamodule=datamodule, ckpt_path="best")
-        print("DINO trainer.test() complete.", flush=True)
+        record_timing(
+            timing_rows,
+            model="DINO",
+            stage="fit",
+            started_at=fit_started_at,
+        )
+        print("DINO trainer.fit() complete.", flush=True)
 
     toy_prediction_cache = None
     if config.cache_predictions:
+        cache_started_at = time.perf_counter()
         toy_prediction_cache = save_prediction_cache(
             task=task,
             datamodule=datamodule,
@@ -394,16 +508,46 @@ def main() -> None:
             split=config.prediction_split,
             n_samples=config.prediction_n_samples,
         )
+        record_timing(
+            timing_rows,
+            model="DINO",
+            stage="prediction_cache",
+            started_at=cache_started_at,
+        )
+
+    if not args.no_fit:
+        print("Starting DINO trainer.test() on final weights...", flush=True)
+        test_started_at = time.perf_counter()
+        trainer.test(task, datamodule=datamodule, ckpt_path=None)
+        record_timing(
+            timing_rows,
+            model="DINO",
+            stage="test_final",
+            started_at=test_started_at,
+        )
+        print("DINO trainer.test() complete.", flush=True)
 
     del trainer, task, model, datamodule
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     print("Released DINO model objects and cleared CUDA cache.", flush=True)
+    record_timing(
+        timing_rows,
+        model="DINO",
+        stage="total",
+        started_at=dino_total_started_at,
+    )
 
-    _, graha_prediction_cache = run_graha_workflow(config, no_fit=args.no_fit)
+    _, graha_prediction_cache = run_graha_workflow(
+        config,
+        no_fit=args.no_fit,
+        comparison_output_dir=output_dir,
+        timing_rows=timing_rows,
+    )
 
     if config.cache_predictions and toy_prediction_cache and graha_prediction_cache:
+        comparison_started_at = time.perf_counter()
         comparison_caches = {
             "toy": toy_prediction_cache,
             "graha": graha_prediction_cache,
@@ -420,6 +564,14 @@ def main() -> None:
         print("Comparison metric summary:")
         for row in metric_summary:
             print("  " + json.dumps(row, sort_keys=True))
+        record_timing(
+            timing_rows,
+            model="Comparison",
+            stage="plots_and_metrics",
+            started_at=comparison_started_at,
+        )
+
+    save_timing_summary(timing_rows, output_dir)
 
 
 if __name__ == "__main__":

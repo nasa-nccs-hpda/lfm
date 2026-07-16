@@ -271,8 +271,14 @@ class LunarCraterDataset(Dataset):
 
         # Normalize image with dataset statistics
         if self.normalize_inputs:
-            mean_filtered = self.mean[self.band_filter]
-            std_filtered = self.std[self.band_filter]
+            if self.mean is None or self.std is None:
+                raise ValueError("normalize_inputs=True requires mean and std arrays.")
+            if len(self.mean) == image.shape[2]:
+                mean_filtered = self.mean
+                std_filtered = self.std
+            else:
+                mean_filtered = self.mean[self.band_filter]
+                std_filtered = self.std[self.band_filter]
             mean_reshaped = mean_filtered.reshape(1, 1, -1)
             std_reshaped = std_filtered.reshape(1, 1, -1)
             image = (image - mean_reshaped) / std_reshaped

@@ -161,12 +161,13 @@ def plot_validation_predictions(
     *,
     n_samples: int = 5,
     filename: str = "validation_predictions.png",
+    plots_subdir: str | Path = "plots",
     display_method: str = "minmax",
     dpi: int = 300,
     setup_datamodule: bool = True,
 ) -> Path:
     """Save a 4-row prediction figure for the first validation samples."""
-    plots_dir = Path(output_dir) / "plots"
+    plots_dir = Path(output_dir) / plots_subdir
     plots_dir.mkdir(parents=True, exist_ok=True)
     save_path = plots_dir / filename
 
@@ -553,12 +554,14 @@ class ValidationPlotCallback(Callback):
         *,
         n_samples: int = 5,
         every_n_epochs: int = 1,
+        plots_subdir: str | Path = "plots",
         display_method: str = "minmax",
         dpi: int = 150,
     ) -> None:
         self.output_dir = Path(output_dir)
         self.n_samples = n_samples
         self.every_n_epochs = every_n_epochs
+        self.plots_subdir = Path(plots_subdir)
         self.display_method = display_method
         self.dpi = dpi
 
@@ -577,6 +580,7 @@ class ValidationPlotCallback(Callback):
             output_dir=self.output_dir,
             n_samples=self.n_samples,
             filename=f"validation_epoch_{epoch + 1:03d}.png",
+            plots_subdir=self.plots_subdir,
             display_method=self.display_method,
             dpi=self.dpi,
             setup_datamodule=False,

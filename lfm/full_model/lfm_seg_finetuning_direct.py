@@ -191,8 +191,18 @@ def make_notebook_task_class(lunar_shape_segmentation_task_cls):
     return NotebookLunarShapeSegmentationTask
 
 
-def create_output_dirs(config: FineTuningConfig, create_timestamped_output_dir) -> Path:
-    output_dir = create_timestamped_output_dir(config.base_output_dir)
+def create_output_dirs(
+    config: FineTuningConfig,
+    create_timestamped_output_dir,
+    *,
+    use_timestamp: bool = True,
+) -> Path:
+    output_dir = (
+        create_timestamped_output_dir(config.base_output_dir)
+        if use_timestamp
+        else Path(config.base_output_dir)
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
     plots_dir = output_dir / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
     print("Output directory:", output_dir)
@@ -343,7 +353,15 @@ def inspect_backbone(task) -> None:
     print(f"backbone params: {backbone.get_num_params():,}")
 
 
-def create_trainer(config: FineTuningConfig, output_dir: Path, validation_plot_callback_cls) -> Trainer:
+def create_trainer(
+    config: FineTuningConfig,
+    output_dir: Path,
+    validation_plot_callback_cls,
+    *,
+    plot_output_dir: Path | None = None,
+    plots_subdir: str | Path = "plots",
+) -> Trainer:
+    plot_output_dir = output_dir if plot_output_dir is None else plot_output_dir
     return Trainer(
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=1,
@@ -358,9 +376,10 @@ def create_trainer(config: FineTuningConfig, output_dir: Path, validation_plot_c
         callbacks=[
             LearningRateMonitor(logging_interval="epoch"),
             validation_plot_callback_cls(
-                output_dir=output_dir,
+                output_dir=plot_output_dir,
                 n_samples=5,
                 every_n_epochs=1,
+                plots_subdir=plots_subdir,
                 dpi=150,
             ),
             ModelCheckpoint(
