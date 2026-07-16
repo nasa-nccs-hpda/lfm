@@ -2,7 +2,7 @@ Goal: compare the Graha/Lunar-FM semantic segmentation model against the
 existing LFM toy semantic segmentation model using as similar an experiment as
 possible.
 
-Core principle:
+Core principles:
 - Maintain paired notebook and script artifacts for each workflow.
 - The notebook is for interactive Jupyter development, debugging, plots, and
   inspection.
@@ -10,75 +10,84 @@ Core principle:
   a main() block so it can be launched with sbatch and run unattended.
 - Keep shared logic in importable Python helpers where practical so the
   notebook and sbatch script do not drift.
+- Move linearly: start one next step, finish and smoke-test it, then mark it
+  completed before moving on.
 
-Plan:
+Linear refactor plan:
 
-1. [Completed] Bring the old toy semantic segmentation code up to the new data standard
-   - Add comparison-specific Lightning/DataModule wrappers under
-     lfm/toy_model/sem_seg/lightning_wrappers rather than rewriting the
-     existing toy_model driver.
-   - Keep lfm/toy_model/sem_seg mostly intact and treat it as the source of the
-     model, loss helpers, and existing behavior.
-   - The comparison DataModule should read explicit split directories:
+1. [Completed] Reorganize full-model/Graha support code
+   - Move reusable full-model datamodule code under lfm/full_model/datamodules.
+   - Move reusable full-model utility and plotting code under lfm/full_model/utils.
+   - Keep Graha/TerraMind vendor code under lfm/full_model/graha-lunar-fm.
+   - Update imports in the Graha notebook and script to use the package paths.
+
+2. [Completed] Add old toy semantic segmentation Lightning wrappers
+   - Add comparison-specific wrappers under
+     lfm/toy_model/sem_seg/lightning_wrappers.
+   - Keep lfm/toy_model/sem_seg mostly intact as the source of model, loss, and
+     dataset behavior.
+   - Wrap the old DINOSegmentation model in a LightningModule.
+   - Wrap explicit train/val/test split folders in a LightningDataModule.
+
+3. [Completed] Bring the old toy workflow onto the split-folder data standard
+   - Read explicit split directories:
        data/train/chips
        data/train/labels
        data/val/chips
        data/val/labels
        data/test/chips
        data/test/labels
-   - Do not use random train/val splitting for this comparison workflow.
+   - Do not use random train/val splitting in the comparison workflow.
    - Keep semantic segmentation labels as .npy files.
-   - Keep image resizing to the old model's expected 304x304 input size.
-   - Keep normalize_inputs=False for the old model comparison baseline.
    - Preserve the old model's existing band-filter behavior.
-   - Save the exact train/val/test file lists used by the dataloaders.
+   - Keep normalize_inputs=False for the old model comparison baseline.
+   - Save exact train/val/test file lists used by the dataloaders.
    - Add sanity checks for image shape, mask shape, mask values, foreground
      fraction, and matched filenames.
-   - The comparison LightningModule should wrap the old DINOSegmentation model,
-     reuse the old loss helpers, and reproduce the old optimizer/scheduler
-     behavior where practical.
 
-2. [In-Progress] Create comparable old-model artifacts
-   - Copy lfm/notebooks/toy_model/semantic_seg_train.ipynb to a new comparison
-     notebook under notebooks/full_model.
-   - Edit the comparison notebook cells so their structure, section order,
-     naming, and interactive flow stay as close to the original semantic
-     segmentation notebook as practical while still using the new split-folder
-     comparison logic.
-   - Restore validation visualization behavior from the original semantic
-     segmentation notebook for both interactive notebook runs and sbatch script
-     runs, saving plots into the timestamped output directory.
-   - Create a matching .py script for the old semantic segmentation workflow
-     under lfm/full_model.
-   - Add an sbatch wrapper under notebooks/full_model for the .py script.
-   - Do not overwrite the original toy_model semantic_seg_train.ipynb.
+4. [Completed] Create old-model comparison run artifacts
+   - Create notebooks/full_model/toy_sem_seg_comparison.ipynb.
+   - Create notebooks/full_model/toy_sem_seg_comparison.py with matching logic.
+   - Create notebooks/full_model/sbatch_toy_sem_seg_comparison.sh.
+   - Add timestamped output directory creation.
+   - Save config snapshots and dataloader file lists under the run output dir.
+   - Add ./data symlink setup/check behavior to both notebook and script.
 
-3. [Completed] Standardize output directories
-   - Use timestamped output dirs for both workflows.
-   - Save checkpoints, plots, config snapshots, losses, metrics, and file lists
-     under the run output dir.
-   - Keep notebook output and sbatch output naming consistent.
+5. [Completed] Smoke-test the old-model notebook and sbatch script
+   - Run the notebook for 1 epoch.
+   - Run the sbatch/.py script for 1 epoch.
+   - Confirm batches load, loss computes, checkpoints save, and both workflows
+     can run outside the interactive notebook.
 
-4. [In-Progress] Align high-level training configuration
-   - Run 100 epochs for both workflows.
-   - Use batch size 16 if it fits for both.
-   - Use one GPU initially for both.
-   - Use the same train/val/test split folders.
-   - Use the same 7 WAC bands where possible.
-   - Keep optimizer/loss/model differences documented unless we deliberately
-     create a second controlled variant.
-   - Use the same plotting cadence, likely every 10 epochs plus final.
+6. [In-Progress] Change the old toy comparison baseline to 256x256 crop inputs
+   - Add an explicit spatial transform option to the toy comparison data path:
+     resize or crop.
+   - Implement crop behavior so images and labels use the same crop window.
+   - Set the comparison baseline to crop to 256x256 to better match the
+     Graha/full-model input path.
+   - Keep normalize_inputs=False unless we deliberately define a second
+     normalization variant.
+   - Update the notebook, script, saved config, and sanity summary to report
+     crop behavior clearly.
+   - Smoke-test notebook and sbatch for 1 epoch after this change.
 
-5. [In-Progress] Keep model-specific behavior explicit
-   - Graha uses its current datamodule-side per-band z-score normalization.
-   - The old toy model comparison baseline keeps normalize_inputs=False.
-   - The old toy model resizes to 304x304.
-   - The Graha model uses its 256x256 crop path unless we later choose to test
-     a controlled size variant.
-   - Document model, checkpoint, input adaptation, decoder, loss, optimizer,
-     scheduler, image size, and preprocessing in each output dir.
+7. [Pending] Refine the comparison notebook to mirror the original semantic
+   segmentation notebook
+   - Reorder and rename cells to match the original notebook's interactive flow
+     as closely as practical.
+   - Keep the new split-folder, symlink, timestamped-output, and script-shared
+     logic.
+   - Avoid duplicating large logic in notebook cells when the script helper
+     functions already provide it.
 
-6. [Pending] Create shared evaluation code
+8. [Pending] Restore validation visualization for the old toy comparison
+   - Add validation plotting for both notebook and sbatch script runs.
+   - Match the original semantic segmentation notebook's expected visual
+     debugging behavior as closely as practical.
+   - Save plots into the timestamped output directory.
+   - Ensure a 1-epoch run produces at least one validation plot.
+
+9. [Pending] Add shared evaluation metrics
    - Build evaluator helpers that can consume either model through a small
      prediction adapter.
    - Evaluate both models on the same validation/test split.
@@ -92,40 +101,18 @@ Plan:
        ground-truth foreground fraction
    - Save metrics as CSV and/or JSON.
 
-7. [Pending] Create side-by-side plots
-   - For the same validation/test samples, save panels with:
-       input RGB composite
-       ground truth
-       old-model prediction
-       Graha prediction
-       old-model overlay
-       Graha overlay
-   - Use the same thresholding, colors, sample order, and filenames.
+10. [Pending] Add side-by-side Graha vs toy plots
+    - For the same validation/test samples, save panels with:
+        input RGB composite
+        ground truth
+        toy-model prediction
+        Graha prediction
+        toy-model overlay
+        Graha overlay
+    - Use the same thresholding, colors, sample order, and filenames.
 
-8. [In-Progress] Smoke test before long runs
-   - Run both workflows for 1 epoch.
-   - Confirm batches load, losses compute, checkpoints save, plots save, and
-     shared evaluation runs.
-   - Confirm the sbatch scripts work without relying on an interactive Jupyter
-     session.
-
-9. [Pending] Run the 100-epoch comparison
-   - Submit the old-model script with sbatch.
-   - Submit the Graha script with sbatch.
-   - Run shared evaluation on the same held-out split.
-   - Compare metrics and inspect side-by-side plots.
-
-Preferred implementation order:
-1. [Completed] Add comparison-specific DataModule and LightningModule wrappers under
-   lfm/toy_model/sem_seg/lightning_wrappers for the old toy semantic
-   segmentation model.
-2. [Completed] Create the old-model comparison notebook.
-3. [Pending] Refine the comparison notebook cells to mirror the original semantic
-   segmentation notebook's layout and interactive flow as closely as practical.
-4. [Pending] Add validation visualization to the comparison notebook and script
-   so both match the original semantic segmentation notebook's expected visual
-   debugging behavior.
-5. [Completed] Create the matching old-model .py script and sbatch wrapper.
-6. [Pending] Add shared evaluation and side-by-side plotting helpers.
-7. [In-Progress] Run 1-epoch smoke tests.
-8. [Pending] Launch 100-epoch runs.
+11. [Pending] Run the 100-epoch comparison
+    - Submit the toy-model script with sbatch.
+    - Submit the Graha/full-model script with sbatch.
+    - Run shared evaluation on the same held-out split.
+    - Compare metrics and inspect side-by-side plots.

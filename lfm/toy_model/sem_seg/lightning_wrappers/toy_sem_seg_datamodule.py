@@ -20,7 +20,7 @@ class ToySemSegSplitDataModule(LightningDataModule):
 
     This wrapper intentionally preserves the old model data behavior for the
     comparison baseline: .npy labels, per-sample band min-max scaling inside
-    ``LunarCraterDataset``, resize to 304x304, and ``normalize_inputs=False``.
+    ``LunarCraterDataset``, and ``normalize_inputs=False``.
     """
 
     def __init__(
@@ -29,7 +29,8 @@ class ToySemSegSplitDataModule(LightningDataModule):
         *,
         batch_size: int = 16,
         num_workers: int = 8,
-        target_size: tuple[int, int] = (304, 304),
+        target_size: tuple[int, int] = (256, 256),
+        spatial_transform: str = "crop",
         band_filter: list[int] | None = None,
         normalize_inputs: bool = False,
         max_train_samples: int | None = None,
@@ -43,6 +44,7 @@ class ToySemSegSplitDataModule(LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.target_size = target_size
+        self.spatial_transform = spatial_transform
         self.band_filter = band_filter
         self.normalize_inputs = normalize_inputs
         self.max_samples = {
@@ -101,6 +103,7 @@ class ToySemSegSplitDataModule(LightningDataModule):
             mean=None,
             std=None,
             target_size=self.target_size,
+            spatial_transform=self.spatial_transform,
             max_samples=self.max_samples[split],
             band_filter=self.band_filter,
             normalize_inputs=self.normalize_inputs,
@@ -173,6 +176,7 @@ class ToySemSegSplitDataModule(LightningDataModule):
         return {
             "data_root": str(self.data_root),
             "target_size": self.target_size,
+            "spatial_transform": self.spatial_transform,
             "band_filter": self.band_filter,
             "normalize_inputs": self.normalize_inputs,
             "weight_assignments": self.weight_assignments,

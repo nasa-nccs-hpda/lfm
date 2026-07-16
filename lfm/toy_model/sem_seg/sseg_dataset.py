@@ -35,6 +35,8 @@ class LunarCraterDataset(Dataset):
         std: Standard deviation per channel for normalization
             (shape: [num_channels])
         target_size: Target size for model input. Default: (304, 304)
+        spatial_transform: How to match target_size. Options are "resize" and
+            "crop". Crop uses a deterministic center crop.
         max_samples: Max samples to use. None uses all samples.
         band_filter: List of band indices to use. None uses all bands.
         normalize_inputs: Whether to normalize inputs using mean/std.
@@ -49,6 +51,7 @@ class LunarCraterDataset(Dataset):
         max_samples: Optional[int] = None,
         band_filter: List[int] = None,
         normalize_inputs: bool = True,
+        spatial_transform: str = "resize",
     ):
         # Hardcoded directory structure and file types
         self.image_dir = f"{base_dir}/chips"
@@ -58,6 +61,11 @@ class LunarCraterDataset(Dataset):
 
         self.target_size = target_size
         self.normalize_inputs = normalize_inputs
+        if spatial_transform not in {"resize", "crop"}:
+            raise ValueError(
+                f"spatial_transform must be 'resize' or 'crop', got {spatial_transform}"
+            )
+        self.spatial_transform = spatial_transform
 
         # Validate directories exist
         if not os.path.exists(self.image_dir):
@@ -190,14 +198,41 @@ class LunarCraterDataset(Dataset):
 
         return scaled
 
+    @staticmethod
+    def _center_crop(
+        image: np.ndarray,
+        label: np.ndarray,
+        target_size: Tuple[int, int],
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        target_h, target_w = target_size
+        image_h, image_w = image.shape[:2]
+        label_h, label_w = label.shape[:2]
+
+        if (image_h, image_w) != (label_h, label_w):
+            raise ValueError(
+                f"Image and label spatial shapes differ: "
+                f"image={(image_h, image_w)}, label={(label_h, label_w)}"
+            )
+        if image_h < target_h or image_w < target_w:
+            raise ValueError(
+                f"Cannot crop image of shape {(image_h, image_w)} to {target_size}"
+            )
+
+        top = (image_h - target_h) // 2
+        left = (image_w - target_w) // 2
+        bottom = top + target_h
+        right = left + target_w
+
+        return image[top:bottom, left:right, :], label[top:bottom, left:right]
+
     def __len__(self) -> int:
         return len(self.valid_image_paths)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, str, str]:
         """
         Returns:
-            image (torch.Tensor): Normalized and resized image (C, H, W)
-            label (torch.Tensor): Resized label mask (H, W)
+            image (torch.Tensor): Transformed image (C, H, W)
+            label (torch.Tensor): Transformed label mask (H, W)
             img_path (str): Path to the image file
             label_path (str): Path to the label file
         """
@@ -239,29 +274,37 @@ class LunarCraterDataset(Dataset):
             std_reshaped = std_filtered.reshape(1, 1, -1)
             image = (image - mean_reshaped) / std_reshaped
 
+        if self.spatial_transform == "crop":
+            image, label = LunarCraterDataset._center_crop(
+                image,
+                label,
+                self.target_size,
+            )
+
         # Convert to torch tensors: (C, H, W) for image, (H, W) for label
         image = torch.from_numpy(image).permute(2, 0, 1)
         label = torch.from_numpy(label)
 
-        # Resize image to target size (C, target_H, target_W)
-        image = F.interpolate(
-            image.unsqueeze(0),
-            size=self.target_size,
-            mode="bilinear",
-            align_corners=False,
-        ).squeeze(0)
-
-        # Resize label using nearest neighbor to preserve class indices
-        label = (
-            F.interpolate(
-                label.unsqueeze(0).unsqueeze(0).float(),
+        if self.spatial_transform == "resize":
+            # Resize image to target size (C, target_H, target_W)
+            image = F.interpolate(
+                image.unsqueeze(0),
                 size=self.target_size,
-                mode="nearest",
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(0)
+
+            # Resize label using nearest neighbor to preserve class indices
+            label = (
+                F.interpolate(
+                    label.unsqueeze(0).unsqueeze(0).float(),
+                    size=self.target_size,
+                    mode="nearest",
+                )
+                .squeeze(0)
+                .squeeze(0)
+                .long()
             )
-            .squeeze(0)
-            .squeeze(0)
-            .long()
-        )
 
         return image, label, img_path, label_path
 
@@ -609,6 +652,7 @@ def get_dataloaders(
     band_filter: List[int] = None,
     output_dir: str = "output",
     normalize_inputs: bool = False,
+    spatial_transform: str = "resize",
 ):
     """
     Create train/val dataloaders with automatic statistics calculation.
@@ -670,7 +714,8 @@ def get_dataloaders(
         target_size=target_size,
         max_samples=max_samples,
         band_filter=band_filter,
-        normalize_inputs=normalize_inputs
+        normalize_inputs=normalize_inputs,
+        spatial_transform=spatial_transform,
     )
 
     # Split into train/val

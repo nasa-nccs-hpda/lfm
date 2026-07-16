@@ -32,6 +32,7 @@ class ToyComparisonConfig:
     dino_checkpoint: Path | None
     band_filter: list[int]
     target_size: tuple[int, int]
+    spatial_transform: str
     batch_size: int
     num_workers: int
     max_epochs: int
@@ -62,6 +63,7 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         dino_checkpoint=dino_checkpoint,
         band_filter=args.band_filter,
         target_size=(args.target_size, args.target_size),
+        spatial_transform=args.spatial_transform,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         max_epochs=args.max_epochs,
@@ -140,6 +142,7 @@ def create_datamodule(config: ToyComparisonConfig, output_dir: Path) -> ToySemSe
         batch_size=config.batch_size,
         num_workers=config.num_workers,
         target_size=config.target_size,
+        spatial_transform=config.spatial_transform,
         band_filter=config.band_filter,
         normalize_inputs=config.normalize_inputs,
         output_dir=output_dir,
@@ -227,7 +230,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-output-dir", type=str, default=None)
     parser.add_argument("--dino-checkpoint", type=str, default=None)
     parser.add_argument("--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6])
-    parser.add_argument("--target-size", type=int, default=304)
+    parser.add_argument("--target-size", type=int, default=256)
+    parser.add_argument("--spatial-transform", choices=["resize", "crop"], default="crop")
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=10)
     parser.add_argument("--max-epochs", type=int, default=100)
