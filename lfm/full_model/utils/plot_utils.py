@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import csv
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -353,6 +354,112 @@ def _model_color(model_name: str) -> tuple[float, float, float]:
     if model_name.lower() == "graha":
         return (0.0, 0.85, 1.0)
     return (1.0, 1.0, 0.0)
+
+
+def _binary_metrics(pred: np.ndarray, label: np.ndarray) -> dict[str, float]:
+    pred_bool = pred.astype(bool).reshape(-1)
+    label_bool = label.astype(bool).reshape(-1)
+
+    tp = float(np.sum(pred_bool & label_bool))
+    fp = float(np.sum(pred_bool & ~label_bool))
+    fn = float(np.sum(~pred_bool & label_bool))
+    tn = float(np.sum(~pred_bool & ~label_bool))
+    eps = 1e-8
+
+    precision = tp / (tp + fp + eps)
+    recall = tp / (tp + fn + eps)
+    f1 = 2 * precision * recall / (precision + recall + eps)
+    iou = tp / (tp + fp + fn + eps)
+    accuracy = (tp + tn) / (tp + tn + fp + fn + eps)
+
+    return {
+        "pixel_accuracy": accuracy,
+        "foreground_precision": precision,
+        "foreground_recall": recall,
+        "foreground_f1": f1,
+        "iou": iou,
+        "predicted_foreground_fraction": float(np.mean(pred_bool)),
+        "ground_truth_foreground_fraction": float(np.mean(label_bool)),
+    }
+
+
+def evaluate_prediction_caches(
+    cache_dirs: dict[str, str | Path],
+    output_dir: str | Path,
+    *,
+    filename_prefix: str = "prediction_cache_metrics",
+) -> tuple[list[dict], list[dict]]:
+    """Compute comparable binary segmentation metrics from prediction caches."""
+    loaded = {name: _load_prediction_cache(path) for name, path in cache_dirs.items()}
+    if not loaded:
+        raise ValueError("No prediction caches were provided.")
+
+    first_model = next(iter(loaded))
+    shared_keys = set(loaded[first_model])
+    for samples in loaded.values():
+        shared_keys &= set(samples)
+    sample_keys = sorted(shared_keys)
+    if not sample_keys:
+        raise ValueError("Prediction caches do not contain matching sample keys.")
+
+    rows = []
+    for model_name, samples in loaded.items():
+        display_name = _model_display_name(model_name)
+        for sample_key in sample_keys:
+            sample = samples[sample_key]
+            metrics = _binary_metrics(sample["pred"], sample["label"])
+            rows.append(
+                {
+                    "model": display_name,
+                    "sample_key": _display_sample_key(sample_key),
+                    **metrics,
+                }
+            )
+
+    summary_rows = []
+    metric_names = [
+        "pixel_accuracy",
+        "foreground_precision",
+        "foreground_recall",
+        "foreground_f1",
+        "iou",
+        "predicted_foreground_fraction",
+        "ground_truth_foreground_fraction",
+    ]
+    for model_name in [_model_display_name(name) for name in loaded]:
+        model_rows = [row for row in rows if row["model"] == model_name]
+        summary = {"model": model_name, "n_samples": len(model_rows)}
+        for metric in metric_names:
+            summary[metric] = float(np.mean([row[metric] for row in model_rows]))
+        summary_rows.append(summary)
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    json_path = output_dir / f"{filename_prefix}.json"
+    csv_path = output_dir / f"{filename_prefix}.csv"
+    summary_json_path = output_dir / f"{filename_prefix}_summary.json"
+    summary_csv_path = output_dir / f"{filename_prefix}_summary.csv"
+
+    with json_path.open("w", encoding="utf-8") as f:
+        json.dump(rows, f, indent=2)
+    with summary_json_path.open("w", encoding="utf-8") as f:
+        json.dump(summary_rows, f, indent=2)
+
+    fieldnames = ["model", "sample_key", *metric_names]
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    summary_fieldnames = ["model", "n_samples", *metric_names]
+    with summary_csv_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=summary_fieldnames)
+        writer.writeheader()
+        writer.writerows(summary_rows)
+
+    print(f"Saved per-sample metrics to {csv_path}")
+    print(f"Saved summary metrics to {summary_csv_path}")
+    return rows, summary_rows
 
 
 def plot_prediction_cache_comparison(

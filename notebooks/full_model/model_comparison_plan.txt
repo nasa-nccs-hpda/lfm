@@ -87,7 +87,7 @@ Linear refactor plan:
    - Save plots into the timestamped output directory.
    - Ensure a 1-epoch run produces at least one validation plot.
 
-9. [In-Progress] Refactor the comparison notebook for side-by-side model comparison
+9. [Completed] Refactor the comparison notebook for side-by-side model comparison
    - Keep training jobs separate for the toy model and Graha/full model.
    - Load one trained model at a time for inference to avoid holding both large
      models in VRAM/RAM simultaneously.
@@ -100,7 +100,7 @@ Linear refactor plan:
    - Only consider simultaneous model loading later if the one-at-a-time path
      is too slow and measured VRAM usage shows it is safe.
 
-10. [Pending] Add shared evaluation metrics
+10. [Completed] Add shared evaluation metrics
    - Build evaluator helpers that can consume either model through a small
      prediction adapter.
    - Evaluate both models on the same validation/test split.
@@ -114,7 +114,7 @@ Linear refactor plan:
        ground-truth foreground fraction
    - Save metrics as CSV and/or JSON.
 
-11. [Pending] Add side-by-side Graha vs toy plots
+11. [Completed] Add side-by-side Graha vs toy plots
     - For the same validation/test samples, save panels with:
         input RGB composite
         ground truth
