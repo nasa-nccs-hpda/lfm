@@ -263,12 +263,21 @@ def _cache_batch_on_cpu(batch: Any) -> Any:
 def preload_test_batches(dataloader, *, model_name: str) -> list[Any]:
     """Load processed test batches into CPU memory once before checkpoint sweep."""
     cached_batches = []
-    for batch in tqdm(
-        dataloader,
-        desc=f"{model_name} preload test batches",
-        dynamic_ncols=True,
-    ):
-        cached_batches.append(_cache_batch_on_cpu(batch))
+    iterator = iter(dataloader)
+    try:
+        for batch in tqdm(
+            iterator,
+            total=len(dataloader) if hasattr(dataloader, "__len__") else None,
+            desc=f"{model_name} preload test batches",
+            dynamic_ncols=True,
+        ):
+            cached_batches.append(_cache_batch_on_cpu(batch))
+    finally:
+        shutdown_workers = getattr(iterator, "_shutdown_workers", None)
+        if shutdown_workers is not None:
+            shutdown_workers()
+        del iterator
+        gc.collect()
     print(f"[{model_name}] Preloaded {len(cached_batches)} test batch(es).", flush=True)
     return cached_batches
 
