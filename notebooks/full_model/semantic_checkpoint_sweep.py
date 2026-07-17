@@ -31,6 +31,7 @@ import numpy as np
 import torch
 from lightning.pytorch import seed_everything
 from tqdm.auto import tqdm
+from torch.utils.data import Subset
 
 from lfm.full_model import lfm_seg_finetuning_direct as graha_workflow
 from lfm.full_model.utils.utils import ensure_data_symlink
@@ -157,6 +158,19 @@ def _load_lightning_checkpoint_state(task: torch.nn.Module, checkpoint_path: Pat
         checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     state_dict = checkpoint.get("state_dict", checkpoint)
     task.load_state_dict(state_dict, strict=True)
+
+
+def _limit_dataset(dataset, max_samples: int | None, *, model_name: str, split_name: str):
+    if max_samples is None:
+        return dataset
+    if max_samples < 0:
+        raise ValueError(f"max_samples must be non-negative, got {max_samples}")
+    limited_count = min(max_samples, len(dataset))
+    print(
+        f"[{model_name} {split_name}] Limited to {limited_count} of {len(dataset)} samples.",
+        flush=True,
+    )
+    return Subset(dataset, range(limited_count))
 
 
 def discover_checkpoints(checkpoint_dir: Path, *, max_checkpoints: int | None = None) -> list[CheckpointRecord]:
@@ -624,6 +638,12 @@ def run_graha_sweep(config: SweepConfig) -> list[dict[str, Any]]:
         means, stds = graha_workflow.calculate_train_stats(graha_config, datamodule_cls)
         datamodule = graha_workflow.create_datamodule(graha_config, datamodule_cls, means, stds)
         datamodule.setup("test")
+        datamodule.test_dataset = _limit_dataset(
+            datamodule.test_dataset,
+            config.max_test_samples,
+            model_name="Graha",
+            split_name="test",
+        )
 
         sample_batch = graha_workflow.inspect_batch(datamodule)
         task = graha_workflow.create_task(graha_config, task_cls, sample_batch)
