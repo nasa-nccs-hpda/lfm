@@ -1,8 +1,27 @@
-Goal: compare the Graha/Lunar-FM semantic segmentation model against the
-existing LFM toy semantic segmentation model using as similar an experiment as
-possible.
+Model Comparison Refactor Plan
+==============================
 
-Core principles:
+Purpose
+-------
+This document tracks the refactor work needed to compare the Graha/Lunar-FM
+semantic segmentation model against the existing LFM toy DINO semantic
+segmentation model using as similar an experiment as possible.
+
+Use this plan when making structural changes to the comparison workflow,
+including notebook/script parity, split-folder data handling, shared metrics,
+side-by-side plots, checkpoint behavior, and sbatch execution. The plan is
+intended to be updated as work progresses: mark one step [In-Progress], finish
+and smoke-test it, then mark it [Completed] before moving to the next step.
+
+Related artifacts:
+- notebooks/full_model/toy_sem_seg_comparison.ipynb: interactive comparison workflow.
+- notebooks/full_model/toy_sem_seg_comparison.py: sbatch-compatible comparison script.
+- notebooks/full_model/sbatch_toy_sem_seg_comparison.sh: Slurm wrapper.
+- lfm/full_model: reusable Graha/full-model datamodules, utilities, and vendor integration.
+- lfm/toy_model/sem_seg/lightning_wrappers: Lightning wrappers around the toy DINO model.
+
+Core Principles
+---------------
 - Maintain paired notebook and script artifacts for each workflow.
 - The notebook is for interactive Jupyter development, debugging, plots, and
   inspection.
@@ -13,7 +32,8 @@ Core principles:
 - Move linearly: start one next step, finish and smoke-test it, then mark it
   completed before moving on.
 
-Linear refactor plan:
+Linear Refactor Plan
+--------------------
 
 1. [Completed] Reorganize full-model/Graha support code
    - Move reusable full-model datamodule code under lfm/full_model/datamodules.
@@ -129,3 +149,4 @@ Linear refactor plan:
     - Submit the Graha/full-model script with sbatch.
     - Run shared evaluation on the same held-out split.
     - Compare metrics and inspect side-by-side plots.
+

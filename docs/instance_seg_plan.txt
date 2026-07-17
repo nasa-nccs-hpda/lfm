@@ -1,0 +1,163 @@
+Instance Segmentation Plan
+==========================
+
+Purpose
+-------
+This document tracks the work needed to bring lunar crater instance
+segmentation into the full-model/Graha workflow. It is separate from the model
+comparison plan because instance segmentation has a different label contract,
+different plotting requirements, and may require a different model/task target.
+
+Use this plan when working on .npz instance labels, bbox-safe transforms,
+instance-aware datamodules, and future instance segmentation notebooks/scripts.
+The early goal is to make the data contract and crop behavior reliable before
+committing to a true instance-prediction architecture.
+
+Related artifacts:
+- lfm/full_model/datamodules: shared full-model datamodule code.
+- notebooks/full_model: expected location for future interactive instance workflows.
+- lfm/full_model/graha-lunar-fm: Graha/TerraMind/TerraTorch integration code.
+- Existing semantic segmentation comparison code can be used as the notebook/script pattern.
+
+Goal
+----
+Get the full-model/Graha path working for lunar crater instance segmentation
+using split-folder data and .npz labels with mask, bboxes, and num_craters.
+
+Step 1: Confirm Label Contract [Pending]
+----------------------------------------
+Define the exact meaning and shape of each .npz key:
+
+- mask: determine whether this is a binary semantic mask, integer instance-id mask, or another mask format.
+- bboxes: confirm coordinate order, expected dtype, and whether boxes are pixel-inclusive or pixel-exclusive.
+- num_craters: confirm whether this is redundant with len(bboxes) or needed because bboxes may be padded.
+
+Expected output:
+- A documented batch contract for instance segmentation labels.
+
+Step 2: Audit Current Instance Datamodule [Pending]
+---------------------------------------------------
+Review the current LunarInstanceSegmentationDatamodule and dataset output.
+
+The minimum desired batch fields are:
+
+- image: Tensor[C, H, W]
+- mask: Tensor[H, W] or instance_masks depending on the selected model target
+- crater_boxes or boxes: Tensor[N, 4] or list[Tensor]
+- num_craters: int
+- filename: str
+
+Expected output:
+- A clear list of what the datamodule already supports and what must be added.
+
+Step 3: Decide Model Target [Pending]
+-------------------------------------
+Choose what "instance segmentation" means for the first working implementation.
+
+Option A: Graha-style semantic segmentation plus crater boxes and shape loss.
+- Uses semantic mask as the main target.
+- Uses bboxes as auxiliary shape-loss metadata.
+- Closest to the existing code path.
+
+Option B: True instance segmentation.
+- Predicts separate crater instances, masks, boxes, and labels.
+- Requires an instance/detection task and model head.
+- More work and higher integration risk.
+
+Recommended first target:
+- Start with Option A to validate the data, crop transforms, and Graha training path.
+- Treat Option B as a second milestone once the label contract is stable.
+
+Step 4: Select TerraTorch/Graha Task and Model Path [Pending]
+-------------------------------------------------------------
+Check whether the Graha/TerraTorch codebase already provides an object detection or instance segmentation task compatible with the label format.
+
+Expected output:
+- Decision on whether to use an existing task or create a custom Lightning task.
+
+Step 5: Implement Instance Dataset Output [Pending]
+---------------------------------------------------
+Update or create the instance segmentation datamodule so it loads .npz labels:
+
+- mask = data["mask"]
+- bboxes = data["bboxes"]
+- num_craters = data["num_craters"]
+
+The datamodule should use the same split-folder structure:
+
+- data/train/chips
+- data/train/labels
+- data/val/chips
+- data/val/labels
+- data/test/chips
+- data/test/labels
+
+Expected output:
+- A datamodule that can load train/val/test instance batches.
+
+Step 6: Implement Crop-Safe Label Transforms [Pending]
+------------------------------------------------------
+Cropping must update every label representation consistently.
+
+For center crop or configured crop:
+
+- Crop image.
+- Crop mask.
+- Shift boxes by crop offset.
+- Clip boxes to crop bounds.
+- Drop invalid or very small boxes.
+- Update num_craters.
+
+Expected output:
+- A visual sanity check showing image, cropped mask, and cropped boxes agree.
+
+Step 7: Create Instance Notebook and Script [Pending]
+-----------------------------------------------------
+Mirror the semantic segmentation workflow:
+
+- Interactive notebook for development.
+- Clean .py script with main() for sbatch.
+- Shared config pattern.
+- Timestamped output directory.
+- Symlink/data-root handling.
+- Checkpoint support.
+- Cache predictions when useful.
+
+Expected output:
+- A notebook and sbatch-compatible script for instance segmentation experiments.
+
+Step 8: Add Instance-Aware Plotting [Pending]
+---------------------------------------------
+Create plotting that can show:
+
+- WAC RGB/composite image.
+- Ground-truth mask.
+- Ground-truth boxes.
+- Predicted masks/boxes if supported by the selected model.
+
+Expected output:
+- Validation plots saved under the run output directory.
+
+Step 9: Smoke Test [Pending]
+----------------------------
+Run these checks before long training:
+
+- Load one train batch.
+- Load one val batch.
+- Visualize images, masks, and boxes after crop.
+- Run one forward pass.
+- Run max_epochs=1 from notebook.
+- Run max_epochs=1 from sbatch script.
+
+Expected output:
+- Confirmed data/model/trainer compatibility.
+
+Step 10: Train and Evaluate [Pending]
+-------------------------------------
+Once the smoke test works:
+
+- Run a short training job.
+- Inspect plots and losses.
+- Compare with semantic segmentation behavior.
+- Decide whether the next milestone should be true instance prediction or improved semantic-plus-shape training.
+
