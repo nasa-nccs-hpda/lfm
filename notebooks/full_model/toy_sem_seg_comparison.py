@@ -276,11 +276,12 @@ def create_trainer(
             LearningRateMonitor(logging_interval="epoch"),
             ModelCheckpoint(
                 dirpath=str(output_dir / "checkpoints"),
-                # monitor="val/loss",
+                monitor="val_loss",
                 mode="min",
                 filename="model-{epoch:02d}-{val_loss:.3f}",
-                # save_top_k=3,
-                # save_last=True,
+                auto_insert_metric_name=False,
+                save_top_k=-1,
+                save_last=True,
                 every_n_epochs=1,
             ),
             ValidationPlotCallback(

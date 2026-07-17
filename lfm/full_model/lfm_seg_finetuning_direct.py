@@ -180,7 +180,10 @@ def make_notebook_task_class(lunar_shape_segmentation_task_cls):
             return super().training_step(self._drop_extra_batch_metadata(batch), *args, **kwargs)
 
         def validation_step(self, batch, *args, **kwargs):
-            return super().validation_step(self._drop_extra_batch_metadata(batch), *args, **kwargs)
+            output = super().validation_step(self._drop_extra_batch_metadata(batch), *args, **kwargs)
+            if isinstance(output, dict) and "loss" in output:
+                self.log("val_loss", output["loss"], on_step=False, on_epoch=True, prog_bar=False)
+            return output
 
         def test_step(self, batch, *args, **kwargs):
             return super().test_step(self._drop_extra_batch_metadata(batch), *args, **kwargs)
@@ -384,11 +387,13 @@ def create_trainer(
             ),
             ModelCheckpoint(
                 dirpath=str(output_dir / "checkpoints"),
-                monitor="val/loss",
+                monitor="val_loss",
                 mode="min",
-                filename="best-{epoch:02d}-{val/loss:.3f}",
-                save_top_k=3,
+                filename="model-{epoch:02d}-{val_loss:.3f}",
+                auto_insert_metric_name=False,
+                save_top_k=-1,
                 save_last=True,
+                every_n_epochs=1,
             ),
         ],
     )

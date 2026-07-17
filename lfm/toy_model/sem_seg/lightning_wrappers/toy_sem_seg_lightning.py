@@ -84,6 +84,7 @@ class ToySemSegLightningModule(LightningModule):
         logits = self(images)
         loss = self.criterion(logits, labels)
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=False)
         for name, value in binary_segmentation_stats(logits, labels).items():
             self.log(f"val/{name}", value, on_step=False, on_epoch=True, prog_bar=(name == "f1"))
         return loss
