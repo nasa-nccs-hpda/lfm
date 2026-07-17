@@ -14,8 +14,7 @@ from typing import Any
 import torch
 from argparse import Namespace
 from lightning.pytorch import Trainer, seed_everything
-from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
-from lightning.pytorch.loggers import TensorBoardLogger
+from lightning.pytorch.callbacks import ModelCheckpoint
 
 from lfm.full_model import lfm_seg_finetuning_direct as graha_workflow
 from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_datamodule import (
@@ -304,17 +303,13 @@ def create_trainer(
         max_epochs=config.max_epochs,
         check_val_every_n_epoch=1,
         log_every_n_steps=5,
-        logger=TensorBoardLogger(
-            save_dir=str(output_dir / "tb_logs"),
-            name="toy-sem-seg-comparison",
-        ),
+        logger=False,
         callbacks=[
-            LearningRateMonitor(logging_interval="epoch"),
             ModelCheckpoint(
-                dirpath=str(output_dir / "checkpoints"),
+                dirpath=str(output_dir / "checkpoints" / "toy_model"),
                 monitor="val_loss",
                 mode="min",
-                filename="model-{epoch:02d}-{val_loss:.3f}",
+                filename="model-epoch-{epoch:02d}-val-loss={val_loss:.3f}",
                 auto_insert_metric_name=False,
                 save_top_k=-1,
                 save_last=True,
@@ -344,7 +339,7 @@ def run_graha_workflow(
     graha_workflow.configure_proj_environment()
     graha_args = Namespace(
         data_root=str(config.data_root),
-        base_output_dir=str(comparison_output_dir / "full_model"),
+        base_output_dir=str(comparison_output_dir),
         pretrain_dir=str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None,
         lightning_checkpoint=str(config.graha_lightning_checkpoint)
         if config.graha_lightning_checkpoint
@@ -399,6 +394,7 @@ def run_graha_workflow(
         deps["ValidationPlotCallback"],
         plot_output_dir=comparison_output_dir,
         plots_subdir=Path("plots") / "full_model",
+        checkpoint_subdir=Path("checkpoints") / "full_model",
     )
 
     if no_fit:

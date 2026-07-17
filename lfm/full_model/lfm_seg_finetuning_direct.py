@@ -16,8 +16,7 @@ from typing import Any
 
 import torch
 from lightning.pytorch import Trainer, seed_everything
-from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
-from lightning.pytorch.loggers import TensorBoardLogger
+from lightning.pytorch.callbacks import ModelCheckpoint
 
 
 @dataclass(frozen=True)
@@ -378,6 +377,7 @@ def create_trainer(
     *,
     plot_output_dir: Path | None = None,
     plots_subdir: str | Path = "plots",
+    checkpoint_subdir: str | Path = Path("checkpoints") / "full_model",
 ) -> Trainer:
     plot_output_dir = output_dir if plot_output_dir is None else plot_output_dir
     return Trainer(
@@ -387,12 +387,8 @@ def create_trainer(
         max_epochs=config.max_epochs,
         check_val_every_n_epoch=1,
         log_every_n_steps=5,
-        logger=TensorBoardLogger(
-            save_dir=str(output_dir / "tb_logs"),
-            name="crater-segmentation-script-direct",
-        ),
+        logger=False,
         callbacks=[
-            LearningRateMonitor(logging_interval="epoch"),
             validation_plot_callback_cls(
                 output_dir=plot_output_dir,
                 n_samples=5,
@@ -401,10 +397,10 @@ def create_trainer(
                 dpi=150,
             ),
             ModelCheckpoint(
-                dirpath=str(output_dir / "checkpoints"),
+                dirpath=str(output_dir / checkpoint_subdir),
                 monitor="val_loss",
                 mode="min",
-                filename="model-{epoch:02d}-{val_loss:.3f}",
+                filename="model-epoch-{epoch:02d}-val-loss={val_loss:.3f}",
                 auto_insert_metric_name=False,
                 save_top_k=-1,
                 save_last=True,
