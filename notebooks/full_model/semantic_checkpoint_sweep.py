@@ -16,9 +16,12 @@ companion notebook and from sbatch.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import gc
+import os
 import re
 import sys
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -36,7 +39,6 @@ from toy_sem_seg_comparison import (
     create_datamodule as create_toy_datamodule,
     create_lightning_module as create_toy_lightning_module,
     create_model as create_toy_model,
-    load_lightning_checkpoint_state,
 )
 
 
@@ -80,6 +82,8 @@ class SweepConfig:
     graha_num_workers: int
     max_checkpoints: int | None
     seed: int
+    verbose: bool
+    preload_test_batches: bool
 
 
 def build_config(args: argparse.Namespace) -> SweepConfig:
@@ -127,7 +131,32 @@ def build_config(args: argparse.Namespace) -> SweepConfig:
         graha_num_workers=args.graha_num_workers,
         max_checkpoints=args.max_checkpoints,
         seed=args.seed,
+        verbose=getattr(args, "verbose", False),
+        preload_test_batches=getattr(args, "preload_test_batches", True),
     )
+
+
+@contextlib.contextmanager
+def _quiet(enabled: bool):
+    if not enabled:
+        yield
+        return
+    with open(os.devnull, "w", encoding="utf-8") as devnull:
+        with contextlib.redirect_stdout(devnull):
+            yield
+
+
+def _load_lightning_checkpoint_state(task: torch.nn.Module, checkpoint_path: Path) -> None:
+    checkpoint_path = Path(checkpoint_path).resolve()
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=".*You are using `torch.load` with `weights_only=False`.*",
+            category=FutureWarning,
+        )
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    state_dict = checkpoint.get("state_dict", checkpoint)
+    task.load_state_dict(state_dict, strict=True)
 
 
 def discover_checkpoints(checkpoint_dir: Path, *, max_checkpoints: int | None = None) -> list[CheckpointRecord]:
@@ -219,6 +248,31 @@ def _move_batch_to_device(batch: Any, device: torch.device) -> Any:
     return batch.to(device) if torch.is_tensor(batch) else batch
 
 
+def _cache_batch_on_cpu(batch: Any) -> Any:
+    if isinstance(batch, dict):
+        return {key: _cache_batch_on_cpu(value) for key, value in batch.items()}
+    if isinstance(batch, tuple):
+        return tuple(_cache_batch_on_cpu(value) for value in batch)
+    if isinstance(batch, list):
+        return [_cache_batch_on_cpu(value) for value in batch]
+    if torch.is_tensor(batch):
+        return batch.detach().cpu()
+    return batch
+
+
+def preload_test_batches(dataloader, *, model_name: str) -> list[Any]:
+    """Load processed test batches into CPU memory once before checkpoint sweep."""
+    cached_batches = []
+    for batch in tqdm(
+        dataloader,
+        desc=f"{model_name} preload test batches",
+        dynamic_ncols=True,
+    ):
+        cached_batches.append(_cache_batch_on_cpu(batch))
+    print(f"[{model_name}] Preloaded {len(cached_batches)} test batch(es).", flush=True)
+    return cached_batches
+
+
 def _logits_from_output(output: Any) -> torch.Tensor:
     if torch.is_tensor(output):
         return output
@@ -300,12 +354,12 @@ def _write_metrics(output_dir: Path, metrics: dict[str, float], *, header: str |
 def _run_checkpoint(
     *,
     task: torch.nn.Module,
-    dataloader,
+    test_batches,
     checkpoint: CheckpointRecord,
     output_dir: Path,
     model_name: str,
 ) -> dict[str, float]:
-    load_lightning_checkpoint_state(task, checkpoint.path, model_name)
+    _load_lightning_checkpoint_state(task, checkpoint.path)
     device = next(task.parameters()).device
     was_training = task.training
     task.eval()
@@ -316,7 +370,7 @@ def _run_checkpoint(
     sample_index = 0
 
     batch_bar = tqdm(
-        dataloader,
+        test_batches,
         desc=f"{model_name} {checkpoint.name} batches",
         leave=False,
         dynamic_ncols=True,
@@ -468,17 +522,23 @@ def run_toy_sweep(config: SweepConfig) -> list[dict[str, Any]]:
 
     toy_config = build_toy_config(_make_toy_args(config))
     setup_dir = config.output_root / "_toy_setup"
-    datamodule = create_toy_datamodule(toy_config, setup_dir)
-    datamodule.setup("test")
-    if datamodule.weight_assignments is None:
-        raise RuntimeError("Toy datamodule did not create weight assignments.")
+    with _quiet(not config.verbose):
+        datamodule = create_toy_datamodule(toy_config, setup_dir)
+        datamodule.setup("test")
+        if datamodule.weight_assignments is None:
+            raise RuntimeError("Toy datamodule did not create weight assignments.")
 
-    model = create_toy_model(toy_config, datamodule.weight_assignments)
-    task = create_toy_lightning_module(toy_config, model)
+        model = create_toy_model(toy_config, datamodule.weight_assignments)
+        task = create_toy_lightning_module(toy_config, model)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     task.to(device)
 
     dataloader = datamodule.test_dataloader()
+    test_batches = (
+        preload_test_batches(dataloader, model_name="Toy")
+        if config.preload_test_batches
+        else dataloader
+    )
     model_output_dir = config.output_root / "toy_model"
     rows = []
     checkpoint_bar = tqdm(
@@ -490,7 +550,7 @@ def run_toy_sweep(config: SweepConfig) -> list[dict[str, Any]]:
         checkpoint_bar.set_postfix(checkpoint=checkpoint.name)
         metrics = _run_checkpoint(
             task=task,
-            dataloader=dataloader,
+            test_batches=test_batches,
             checkpoint=checkpoint,
             output_dir=model_output_dir,
             model_name="Toy",
@@ -543,24 +603,30 @@ def run_graha_sweep(config: SweepConfig) -> list[dict[str, Any]]:
     checkpoints = discover_checkpoints(config.graha_checkpoint_dir, max_checkpoints=config.max_checkpoints)
     print(f"[Graha] Found {len(checkpoints)} checkpoint(s).")
 
-    graha_workflow.configure_proj_environment()
-    graha_config = graha_workflow.build_config(_make_graha_args(config))
-    graha_workflow.configure_python_paths(graha_config)
-    graha_workflow.validate_required_paths(graha_config)
+    with _quiet(not config.verbose):
+        graha_workflow.configure_proj_environment()
+        graha_config = graha_workflow.build_config(_make_graha_args(config))
+        graha_workflow.configure_python_paths(graha_config)
+        graha_workflow.validate_required_paths(graha_config)
 
-    deps = graha_workflow.import_project_dependencies()
-    datamodule_cls = deps["LunarSemanticSegmentationDatamodule"]
-    task_cls = graha_workflow.make_notebook_task_class(deps["LunarShapeSegmentationTask"])
-    means, stds = graha_workflow.calculate_train_stats(graha_config, datamodule_cls)
-    datamodule = graha_workflow.create_datamodule(graha_config, datamodule_cls, means, stds)
-    datamodule.setup("test")
+        deps = graha_workflow.import_project_dependencies()
+        datamodule_cls = deps["LunarSemanticSegmentationDatamodule"]
+        task_cls = graha_workflow.make_notebook_task_class(deps["LunarShapeSegmentationTask"])
+        means, stds = graha_workflow.calculate_train_stats(graha_config, datamodule_cls)
+        datamodule = graha_workflow.create_datamodule(graha_config, datamodule_cls, means, stds)
+        datamodule.setup("test")
 
-    sample_batch = graha_workflow.inspect_batch(datamodule)
-    task = graha_workflow.create_task(graha_config, task_cls, sample_batch)
+        sample_batch = graha_workflow.inspect_batch(datamodule)
+        task = graha_workflow.create_task(graha_config, task_cls, sample_batch)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     task.to(device)
 
     dataloader = datamodule.test_dataloader()
+    test_batches = (
+        preload_test_batches(dataloader, model_name="Graha")
+        if config.preload_test_batches
+        else dataloader
+    )
     model_output_dir = config.output_root / "graha_model"
     rows = []
     checkpoint_bar = tqdm(
@@ -572,7 +638,7 @@ def run_graha_sweep(config: SweepConfig) -> list[dict[str, Any]]:
         checkpoint_bar.set_postfix(checkpoint=checkpoint.name)
         metrics = _run_checkpoint(
             task=task,
-            dataloader=dataloader,
+            test_batches=test_batches,
             checkpoint=checkpoint,
             output_dir=model_output_dir,
             model_name="Graha",
@@ -633,6 +699,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--graha-num-workers", type=int, default=10)
     parser.add_argument("--max-checkpoints", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--verbose", action="store_true", help="Show model/datamodule setup output.")
+    parser.add_argument(
+        "--no-preload-test-batches",
+        dest="preload_test_batches",
+        action="store_false",
+        help="Disable one-time test dataloader preload and iterate the dataloader for every checkpoint.",
+    )
+    parser.set_defaults(preload_test_batches=True)
     return parser.parse_args()
 
 

@@ -37,7 +37,7 @@ echo
 
 module load miniforge
 mamba activate graha-lunar-fm
-python notebooks/full_model/semantic_checkpoint_sweep.py "$@"
+python -u notebooks/full_model/semantic_checkpoint_sweep.py "$@"
 
 END_TIME="$(date +%s)"
 END_READABLE="$(date)"
