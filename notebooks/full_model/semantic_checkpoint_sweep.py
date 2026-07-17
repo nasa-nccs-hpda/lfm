@@ -27,6 +27,7 @@ from typing import Any
 import numpy as np
 import torch
 from lightning.pytorch import seed_everything
+from tqdm.auto import tqdm
 
 from lfm.full_model import lfm_seg_finetuning_direct as graha_workflow
 from lfm.full_model.utils.utils import ensure_data_symlink
@@ -314,8 +315,15 @@ def _run_checkpoint(
     counts_total = _empty_counts()
     sample_index = 0
 
+    batch_bar = tqdm(
+        dataloader,
+        desc=f"{model_name} {checkpoint.name} batches",
+        leave=False,
+        dynamic_ncols=True,
+    )
+
     with torch.no_grad():
-        for batch in dataloader:
+        for batch in batch_bar:
             batch = _move_batch_to_device(batch, device)
             images, labels, image_paths = _extract_batch(batch)
             logits = _logits_from_output(task(images))
@@ -350,6 +358,7 @@ def _run_checkpoint(
                     ),
                 )
                 sample_index += 1
+            batch_bar.set_postfix(samples=sample_index)
 
     aggregate_metrics = _metrics_from_counts(counts_total)
     _write_metrics(
@@ -472,7 +481,13 @@ def run_toy_sweep(config: SweepConfig) -> list[dict[str, Any]]:
     dataloader = datamodule.test_dataloader()
     model_output_dir = config.output_root / "toy_model"
     rows = []
-    for checkpoint in checkpoints:
+    checkpoint_bar = tqdm(
+        checkpoints,
+        desc="Toy checkpoints",
+        dynamic_ncols=True,
+    )
+    for checkpoint in checkpoint_bar:
+        checkpoint_bar.set_postfix(checkpoint=checkpoint.name)
         metrics = _run_checkpoint(
             task=task,
             dataloader=dataloader,
@@ -487,6 +502,11 @@ def run_toy_sweep(config: SweepConfig) -> list[dict[str, Any]]:
                 "checkpoint_path": checkpoint.path,
                 **metrics,
             }
+        )
+        checkpoint_bar.set_postfix(
+            checkpoint=checkpoint.name,
+            f1=f"{metrics['foreground_f1']:.4f}",
+            iou=f"{metrics['iou']:.4f}",
         )
 
     _write_model_summary(model_output_dir, rows)
@@ -543,7 +563,13 @@ def run_graha_sweep(config: SweepConfig) -> list[dict[str, Any]]:
     dataloader = datamodule.test_dataloader()
     model_output_dir = config.output_root / "graha_model"
     rows = []
-    for checkpoint in checkpoints:
+    checkpoint_bar = tqdm(
+        checkpoints,
+        desc="Graha checkpoints",
+        dynamic_ncols=True,
+    )
+    for checkpoint in checkpoint_bar:
+        checkpoint_bar.set_postfix(checkpoint=checkpoint.name)
         metrics = _run_checkpoint(
             task=task,
             dataloader=dataloader,
@@ -558,6 +584,11 @@ def run_graha_sweep(config: SweepConfig) -> list[dict[str, Any]]:
                 "checkpoint_path": checkpoint.path,
                 **metrics,
             }
+        )
+        checkpoint_bar.set_postfix(
+            checkpoint=checkpoint.name,
+            f1=f"{metrics['foreground_f1']:.4f}",
+            iou=f"{metrics['iou']:.4f}",
         )
 
     _write_model_summary(model_output_dir, rows)
