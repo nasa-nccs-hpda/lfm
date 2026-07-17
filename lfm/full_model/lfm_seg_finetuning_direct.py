@@ -32,6 +32,7 @@ class FineTuningConfig:
     modality_info: Path
     data_root: Path
     base_output_dir: Path
+    lightning_checkpoint: Path | None
     normalized_wac_data_range: list[float]
     crop_size: int
     stats_batch_size: int
@@ -84,6 +85,9 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         if args.base_output_dir
         else notebook_dir / "outputs" / "graha_finetuning"
     )
+    lightning_checkpoint = (
+        Path(args.lightning_checkpoint).resolve() if args.lightning_checkpoint else None
+    )
 
     return FineTuningConfig(
         package_dir=package_dir,
@@ -96,6 +100,7 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         modality_info=pretrain_dir / "modality_info.yaml",
         data_root=data_root,
         base_output_dir=base_output_dir,
+        lightning_checkpoint=lightning_checkpoint,
         normalized_wac_data_range=[-1.0, 1.0],
         crop_size=args.crop_size,
         stats_batch_size=args.stats_batch_size,
@@ -125,6 +130,7 @@ def print_config(config: FineTuningConfig) -> None:
     print("Backbone config:", config.backbone_cfg)
     print("Modality info:", config.modality_info)
     print("Base output directory:", config.base_output_dir)
+    print("Lightning checkpoint:", config.lightning_checkpoint)
     print("Normalized WAC modality data_range:", config.normalized_wac_data_range)
 
 
@@ -140,6 +146,8 @@ def validate_required_paths(config: FineTuningConfig) -> None:
         config.data_root / "val" / "chips",
         config.data_root / "val" / "labels",
     ]
+    if config.lightning_checkpoint is not None:
+        required_paths.append(config.lightning_checkpoint)
     missing = [path for path in required_paths if not path.exists()]
     if missing:
         raise FileNotFoundError(
@@ -353,6 +361,16 @@ def inspect_backbone(task) -> None:
     print(f"backbone params: {backbone.get_num_params():,}")
 
 
+def load_lightning_checkpoint_state(task: torch.nn.Module, checkpoint_path: Path, model_name: str) -> None:
+    """Load Lightning checkpoint weights into an already-built task."""
+    checkpoint_path = Path(checkpoint_path).resolve()
+    print(f"Loading {model_name} Lightning checkpoint weights from {checkpoint_path}", flush=True)
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    state_dict = checkpoint.get("state_dict", checkpoint)
+    task.load_state_dict(state_dict, strict=True)
+    print(f"Loaded {model_name} Lightning checkpoint weights.", flush=True)
+
+
 def create_trainer(
     config: FineTuningConfig,
     output_dir: Path,
@@ -401,6 +419,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-root", type=str, default=None)
     parser.add_argument("--base-output-dir", type=str, default=None)
     parser.add_argument("--pretrain-dir", type=str, default=None)
+    parser.add_argument(
+        "--lightning-checkpoint",
+        type=str,
+        default=None,
+        help="Optional Lightning .ckpt. Resumes fit, or loads weights when --no-fit is set.",
+    )
     parser.add_argument("--crop-size", type=int, default=256)
     parser.add_argument("--stats-batch-size", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=16)
@@ -438,8 +462,24 @@ def main() -> None:
     trainer = create_trainer(config, output_dir, deps["ValidationPlotCallback"])
     if args.no_fit:
         print("Skipping trainer.fit() because --no-fit was set.")
+        if config.lightning_checkpoint is not None:
+            load_lightning_checkpoint_state(task, config.lightning_checkpoint, "Graha")
+            if config.cache_predictions:
+                deps["save_prediction_cache"](
+                    task=task,
+                    datamodule=datamodule,
+                    output_dir=output_dir,
+                    model_name="graha",
+                    split=config.prediction_split,
+                    n_samples=config.prediction_n_samples,
+                )
         return
-    trainer.fit(task, datamodule=datamodule)
+    ckpt_path = (
+        str(config.lightning_checkpoint) if config.lightning_checkpoint is not None else None
+    )
+    if ckpt_path is not None:
+        print(f"Resuming trainer.fit() from {ckpt_path}", flush=True)
+    trainer.fit(task, datamodule=datamodule, ckpt_path=ckpt_path)
     if config.cache_predictions:
         deps["save_prediction_cache"](
             task=task,

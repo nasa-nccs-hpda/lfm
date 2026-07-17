@@ -42,6 +42,7 @@ class ToyComparisonConfig:
     data_root: Path
     base_output_dir: Path
     dino_checkpoint: Path | None
+    dino_lightning_checkpoint: Path | None
     band_filter: list[int]
     target_size: tuple[int, int]
     spatial_transform: str
@@ -64,9 +65,12 @@ class ToyComparisonConfig:
     prediction_n_samples: int
     graha_base_output_dir: Path
     graha_pretrain_dir: Path | None
+    graha_lightning_checkpoint: Path | None
     graha_stats_batch_size: int
     graha_batch_size: int
     graha_num_workers: int
+    skip_dino_fit: bool
+    skip_graha_fit: bool
     seed: int
 
 
@@ -80,6 +84,11 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         else notebook_dir / "outputs" / "toy_sem_seg_comparison"
     )
     dino_checkpoint = Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None
+    dino_lightning_checkpoint = (
+        Path(args.dino_lightning_checkpoint).resolve()
+        if args.dino_lightning_checkpoint
+        else None
+    )
     graha_base_output_dir = (
         Path(args.graha_base_output_dir).resolve()
         if args.graha_base_output_dir
@@ -88,6 +97,11 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
     graha_pretrain_dir = (
         Path(args.graha_pretrain_dir).resolve() if args.graha_pretrain_dir else None
     )
+    graha_lightning_checkpoint = (
+        Path(args.graha_lightning_checkpoint).resolve()
+        if args.graha_lightning_checkpoint
+        else None
+    )
 
     return ToyComparisonConfig(
         repo_root=repo_root,
@@ -95,6 +109,7 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         data_root=data_root,
         base_output_dir=base_output_dir,
         dino_checkpoint=dino_checkpoint,
+        dino_lightning_checkpoint=dino_lightning_checkpoint,
         band_filter=args.band_filter,
         target_size=(args.target_size, args.target_size),
         spatial_transform=args.spatial_transform,
@@ -119,9 +134,12 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         prediction_n_samples=args.prediction_n_samples,
         graha_base_output_dir=graha_base_output_dir,
         graha_pretrain_dir=graha_pretrain_dir,
+        graha_lightning_checkpoint=graha_lightning_checkpoint,
         graha_stats_batch_size=args.graha_stats_batch_size,
         graha_batch_size=args.graha_batch_size,
         graha_num_workers=args.graha_num_workers,
+        skip_dino_fit=args.no_fit or args.skip_dino_fit,
+        skip_graha_fit=args.no_fit or args.skip_graha_fit,
         seed=args.seed,
     )
 
@@ -135,6 +153,14 @@ def validate_data_paths(config: ToyComparisonConfig) -> None:
                 config.data_root / split / "labels",
             ]
         )
+    for checkpoint_path in [
+        config.dino_checkpoint,
+        config.dino_lightning_checkpoint,
+        config.graha_pretrain_dir,
+        config.graha_lightning_checkpoint,
+    ]:
+        if checkpoint_path is not None:
+            required.append(checkpoint_path)
     missing = [path for path in required if not path.exists()]
     if missing:
         raise FileNotFoundError(
@@ -153,6 +179,16 @@ def save_config(config: ToyComparisonConfig, output_dir: Path) -> None:
     payload = {key: encode(value) for key, value in asdict(config).items()}
     with (output_dir / "config.json").open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
+
+
+def load_lightning_checkpoint_state(task: torch.nn.Module, checkpoint_path: Path, model_name: str) -> None:
+    """Load Lightning checkpoint weights into an already-built task."""
+    checkpoint_path = Path(checkpoint_path).resolve()
+    print(f"Loading {model_name} Lightning checkpoint weights from {checkpoint_path}", flush=True)
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    state_dict = checkpoint.get("state_dict", checkpoint)
+    task.load_state_dict(state_dict, strict=True)
+    print(f"Loaded {model_name} Lightning checkpoint weights.", flush=True)
 
 
 def _format_seconds(seconds: float) -> str:
@@ -310,6 +346,9 @@ def run_graha_workflow(
         data_root=str(config.data_root),
         base_output_dir=str(comparison_output_dir / "full_model"),
         pretrain_dir=str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None,
+        lightning_checkpoint=str(config.graha_lightning_checkpoint)
+        if config.graha_lightning_checkpoint
+        else None,
         crop_size=config.target_size[0],
         stats_batch_size=config.graha_stats_batch_size,
         batch_size=config.graha_batch_size,
@@ -364,9 +403,22 @@ def run_graha_workflow(
 
     if no_fit:
         print("Skipping Graha trainer.fit() because --no-fit was set.")
+        if config.graha_lightning_checkpoint is not None:
+            load_lightning_checkpoint_state(
+                task,
+                config.graha_lightning_checkpoint,
+                "Graha",
+            )
     else:
         fit_started_at = time.perf_counter()
-        trainer.fit(task, datamodule=datamodule)
+        ckpt_path = (
+            str(config.graha_lightning_checkpoint)
+            if config.graha_lightning_checkpoint is not None
+            else None
+        )
+        if ckpt_path is not None:
+            print(f"Resuming Graha trainer.fit() from {ckpt_path}", flush=True)
+        trainer.fit(task, datamodule=datamodule, ckpt_path=ckpt_path)
         if timing_rows is not None:
             record_timing(
                 timing_rows,
@@ -425,6 +477,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-root", type=str, default=None)
     parser.add_argument("--base-output-dir", type=str, default=None)
     parser.add_argument("--dino-checkpoint", type=str, default=None)
+    parser.add_argument(
+        "--dino-lightning-checkpoint",
+        type=str,
+        default=None,
+        help="Optional DINO Lightning .ckpt. Resumes fit, or loads weights when DINO fit is skipped.",
+    )
     parser.add_argument("--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6])
     parser.add_argument("--target-size", type=int, default=256)
     parser.add_argument("--spatial-transform", choices=["resize", "crop"], default="crop")
@@ -456,11 +514,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prediction-n-samples", type=int, default=20)
     parser.add_argument("--graha-base-output-dir", type=str, default=None)
     parser.add_argument("--graha-pretrain-dir", type=str, default=None)
+    parser.add_argument(
+        "--graha-lightning-checkpoint",
+        type=str,
+        default=None,
+        help="Optional Graha Lightning .ckpt. Resumes fit, or loads weights when Graha fit is skipped.",
+    )
     parser.add_argument("--graha-stats-batch-size", type=int, default=16)
     parser.add_argument("--graha-batch-size", type=int, default=16)
     parser.add_argument("--graha-num-workers", type=int, default=10)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-fit", action="store_true", help="Build data/model/trainer but skip fit.")
+    parser.add_argument("--skip-dino-fit", action="store_true", help="Skip only DINO fitting.")
+    parser.add_argument("--skip-graha-fit", action="store_true", help="Skip only Graha fitting.")
     return parser.parse_args()
 
 
@@ -485,12 +551,21 @@ def main() -> None:
     trainer = create_trainer(config, output_dir, plots_subdir=Path("plots") / "toy_model")
     print("Lightning trainer created.", flush=True)
 
-    if args.no_fit:
-        print("Skipping DINO trainer.fit() because --no-fit was set.")
+    if config.skip_dino_fit:
+        print("Skipping DINO trainer.fit().")
+        if config.dino_lightning_checkpoint is not None:
+            load_lightning_checkpoint_state(task, config.dino_lightning_checkpoint, "DINO")
     else:
         print("Starting DINO trainer.fit()...", flush=True)
         fit_started_at = time.perf_counter()
-        trainer.fit(task, datamodule=datamodule)
+        ckpt_path = (
+            str(config.dino_lightning_checkpoint)
+            if config.dino_lightning_checkpoint is not None
+            else None
+        )
+        if ckpt_path is not None:
+            print(f"Resuming DINO trainer.fit() from {ckpt_path}", flush=True)
+        trainer.fit(task, datamodule=datamodule, ckpt_path=ckpt_path)
         record_timing(
             timing_rows,
             model="DINO",
@@ -517,7 +592,7 @@ def main() -> None:
             started_at=cache_started_at,
         )
 
-    if not args.no_fit:
+    if not config.skip_dino_fit:
         print("Starting DINO trainer.test() on final weights...", flush=True)
         test_started_at = time.perf_counter()
         trainer.test(task, datamodule=datamodule, ckpt_path=None)
@@ -543,7 +618,7 @@ def main() -> None:
 
     _, graha_prediction_cache = run_graha_workflow(
         config,
-        no_fit=args.no_fit,
+        no_fit=config.skip_graha_fit,
         comparison_output_dir=output_dir,
         timing_rows=timing_rows,
     )
