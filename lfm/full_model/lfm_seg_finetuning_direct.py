@@ -180,10 +180,7 @@ def make_notebook_task_class(lunar_shape_segmentation_task_cls):
             return super().training_step(self._drop_extra_batch_metadata(batch), *args, **kwargs)
 
         def validation_step(self, batch, *args, **kwargs):
-            output = super().validation_step(self._drop_extra_batch_metadata(batch), *args, **kwargs)
-            if isinstance(output, dict) and "loss" in output:
-                self.log("val_loss", output["loss"], on_step=False, on_epoch=True, prog_bar=False)
-            return output
+            return super().validation_step(self._drop_extra_batch_metadata(batch), *args, **kwargs)
 
         def test_step(self, batch, *args, **kwargs):
             return super().test_step(self._drop_extra_batch_metadata(batch), *args, **kwargs)

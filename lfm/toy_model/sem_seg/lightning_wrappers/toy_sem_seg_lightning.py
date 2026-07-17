@@ -74,28 +74,38 @@ class ToySemSegLightningModule(LightningModule):
 
     def training_step(self, batch: tuple[Any, ...], batch_idx: int) -> torch.Tensor:
         images, labels, *_ = batch
+        batch_size = images.shape[0]
         logits = self(images)
         loss = self.criterion(logits, labels)
-        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=batch_size)
         return loss
 
     def validation_step(self, batch: tuple[Any, ...], batch_idx: int) -> torch.Tensor:
         images, labels, *_ = batch
+        batch_size = images.shape[0]
         logits = self(images)
         loss = self.criterion(logits, labels)
-        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=batch_size)
+        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=False, batch_size=batch_size)
         for name, value in binary_segmentation_stats(logits, labels).items():
-            self.log(f"val/{name}", value, on_step=False, on_epoch=True, prog_bar=(name == "f1"))
+            self.log(
+                f"val/{name}",
+                value,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=(name == "f1"),
+                batch_size=batch_size,
+            )
         return loss
 
     def test_step(self, batch: tuple[Any, ...], batch_idx: int) -> torch.Tensor:
         images, labels, *_ = batch
+        batch_size = images.shape[0]
         logits = self(images)
         loss = self.criterion(logits, labels)
-        self.log("test/loss", loss, on_step=False, on_epoch=True)
+        self.log("test/loss", loss, on_step=False, on_epoch=True, batch_size=batch_size)
         for name, value in binary_segmentation_stats(logits, labels).items():
-            self.log(f"test/{name}", value, on_step=False, on_epoch=True)
+            self.log(f"test/{name}", value, on_step=False, on_epoch=True, batch_size=batch_size)
         return loss
 
     def configure_optimizers(self):

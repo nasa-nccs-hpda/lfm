@@ -470,6 +470,7 @@ class LunarShapeSegmentationTask(LunarSegmentationTask):
         model_output: Any,
         crater_boxes: list[Tensor] | None,
         stage: str,
+        batch_size: int | None = None,
     ) -> Tensor:
         """Add the shape regulariser to ``base_loss``. Logs the component
         under ``{stage}/shape_loss``. No-op when the weight is 0 or when
@@ -483,7 +484,12 @@ class LunarShapeSegmentationTask(LunarSegmentationTask):
             crater_boxes,
             pad_frac=self.shape_loss_pad_frac,
         )
-        self.log(f"{stage}/shape_loss", shape_l, prog_bar=(stage == "train"))
+        self.log(
+            f"{stage}/shape_loss",
+            shape_l,
+            prog_bar=(stage == "train"),
+            batch_size=batch_size,
+        )
         return base_loss + self.shape_loss_weight * shape_l
 
     # ---- lightning hooks --------------------------------------------------
@@ -498,7 +504,13 @@ class LunarShapeSegmentationTask(LunarSegmentationTask):
         loss = self.train_loss_handler.compute_loss(
             model_output, y, self.criterion, self.aux_loss
         )
-        loss["loss"] = self._add_shape_loss(loss["loss"], model_output, crater_boxes, "train")
+        loss["loss"] = self._add_shape_loss(
+            loss["loss"],
+            model_output,
+            crater_boxes,
+            "train",
+            batch_size=y.shape[0],
+        )
         self.train_loss_handler.log_loss(self.log, loss_dict=loss, batch_size=y.shape[0])
         y_hat_hard = to_segmentation_prediction(model_output)
         self.train_metrics.update(y_hat_hard, y)
@@ -516,7 +528,14 @@ class LunarShapeSegmentationTask(LunarSegmentationTask):
         loss = self.val_loss_handler.compute_loss(
             model_output, y, self.criterion, self.aux_loss
         )
-        loss["loss"] = self._add_shape_loss(loss["loss"], model_output, crater_boxes, "val")
+        loss["loss"] = self._add_shape_loss(
+            loss["loss"],
+            model_output,
+            crater_boxes,
+            "val",
+            batch_size=y.shape[0],
+        )
+        self.log("val_loss", loss["loss"], on_step=False, on_epoch=True, prog_bar=False, batch_size=y.shape[0])
         self.val_loss_handler.log_loss(self.log, loss_dict=loss, batch_size=y.shape[0])
         y_hat_hard = to_segmentation_prediction(model_output)
         self.val_metrics.update(y_hat_hard, y)
