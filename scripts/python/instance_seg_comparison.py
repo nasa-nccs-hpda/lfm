@@ -233,6 +233,7 @@ def create_toy_trainer(config: InstanceComparisonConfig, output_dir: Path) -> Tr
         devices=1,
         precision="32",
         max_epochs=config.max_epochs,
+        num_sanity_val_steps=0,
         check_val_every_n_epoch=1,
         log_every_n_steps=5,
         logger=False,
@@ -271,7 +272,9 @@ def run_toy(config: InstanceComparisonConfig, output_dir: Path) -> None:
         )
         if ckpt_path is not None:
             print(f"Resuming Toy trainer.fit() from {ckpt_path}", flush=True)
+        print("Starting Toy trainer.fit()...", flush=True)
         trainer.fit(task, datamodule=datamodule, ckpt_path=ckpt_path)
+        print("Finished Toy trainer.fit().", flush=True)
 
     elapsed = time.perf_counter() - started
     print(f"Toy elapsed seconds: {elapsed:.3f}", flush=True)
@@ -353,7 +356,9 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> None:
         )
         if ckpt_path is not None:
             print(f"Resuming Graha trainer.fit() from {ckpt_path}", flush=True)
+        print("Starting Graha trainer.fit()...", flush=True)
         trainer.fit(task, datamodule=datamodule, ckpt_path=ckpt_path)
+        print("Finished Graha trainer.fit().", flush=True)
 
     if graha_config.plot_predictions:
         graha_workflow.save_instance_prediction_plots(task, datamodule, graha_config, output_dir)
