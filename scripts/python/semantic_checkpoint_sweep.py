@@ -88,7 +88,8 @@ class SweepConfig:
 
 
 def build_config(args: argparse.Namespace) -> SweepConfig:
-    notebook_dir = Path(__file__).resolve().parent
+    script_dir = Path(__file__).resolve().parent
+    notebook_dir = script_dir.parents[1] / "notebooks" / "full_model"
     data_root = Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
     output_root = (
         Path(args.output_root).resolve()
@@ -741,7 +742,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    notebook_dir = Path(__file__).resolve().parent
+    notebook_dir = Path(__file__).resolve().parents[1] / "notebooks" / "full_model"
     ensure_data_symlink(args.simlink_dest, notebook_dir / "data")
     config = build_config(args)
     print("REMINDER: after rerunning training, confirm checkpoint directory structure before large sweeps.")

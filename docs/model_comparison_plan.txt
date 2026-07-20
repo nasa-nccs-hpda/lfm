@@ -15,8 +15,8 @@ and smoke-test it, then mark it [Completed] before moving to the next step.
 
 Related artifacts:
 - notebooks/full_model/toy_sem_seg_comparison.ipynb: interactive comparison workflow.
-- notebooks/full_model/toy_sem_seg_comparison.py: sbatch-compatible comparison script.
-- notebooks/full_model/sbatch_toy_sem_seg_comparison.sh: Slurm wrapper.
+- scripts/python/toy_sem_seg_comparison.py: sbatch-compatible comparison script.
+- scripts/shell/sbatch_toy_sem_seg_comparison.sh: Slurm wrapper.
 - lfm/full_model: reusable Graha/full-model datamodules, utilities, and vendor integration.
 - lfm/toy_model/sem_seg/lightning_wrappers: Lightning wrappers around the toy DINO model.
 
@@ -67,8 +67,8 @@ Linear Refactor Plan
 
 4. [Completed] Create old-model comparison run artifacts
    - Create notebooks/full_model/toy_sem_seg_comparison.ipynb.
-   - Create notebooks/full_model/toy_sem_seg_comparison.py with matching logic.
-   - Create notebooks/full_model/sbatch_toy_sem_seg_comparison.sh.
+   - Create scripts/python/toy_sem_seg_comparison.py with matching logic.
+   - Create scripts/shell/sbatch_toy_sem_seg_comparison.sh.
    - Add timestamped output directory creation.
    - Save config snapshots and dataloader file lists under the run output dir.
    - Add ./data symlink setup/check behavior to both notebook and script.
@@ -149,4 +149,3 @@ Linear Refactor Plan
     - Submit the Graha/full-model script with sbatch.
     - Run shared evaluation on the same held-out split.
     - Compare metrics and inspect side-by-side plots.
-

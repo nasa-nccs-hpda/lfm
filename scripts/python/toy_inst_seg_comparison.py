@@ -1,4 +1,11 @@
-"""Train the toy DINO semantic segmentation model on split full-model data."""
+"""Compare Toy DINO and Graha on instance-label data as binary segmentation.
+
+This mirrors ``toy_sem_seg_comparison.py`` but uses .npz instance labels. The
+Toy DINO side trains on ``mask > 0``. The Graha side uses
+``LunarInstanceSegmentationDatamodule`` with ``binarize_mask=True`` so the main
+segmentation target is binary while crater boxes remain available for shape
+loss.
+"""
 
 from __future__ import annotations
 
@@ -56,6 +63,9 @@ class ToyComparisonConfig:
     loss_type: str
     freeze_encoder: bool
     normalize_inputs: bool
+    label_file_type: str
+    label_npz_key: str
+    binarize_label: bool
     toy_gradient_clip_val: float | None
     plot_every_n_epochs: int
     plot_n_samples: int
@@ -74,13 +84,14 @@ class ToyComparisonConfig:
 
 
 def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
-    notebook_dir = Path(__file__).resolve().parent
-    repo_root = notebook_dir.parents[1]
+    script_dir = Path(__file__).resolve().parent
+    repo_root = script_dir.parents[1]
+    notebook_dir = repo_root / "notebooks" / "full_model"
     data_root = Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
     base_output_dir = (
         Path(args.base_output_dir).resolve()
         if args.base_output_dir
-        else notebook_dir / "outputs" / "toy_sem_seg_comparison"
+        else notebook_dir / "outputs" / "toy_inst_seg_comparison"
     )
     dino_checkpoint = Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None
     dino_lightning_checkpoint = (
@@ -123,6 +134,9 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         loss_type=args.loss_type,
         freeze_encoder=args.freeze_encoder,
         normalize_inputs=args.normalize_inputs,
+        label_file_type=args.label_file_type,
+        label_npz_key=args.label_npz_key,
+        binarize_label=args.binarize_label,
         toy_gradient_clip_val=None
         if args.disable_toy_gradient_clipping
         else args.toy_gradient_clip_val,
@@ -244,6 +258,9 @@ def create_datamodule(config: ToyComparisonConfig, output_dir: Path) -> ToySemSe
         spatial_transform=config.spatial_transform,
         band_filter=config.band_filter,
         normalize_inputs=config.normalize_inputs,
+        label_file_type=config.label_file_type,
+        label_npz_key=config.label_npz_key,
+        binarize_label=config.binarize_label,
         max_train_samples=config.max_train_samples,
         max_val_samples=config.max_val_samples,
         max_test_samples=config.max_test_samples,
@@ -361,7 +378,14 @@ def run_graha_workflow(
     graha_workflow.validate_required_paths(graha_config)
 
     deps = graha_workflow.import_project_dependencies()
-    datamodule_cls = deps["LunarSemanticSegmentationDatamodule"]
+    from lfm.full_model.datamodules import LunarInstanceSegmentationDatamodule
+
+    class BinarizedInstanceSegmentationDatamodule(LunarInstanceSegmentationDatamodule):
+        def __init__(self, *args, **kwargs) -> None:
+            kwargs["binarize_mask"] = True
+            super().__init__(*args, **kwargs)
+
+    datamodule_cls = BinarizedInstanceSegmentationDatamodule
     task_cls = graha_workflow.make_notebook_task_class(deps["LunarShapeSegmentationTask"])
 
     output_dir = graha_workflow.create_output_dirs(
@@ -497,6 +521,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable toy DINO z-score normalization using train-split stats.",
     )
+    parser.add_argument("--label-file-type", type=str, default=".npz")
+    parser.add_argument("--label-npz-key", type=str, default="mask")
+    parser.add_argument(
+        "--binarize-label",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Convert Toy labels to mask > 0. Enabled by default for instance labels.",
+    )
     parser.add_argument("--toy-gradient-clip-val", type=float, default=1.0)
     parser.add_argument(
         "--disable-toy-gradient-clipping",
@@ -528,7 +560,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    notebook_dir = Path(__file__).resolve().parent
+    notebook_dir = Path(__file__).resolve().parents[1] / "notebooks" / "full_model"
     ensure_data_symlink(args.simlink_dest, notebook_dir / "data")
     config = build_config(args)
     validate_data_paths(config)

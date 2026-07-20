@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=inst_seg_ft
+#SBATCH --job-name=sem_ckpt_sweep
 #SBATCH --partition=compute
 #SBATCH --gpus=1
 #SBATCH --mem=128G
 #SBATCH --cpus-per-gpu=10
 #SBATCH --time=24:00:00
-#SBATCH --output=notebooks/full_model/logs/instance_seg_finetuning_%j.out
-#SBATCH --error=notebooks/full_model/logs/instance_seg_finetuning_%j.err
+#SBATCH --output=scripts/logs/semantic_checkpoint_sweep_%j.out
+#SBATCH --error=scripts/logs/semantic_checkpoint_sweep_%j.err
 
 set -euo pipefail
 
@@ -14,19 +14,19 @@ START_TIME="$(date +%s)"
 START_READABLE="$(date)"
 
 SUBMIT_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
-if [[ -f "${SUBMIT_DIR}/notebooks/full_model/instance_seg_finetuning.py" ]]; then
+if [[ -f "${SUBMIT_DIR}/scripts/python/semantic_checkpoint_sweep.py" ]]; then
   REPO_DIR="${SUBMIT_DIR}"
-elif [[ -f "${SUBMIT_DIR}/instance_seg_finetuning.py" ]]; then
+elif [[ -f "${SUBMIT_DIR}/../python/semantic_checkpoint_sweep.py" ]]; then
   REPO_DIR="$(cd "${SUBMIT_DIR}/../.." && pwd)"
-elif [[ -f "${SUBMIT_DIR}/../../notebooks/full_model/instance_seg_finetuning.py" ]]; then
+elif [[ -f "${SUBMIT_DIR}/../../scripts/python/semantic_checkpoint_sweep.py" ]]; then
   REPO_DIR="$(cd "${SUBMIT_DIR}/../.." && pwd)"
 else
-  echo "Could not locate notebooks/full_model/instance_seg_finetuning.py from submit directory: ${SUBMIT_DIR}" >&2
+  echo "Could not locate scripts/python/semantic_checkpoint_sweep.py from submit directory: ${SUBMIT_DIR}" >&2
   exit 1
 fi
 
 cd "${REPO_DIR}"
-mkdir -p notebooks/full_model/logs
+mkdir -p scripts/logs
 
 echo "Job started at: ${START_READABLE}"
 echo "Job ID: ${SLURM_JOB_ID:-unknown}"
@@ -37,7 +37,7 @@ echo
 
 module load miniforge
 mamba activate graha-lunar-fm
-python -u notebooks/full_model/instance_seg_finetuning.py "$@"
+python -u scripts/python/semantic_checkpoint_sweep.py "$@"
 
 END_TIME="$(date +%s)"
 END_READABLE="$(date)"

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=toy_sem_seg_cmp
+#SBATCH --job-name=sem_seg_finetune
 #SBATCH --partition=compute
-#SBATCH --gpus=1
-#SBATCH --mem=128G
+#SBATCH --gpus=4
+#SBATCH --mem=256G
 #SBATCH --cpus-per-gpu=10
 #SBATCH --time=24:00:00
-#SBATCH --output=notebooks/full_model/logs/toy_sem_seg_comparison_%j.out
-#SBATCH --error=notebooks/full_model/logs/toy_sem_seg_comparison_%j.err
+#SBATCH --output=scripts/logs/sem_seg_finetune_%j.out
+#SBATCH --error=scripts/logs/sem_seg_finetune_%j.err
 
 set -euo pipefail
 
@@ -14,19 +14,17 @@ START_TIME="$(date +%s)"
 START_READABLE="$(date)"
 
 SUBMIT_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
-if [[ -f "${SUBMIT_DIR}/notebooks/full_model/toy_sem_seg_comparison.py" ]]; then
+if [[ -f "${SUBMIT_DIR}/lfm/full_model/lfm_seg_finetuning_direct.py" ]]; then
   REPO_DIR="${SUBMIT_DIR}"
-elif [[ -f "${SUBMIT_DIR}/toy_sem_seg_comparison.py" ]]; then
-  REPO_DIR="$(cd "${SUBMIT_DIR}/../.." && pwd)"
-elif [[ -f "${SUBMIT_DIR}/../../notebooks/full_model/toy_sem_seg_comparison.py" ]]; then
+elif [[ -f "${SUBMIT_DIR}/../../lfm/full_model/lfm_seg_finetuning_direct.py" ]]; then
   REPO_DIR="$(cd "${SUBMIT_DIR}/../.." && pwd)"
 else
-  echo "Could not locate notebooks/full_model/toy_sem_seg_comparison.py from submit directory: ${SUBMIT_DIR}" >&2
+  echo "Could not locate lfm/full_model/lfm_seg_finetuning_direct.py from submit directory: ${SUBMIT_DIR}" >&2
   exit 1
 fi
 
 cd "${REPO_DIR}"
-mkdir -p notebooks/full_model/logs
+mkdir -p scripts/logs
 
 echo "Job started at: ${START_READABLE}"
 echo "Job ID: ${SLURM_JOB_ID:-unknown}"
@@ -37,7 +35,7 @@ echo
 
 module load miniforge
 mamba activate graha-lunar-fm
-python notebooks/full_model/toy_sem_seg_comparison.py --cache-predictions "$@"
+python -m lfm.full_model.lfm_seg_finetuning_direct "$@"
 
 END_TIME="$(date +%s)"
 END_READABLE="$(date)"

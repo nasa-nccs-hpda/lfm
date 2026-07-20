@@ -77,8 +77,9 @@ class InstanceComparisonConfig:
 
 
 def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
-    notebook_dir = Path(__file__).resolve().parent
-    lfm_root = notebook_dir.parents[1]
+    script_dir = Path(__file__).resolve().parent
+    lfm_root = script_dir.parents[1]
+    notebook_dir = lfm_root / "notebooks" / "full_model"
     return InstanceComparisonConfig(
         notebook_dir=notebook_dir,
         lfm_root=lfm_root,
@@ -420,7 +421,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     started = time.perf_counter()
     args = parse_args()
-    notebook_dir = Path(__file__).resolve().parent
+    notebook_dir = Path(__file__).resolve().parents[1] / "notebooks" / "full_model"
     ensure_data_symlink(args.simlink_dest, notebook_dir / "data")
     config = build_config(args)
     validate_paths(config)

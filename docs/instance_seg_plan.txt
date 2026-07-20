@@ -351,8 +351,8 @@ Expected output:
 
 Compatibility checkpoint status:
 - notebooks/full_model/toy_inst_seg_comparison.ipynb was added.
-- notebooks/full_model/toy_inst_seg_comparison.py was added.
-- notebooks/full_model/sbatch_toy_inst_seg_comparison.sh was added.
+- scripts/python/toy_inst_seg_comparison.py was added.
+- scripts/shell/sbatch_toy_inst_seg_comparison.sh was added.
 - The workflow mirrors the semantic comparison but uses instance .npz labels as
   binary semantic targets for Option A.
 
@@ -434,12 +434,12 @@ Compatibility checkpoint status:
   to True.
 - notebooks/full_model/instance_seg_finetuning.ipynb was added as the clean
   notebook workflow for true instance segmentation.
-- notebooks/full_model/instance_seg_finetuning.py was added as the matching
+- scripts/python/instance_seg_finetuning.py was added as the matching
   script workflow with a main() block.
-- notebooks/full_model/sbatch_instance_seg_finetuning.sh was added for
+- scripts/shell/sbatch_instance_seg_finetuning.sh was added for
   background HPC runs.
 - The clean sbatch workflow passed with:
-  sbatch notebooks/full_model/sbatch_instance_seg_finetuning.sh
+  sbatch scripts/shell/sbatch_instance_seg_finetuning.sh
   --data-root /panfs/ccds02/nobackup/projects/lfm/model_inputs/300_300_inputs/full_model_inst_seg_v2
   --max-epochs 1 --batch-size 2
 

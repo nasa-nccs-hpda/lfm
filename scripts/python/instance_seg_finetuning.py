@@ -80,8 +80,9 @@ def configure_proj_environment() -> None:
 
 
 def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
-    notebook_dir = Path(__file__).resolve().parent
-    lfm_root = notebook_dir.parents[1]
+    script_dir = Path(__file__).resolve().parent
+    lfm_root = script_dir.parents[1]
+    notebook_dir = lfm_root / "notebooks" / "full_model"
     package_dir = lfm_root / "lfm" / "full_model"
     graha_root = package_dir / "graha-lunar-fm"
 
@@ -508,7 +509,7 @@ def main() -> None:
     started_at = time.perf_counter()
     args = parse_args()
     configure_proj_environment()
-    notebook_dir = Path(__file__).resolve().parent
+    notebook_dir = Path(__file__).resolve().parents[1] / "notebooks" / "full_model"
     ensure_data_symlink(args.simlink_dest, notebook_dir / "data")
     config = build_config(args)
     configure_python_paths(config)
