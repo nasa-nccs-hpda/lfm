@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import csv
+import colorsys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -985,6 +986,115 @@ def _boxes_from_instance_mask(mask: np.ndarray) -> np.ndarray:
     return np.asarray(boxes, dtype=np.float32)
 
 
+def _instance_colormap(instance_mask: np.ndarray | torch.Tensor) -> np.ndarray:
+    """Generate deterministic high-contrast colors for instance ids."""
+    if torch.is_tensor(instance_mask):
+        instance_mask = instance_mask.detach().cpu().numpy()
+    instance_mask = np.asarray(instance_mask).astype(np.int32)
+    h, w = instance_mask.shape[-2:]
+    rgb_image = np.zeros((h, w, 3), dtype=np.float32)
+    golden_ratio = 0.618033988749895
+
+    for instance_id in np.unique(instance_mask):
+        if int(instance_id) == 0:
+            continue
+        hue = (int(instance_id) * golden_ratio) % 1.0
+        saturation = 0.9 if int(instance_id) % 2 == 0 else 0.7
+        value = 0.95 if (int(instance_id) // 2) % 2 == 0 else 0.75
+        rgb_image[instance_mask == instance_id] = colorsys.hsv_to_rgb(
+            hue,
+            saturation,
+            value,
+        )
+    return rgb_image
+
+
+def _instance_overlay(
+    img_vis: np.ndarray,
+    instance_mask: np.ndarray,
+    *,
+    alpha: float = 0.5,
+) -> np.ndarray:
+    if img_vis.ndim == 2:
+        img_rgb = np.stack([img_vis] * 3, axis=2)
+    else:
+        img_rgb = img_vis
+    colored_mask = _instance_colormap(instance_mask)
+    alpha_mask = (np.asarray(instance_mask) != 0).astype(np.float32)[:, :, None] * alpha
+    return np.clip(img_rgb * (1 - alpha_mask) + colored_mask * alpha_mask, 0, 1)
+
+
+def _instance_metrics(
+    pred_mask: np.ndarray,
+    gt_mask: np.ndarray,
+    *,
+    iou_threshold: float = 0.5,
+) -> dict[str, float]:
+    pred_ids = [int(x) for x in np.unique(pred_mask) if int(x) != 0]
+    gt_ids = [int(x) for x in np.unique(gt_mask) if int(x) != 0]
+    if not pred_ids and not gt_ids:
+        return {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "mean_iou": 1.0,
+            "num_pred": 0,
+            "num_gt": 0,
+        }
+    if not pred_ids:
+        return {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "mean_iou": 0.0,
+            "num_pred": 0,
+            "num_gt": len(gt_ids),
+        }
+    if not gt_ids:
+        return {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "mean_iou": 0.0,
+            "num_pred": len(pred_ids),
+            "num_gt": 0,
+        }
+
+    candidates = []
+    for pred_id in pred_ids:
+        pred_pixels = pred_mask == pred_id
+        for gt_id in gt_ids:
+            gt_pixels = gt_mask == gt_id
+            intersection = float(np.logical_and(pred_pixels, gt_pixels).sum())
+            union = float(np.logical_or(pred_pixels, gt_pixels).sum())
+            iou = intersection / union if union > 0 else 0.0
+            if iou >= iou_threshold:
+                candidates.append((iou, pred_id, gt_id))
+
+    matched_pred = set()
+    matched_gt = set()
+    matched_ious = []
+    for iou, pred_id, gt_id in sorted(candidates, reverse=True):
+        if pred_id in matched_pred or gt_id in matched_gt:
+            continue
+        matched_pred.add(pred_id)
+        matched_gt.add(gt_id)
+        matched_ious.append(iou)
+
+    tp = len(matched_ious)
+    precision = tp / len(pred_ids) if pred_ids else 0.0
+    recall = tp / len(gt_ids) if gt_ids else 0.0
+    f1 = 2 * precision * recall / (precision + recall + 1e-8)
+    return {
+        "precision": float(precision),
+        "recall": float(recall),
+        "f1": float(f1),
+        "mean_iou": float(np.mean(matched_ious)) if matched_ious else 0.0,
+        "num_pred": len(pred_ids),
+        "num_gt": len(gt_ids),
+    }
+
+
 def _binary_maps_to_instance_map(
     binary_masks: np.ndarray | torch.Tensor,
     class_labels: np.ndarray | torch.Tensor | None = None,
@@ -1277,7 +1387,7 @@ def plot_instance_cache_predictions(
     display_method: str = "minmax",
     dpi: int = 200,
 ) -> Path:
-    """Save one model's instance cache with the semantic validation plot shape."""
+    """Save one model's instance cache using the toy instance driver plot style."""
     samples = _load_instance_prediction_cache(cache_dir)
     sample_keys = sorted(samples)[:n_samples]
     n_cols = len(sample_keys)
@@ -1286,39 +1396,71 @@ def plot_instance_cache_predictions(
     fig, axes = plt.subplots(4, n_cols, figsize=(4 * n_cols, 14))
     if n_cols == 1:
         axes = axes.reshape(4, 1)
-    pred_color = (1.0, 1.0, 0.0)
-    cmap_pred = ListedColormap(["black", "yellow"])
-    cmap_gt = ListedColormap(["black", "red"])
+    instance_metrics = []
+    semantic_f1s = []
+    display_note = None
 
     for col, sample_key in enumerate(sample_keys):
         sample = samples[sample_key]
         img = sample["image"].transpose(1, 2, 0)
         img_vis, display_note = prepare_image_for_display(img, method=display_method)
         cmap_image = "gray" if img_vis.ndim == 2 else None
+        pred_mask = sample["pred_mask"].astype(np.int32)
+        gt_mask = sample["gt_mask"].astype(np.int32)
+        metrics = _instance_metrics(pred_mask, gt_mask)
+        sem_f1 = calculate_f1_score((pred_mask > 0).astype(np.uint8), (gt_mask > 0).astype(np.uint8))
+        instance_metrics.append(metrics)
+        semantic_f1s.append(sem_f1)
 
         axes[0, col].imshow(img_vis, cmap=cmap_image)
-        axes[0, col].set_title(f"{_display_sample_key(sample_key)}\n{display_note}", fontsize=10)
-
-        pred_binary = (sample["pred_mask"] > 0).astype(np.uint8)
-        gt_binary = (sample["gt_mask"] > 0).astype(np.uint8)
-
-        axes[1, col].imshow(pred_binary, cmap=cmap_pred, vmin=0, vmax=1)
-        axes[1, col].set_title(
-            f"Prediction\ninstances: {sample['pred_boxes'].shape[0]}",
-            fontsize=10,
+        axes[0, col].set_title(
+            f"{_display_sample_key(sample_key)}\n"
+            f"Sem F1: {sem_f1:.3f}\n"
+            f"Inst F1: {metrics['f1']:.3f}\n"
+            f"Pred: {metrics['num_pred']} | GT: {metrics['num_gt']}",
+            fontsize=12,
+            fontweight="bold",
         )
 
-        axes[2, col].imshow(create_colored_overlay_image(img_vis, pred_binary, color=pred_color))
-        axes[2, col].set_title("Prediction Overlay", fontsize=10)
+        axes[1, col].imshow(_instance_colormap(pred_mask), vmin=0, vmax=1)
+        _draw_boxes(axes[1, col], torch.as_tensor(sample["pred_boxes"]), color="red")
+        axes[1, col].set_title(
+            f"Predicted ({metrics['num_pred']} instances)\n"
+            f"Precision: {metrics['precision']:.3f}",
+            fontsize=11,
+        )
 
-        axes[3, col].imshow(gt_binary, cmap=cmap_gt, vmin=0, vmax=1)
-        axes[3, col].set_title(f"Ground Truth\ninstances: {sample['gt_boxes'].shape[0]}", fontsize=10)
+        axes[2, col].imshow(_instance_overlay(img_vis, pred_mask, alpha=0.5), vmin=0, vmax=1)
+        _draw_boxes(axes[2, col], torch.as_tensor(sample["pred_boxes"]), color="red")
+        axes[2, col].set_title(
+            f"Prediction Overlay\n"
+            f"Mean IoU: {metrics['mean_iou']:.3f}",
+            fontsize=11,
+        )
+
+        axes[3, col].imshow(_instance_colormap(gt_mask), vmin=0, vmax=1)
+        _draw_boxes(axes[3, col], torch.as_tensor(sample["gt_boxes"]), color="red")
+        axes[3, col].set_title(
+            f"Ground Truth ({metrics['num_gt']} instances)\n"
+            f"Recall: {metrics['recall']:.3f}",
+            fontsize=11,
+        )
         for row in range(4):
             axes[row, col].axis("off")
 
+    avg_inst_f1 = float(np.mean([m["f1"] for m in instance_metrics])) if instance_metrics else 0.0
+    avg_sem_f1 = float(np.mean(semantic_f1s)) if semantic_f1s else 0.0
+    avg_precision = float(np.mean([m["precision"] for m in instance_metrics])) if instance_metrics else 0.0
+    avg_recall = float(np.mean([m["recall"] for m in instance_metrics])) if instance_metrics else 0.0
+    avg_iou = float(np.mean([m["mean_iou"] for m in instance_metrics])) if instance_metrics else 0.0
+    num_channels = samples[sample_keys[0]]["image"].shape[0]
     fig.suptitle(
-        f"{_model_display_name(model_name)} Instance Predictions",
-        fontsize=16,
+        f"{_model_display_name(model_name)} Instance Segmentation Results\n"
+        f"Semantic F1: {avg_sem_f1:.3f} | Instance F1: {avg_inst_f1:.3f} | "
+        f"Precision: {avg_precision:.3f} | Recall: {avg_recall:.3f} | "
+        f"Mean IoU: {avg_iou:.3f}\n"
+        f"Input: {num_channels}ch",
+        fontsize=20,
         fontweight="bold",
         y=0.995,
     )
@@ -1342,7 +1484,7 @@ def plot_instance_cache_comparison(
     display_method: str = "minmax",
     dpi: int = 200,
 ) -> Path:
-    """Create semantic-comparison-shaped side-by-side true-instance plots."""
+    """Create side-by-side true-instance plots using driver-style visuals."""
     loaded = {name: _load_instance_prediction_cache(path) for name, path in cache_dirs.items()}
     first_model = next(iter(loaded))
     shared_keys = set(loaded[first_model])
@@ -1367,42 +1509,51 @@ def plot_instance_cache_comparison(
 
         axes[0, col].imshow(img_vis, cmap=cmap_image)
         axes[0, col].set_title(f"{_display_sample_key(sample_key)}\n{display_note}", fontsize=10)
-        axes[1, col].imshow(_colored_instance_overlay(img_vis, reference["gt_mask"], color=(1, 0, 0)))
-        _draw_boxes(axes[1, col], torch.as_tensor(reference["gt_boxes"]), color="red")
-        axes[1, col].set_title("Ground Truth", fontsize=10)
 
-        row = 2
+        row = 1
         for model_name in model_names:
             sample = loaded[model_name][sample_key]
-            model_color = _model_color(model_name)
-            box_color = "cyan" if model_name.lower() == "graha" else "yellow"
-            axes[row, col].imshow(
-                _colored_instance_overlay(img_vis, sample["pred_mask"], color=model_color)
+            pred_mask = sample["pred_mask"].astype(np.int32)
+            gt_mask = reference["gt_mask"].astype(np.int32)
+            metrics = _instance_metrics(pred_mask, gt_mask)
+            sem_f1 = calculate_f1_score(
+                (pred_mask > 0).astype(np.uint8),
+                (gt_mask > 0).astype(np.uint8),
             )
+
+            axes[row, col].imshow(_instance_colormap(pred_mask), vmin=0, vmax=1)
             _draw_boxes(
                 axes[row, col],
                 torch.as_tensor(sample["pred_boxes"]),
-                color=box_color,
-                scores=torch.as_tensor(sample["pred_scores"]),
+                color="red",
             )
             axes[row, col].set_title(
-                f"{_model_display_name(model_name)} Pred: {sample['pred_boxes'].shape[0]}",
+                f"{_model_display_name(model_name)} Pred ({metrics['num_pred']})\n"
+                f"Sem F1: {sem_f1:.3f} | Inst F1: {metrics['f1']:.3f}",
                 fontsize=10,
             )
             row += 1
 
-            combined = _colored_instance_overlay(img_vis, reference["gt_mask"], color=(1, 0, 0), alpha=0.25)
-            combined = _colored_instance_overlay(combined, sample["pred_mask"], color=model_color, alpha=0.35)
-            axes[row, col].imshow(combined)
-            _draw_boxes(axes[row, col], torch.as_tensor(reference["gt_boxes"]), color="red")
+            axes[row, col].imshow(_instance_overlay(img_vis, pred_mask, alpha=0.5), vmin=0, vmax=1)
             _draw_boxes(
                 axes[row, col],
                 torch.as_tensor(sample["pred_boxes"]),
-                color=box_color,
-                scores=torch.as_tensor(sample["pred_scores"]),
+                color="red",
             )
-            axes[row, col].set_title(f"{_model_display_name(model_name)} Overlay", fontsize=10)
+            axes[row, col].set_title(
+                f"{_model_display_name(model_name)} Overlay\n"
+                f"Precision: {metrics['precision']:.3f} | Recall: {metrics['recall']:.3f}",
+                fontsize=10,
+            )
             row += 1
+
+        gt_mask = reference["gt_mask"].astype(np.int32)
+        axes[row, col].imshow(_instance_colormap(gt_mask), vmin=0, vmax=1)
+        _draw_boxes(axes[row, col], torch.as_tensor(reference["gt_boxes"]), color="red")
+        axes[row, col].set_title(
+            f"Ground Truth ({len([x for x in np.unique(gt_mask) if int(x) != 0])} instances)",
+            fontsize=10,
+        )
 
         for row_idx in range(n_rows):
             axes[row_idx, col].axis("off")
