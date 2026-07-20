@@ -183,6 +183,37 @@ def import_project_dependencies() -> dict[str, Any]:
     }
 
 
+def make_notebook_object_detection_task_class(lunar_object_detection_task_cls):
+    """Create a task subclass that handles zero-instance Mask R-CNN targets."""
+
+    class NotebookLunarObjectDetectionTask(lunar_object_detection_task_cls):
+        def reformat_batch(self, batch: Any, batch_size: int):
+            y = []
+            has_masks = (
+                "masks" in batch
+                or "mask" in batch
+                or self.masks_field in batch
+            )
+            for i in range(batch_size):
+                target = {
+                    "boxes": batch[self.boxes_field][i],
+                    "labels": batch[self.labels_field][i],
+                }
+                if has_masks:
+                    masks = batch[self.masks_field][i]
+                    if masks.ndim == 2:
+                        masks = masks[None]
+                    elif masks.ndim != 3:
+                        raise ValueError(
+                            f"Expected masks to have shape (N,H,W), got {tuple(masks.shape)}"
+                        )
+                    target["masks"] = masks.to(torch.uint8)
+                y.append(target)
+            return y
+
+    return NotebookLunarObjectDetectionTask
+
+
 def common_datamodule_args(config: InstanceFineTuningConfig) -> dict[str, Any]:
     return {
         "data_root": config.data_root,
@@ -426,7 +457,7 @@ def main() -> None:
 
     deps = import_project_dependencies()
     datamodule_cls = deps["LunarObjectDetectionInstanceSegmentationDatamodule"]
-    task_cls = deps["LunarObjectDetectionTask"]
+    task_cls = make_notebook_object_detection_task_class(deps["LunarObjectDetectionTask"])
 
     output_dir = create_timestamped_output_dir(config.base_output_dir)
     (output_dir / "checkpoints" / "full_model").mkdir(parents=True, exist_ok=True)
