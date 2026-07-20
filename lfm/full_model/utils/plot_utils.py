@@ -971,6 +971,473 @@ def plot_instance_predictions(
     return save_path
 
 
+def _boxes_from_instance_mask(mask: np.ndarray) -> np.ndarray:
+    boxes = []
+    for instance_id in np.unique(mask):
+        if int(instance_id) == 0:
+            continue
+        ys, xs = np.where(mask == instance_id)
+        if xs.size == 0 or ys.size == 0:
+            continue
+        boxes.append([xs.min(), ys.min(), xs.max() + 1, ys.max() + 1])
+    if not boxes:
+        return np.zeros((0, 4), dtype=np.float32)
+    return np.asarray(boxes, dtype=np.float32)
+
+
+def _binary_maps_to_instance_map(
+    binary_masks: np.ndarray | torch.Tensor,
+    class_labels: np.ndarray | torch.Tensor | None = None,
+    *,
+    threshold: float = 0.5,
+) -> np.ndarray:
+    if torch.is_tensor(binary_masks):
+        binary_masks = binary_masks.detach().cpu().numpy()
+    if class_labels is not None and torch.is_tensor(class_labels):
+        class_labels = class_labels.detach().cpu().numpy()
+    binary_masks = np.asarray(binary_masks)
+    if binary_masks.ndim == 2:
+        if np.issubdtype(binary_masks.dtype, np.integer) and binary_masks.max(initial=0) > 1:
+            return binary_masks.astype(np.int32)
+        return (binary_masks > threshold).astype(np.int32)
+    if binary_masks.ndim == 4 and binary_masks.shape[1] == 1:
+        binary_masks = binary_masks[:, 0]
+
+    h, w = binary_masks.shape[-2:]
+    instance_map = np.zeros((h, w), dtype=np.int32)
+    next_id = 1
+    for idx, mask in enumerate(binary_masks):
+        if class_labels is not None and idx < len(class_labels) and int(class_labels[idx]) == 0:
+            continue
+        mask_bool = mask > threshold
+        if not mask_bool.any():
+            continue
+        instance_map[mask_bool] = next_id
+        next_id += 1
+    return instance_map
+
+
+def _prediction_masks_to_instance_map(
+    masks: torch.Tensor,
+    *,
+    threshold: float = 0.5,
+) -> np.ndarray:
+    if masks.numel() == 0:
+        shape = masks.shape[-2:] if masks.ndim >= 2 else (1, 1)
+        return np.zeros(tuple(shape), dtype=np.int32)
+    masks = masks.detach().cpu()
+    if masks.ndim == 4 and masks.shape[1] == 1:
+        masks = masks[:, 0]
+    instance_map = np.zeros(tuple(masks.shape[-2:]), dtype=np.int32)
+    for idx, mask in enumerate(masks, start=1):
+        mask_bool = mask.numpy() > threshold
+        if mask_bool.any():
+            instance_map[mask_bool] = idx
+    return instance_map
+
+
+def _save_instance_cache_arrays(
+    cache_dir: Path,
+    *,
+    index: int,
+    sample_key: str,
+    model_name: str,
+    image: np.ndarray,
+    gt_mask: np.ndarray,
+    gt_boxes: np.ndarray,
+    pred_mask: np.ndarray,
+    pred_boxes: np.ndarray,
+    pred_scores: np.ndarray,
+    image_path: str = "",
+) -> dict:
+    filename = f"{index:04d}_{sample_key}.npz"
+    np.savez_compressed(
+        cache_dir / filename,
+        image=image,
+        gt_mask=gt_mask.astype(np.int32),
+        gt_boxes=gt_boxes.astype(np.float32),
+        pred_mask=pred_mask.astype(np.int32),
+        pred_boxes=pred_boxes.astype(np.float32),
+        pred_scores=pred_scores.astype(np.float32),
+        sample_key=sample_key,
+        model_name=model_name,
+        image_path=image_path,
+    )
+    return {
+        "index": index,
+        "sample_key": sample_key,
+        "file": filename,
+        "image_path": image_path,
+    }
+
+
+def save_toy_instance_prediction_cache(
+    task,
+    datamodule,
+    output_dir: str | Path,
+    image_processor,
+    *,
+    model_name: str = "toy",
+    split: str = "val",
+    n_samples: int = 5,
+    score_threshold: float = 0.5,
+    setup_datamodule: bool = True,
+) -> Path:
+    """Save Toy Mask2Former true-instance predictions in a shared cache format."""
+    cache_dir = Path(output_dir) / "prediction_cache" / model_name / split
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    if setup_datamodule:
+        datamodule.setup("fit" if split in {"train", "val"} else "test")
+    dataloader = _get_split_dataloader(datamodule, split)
+
+    was_training = task.training
+    task.eval()
+    device = task.device
+    manifest = []
+    saved = 0
+    with torch.no_grad():
+        for batch in dataloader:
+            x = batch["pixel_values"].to(device)
+            outputs = task.model(pixel_values=x)
+            target_sizes = [(x.shape[-2], x.shape[-1])] * x.shape[0]
+            post_processed = image_processor.post_process_instance_segmentation(
+                outputs,
+                threshold=score_threshold,
+                target_sizes=target_sizes,
+                return_binary_maps=True,
+            )
+            filenames = batch.get("filename", [""] * x.shape[0])
+            for i, result in enumerate(post_processed):
+                if saved >= n_samples:
+                    break
+                sample_key = _sample_key(filenames[i] if i < len(filenames) else None, saved)
+                gt_mask = batch["instance_mask"][i].detach().cpu().numpy().astype(np.int32)
+                gt_boxes = _boxes_from_instance_mask(gt_mask)
+                segments_info = result.get("segments_info", [])
+                class_labels = np.asarray(
+                    [segment.get("label_id", 1) for segment in segments_info],
+                    dtype=np.int64,
+                )
+                pred_mask = _binary_maps_to_instance_map(
+                    result["segmentation"],
+                    class_labels if class_labels.size else None,
+                )
+                pred_boxes = _boxes_from_instance_mask(pred_mask)
+                pred_scores = np.asarray(
+                    [segment.get("score", 1.0) for segment in segments_info],
+                    dtype=np.float32,
+                )
+                if pred_scores.shape[0] != pred_boxes.shape[0]:
+                    pred_scores = np.ones((pred_boxes.shape[0],), dtype=np.float32)
+                manifest.append(
+                    _save_instance_cache_arrays(
+                        cache_dir,
+                        index=saved,
+                        sample_key=sample_key,
+                        model_name=model_name,
+                        image=x[i].detach().cpu().numpy(),
+                        gt_mask=gt_mask,
+                        gt_boxes=gt_boxes,
+                        pred_mask=pred_mask,
+                        pred_boxes=pred_boxes,
+                        pred_scores=pred_scores,
+                        image_path=str(filenames[i]) if i < len(filenames) else "",
+                    )
+                )
+                saved += 1
+            if saved >= n_samples:
+                break
+    task.train(was_training)
+    with (cache_dir / "manifest.json").open("w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+    print(f"Saved {saved} Toy instance prediction cache file(s) to {cache_dir}")
+    return cache_dir
+
+
+def save_graha_instance_prediction_cache(
+    task,
+    datamodule,
+    output_dir: str | Path,
+    *,
+    model_name: str = "graha",
+    split: str = "val",
+    n_samples: int = 5,
+    score_threshold: float = 0.5,
+    setup_datamodule: bool = True,
+) -> Path:
+    """Save Graha Mask R-CNN true-instance predictions in a shared cache format."""
+    cache_dir = Path(output_dir) / "prediction_cache" / model_name / split
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    if setup_datamodule:
+        datamodule.setup("fit" if split in {"train", "val"} else "test")
+    dataloader = _get_split_dataloader(datamodule, split)
+
+    was_training = task.training
+    task.eval()
+    device = task.device
+    manifest = []
+    saved = 0
+    with torch.no_grad():
+        for batch in dataloader:
+            x = batch["image"].to(device)
+            predictions = _to_cpu_prediction_list(task.predict_step({"image": x}, batch_idx=0))
+            filenames, _ = _extract_paths(batch)
+            for i, pred in enumerate(predictions):
+                if saved >= n_samples:
+                    break
+                sample_key = _sample_key(filenames[i] if i < len(filenames) else None, saved)
+                gt_masks = batch["masks"][i].detach().cpu()
+                gt_mask = _prediction_masks_to_instance_map(gt_masks, threshold=0.5)
+                gt_boxes = batch["boxes"][i].detach().cpu().numpy().astype(np.float32)
+                scores = pred.get("scores", torch.zeros((0,), dtype=torch.float32))
+                keep = scores >= score_threshold
+                pred_boxes_t = pred.get("boxes", torch.zeros((0, 4), dtype=torch.float32))[keep]
+                pred_masks_t = pred.get(
+                    "masks",
+                    torch.zeros((0, *gt_masks.shape[-2:]), dtype=torch.float32),
+                )[keep]
+                pred_scores = scores[keep].detach().cpu().numpy().astype(np.float32)
+                pred_mask = _prediction_masks_to_instance_map(pred_masks_t, threshold=0.5)
+                manifest.append(
+                    _save_instance_cache_arrays(
+                        cache_dir,
+                        index=saved,
+                        sample_key=sample_key,
+                        model_name=model_name,
+                        image=batch["image"][i].detach().cpu().numpy(),
+                        gt_mask=gt_mask,
+                        gt_boxes=gt_boxes,
+                        pred_mask=pred_mask,
+                        pred_boxes=pred_boxes_t.detach().cpu().numpy().astype(np.float32),
+                        pred_scores=pred_scores,
+                        image_path=str(filenames[i]) if i < len(filenames) else "",
+                    )
+                )
+                saved += 1
+            if saved >= n_samples:
+                break
+    task.train(was_training)
+    with (cache_dir / "manifest.json").open("w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+    print(f"Saved {saved} Graha instance prediction cache file(s) to {cache_dir}")
+    return cache_dir
+
+
+def _load_instance_prediction_cache(cache_dir: str | Path) -> dict[str, dict]:
+    cache_dir = Path(cache_dir)
+    manifest_path = cache_dir / "manifest.json"
+    if manifest_path.exists():
+        with manifest_path.open("r", encoding="utf-8") as f:
+            manifest = json.load(f)
+        files = [cache_dir / item["file"] for item in manifest]
+    else:
+        files = sorted(cache_dir.glob("*.npz"))
+    samples = {}
+    for path in files:
+        data = np.load(path, allow_pickle=False)
+        sample_key = str(data["sample_key"])
+        samples[sample_key] = {
+            "image": data["image"],
+            "gt_mask": data["gt_mask"],
+            "gt_boxes": data["gt_boxes"],
+            "pred_mask": data["pred_mask"],
+            "pred_boxes": data["pred_boxes"],
+            "pred_scores": data["pred_scores"],
+            "image_path": str(data["image_path"]),
+        }
+    return samples
+
+
+def _colored_instance_overlay(
+    img_vis: np.ndarray,
+    instance_mask: np.ndarray,
+    *,
+    color: tuple[float, float, float],
+    alpha: float = 0.35,
+) -> np.ndarray:
+    if img_vis.ndim == 2:
+        img_rgb = np.stack([img_vis] * 3, axis=2)
+    else:
+        img_rgb = img_vis.copy()
+    union = np.asarray(instance_mask) > 0
+    overlay = img_rgb.copy()
+    overlay[union, 0] = color[0]
+    overlay[union, 1] = color[1]
+    overlay[union, 2] = color[2]
+    return np.where(union[:, :, None], overlay * alpha + img_rgb * (1 - alpha), img_rgb)
+
+
+def plot_instance_cache_predictions(
+    cache_dir: str | Path,
+    output_dir: str | Path,
+    *,
+    model_name: str,
+    n_samples: int = 5,
+    filename: str = "instance_predictions.png",
+    display_method: str = "minmax",
+    dpi: int = 200,
+) -> Path:
+    """Save one model's instance cache with the same 4-row visual style."""
+    samples = _load_instance_prediction_cache(cache_dir)
+    sample_keys = sorted(samples)[:n_samples]
+    n_cols = len(sample_keys)
+    if n_cols == 0:
+        raise ValueError(f"No instance cache samples found in {cache_dir}")
+    fig, axes = plt.subplots(4, n_cols, figsize=(4 * n_cols, 14))
+    if n_cols == 1:
+        axes = axes.reshape(4, 1)
+    model_color = _model_color(model_name)
+
+    for col, sample_key in enumerate(sample_keys):
+        sample = samples[sample_key]
+        img = sample["image"].transpose(1, 2, 0)
+        img_vis, display_note = prepare_image_for_display(img, method=display_method)
+        cmap_image = "gray" if img_vis.ndim == 2 else None
+
+        axes[0, col].imshow(img_vis, cmap=cmap_image)
+        axes[0, col].set_title(f"{_display_sample_key(sample_key)}\n{display_note}", fontsize=10)
+
+        axes[1, col].imshow(_colored_instance_overlay(img_vis, sample["gt_mask"], color=(1, 0, 0)))
+        _draw_boxes(axes[1, col], torch.as_tensor(sample["gt_boxes"]), color="red")
+        axes[1, col].set_title(f"GT Instances: {sample['gt_boxes'].shape[0]}", fontsize=10)
+
+        axes[2, col].imshow(_colored_instance_overlay(img_vis, sample["pred_mask"], color=model_color))
+        _draw_boxes(
+            axes[2, col],
+            torch.as_tensor(sample["pred_boxes"]),
+            color="cyan" if model_name.lower() == "graha" else "yellow",
+            scores=torch.as_tensor(sample["pred_scores"]),
+        )
+        axes[2, col].set_title(
+            f"{_model_display_name(model_name)} Pred: {sample['pred_boxes'].shape[0]}",
+            fontsize=10,
+        )
+
+        combined = _colored_instance_overlay(img_vis, sample["gt_mask"], color=(1, 0, 0), alpha=0.25)
+        combined = _colored_instance_overlay(combined, sample["pred_mask"], color=model_color, alpha=0.35)
+        axes[3, col].imshow(combined)
+        _draw_boxes(axes[3, col], torch.as_tensor(sample["gt_boxes"]), color="red")
+        _draw_boxes(
+            axes[3, col],
+            torch.as_tensor(sample["pred_boxes"]),
+            color="cyan" if model_name.lower() == "graha" else "yellow",
+            scores=torch.as_tensor(sample["pred_scores"]),
+        )
+        axes[3, col].set_title(
+            f"GT red / {_model_display_name(model_name)} pred",
+            fontsize=10,
+        )
+        for row in range(4):
+            axes[row, col].axis("off")
+
+    fig.suptitle(
+        f"{_model_display_name(model_name)} Instance Predictions",
+        fontsize=16,
+        fontweight="bold",
+        y=0.995,
+    )
+    fig.patch.set_facecolor("white")
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    save_path = output_dir / filename
+    plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved instance cache plot to {save_path}")
+    return save_path
+
+
+def plot_instance_cache_comparison(
+    cache_dirs: dict[str, str | Path],
+    output_dir: str | Path,
+    *,
+    n_samples: int = 5,
+    filename: str = "side_by_side_instance_predictions.png",
+    display_method: str = "minmax",
+    dpi: int = 200,
+) -> Path:
+    """Create semantic-comparison-shaped side-by-side true-instance plots."""
+    loaded = {name: _load_instance_prediction_cache(path) for name, path in cache_dirs.items()}
+    first_model = next(iter(loaded))
+    shared_keys = set(loaded[first_model])
+    for samples in loaded.values():
+        shared_keys &= set(samples)
+    sample_keys = sorted(shared_keys)[:n_samples]
+    if not sample_keys:
+        raise ValueError("Instance prediction caches do not contain matching sample keys.")
+
+    model_names = list(loaded)
+    n_rows = 2 + (2 * len(model_names))
+    n_cols = len(sample_keys)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 3.5 * n_rows))
+    if n_cols == 1:
+        axes = axes.reshape(n_rows, 1)
+
+    for col, sample_key in enumerate(sample_keys):
+        reference = loaded[first_model][sample_key]
+        img = reference["image"].transpose(1, 2, 0)
+        img_vis, display_note = prepare_image_for_display(img, method=display_method)
+        cmap_image = "gray" if img_vis.ndim == 2 else None
+
+        axes[0, col].imshow(img_vis, cmap=cmap_image)
+        axes[0, col].set_title(f"{_display_sample_key(sample_key)}\n{display_note}", fontsize=10)
+        axes[1, col].imshow(_colored_instance_overlay(img_vis, reference["gt_mask"], color=(1, 0, 0)))
+        _draw_boxes(axes[1, col], torch.as_tensor(reference["gt_boxes"]), color="red")
+        axes[1, col].set_title("Ground Truth", fontsize=10)
+
+        row = 2
+        for model_name in model_names:
+            sample = loaded[model_name][sample_key]
+            model_color = _model_color(model_name)
+            box_color = "cyan" if model_name.lower() == "graha" else "yellow"
+            axes[row, col].imshow(
+                _colored_instance_overlay(img_vis, sample["pred_mask"], color=model_color)
+            )
+            _draw_boxes(
+                axes[row, col],
+                torch.as_tensor(sample["pred_boxes"]),
+                color=box_color,
+                scores=torch.as_tensor(sample["pred_scores"]),
+            )
+            axes[row, col].set_title(
+                f"{_model_display_name(model_name)} Pred: {sample['pred_boxes'].shape[0]}",
+                fontsize=10,
+            )
+            row += 1
+
+            combined = _colored_instance_overlay(img_vis, reference["gt_mask"], color=(1, 0, 0), alpha=0.25)
+            combined = _colored_instance_overlay(combined, sample["pred_mask"], color=model_color, alpha=0.35)
+            axes[row, col].imshow(combined)
+            _draw_boxes(axes[row, col], torch.as_tensor(reference["gt_boxes"]), color="red")
+            _draw_boxes(
+                axes[row, col],
+                torch.as_tensor(sample["pred_boxes"]),
+                color=box_color,
+                scores=torch.as_tensor(sample["pred_scores"]),
+            )
+            axes[row, col].set_title(f"{_model_display_name(model_name)} Overlay", fontsize=10)
+            row += 1
+
+        for row_idx in range(n_rows):
+            axes[row_idx, col].axis("off")
+
+    fig.suptitle(
+        "Side-by-Side Instance Segmentation Predictions",
+        fontsize=16,
+        fontweight="bold",
+        y=0.995,
+    )
+    fig.patch.set_facecolor("white")
+    plt.tight_layout(rect=[0, 0, 1, 0.94])
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    save_path = output_dir / filename
+    plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved side-by-side instance comparison plot to {save_path}")
+    return save_path
+
+
 class ValidationPlotCallback(Callback):
     """Save a lightweight validation prediction plot at the end of each epoch."""
 

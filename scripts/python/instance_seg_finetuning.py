@@ -18,10 +18,55 @@ from typing import Any
 
 import torch
 from lightning.pytorch import Trainer, seed_everything
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 
 from lfm.full_model.utils import create_timestamped_output_dir, plot_instance_predictions
 from lfm.full_model.utils.utils import ensure_data_symlink
+
+
+class FitProgressLogger(Callback):
+    """Flush simple progress messages for non-interactive sbatch logs."""
+
+    def __init__(self, model_name: str = "Graha", log_every_n_batches: int = 5) -> None:
+        self.model_name = model_name
+        self.log_every_n_batches = max(1, log_every_n_batches)
+        self._epoch_started_at: float | None = None
+
+    def on_train_epoch_start(self, trainer, pl_module) -> None:
+        self._epoch_started_at = time.perf_counter()
+        print(
+            f"[{self.model_name}] train epoch {trainer.current_epoch + 1}/"
+            f"{trainer.max_epochs} started",
+            flush=True,
+        )
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx) -> None:
+        if batch_idx == 0 or (batch_idx + 1) % self.log_every_n_batches == 0:
+            print(
+                f"[{self.model_name}] epoch {trainer.current_epoch + 1} "
+                f"train batch {batch_idx + 1}/{trainer.num_training_batches}",
+                flush=True,
+            )
+
+    def on_train_epoch_end(self, trainer, pl_module) -> None:
+        elapsed = (
+            time.perf_counter() - self._epoch_started_at
+            if self._epoch_started_at is not None
+            else 0.0
+        )
+        print(
+            f"[{self.model_name}] train epoch {trainer.current_epoch + 1} "
+            f"finished in {elapsed:.1f}s",
+            flush=True,
+        )
+
+    def on_validation_epoch_start(self, trainer, pl_module) -> None:
+        if not trainer.sanity_checking:
+            print(f"[{self.model_name}] validation started", flush=True)
+
+    def on_validation_epoch_end(self, trainer, pl_module) -> None:
+        if not trainer.sanity_checking:
+            print(f"[{self.model_name}] validation finished", flush=True)
 
 
 @dataclass(frozen=True)
@@ -380,6 +425,7 @@ def create_trainer(config: InstanceFineTuningConfig, output_dir: Path) -> Traine
         log_every_n_steps=5,
         logger=False,
         callbacks=[
+            FitProgressLogger("Graha", log_every_n_batches=5),
             ModelCheckpoint(
                 dirpath=str(output_dir / "checkpoints" / "full_model"),
                 monitor="val_segm_map",

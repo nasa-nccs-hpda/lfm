@@ -18,10 +18,17 @@ from typing import Any
 
 import torch
 from lightning.pytorch import Trainer, seed_everything
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import Callback, ModelCheckpoint
+from transformers import AutoImageProcessor
 
 import instance_seg_finetuning as graha_workflow
-from lfm.full_model.utils import create_timestamped_output_dir
+from lfm.full_model.utils import (
+    create_timestamped_output_dir,
+    plot_instance_cache_comparison,
+    plot_instance_cache_predictions,
+    save_graha_instance_prediction_cache,
+    save_toy_instance_prediction_cache,
+)
 from lfm.full_model.utils.utils import ensure_data_symlink
 from lfm.toy_model.inst_seg.iseg_model import (
     create_mask2former_dinov3_model,
@@ -31,6 +38,142 @@ from lfm.toy_model.inst_seg.lightning_wrappers import (
     ToyInstanceSegLightningModule,
     ToyInstanceSegSplitDataModule,
 )
+
+
+class FitProgressLogger(Callback):
+    """Flush simple progress messages for non-interactive sbatch logs."""
+
+    def __init__(self, model_name: str, log_every_n_batches: int = 5) -> None:
+        self.model_name = model_name
+        self.log_every_n_batches = max(1, log_every_n_batches)
+        self._epoch_started_at: float | None = None
+
+    def on_train_epoch_start(self, trainer, pl_module) -> None:
+        self._epoch_started_at = time.perf_counter()
+        print(
+            f"[{self.model_name}] train epoch {trainer.current_epoch + 1}/"
+            f"{trainer.max_epochs} started",
+            flush=True,
+        )
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx) -> None:
+        if batch_idx == 0 or (batch_idx + 1) % self.log_every_n_batches == 0:
+            total = trainer.num_training_batches
+            print(
+                f"[{self.model_name}] epoch {trainer.current_epoch + 1} "
+                f"train batch {batch_idx + 1}/{total}",
+                flush=True,
+            )
+
+    def on_train_epoch_end(self, trainer, pl_module) -> None:
+        elapsed = (
+            time.perf_counter() - self._epoch_started_at
+            if self._epoch_started_at is not None
+            else 0.0
+        )
+        print(
+            f"[{self.model_name}] train epoch {trainer.current_epoch + 1} "
+            f"finished in {elapsed:.1f}s",
+            flush=True,
+        )
+
+    def on_validation_epoch_start(self, trainer, pl_module) -> None:
+        if trainer.sanity_checking:
+            return
+        print(f"[{self.model_name}] validation started", flush=True)
+
+    def on_validation_epoch_end(self, trainer, pl_module) -> None:
+        if trainer.sanity_checking:
+            return
+        print(f"[{self.model_name}] validation finished", flush=True)
+
+    def on_save_checkpoint(self, trainer, pl_module, checkpoint) -> None:
+        print(f"[{self.model_name}] checkpoint callback state saved", flush=True)
+
+
+class ToyInstancePlotCallback(Callback):
+    """Save Toy instance validation plots at epoch end."""
+
+    def __init__(
+        self,
+        output_dir: Path,
+        image_processor,
+        *,
+        n_samples: int,
+        every_n_epochs: int,
+        score_threshold: float,
+    ) -> None:
+        self.output_dir = output_dir
+        self.image_processor = image_processor
+        self.n_samples = n_samples
+        self.every_n_epochs = every_n_epochs
+        self.score_threshold = score_threshold
+
+    def on_validation_epoch_end(self, trainer, pl_module) -> None:
+        if trainer.sanity_checking:
+            return
+        epoch = trainer.current_epoch
+        if self.every_n_epochs <= 0 or (epoch + 1) % self.every_n_epochs != 0:
+            return
+        cache_dir = save_toy_instance_prediction_cache(
+            task=pl_module,
+            datamodule=trainer.datamodule,
+            output_dir=self.output_dir,
+            image_processor=self.image_processor,
+            model_name="toy",
+            split="val",
+            n_samples=self.n_samples,
+            score_threshold=self.score_threshold,
+            setup_datamodule=False,
+        )
+        plot_instance_cache_predictions(
+            cache_dir,
+            self.output_dir / "plots" / "toy_model",
+            model_name="toy",
+            n_samples=self.n_samples,
+            filename=f"validation_epoch_{epoch + 1:03d}.png",
+        )
+
+
+class GrahaInstancePlotCallback(Callback):
+    """Save Graha instance validation plots at epoch end."""
+
+    def __init__(
+        self,
+        output_dir: Path,
+        *,
+        n_samples: int,
+        every_n_epochs: int,
+        score_threshold: float,
+    ) -> None:
+        self.output_dir = output_dir
+        self.n_samples = n_samples
+        self.every_n_epochs = every_n_epochs
+        self.score_threshold = score_threshold
+
+    def on_validation_epoch_end(self, trainer, pl_module) -> None:
+        if trainer.sanity_checking:
+            return
+        epoch = trainer.current_epoch
+        if self.every_n_epochs <= 0 or (epoch + 1) % self.every_n_epochs != 0:
+            return
+        cache_dir = save_graha_instance_prediction_cache(
+            task=pl_module,
+            datamodule=trainer.datamodule,
+            output_dir=self.output_dir,
+            model_name="graha",
+            split="val",
+            n_samples=self.n_samples,
+            score_threshold=self.score_threshold,
+            setup_datamodule=False,
+        )
+        plot_instance_cache_predictions(
+            cache_dir,
+            self.output_dir / "plots" / "full_model",
+            model_name="graha",
+            n_samples=self.n_samples,
+            filename=f"validation_epoch_{epoch + 1:03d}.png",
+        )
 
 
 @dataclass(frozen=True)
@@ -67,6 +210,8 @@ class InstanceComparisonConfig:
     graha_anchor_sizes: list[list[int]]
     graha_anchor_aspect_ratios: list[float]
     graha_score_threshold: float
+    plot_every_n_epochs: int
+    plot_n_samples: int
     prediction_split: str
     prediction_n_samples: int
     prediction_score_threshold: float
@@ -130,6 +275,8 @@ def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
         graha_anchor_sizes=args.graha_anchor_sizes,
         graha_anchor_aspect_ratios=args.graha_anchor_aspect_ratios,
         graha_score_threshold=args.graha_score_threshold,
+        plot_every_n_epochs=args.plot_every_n_epochs,
+        plot_n_samples=args.plot_n_samples,
         prediction_split=args.prediction_split,
         prediction_n_samples=args.prediction_n_samples,
         prediction_score_threshold=args.prediction_score_threshold,
@@ -227,7 +374,21 @@ def create_toy_task(config: InstanceComparisonConfig, weight_assignments: list[s
     )
 
 
-def create_toy_trainer(config: InstanceComparisonConfig, output_dir: Path) -> Trainer:
+def create_toy_image_processor(target_size: int):
+    return AutoImageProcessor.from_pretrained(
+        "facebook/mask2former-swin-large-coco-instance",
+        do_resize=True,
+        size={"height": target_size, "width": target_size},
+        do_normalize=False,
+        do_reduce_labels=False,
+    )
+
+
+def create_toy_trainer(
+    config: InstanceComparisonConfig,
+    output_dir: Path,
+    image_processor,
+) -> Trainer:
     return Trainer(
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=1,
@@ -238,6 +399,14 @@ def create_toy_trainer(config: InstanceComparisonConfig, output_dir: Path) -> Tr
         log_every_n_steps=5,
         logger=False,
         callbacks=[
+            FitProgressLogger("Toy", log_every_n_batches=5),
+            ToyInstancePlotCallback(
+                output_dir,
+                image_processor,
+                n_samples=config.plot_n_samples,
+                every_n_epochs=config.plot_every_n_epochs,
+                score_threshold=config.prediction_score_threshold,
+            ),
             ModelCheckpoint(
                 dirpath=str(output_dir / "checkpoints" / "toy_model"),
                 monitor="val_loss",
@@ -252,13 +421,15 @@ def create_toy_trainer(config: InstanceComparisonConfig, output_dir: Path) -> Tr
     )
 
 
-def run_toy(config: InstanceComparisonConfig, output_dir: Path) -> None:
+def run_toy(config: InstanceComparisonConfig, output_dir: Path) -> Path | None:
     print("\n=== Toy DINO Mask2Former instance segmentation ===", flush=True)
     started = time.perf_counter()
     seed_everything(config.seed)
     datamodule = create_toy_datamodule(config)
     task = create_toy_task(config, datamodule.weight_assignments or [])
-    trainer = create_toy_trainer(config, output_dir)
+    image_processor = create_toy_image_processor(config.target_size)
+    trainer = create_toy_trainer(config, output_dir, image_processor)
+    prediction_cache = None
 
     if config.skip_toy_fit:
         print("Skipping Toy trainer.fit().", flush=True)
@@ -275,6 +446,27 @@ def run_toy(config: InstanceComparisonConfig, output_dir: Path) -> None:
         print("Starting Toy trainer.fit()...", flush=True)
         trainer.fit(task, datamodule=datamodule, ckpt_path=ckpt_path)
         print("Finished Toy trainer.fit().", flush=True)
+        toy_checkpoints = sorted((output_dir / "checkpoints" / "toy_model").glob("*.ckpt"))
+        print(f"[Toy] saved {len(toy_checkpoints)} checkpoint file(s).", flush=True)
+
+    prediction_cache = save_toy_instance_prediction_cache(
+        task=task,
+        datamodule=datamodule,
+        output_dir=output_dir,
+        image_processor=image_processor,
+        model_name="toy",
+        split=config.prediction_split,
+        n_samples=config.prediction_n_samples,
+        score_threshold=config.prediction_score_threshold,
+    )
+    plot_path = plot_instance_cache_predictions(
+        prediction_cache,
+        output_dir / "plots" / "toy_model",
+        model_name="toy",
+        n_samples=config.prediction_n_samples,
+        filename=f"{config.prediction_split}_instance_predictions.png",
+    )
+    print(f"[Toy] saved validation prediction plot: {plot_path}", flush=True)
 
     elapsed = time.perf_counter() - started
     print(f"Toy elapsed seconds: {elapsed:.3f}", flush=True)
@@ -282,6 +474,7 @@ def run_toy(config: InstanceComparisonConfig, output_dir: Path) -> None:
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+    return prediction_cache
 
 
 def build_graha_config(config: InstanceComparisonConfig, output_dir: Path):
@@ -318,7 +511,7 @@ def build_graha_config(config: InstanceComparisonConfig, output_dir: Path):
     return graha_workflow.build_config(args)
 
 
-def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> None:
+def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None:
     print("\n=== Graha/Lunar-FM Mask R-CNN instance segmentation ===", flush=True)
     started = time.perf_counter()
     graha_workflow.configure_proj_environment()
@@ -340,6 +533,16 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> None:
     task = graha_workflow.create_task(graha_config, task_cls, sample_batch)
     graha_workflow.run_loss_smoke(task, sample_batch)
     trainer = graha_workflow.create_trainer(graha_config, output_dir)
+    trainer.callbacks.append(FitProgressLogger("Graha", log_every_n_batches=5))
+    trainer.callbacks.append(
+        GrahaInstancePlotCallback(
+            output_dir,
+            n_samples=config.plot_n_samples,
+            every_n_epochs=config.plot_every_n_epochs,
+            score_threshold=config.prediction_score_threshold,
+        )
+    )
+    prediction_cache = None
 
     if config.skip_graha_fit:
         print("Skipping Graha trainer.fit().", flush=True)
@@ -359,9 +562,27 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> None:
         print("Starting Graha trainer.fit()...", flush=True)
         trainer.fit(task, datamodule=datamodule, ckpt_path=ckpt_path)
         print("Finished Graha trainer.fit().", flush=True)
+        graha_checkpoints = sorted((output_dir / "checkpoints" / "full_model").glob("*.ckpt"))
+        print(f"[Graha] saved {len(graha_checkpoints)} checkpoint file(s).", flush=True)
 
     if graha_config.plot_predictions:
-        graha_workflow.save_instance_prediction_plots(task, datamodule, graha_config, output_dir)
+        prediction_cache = save_graha_instance_prediction_cache(
+            task=task,
+            datamodule=datamodule,
+            output_dir=output_dir,
+            model_name="graha",
+            split=config.prediction_split,
+            n_samples=config.prediction_n_samples,
+            score_threshold=config.prediction_score_threshold,
+        )
+        plot_path = plot_instance_cache_predictions(
+            prediction_cache,
+            output_dir / "plots" / "full_model",
+            model_name="graha",
+            n_samples=config.prediction_n_samples,
+            filename=f"{config.prediction_split}_instance_predictions.png",
+        )
+        print(f"[Graha] saved validation prediction plot: {plot_path}", flush=True)
 
     elapsed = time.perf_counter() - started
     print(f"Graha elapsed seconds: {elapsed:.3f}", flush=True)
@@ -369,6 +590,7 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> None:
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+    return prediction_cache
 
 
 def parse_args() -> argparse.Namespace:
@@ -413,6 +635,8 @@ def parse_args() -> argparse.Namespace:
         default=[0.5, 1.0, 2.0],
     )
     parser.add_argument("--graha-score-threshold", type=float, default=0.5)
+    parser.add_argument("--plot-every-n-epochs", type=int, default=1)
+    parser.add_argument("--plot-n-samples", type=int, default=5)
     parser.add_argument("--prediction-split", choices=["train", "val", "test"], default="val")
     parser.add_argument("--prediction-n-samples", type=int, default=5)
     parser.add_argument("--prediction-score-threshold", type=float, default=0.5)
@@ -436,8 +660,18 @@ def main() -> None:
     (output_dir / "checkpoints" / "full_model").mkdir(parents=True, exist_ok=True)
     save_config(config, output_dir)
 
-    run_toy(config, output_dir)
-    run_graha(config, output_dir)
+    toy_prediction_cache = run_toy(config, output_dir)
+    graha_prediction_cache = run_graha(config, output_dir)
+
+    if toy_prediction_cache is not None and graha_prediction_cache is not None:
+        plot_instance_cache_comparison(
+            {
+                "toy": toy_prediction_cache,
+                "graha": graha_prediction_cache,
+            },
+            output_dir / "comparison_plots",
+            n_samples=config.prediction_n_samples,
+        )
 
     elapsed = time.perf_counter() - started
     with (output_dir / "timing_summary.json").open("w", encoding="utf-8") as f:
