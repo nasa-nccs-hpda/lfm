@@ -1,180 +1,15 @@
-"""Lightning datamodules for Lunar fine-tuning notebook datasets."""
+"""Base Lightning datamodule for Lunar fine-tuning datasets."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
 
-import numpy as np
 import torch
 from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader, Dataset, random_split
 
-from .datamodule_utils import (
-    boxes_to_tensor,
-    center_crop,
-    collate_instance_segmentation,
-    collate_object_detection_instance_segmentation,
-    collate_semantic_segmentation,
-    find_pair_records,
-    image_to_chw_float,
-    instance_mask_to_object_detection_targets,
-    mask_to_hw_long,
-    normalize_image,
-    read_label_file,
-    read_tif,
-)
-
-
-class LunarSegmentationDataset(Dataset):
-    """Base paired chip/mask dataset with shared image preprocessing.
-
-    Image normalization is optional and is applied as per-band z-score:
-    ``(image - means) / stds``. For fine-tuning, pass statistics computed from
-    the fine-tuning training split, after the same crop/no-data preprocessing.
-    """
-
-    def __init__(
-        self,
-        chips_dir: str | Path,
-        labels_dir: str | Path,
-        *,
-        image_glob: str = "*.tif",
-        label_glob: str = "*_label.*",
-        image_suffix: str = "_input_wac_static_chip",
-        label_suffix: str = "_label",
-        crop_size: int | tuple[int, int] | None = 256,
-        means: list[float] | None = None,
-        stds: list[float] | None = None,
-        binarize_mask: bool = True,
-        no_data_replace: float | None = None,
-        no_label_replace: int | None = None,
-        transform: Callable[[dict], dict] | None = None,
-        split_name: str | None = None,
-    ) -> None:
-        self.split_name = split_name or Path(chips_dir).parent.name
-        self.crop_size = crop_size
-        self.means = means
-        self.stds = stds
-        self.binarize_mask = binarize_mask
-        self.no_data_replace = no_data_replace
-        self.no_label_replace = no_label_replace
-        self.transform = transform
-        self.records = find_pair_records(
-            chips_dir=chips_dir,
-            labels_dir=labels_dir,
-            image_glob=image_glob,
-            label_glob=label_glob,
-            image_suffix=image_suffix,
-            label_suffix=label_suffix,
-        )
-        print(
-            f"[{self.split_name}] Found {len(self.records)} matched image-label pairs "
-            f"in {Path(chips_dir).parent}"
-        )
-
-    def __len__(self) -> int:
-        return len(self.records)
-
-    def _load_common(self, index: int) -> tuple[dict, object]:
-        record = self.records[index]
-        image = image_to_chw_float(read_tif(record.image_path))
-        label = read_label_file(record.label_path)
-        label_mask = label["mask"] if isinstance(label, dict) else label
-        mask = mask_to_hw_long(label_mask)
-
-        if self.no_data_replace is not None:
-            image = torch.nan_to_num(image, nan=float(self.no_data_replace))
-        if self.no_label_replace is not None:
-            mask = torch.nan_to_num(mask.float(), nan=float(self.no_label_replace)).long()
-        if self.binarize_mask:
-            mask = (mask > 0).long()
-
-        sample = {
-            "image": image,
-            "mask": mask,
-            "filename": record.image_path.name,
-        }
-        return sample, label
-
-    def _finalize_sample(
-        self,
-        sample: dict,
-        *,
-        boxes: torch.Tensor | None = None,
-    ) -> tuple[dict, torch.Tensor | None]:
-        if self.crop_size is not None:
-            image, mask, boxes = center_crop(
-                sample["image"],
-                sample["mask"],
-                self.crop_size,
-                boxes=boxes,
-                sample_name=sample["filename"],
-            )
-            sample["image"] = image
-            sample["mask"] = mask
-
-        sample["image"] = normalize_image(sample["image"], self.means, self.stds)
-        if self.transform is not None:
-            sample = self.transform(sample)
-        return sample, boxes
-
-
-class LunarSemanticSegmentationDataset(LunarSegmentationDataset):
-    """Paired image/semantic-mask dataset."""
-
-    def __getitem__(self, index: int) -> dict[str, torch.Tensor | str]:
-        sample, _ = self._load_common(index)
-        sample, _ = self._finalize_sample(sample)
-        return sample
-
-
-class LunarInstanceSegmentationDataset(LunarSegmentationDataset):
-    """Paired image/instance-label dataset with optional crater boxes."""
-
-    def __init__(
-        self,
-        *args,
-        binarize_mask: bool = False,
-        output_mode: str = "shape",
-        target_box_format: str = "xyxy",
-        **kwargs,
-    ) -> None:
-        super().__init__(*args, binarize_mask=binarize_mask, **kwargs)
-        if output_mode not in {"shape", "object_detection"}:
-            raise ValueError(f"Unsupported output_mode: {output_mode}")
-        if target_box_format not in {"xyxy", "cxcywh"}:
-            raise ValueError(f"Unsupported target_box_format: {target_box_format}")
-        self.output_mode = output_mode
-        self.target_box_format = target_box_format
-
-    def __getitem__(self, index: int) -> dict[str, torch.Tensor | str]:
-        sample, label = self._load_common(index)
-        crater_boxes = None
-        num_craters = None
-
-        if isinstance(label, dict):
-            crater_boxes = boxes_to_tensor(label.get("bboxes"))
-            raw_num_craters = label.get("num_craters")
-            if raw_num_craters is not None:
-                num_craters = int(np.asarray(raw_num_craters).item())
-
-        sample, crater_boxes = self._finalize_sample(sample, boxes=crater_boxes)
-        if crater_boxes is not None:
-            sample["crater_boxes"] = crater_boxes
-            num_craters = int(crater_boxes.shape[0])
-        if self.output_mode == "object_detection":
-            boxes, labels, masks = instance_mask_to_object_detection_targets(
-                sample["mask"],
-                box_format=self.target_box_format,
-            )
-            sample["boxes"] = boxes
-            sample["labels"] = labels
-            sample["masks"] = masks
-            num_craters = int(labels.shape[0])
-        if num_craters is not None:
-            sample["num_craters"] = torch.tensor(num_craters, dtype=torch.long)
-        return sample
+from .datamodule_utils import collate_semantic_segmentation
+from .lunar_segmentation_dataset import LunarSegmentationDataset
 
 
 class LunarSegmentationDatamodule(LightningDataModule):
@@ -256,7 +91,11 @@ class LunarSegmentationDatamodule(LightningDataModule):
             no_data_replace=self.no_data_replace,
             no_label_replace=self.no_label_replace,
             split_name=split_name,
+            **self._dataset_kwargs(),
         )
+
+    def _dataset_kwargs(self) -> dict:
+        return {}
 
     def _dataset_for_split(self, split: str) -> Dataset:
         return self._make_dataset(
@@ -342,80 +181,3 @@ class LunarSegmentationDatamodule(LightningDataModule):
 
     def plot(self, sample, stage: str | None = None):
         return None
-
-
-class LunarSemanticSegmentationDatamodule(LunarSegmentationDatamodule):
-    dataset_cls = LunarSemanticSegmentationDataset
-    collate_fn = staticmethod(collate_semantic_segmentation)
-
-
-class LunarInstanceSegmentationDatamodule(LunarSegmentationDatamodule):
-    dataset_cls = LunarInstanceSegmentationDataset
-    collate_fn = staticmethod(collate_instance_segmentation)
-
-    def __init__(
-        self,
-        *args,
-        binarize_mask: bool = False,
-        output_mode: str = "shape",
-        target_box_format: str = "xyxy",
-        **kwargs,
-    ) -> None:
-        super().__init__(*args, binarize_mask=binarize_mask, **kwargs)
-        if output_mode not in {"shape", "object_detection"}:
-            raise ValueError(f"Unsupported output_mode: {output_mode}")
-        if target_box_format not in {"xyxy", "cxcywh"}:
-            raise ValueError(f"Unsupported target_box_format: {target_box_format}")
-        self.output_mode = output_mode
-        self.target_box_format = target_box_format
-        self.collate_fn = (
-            collate_object_detection_instance_segmentation
-            if output_mode == "object_detection"
-            else collate_instance_segmentation
-        )
-
-    def _make_dataset(
-        self,
-        chips_dir: Path,
-        labels_dir: Path,
-        *,
-        split_name: str | None = None,
-    ) -> Dataset:
-        return self.dataset_cls(
-            chips_dir=chips_dir,
-            labels_dir=labels_dir,
-            image_glob=self.image_glob,
-            label_glob=self.label_glob,
-            image_suffix=self.image_suffix,
-            label_suffix=self.label_suffix,
-            crop_size=self.crop_size,
-            means=self.means,
-            stds=self.stds,
-            binarize_mask=self.binarize_mask,
-            no_data_replace=self.no_data_replace,
-            no_label_replace=self.no_label_replace,
-            split_name=split_name,
-            output_mode=self.output_mode,
-            target_box_format=self.target_box_format,
-        )
-
-
-class LunarObjectDetectionInstanceSegmentationDatamodule(LunarInstanceSegmentationDatamodule):
-    """Instance datamodule emitting TerraTorch ObjectDetectionTask targets."""
-
-    def __init__(self, *args, target_box_format: str = "xyxy", **kwargs) -> None:
-        kwargs.pop("output_mode", None)
-        kwargs.pop("binarize_mask", None)
-        super().__init__(
-            *args,
-            output_mode="object_detection",
-            target_box_format=target_box_format,
-            binarize_mask=False,
-            **kwargs,
-        )
-
-
-# Backward-compatible names used by earlier notebook cells.
-SemanticSegmentationDatamodule = LunarSemanticSegmentationDatamodule
-InstanceSegmentationDatamodule = LunarInstanceSegmentationDatamodule
-ObjectDetectionInstanceSegmentationDatamodule = LunarObjectDetectionInstanceSegmentationDatamodule

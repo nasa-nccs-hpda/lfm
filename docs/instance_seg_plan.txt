@@ -106,9 +106,11 @@ Expected output:
 
 Step 2: Audit Current Instance Datamodule [Completed]
 -----------------------------------------------------
-Reviewed lfm/full_model/datamodules/datamodule.py,
-lfm/full_model/datamodules/datamodule_utils.py, and the legacy toy
-Mask2Former dataset in lfm/toy_model/inst_seg/iseg_dataset.py.
+Reviewed the full-model datamodule package under
+lfm/full_model/datamodules, including datamodule.py,
+lunar_segmentation_dataset.py, instance_segmentation.py,
+datamodule_utils.py, and the legacy toy Mask2Former dataset in
+lfm/toy_model/inst_seg/iseg_dataset.py.
 
 The minimum desired batch fields are:
 
@@ -286,9 +288,17 @@ Remaining true-instance work:
   ObjectDetectionTask.
 
 Implementation status:
-- LunarInstanceSegmentationDataset now supports output_mode="object_detection".
-- LunarObjectDetectionInstanceSegmentationDatamodule was added as a convenience
-  class for TerraTorch ObjectDetectionTask batches.
+- The datamodule package is split by responsibility:
+    datamodule.py: shared LightningDataModule base
+    lunar_segmentation_dataset.py: shared paired chip/label dataset base
+    semantic_segmentation.py: semantic dataset/datamodule
+    instance_segmentation.py: instance and object-detection instance dataset/datamodules
+- LunarInstanceSegmentationDataset remains the semantic-plus-shape instance
+  label dataset.
+- LunarObjectDetectionInstanceSegmentationDataset was added for TerraTorch
+  ObjectDetectionTask targets.
+- LunarObjectDetectionInstanceSegmentationDatamodule was added for TerraTorch
+  ObjectDetectionTask batches.
 - The object-detection mode derives boxes, labels, and per-instance binary
   masks from the cropped instance-id mask so crop-edge targets remain aligned.
 - target_box_format="xyxy" emits pixel xyxy boxes for mask-rcnn.
