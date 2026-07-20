@@ -107,7 +107,7 @@ Expected output:
 Step 2: Audit Current Instance Datamodule [Completed]
 -----------------------------------------------------
 Reviewed the full-model datamodule package under
-lfm/full_model/datamodules, including datamodule.py,
+lfm/full_model/datamodules, including lunar_segmentation_datamodule.py,
 lunar_segmentation_dataset.py, instance_segmentation.py,
 datamodule_utils.py, and the legacy toy Mask2Former dataset in
 lfm/toy_model/inst_seg/iseg_dataset.py.
@@ -289,7 +289,7 @@ Remaining true-instance work:
 
 Implementation status:
 - The datamodule package is split by responsibility:
-    datamodule.py: shared LightningDataModule base
+    lunar_segmentation_datamodule.py: shared LightningDataModule base
     lunar_segmentation_dataset.py: shared paired chip/label dataset base
     semantic_segmentation.py: semantic dataset/datamodule
     instance_segmentation.py: instance and object-detection instance dataset/datamodules
@@ -388,17 +388,20 @@ Remaining true-instance work:
 - Add summary metrics/visuals that make over-splitting, missed instances, and
   merged craters visible.
 
-Step 9: True Instance Smoke Test [Pending]
+Step 9: True Instance Smoke Test [In-Progress]
 ----------------------------
 Run these checks before long training:
 
-- Load one train batch.
-- Load one val batch.
-- Visualize images, masks, and boxes after crop.
-- Verify per-instance boxes/labels/masks are aligned.
-- Instantiate TerraTorch ObjectDetectionTask with framework="mask-rcnn".
-- Run one true instance model forward pass.
-- Run one true instance loss step.
+- [Completed] Load one train batch.
+- [Completed] Load one val batch.
+- [Completed] Visualize images, masks, and boxes after crop.
+- [Completed] Verify per-instance boxes/labels/masks are aligned.
+- [Completed] Verify ObjectDetectionTask-style targets: image, boxes, labels,
+  and masks.
+- [In-Progress] Instantiate TerraTorch ObjectDetectionTask with
+  framework="mask-rcnn".
+- [In-Progress] Run one true instance model forward pass.
+- [In-Progress] Run one true instance loss step.
 - Run max_epochs=1 from notebook.
 - Run max_epochs=1 from sbatch script.
 
@@ -413,6 +416,13 @@ Compatibility checkpoint status:
 - Binary masks had values [0, 1].
 - Variable-length crater_boxes were present for shape loss.
 - Output PNGs, checkpoints, and directory structure were confirmed.
+- ObjectDetectionTask target sanity check passed with keys image, boxes,
+  labels, masks, filename, mask, crater_boxes, and num_craters.
+- Target boxes, labels, and per-instance masks had matching per-image instance
+  counts.
+- scratch.ipynb now includes Graha Mask R-CNN smoke cells that instantiate
+  LunarObjectDetectionTask with framework="mask-rcnn", WAC as a new 7-channel
+  modality, crater-scale anchors, and an optional Lightning fast_dev_run.
 
 Step 10: Train and Evaluate True Instance Model [Pending]
 -------------------------------------
@@ -426,5 +436,8 @@ Once the smoke test works:
   architecture, or training settings.
 
 Next concrete work:
-- Begin Step 5 by adding a TerraTorch ObjectDetectionTask-compatible instance
-  datamodule output mode with image, boxes, labels, and masks.
+- Run the new Graha Mask R-CNN smoke cells on HPC.
+- If model construction/loss succeeds, turn on RUN_LIGHTNING_OD_SMOKE for a
+  2-batch Lightning fit check.
+- If that succeeds, promote the scratch logic into a clean notebook, .py script,
+  and sbatch wrapper for true instance segmentation.

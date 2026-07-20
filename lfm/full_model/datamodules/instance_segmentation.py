@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from .datamodule import LunarSegmentationDatamodule
+from .lunar_segmentation_datamodule import LunarSegmentationDatamodule
 from .datamodule_utils import (
     boxes_to_tensor,
     collate_instance_segmentation,

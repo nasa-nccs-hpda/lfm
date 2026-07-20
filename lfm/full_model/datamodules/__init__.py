@@ -1,6 +1,6 @@
 """Datamodules for full-model experiments."""
 
-from .datamodule import LunarSegmentationDatamodule
+from .lunar_segmentation_datamodule import LunarSegmentationDatamodule
 from .instance_segmentation import (
     LunarInstanceSegmentationDatamodule,
     LunarInstanceSegmentationDataset,

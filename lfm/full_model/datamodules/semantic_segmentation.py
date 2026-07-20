@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from .datamodule import LunarSegmentationDatamodule
+from .lunar_segmentation_datamodule import LunarSegmentationDatamodule
 from .datamodule_utils import collate_semantic_segmentation
 from .lunar_segmentation_dataset import LunarSegmentationDataset
 
