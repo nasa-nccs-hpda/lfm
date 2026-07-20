@@ -212,6 +212,7 @@ class InstanceComparisonConfig:
     graha_score_threshold: float
     plot_every_n_epochs: int
     plot_n_samples: int
+    progress_log_every_n_batches: int
     prediction_split: str
     prediction_n_samples: int
     prediction_score_threshold: float
@@ -277,6 +278,7 @@ def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
         graha_score_threshold=args.graha_score_threshold,
         plot_every_n_epochs=args.plot_every_n_epochs,
         plot_n_samples=args.plot_n_samples,
+        progress_log_every_n_batches=args.progress_log_every_n_batches,
         prediction_split=args.prediction_split,
         prediction_n_samples=args.prediction_n_samples,
         prediction_score_threshold=args.prediction_score_threshold,
@@ -399,7 +401,10 @@ def create_toy_trainer(
         log_every_n_steps=5,
         logger=False,
         callbacks=[
-            FitProgressLogger("Toy", log_every_n_batches=5),
+            FitProgressLogger(
+                "Toy",
+                log_every_n_batches=config.progress_log_every_n_batches,
+            ),
             ToyInstancePlotCallback(
                 output_dir,
                 image_processor,
@@ -533,7 +538,12 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None
     task = graha_workflow.create_task(graha_config, task_cls, sample_batch)
     graha_workflow.run_loss_smoke(task, sample_batch)
     trainer = graha_workflow.create_trainer(graha_config, output_dir)
-    trainer.callbacks.append(FitProgressLogger("Graha", log_every_n_batches=5))
+    trainer.callbacks.append(
+        FitProgressLogger(
+            "Graha",
+            log_every_n_batches=config.progress_log_every_n_batches,
+        )
+    )
     trainer.callbacks.append(
         GrahaInstancePlotCallback(
             output_dir,
@@ -637,6 +647,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--graha-score-threshold", type=float, default=0.5)
     parser.add_argument("--plot-every-n-epochs", type=int, default=1)
     parser.add_argument("--plot-n-samples", type=int, default=5)
+    parser.add_argument(
+        "--progress-log-every-n-batches",
+        type=int,
+        default=25,
+        help="Flush train-batch progress every N batches in sbatch logs.",
+    )
     parser.add_argument("--prediction-split", choices=["train", "val", "test"], default="val")
     parser.add_argument("--prediction-n-samples", type=int, default=5)
     parser.add_argument("--prediction-score-threshold", type=float, default=0.5)

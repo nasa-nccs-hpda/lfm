@@ -1277,7 +1277,7 @@ def plot_instance_cache_predictions(
     display_method: str = "minmax",
     dpi: int = 200,
 ) -> Path:
-    """Save one model's instance cache with the same 4-row visual style."""
+    """Save one model's instance cache with the semantic validation plot shape."""
     samples = _load_instance_prediction_cache(cache_dir)
     sample_keys = sorted(samples)[:n_samples]
     n_cols = len(sample_keys)
@@ -1286,7 +1286,9 @@ def plot_instance_cache_predictions(
     fig, axes = plt.subplots(4, n_cols, figsize=(4 * n_cols, 14))
     if n_cols == 1:
         axes = axes.reshape(4, 1)
-    model_color = _model_color(model_name)
+    pred_color = (1.0, 1.0, 0.0)
+    cmap_pred = ListedColormap(["black", "yellow"])
+    cmap_gt = ListedColormap(["black", "red"])
 
     for col, sample_key in enumerate(sample_keys):
         sample = samples[sample_key]
@@ -1297,36 +1299,20 @@ def plot_instance_cache_predictions(
         axes[0, col].imshow(img_vis, cmap=cmap_image)
         axes[0, col].set_title(f"{_display_sample_key(sample_key)}\n{display_note}", fontsize=10)
 
-        axes[1, col].imshow(_colored_instance_overlay(img_vis, sample["gt_mask"], color=(1, 0, 0)))
-        _draw_boxes(axes[1, col], torch.as_tensor(sample["gt_boxes"]), color="red")
-        axes[1, col].set_title(f"GT Instances: {sample['gt_boxes'].shape[0]}", fontsize=10)
+        pred_binary = (sample["pred_mask"] > 0).astype(np.uint8)
+        gt_binary = (sample["gt_mask"] > 0).astype(np.uint8)
 
-        axes[2, col].imshow(_colored_instance_overlay(img_vis, sample["pred_mask"], color=model_color))
-        _draw_boxes(
-            axes[2, col],
-            torch.as_tensor(sample["pred_boxes"]),
-            color="cyan" if model_name.lower() == "graha" else "yellow",
-            scores=torch.as_tensor(sample["pred_scores"]),
-        )
-        axes[2, col].set_title(
-            f"{_model_display_name(model_name)} Pred: {sample['pred_boxes'].shape[0]}",
+        axes[1, col].imshow(pred_binary, cmap=cmap_pred, vmin=0, vmax=1)
+        axes[1, col].set_title(
+            f"Prediction\ninstances: {sample['pred_boxes'].shape[0]}",
             fontsize=10,
         )
 
-        combined = _colored_instance_overlay(img_vis, sample["gt_mask"], color=(1, 0, 0), alpha=0.25)
-        combined = _colored_instance_overlay(combined, sample["pred_mask"], color=model_color, alpha=0.35)
-        axes[3, col].imshow(combined)
-        _draw_boxes(axes[3, col], torch.as_tensor(sample["gt_boxes"]), color="red")
-        _draw_boxes(
-            axes[3, col],
-            torch.as_tensor(sample["pred_boxes"]),
-            color="cyan" if model_name.lower() == "graha" else "yellow",
-            scores=torch.as_tensor(sample["pred_scores"]),
-        )
-        axes[3, col].set_title(
-            f"GT red / {_model_display_name(model_name)} pred",
-            fontsize=10,
-        )
+        axes[2, col].imshow(create_colored_overlay_image(img_vis, pred_binary, color=pred_color))
+        axes[2, col].set_title("Prediction Overlay", fontsize=10)
+
+        axes[3, col].imshow(gt_binary, cmap=cmap_gt, vmin=0, vmax=1)
+        axes[3, col].set_title(f"Ground Truth\ninstances: {sample['gt_boxes'].shape[0]}", fontsize=10)
         for row in range(4):
             axes[row, col].axis("off")
 

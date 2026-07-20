@@ -100,6 +100,7 @@ class InstanceFineTuningConfig:
     prediction_split: str
     prediction_n_samples: int
     prediction_score_threshold: float
+    progress_log_every_n_batches: int
     mask_shift: tuple[int, int]
     seed: int
 
@@ -179,6 +180,7 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         prediction_split=args.prediction_split,
         prediction_n_samples=args.prediction_n_samples,
         prediction_score_threshold=args.prediction_score_threshold,
+        progress_log_every_n_batches=args.progress_log_every_n_batches,
         mask_shift=tuple(args.mask_shift),
         seed=args.seed,
     )
@@ -425,7 +427,10 @@ def create_trainer(config: InstanceFineTuningConfig, output_dir: Path) -> Traine
         log_every_n_steps=5,
         logger=False,
         callbacks=[
-            FitProgressLogger("Graha", log_every_n_batches=5),
+            FitProgressLogger(
+                "Graha",
+                log_every_n_batches=config.progress_log_every_n_batches,
+            ),
             ModelCheckpoint(
                 dirpath=str(output_dir / "checkpoints" / "full_model"),
                 monitor="val_segm_map",
@@ -535,6 +540,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prediction-split", choices=["train", "val", "test"], default="val")
     parser.add_argument("--prediction-n-samples", type=int, default=5)
     parser.add_argument("--prediction-score-threshold", type=float, default=0.5)
+    parser.add_argument(
+        "--progress-log-every-n-batches",
+        type=int,
+        default=25,
+        help="Flush train-batch progress every N batches in sbatch logs.",
+    )
     parser.add_argument(
         "--mask-shift",
         type=int,
