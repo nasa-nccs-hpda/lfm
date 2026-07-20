@@ -395,7 +395,7 @@ def run_graha_workflow(
         output_dir,
         deps["ValidationPlotCallback"],
         plot_output_dir=comparison_output_dir,
-        plots_subdir=Path("plots") / "full_model",
+        plots_subdir=Path("plots") / "single_model" / "full_model",
         checkpoint_subdir=Path("checkpoints") / "full_model",
     )
 
@@ -546,7 +546,11 @@ def main() -> None:
 
     model = create_model(config, datamodule.weight_assignments)
     task = create_lightning_module(config, model)
-    trainer = create_trainer(config, output_dir, plots_subdir=Path("plots") / "toy_model")
+    trainer = create_trainer(
+        config,
+        output_dir,
+        plots_subdir=Path("plots") / "single_model" / "toy_model",
+    )
     print("Lightning trainer created.", flush=True)
 
     if config.skip_dino_fit:
@@ -629,7 +633,7 @@ def main() -> None:
         }
         plot_prediction_cache_comparison(
             comparison_caches,
-            output_dir / "comparison_plots",
+            output_dir / "plots" / "comparison",
             n_samples=min(5, config.prediction_n_samples),
         )
         _, metric_summary = evaluate_prediction_caches(

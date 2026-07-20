@@ -128,7 +128,7 @@ class ToyInstancePlotCallback(Callback):
         )
         plot_instance_cache_predictions(
             cache_dir,
-            self.output_dir / "plots" / "toy_model",
+            self.output_dir / "plots" / "single_model" / "toy_model",
             model_name="toy",
             n_samples=self.n_samples,
             filename=f"validation_epoch_{epoch + 1:03d}.png",
@@ -169,7 +169,7 @@ class GrahaInstancePlotCallback(Callback):
         )
         plot_instance_cache_predictions(
             cache_dir,
-            self.output_dir / "plots" / "full_model",
+            self.output_dir / "plots" / "single_model" / "full_model",
             model_name="graha",
             n_samples=self.n_samples,
             filename=f"validation_epoch_{epoch + 1:03d}.png",
@@ -466,7 +466,7 @@ def run_toy(config: InstanceComparisonConfig, output_dir: Path) -> Path | None:
     )
     plot_path = plot_instance_cache_predictions(
         prediction_cache,
-        output_dir / "plots" / "toy_model",
+        output_dir / "plots" / "single_model" / "toy_model",
         model_name="toy",
         n_samples=config.prediction_n_samples,
         filename=f"{config.prediction_split}_instance_predictions.png",
@@ -582,7 +582,7 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None
         )
         plot_path = plot_instance_cache_predictions(
             prediction_cache,
-            output_dir / "plots" / "full_model",
+            output_dir / "plots" / "single_model" / "full_model",
             model_name="graha",
             n_samples=config.prediction_n_samples,
             filename=f"{config.prediction_split}_instance_predictions.png",
@@ -680,7 +680,7 @@ def main() -> None:
                 "toy": toy_prediction_cache,
                 "graha": graha_prediction_cache,
             },
-            output_dir / "comparison_plots",
+            output_dir / "plots" / "comparison",
             n_samples=config.prediction_n_samples,
         )
 

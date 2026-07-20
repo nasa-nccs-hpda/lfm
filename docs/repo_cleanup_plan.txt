@@ -251,8 +251,9 @@ Make output behavior explicit and consistent:
   - checkpoints/toy_model/
   - checkpoints/full_model/
 - plots use:
-  - plots/toy_model/
-  - plots/full_model/
+  - plots/single_model/toy_model/
+  - plots/single_model/full_model/
+  - plots/comparison/
   - plots/instance_predictions/ when model-specific comparison is not involved
 
 Acceptance checks:
