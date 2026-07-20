@@ -540,12 +540,6 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None
     graha_workflow.run_loss_smoke(task, sample_batch)
     trainer = graha_workflow.create_trainer(graha_config, output_dir)
     trainer.callbacks.append(
-        FitProgressLogger(
-            "Graha",
-            log_every_n_batches=config.progress_log_every_n_batches,
-        )
-    )
-    trainer.callbacks.append(
         GrahaInstancePlotCallback(
             output_dir,
             n_samples=config.plot_n_samples,
