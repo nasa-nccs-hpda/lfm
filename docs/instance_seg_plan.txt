@@ -202,15 +202,36 @@ Expected output:
 - Explicit statement of the model input and target batch fields.
 - List of minimum code changes needed for a one-batch forward/loss smoke test.
 
-Current recommendation:
-- Start by adapting the existing toy Mask2Former-style path to the current
-  split-folder, 7-band, crop-based data standard. This is the shortest route to
-  a true instance output because that code already converts instance-id masks
-  into per-instance mask labels and class labels.
-- In parallel, inspect TerraTorch/Graha support for native instance tasks before
-  committing to a larger Graha-head implementation.
+TerraTorch audit findings:
+- The cloned TerraTorch repo has a true object detection / instance path outside
+  segmentation_tasks.py:
+    terratorch/tasks/object_detection_task.py
+    terratorch/models/object_detection_model_factory.py
+    terratorch/models/detr/
+    terratorch/examples/object_detection/
+    terratorch/tests/test_detr.py
+- ObjectDetectionModelFactory supports:
+    faster-rcnn
+    fcos
+    retinanet
+    mask-rcnn
+    detr
+    deformable-detr
+    rf-detr
+- ObjectDetectionTask accepts boxes_field, labels_field, and masks_field.
+- The DETR implementation/tests include framework_masks=True, pred_masks,
+  loss_mask, loss_dice, and mask targets.
 
-Step 5: Implement True Instance Dataset Output [Pending]
+Current recommendation:
+- Use TerraTorch ObjectDetectionTask as the first true instance model path.
+- Start with framework="mask-rcnn" because it is explicitly instance
+  segmentation and uses the simpler TorchVision-style target contract.
+- After the datamodule and plotting are stable, try framework="detr" or
+  framework="deformable-detr" with framework_masks=True.
+- Keep the existing toy Mask2Former-style code as a fallback/reference, not the
+  primary first path.
+
+Step 5: Implement True Instance Dataset Output [In-Progress]
 ---------------------------------------------------
 Update or create the instance segmentation datamodule so it loads .npz labels
 and emits true instance targets.
@@ -231,13 +252,15 @@ The datamodule should use the same split-folder structure:
 Expected output:
 - A datamodule that can load train/val/test instance batches for true instance
   training.
-- A sample should include, at minimum:
-    image or pixel_values
-    mask_labels: per-instance binary masks
-    class_labels: per-instance crater class labels
-    boxes or crater_boxes when useful
+- A batch for TerraTorch ObjectDetectionTask should include, at minimum:
+    image: Tensor[B, C, H, W]
+    boxes: list[Tensor[N, 4]]
+    labels: list[Tensor[N]]
+    masks: list[Tensor[N, H, W]]
     filename
-    original_size or resized/cropped size metadata when required by the model
+- For mask-rcnn, boxes should be pixel xyxy.
+- For DETR-style frameworks, confirm whether boxes must be normalized cxcywh
+  before training.
 
 Compatibility checkpoint status:
 - LunarInstanceSegmentationDatamodule loads split-folder .npz labels and emits:
@@ -252,11 +275,26 @@ Compatibility checkpoint status:
   binarize labels with mask > 0 for this comparison.
 
 Remaining true-instance work:
-- Convert cropped instance-id masks into per-instance binary masks.
-- Keep class_labels aligned with mask_labels.
+- Run the new ObjectDetectionTask target sanity cell in scratch.ipynb on the HPC
+  environment.
 - Decide how to represent empty/background-only chips.
-- Decide whether boxes are training targets, plotting metadata, or auxiliary
-  loss metadata for the first true instance path.
+- Add a configurable target format, at least:
+    mask_rcnn: pixel xyxy boxes
+    detr: normalized cxcywh boxes, if confirmed by the TerraTorch DETR path
+- Keep crater_boxes available for compatibility plotting/debugging if useful,
+  but make boxes/masks/labels the canonical training fields for
+  ObjectDetectionTask.
+
+Implementation status:
+- LunarInstanceSegmentationDataset now supports output_mode="object_detection".
+- LunarObjectDetectionInstanceSegmentationDatamodule was added as a convenience
+  class for TerraTorch ObjectDetectionTask batches.
+- The object-detection mode derives boxes, labels, and per-instance binary
+  masks from the cropped instance-id mask so crop-edge targets remain aligned.
+- target_box_format="xyxy" emits pixel xyxy boxes for mask-rcnn.
+- target_box_format="cxcywh" emits normalized cxcywh boxes for DETR-style
+  experiments after that path is confirmed.
+- scratch.ipynb now has an ObjectDetectionTask target sanity test cell.
 
 Step 6: Implement Crop-Safe Label Transforms [Completed]
 ------------------------------------------------------
@@ -347,7 +385,8 @@ Run these checks before long training:
 - Load one train batch.
 - Load one val batch.
 - Visualize images, masks, and boxes after crop.
-- Verify per-instance mask_labels/class_labels are aligned.
+- Verify per-instance boxes/labels/masks are aligned.
+- Instantiate TerraTorch ObjectDetectionTask with framework="mask-rcnn".
 - Run one true instance model forward pass.
 - Run one true instance loss step.
 - Run max_epochs=1 from notebook.
@@ -377,5 +416,5 @@ Once the smoke test works:
   architecture, or training settings.
 
 Next concrete work:
-- Complete Step 4 by choosing the first true instance model path and documenting
-  the required target batch fields.
+- Begin Step 5 by adding a TerraTorch ObjectDetectionTask-compatible instance
+  datamodule output mode with image, boxes, labels, and masks.

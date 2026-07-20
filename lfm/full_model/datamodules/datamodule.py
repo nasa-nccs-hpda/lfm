@@ -14,9 +14,11 @@ from .datamodule_utils import (
     boxes_to_tensor,
     center_crop,
     collate_instance_segmentation,
+    collate_object_detection_instance_segmentation,
     collate_semantic_segmentation,
     find_pair_records,
     image_to_chw_float,
+    instance_mask_to_object_detection_targets,
     mask_to_hw_long,
     normalize_image,
     read_label_file,
@@ -130,8 +132,21 @@ class LunarSemanticSegmentationDataset(LunarSegmentationDataset):
 class LunarInstanceSegmentationDataset(LunarSegmentationDataset):
     """Paired image/instance-label dataset with optional crater boxes."""
 
-    def __init__(self, *args, binarize_mask: bool = False, **kwargs) -> None:
+    def __init__(
+        self,
+        *args,
+        binarize_mask: bool = False,
+        output_mode: str = "shape",
+        target_box_format: str = "xyxy",
+        **kwargs,
+    ) -> None:
         super().__init__(*args, binarize_mask=binarize_mask, **kwargs)
+        if output_mode not in {"shape", "object_detection"}:
+            raise ValueError(f"Unsupported output_mode: {output_mode}")
+        if target_box_format not in {"xyxy", "cxcywh"}:
+            raise ValueError(f"Unsupported target_box_format: {target_box_format}")
+        self.output_mode = output_mode
+        self.target_box_format = target_box_format
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor | str]:
         sample, label = self._load_common(index)
@@ -148,6 +163,15 @@ class LunarInstanceSegmentationDataset(LunarSegmentationDataset):
         if crater_boxes is not None:
             sample["crater_boxes"] = crater_boxes
             num_craters = int(crater_boxes.shape[0])
+        if self.output_mode == "object_detection":
+            boxes, labels, masks = instance_mask_to_object_detection_targets(
+                sample["mask"],
+                box_format=self.target_box_format,
+            )
+            sample["boxes"] = boxes
+            sample["labels"] = labels
+            sample["masks"] = masks
+            num_craters = int(labels.shape[0])
         if num_craters is not None:
             sample["num_craters"] = torch.tensor(num_craters, dtype=torch.long)
         return sample
@@ -329,10 +353,69 @@ class LunarInstanceSegmentationDatamodule(LunarSegmentationDatamodule):
     dataset_cls = LunarInstanceSegmentationDataset
     collate_fn = staticmethod(collate_instance_segmentation)
 
-    def __init__(self, *args, binarize_mask: bool = False, **kwargs) -> None:
+    def __init__(
+        self,
+        *args,
+        binarize_mask: bool = False,
+        output_mode: str = "shape",
+        target_box_format: str = "xyxy",
+        **kwargs,
+    ) -> None:
         super().__init__(*args, binarize_mask=binarize_mask, **kwargs)
+        if output_mode not in {"shape", "object_detection"}:
+            raise ValueError(f"Unsupported output_mode: {output_mode}")
+        if target_box_format not in {"xyxy", "cxcywh"}:
+            raise ValueError(f"Unsupported target_box_format: {target_box_format}")
+        self.output_mode = output_mode
+        self.target_box_format = target_box_format
+        self.collate_fn = (
+            collate_object_detection_instance_segmentation
+            if output_mode == "object_detection"
+            else collate_instance_segmentation
+        )
+
+    def _make_dataset(
+        self,
+        chips_dir: Path,
+        labels_dir: Path,
+        *,
+        split_name: str | None = None,
+    ) -> Dataset:
+        return self.dataset_cls(
+            chips_dir=chips_dir,
+            labels_dir=labels_dir,
+            image_glob=self.image_glob,
+            label_glob=self.label_glob,
+            image_suffix=self.image_suffix,
+            label_suffix=self.label_suffix,
+            crop_size=self.crop_size,
+            means=self.means,
+            stds=self.stds,
+            binarize_mask=self.binarize_mask,
+            no_data_replace=self.no_data_replace,
+            no_label_replace=self.no_label_replace,
+            split_name=split_name,
+            output_mode=self.output_mode,
+            target_box_format=self.target_box_format,
+        )
+
+
+class LunarObjectDetectionInstanceSegmentationDatamodule(LunarInstanceSegmentationDatamodule):
+    """Instance datamodule emitting TerraTorch ObjectDetectionTask targets."""
+
+    def __init__(self, *args, target_box_format: str = "xyxy", **kwargs) -> None:
+        kwargs.pop("output_mode", None)
+        kwargs.pop("binarize_mask", None)
+        super().__init__(
+            *args,
+            output_mode="object_detection",
+            target_box_format=target_box_format,
+            binarize_mask=False,
+            **kwargs,
+        )
 
 
 # Backward-compatible names used by earlier notebook cells.
 SemanticSegmentationDatamodule = LunarSemanticSegmentationDatamodule
 InstanceSegmentationDatamodule = LunarInstanceSegmentationDatamodule
+ObjectDetectionInstanceSegmentationDatamodule = LunarObjectDetectionInstanceSegmentationDatamodule

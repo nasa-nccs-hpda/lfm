@@ -190,6 +190,70 @@ def crop_boxes_xyxy(
     return cropped[keep]
 
 
+def instance_mask_to_object_detection_targets(
+    mask: torch.Tensor,
+    *,
+    box_format: str = "xyxy",
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Convert an instance-id mask into boxes, labels, and binary masks.
+
+    The input mask uses 0 as background and positive integer values as instance
+    ids. The output labels are all class 1 because the crater instance dataset
+    is single-class.
+    """
+    if mask.ndim != 2:
+        raise ValueError(f"Expected a 2D instance mask, got shape {tuple(mask.shape)}")
+    if box_format not in {"xyxy", "cxcywh"}:
+        raise ValueError(f"Unsupported box_format: {box_format}")
+
+    height, width = mask.shape[-2], mask.shape[-1]
+    instance_ids = torch.unique(mask)
+    instance_ids = instance_ids[instance_ids > 0]
+
+    boxes: list[torch.Tensor] = []
+    labels: list[torch.Tensor] = []
+    masks: list[torch.Tensor] = []
+
+    for instance_id in instance_ids.tolist():
+        instance_mask = mask == int(instance_id)
+        ys, xs = torch.where(instance_mask)
+        if xs.numel() == 0 or ys.numel() == 0:
+            continue
+
+        x1 = xs.min().to(torch.float32)
+        y1 = ys.min().to(torch.float32)
+        x2 = xs.max().to(torch.float32) + 1.0
+        y2 = ys.max().to(torch.float32) + 1.0
+        if x2 <= x1 or y2 <= y1:
+            continue
+
+        if box_format == "xyxy":
+            box = torch.stack([x1, y1, x2, y2])
+        else:
+            cx = ((x1 + x2) * 0.5) / float(width)
+            cy = ((y1 + y2) * 0.5) / float(height)
+            box_w = (x2 - x1) / float(width)
+            box_h = (y2 - y1) / float(height)
+            box = torch.stack([cx, cy, box_w, box_h])
+
+        boxes.append(box)
+        labels.append(torch.tensor(1, dtype=torch.long))
+        masks.append(instance_mask.to(torch.uint8))
+
+    if not boxes:
+        return (
+            torch.zeros((0, 4), dtype=torch.float32),
+            torch.zeros((0,), dtype=torch.long),
+            torch.zeros((0, height, width), dtype=torch.uint8),
+        )
+
+    return (
+        torch.stack(boxes).to(torch.float32),
+        torch.stack(labels).to(torch.long),
+        torch.stack(masks).to(torch.uint8),
+    )
+
+
 def center_crop(
     image: torch.Tensor,
     mask: torch.Tensor,
@@ -279,6 +343,23 @@ def collate_semantic_segmentation(batch: list[dict]) -> dict:
 
 def collate_instance_segmentation(batch: list[dict]) -> dict:
     result = collate_semantic_segmentation(batch)
+    if "crater_boxes" in batch[0]:
+        result["crater_boxes"] = [item["crater_boxes"] for item in batch]
+    if "num_craters" in batch[0]:
+        result["num_craters"] = torch.stack([item["num_craters"] for item in batch])
+    return result
+
+
+def collate_object_detection_instance_segmentation(batch: list[dict]) -> dict:
+    result = {
+        "image": torch.stack([item["image"] for item in batch]),
+        "boxes": [item["boxes"] for item in batch],
+        "labels": [item["labels"] for item in batch],
+        "masks": [item["masks"] for item in batch],
+        "filename": [item["filename"] for item in batch],
+    }
+    if "mask" in batch[0]:
+        result["mask"] = torch.stack([item["mask"] for item in batch])
     if "crater_boxes" in batch[0]:
         result["crater_boxes"] = [item["crater_boxes"] for item in batch]
     if "num_craters" in batch[0]:
