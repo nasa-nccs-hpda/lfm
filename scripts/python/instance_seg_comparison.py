@@ -80,6 +80,7 @@ def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
     script_dir = Path(__file__).resolve().parent
     lfm_root = script_dir.parents[1]
     notebook_dir = lfm_root / "notebooks" / "full_model"
+    scripts_output_dir = lfm_root / "scripts" / "outputs"
     return InstanceComparisonConfig(
         notebook_dir=notebook_dir,
         lfm_root=lfm_root,
@@ -87,7 +88,7 @@ def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
         base_output_dir=(
             Path(args.base_output_dir).resolve()
             if args.base_output_dir
-            else notebook_dir / "outputs" / "instance_seg_comparison"
+            else scripts_output_dir / "instance_seg_comparison"
         ),
         dino_checkpoint=Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None,
         dino_lightning_checkpoint=(

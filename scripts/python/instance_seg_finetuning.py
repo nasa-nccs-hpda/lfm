@@ -85,6 +85,7 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
     notebook_dir = lfm_root / "notebooks" / "full_model"
     package_dir = lfm_root / "lfm" / "full_model"
     graha_root = package_dir / "graha-lunar-fm"
+    scripts_output_dir = lfm_root / "scripts" / "outputs"
 
     pretrain_dir = Path(
         "/explore/nobackup/projects/lfm/gabby/Lunar-FM/experiments/"
@@ -97,7 +98,7 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
     base_output_dir = (
         Path(args.base_output_dir).resolve()
         if args.base_output_dir
-        else notebook_dir / "outputs" / "instance_seg_finetuning"
+        else scripts_output_dir / "instance_seg_finetuning"
     )
     lightning_checkpoint = (
         Path(args.lightning_checkpoint).resolve() if args.lightning_checkpoint else None

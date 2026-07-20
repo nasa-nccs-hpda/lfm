@@ -90,11 +90,12 @@ class SweepConfig:
 def build_config(args: argparse.Namespace) -> SweepConfig:
     script_dir = Path(__file__).resolve().parent
     notebook_dir = script_dir.parents[1] / "notebooks" / "full_model"
+    scripts_output_dir = script_dir.parents[1] / "scripts" / "outputs"
     data_root = Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
     output_root = (
         Path(args.output_root).resolve()
         if args.output_root
-        else notebook_dir / "outputs" / "semantic_checkpoint_sweep"
+        else scripts_output_dir / "semantic_checkpoint_sweep"
     )
     toy_checkpoint_dir = (
         Path(args.toy_checkpoint_dir).resolve() if args.toy_checkpoint_dir else None

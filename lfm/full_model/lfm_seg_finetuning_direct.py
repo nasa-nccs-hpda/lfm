@@ -69,6 +69,7 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
     package_dir = Path(__file__).resolve().parent
     lfm_root = package_dir.parents[1]
     notebook_dir = lfm_root / "notebooks" / "full_model"
+    scripts_output_dir = lfm_root / "scripts" / "outputs"
     repo_root = package_dir / "graha-lunar-fm"
 
     pretrain_dir = Path(
@@ -82,7 +83,7 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
     base_output_dir = (
         Path(args.base_output_dir).resolve()
         if args.base_output_dir
-        else notebook_dir / "outputs" / "graha_finetuning"
+        else scripts_output_dir / "graha_finetuning"
     )
     lightning_checkpoint = (
         Path(args.lightning_checkpoint).resolve() if args.lightning_checkpoint else None

@@ -242,8 +242,10 @@ Step 7: Normalize Output and Log Layout [In-Progress]
 
 Make output behavior explicit and consistent:
 
-- model outputs stay under notebooks/full_model/outputs by default unless a
+- script-launched model outputs stay under scripts/outputs by default unless a
   user passes --base-output-dir.
+- notebook-launched outputs can still stay under notebooks/full_model/outputs
+  when the notebook config passes that base directory explicitly.
 - shell logs go under scripts/logs.
 - checkpoint folders use:
   - checkpoints/toy_model/

@@ -77,11 +77,12 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
     script_dir = Path(__file__).resolve().parent
     repo_root = script_dir.parents[1]
     notebook_dir = repo_root / "notebooks" / "full_model"
+    scripts_output_dir = repo_root / "scripts" / "outputs"
     data_root = Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
     base_output_dir = (
         Path(args.base_output_dir).resolve()
         if args.base_output_dir
-        else notebook_dir / "outputs" / "toy_sem_seg_comparison"
+        else scripts_output_dir / "toy_sem_seg_comparison"
     )
     dino_checkpoint = Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None
     dino_lightning_checkpoint = (
@@ -92,7 +93,7 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
     graha_base_output_dir = (
         Path(args.graha_base_output_dir).resolve()
         if args.graha_base_output_dir
-        else notebook_dir / "outputs" / "graha_finetuning"
+        else scripts_output_dir / "graha_finetuning"
     )
     graha_pretrain_dir = (
         Path(args.graha_pretrain_dir).resolve() if args.graha_pretrain_dir else None

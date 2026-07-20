@@ -1,5 +1,7 @@
 .ipynb_checkpoints/
 outputs/
+!scripts/outputs/
+!scripts/outputs/.gitkeep
 **/__pycache__/
 notebooks/lfm
 planning.txt
