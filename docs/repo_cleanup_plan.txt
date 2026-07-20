@@ -1,0 +1,301 @@
+Repository Cleanup Plan
+=======================
+
+Purpose
+-------
+
+This document tracks the cleanup work needed to move the full-model notebooks,
+scripts, and reusable ML workflow code into a more maintainable structure.
+
+Use this plan when moving runnable Python and shell entrypoints out of
+notebooks/, extracting shared semantic/instance workflow helpers, and reducing
+copy-paste between notebook, Python, and sbatch paths.
+
+The intended end state is:
+
+- notebooks/ contains only .ipynb files.
+- scripts/python/ contains command-line Python entrypoints.
+- scripts/shell/ contains sbatch and shell wrappers.
+- lfm/full_model/all_tasks/ contains helpers shared by all ML tasks.
+- lfm/full_model/sem_seg/ contains semantic-segmentation workflow helpers.
+- lfm/full_model/inst_seg/ contains instance-segmentation workflow helpers.
+- Notebooks and scripts import the same reusable implementation instead of
+  duplicating behavior.
+
+
+Proposed Target Structure
+-------------------------
+
+```
+lfm/
+  notebooks/
+    full_model/
+      semantic_seg_comparison.ipynb
+      semantic_checkpoint_sweep.ipynb
+      instance_seg_finetuning.ipynb
+      instance_seg_comparison.ipynb
+      scratch.ipynb
+
+  scripts/
+    python/
+      semantic_seg_comparison.py
+      semantic_checkpoint_sweep.py
+      instance_seg_finetuning.py
+      instance_seg_comparison.py
+
+    shell/
+      sbatch_semantic_seg_comparison.sh
+      sbatch_semantic_checkpoint_sweep.sh
+      sbatch_instance_seg_finetuning.sh
+      sbatch_instance_seg_comparison.sh
+
+  lfm/
+    full_model/
+      all_tasks/
+        config_utils.py
+        checkpoint_utils.py
+        timing_utils.py
+        trainer_utils.py
+        path_utils.py
+
+      sem_seg/
+        comparison.py
+        checkpoint_sweep.py
+        plotting.py
+
+      inst_seg/
+        finetuning.py
+        comparison.py
+        plotting.py
+
+      datamodules/
+        lunar_segmentation_dataset.py
+        lunar_segmentation_datamodule.py
+        semantic_segmentation.py
+        instance_segmentation.py
+        datamodule_utils.py
+
+      utils/
+        utils.py
+        plot_utils.py
+```
+
+
+Cleanup Principles
+------------------
+
+- Move files mechanically before refactoring behavior.
+- Keep notebooks as user-facing, linear workflows.
+- Keep scripts as thin CLI wrappers with argparse and main().
+- Keep reusable code inside the importable lfm package.
+- Keep sbatch wrappers dumb: environment setup, logging, then call a Python
+  script.
+- Preserve existing command-line behavior where possible.
+- Smoke-test each moved entrypoint before deeper extraction.
+- Avoid changing model behavior during organization-only steps.
+
+
+Step 1: Move Shell Entrypoints [Pending]
+---------------------------------------
+
+Move sbatch and shell scripts out of notebooks/full_model and into:
+
+```
+scripts/shell/
+```
+
+Expected moves include:
+
+- notebooks/full_model/sbatch_toy_sem_seg_comparison.sh
+- notebooks/full_model/sbatch_instance_seg_finetuning.sh
+- notebooks/full_model/sbatch_instance_seg_comparison.sh
+- any other sbatch wrappers currently under notebooks/full_model
+
+Update each wrapper so it can locate the repo root from the new path and call
+the matching Python script under scripts/python/.
+
+Acceptance checks:
+
+- notebooks/full_model no longer contains .sh files.
+- Logs still write under a predictable logs directory.
+- A one-epoch smoke command still starts correctly from repo root.
+
+
+Step 2: Move Python Entrypoints [Pending]
+----------------------------------------
+
+Move runnable Python scripts out of notebooks/full_model and into:
+
+```
+scripts/python/
+```
+
+Expected moves include:
+
+- notebooks/full_model/toy_sem_seg_comparison.py
+- notebooks/full_model/semantic_checkpoint_sweep.py
+- notebooks/full_model/instance_seg_finetuning.py
+- notebooks/full_model/instance_seg_comparison.py
+- older temporary comparison scripts that are still useful
+
+Leave notebooks in notebooks/full_model and update their imports to point at
+package code or scripts/python during the transition.
+
+Acceptance checks:
+
+- notebooks/full_model contains .ipynb files only, plus no required .py/.sh
+  runtime files.
+- Each moved Python script still supports `--help`.
+- Existing sbatch wrappers point to the new paths.
+
+
+Step 3: Create Shared all_tasks Helpers [Pending]
+-------------------------------------------------
+
+Create:
+
+```
+lfm/full_model/all_tasks/
+```
+
+Move duplicated cross-task helpers there, such as:
+
+- timestamped output directory handling
+- symlink resolution
+- config serialization
+- timing summaries
+- checkpoint path helpers
+- common Trainer/ModelCheckpoint patterns
+- path validation helpers
+
+Acceptance checks:
+
+- Semantic and instance scripts import shared helpers from all_tasks.
+- No behavior changes to training, plotting, checkpoint naming, or output
+  layout.
+
+
+Step 4: Extract Semantic Workflow Code [Pending]
+-----------------------------------------------
+
+Create:
+
+```
+lfm/full_model/sem_seg/
+```
+
+Move semantic-specific workflow code out of scripts/notebooks into importable
+modules:
+
+- comparison setup
+- checkpoint sweep logic
+- semantic prediction cache logic if it remains task-specific
+- semantic plotting wrappers when not general enough for utils/plot_utils.py
+
+Acceptance checks:
+
+- semantic comparison notebook imports semantic workflow functions.
+- semantic comparison CLI script is mostly argparse + main().
+- semantic checkpoint sweep notebook/script share the same implementation.
+
+
+Step 5: Extract Instance Workflow Code [Pending]
+------------------------------------------------
+
+Create:
+
+```
+lfm/full_model/inst_seg/
+```
+
+Move instance-specific workflow code out of scripts/notebooks into importable
+modules:
+
+- Graha true-instance fine-tuning workflow
+- Toy true-instance comparison workflow
+- instance prediction plotting/evaluation orchestration
+- Mask R-CNN target sanity helpers if they remain reusable
+
+Acceptance checks:
+
+- instance_seg_finetuning notebook imports instance workflow functions.
+- instance_seg_comparison notebook imports instance comparison functions.
+- Python scripts are thin CLI wrappers.
+- True-instance smoke test still passes for max_epochs=1.
+
+
+Step 6: Normalize Notebook Imports [Pending]
+-------------------------------------------
+
+Update all full_model notebooks so they import from the lfm package rather than
+from neighboring .py files in notebooks/full_model.
+
+Acceptance checks:
+
+- Running notebooks from notebooks/full_model works.
+- Running notebooks from repo root also works when path setup cells are used.
+- No notebook depends on .py files living beside it.
+
+
+Step 7: Normalize Output and Log Layout [Pending]
+------------------------------------------------
+
+Make output behavior explicit and consistent:
+
+- model outputs stay under notebooks/full_model/outputs by default unless a
+  user passes --base-output-dir.
+- shell logs go under scripts/logs or notebooks/full_model/logs, chosen once and
+  documented.
+- checkpoint folders use:
+  - checkpoints/toy_model/
+  - checkpoints/full_model/
+- plots use:
+  - plots/toy_model/
+  - plots/full_model/
+  - plots/instance_predictions/ when model-specific comparison is not involved
+
+Acceptance checks:
+
+- The new layout is documented in the scripts or plan.
+- Existing smoke-test commands produce discoverable outputs.
+
+
+Step 8: Smoke Test Moved Workflows [Pending]
+-------------------------------------------
+
+Run minimal checks after the move/refactor:
+
+- semantic comparison notebook smoke test
+- semantic comparison sbatch max_epochs=1
+- semantic checkpoint sweep small checkpoint subset
+- instance fine-tuning notebook smoke test
+- instance fine-tuning sbatch max_epochs=1
+- instance comparison notebook smoke test
+- instance comparison sbatch max_epochs=1
+
+Acceptance checks:
+
+- All smoke tests complete or fail for real model/data reasons, not import/path
+  errors.
+- Any changed command paths are documented in the final summary.
+
+
+Step 9: Remove Transitional Imports and Dead Files [Pending]
+-----------------------------------------------------------
+
+Once scripts and notebooks use package modules, remove temporary compatibility
+imports and obsolete files.
+
+Candidates to review:
+
+- duplicate binary instance-label comparison scripts
+- old notebook-adjacent Python workflows
+- unused helper functions left after extraction
+- stale backup files or generated outputs accidentally tracked
+
+Acceptance checks:
+
+- `rg` shows no imports from moved notebook-adjacent script paths.
+- notebooks/full_model contains only intended .ipynb files.
+- git status is clean except for intentional source changes.
+
