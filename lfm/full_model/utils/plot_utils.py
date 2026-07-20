@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from lightning.pytorch.callbacks import Callback
+from matplotlib.patches import Rectangle
 from matplotlib.colors import ListedColormap
 
 
@@ -542,6 +543,95 @@ def plot_prediction_cache_comparison(
     plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved side-by-side comparison plot to {save_path}")
+    return save_path
+
+
+def _extract_instance_boxes(batch, sample_index: int) -> torch.Tensor:
+    boxes = batch.get("crater_boxes") if isinstance(batch, dict) else None
+    if boxes is None:
+        return torch.zeros((0, 4), dtype=torch.float32)
+    if isinstance(boxes, torch.Tensor):
+        return boxes[sample_index]
+    return boxes[sample_index]
+
+
+def plot_instance_batch_sanity(
+    datamodule,
+    output_dir: str | Path,
+    *,
+    split: str = "train",
+    n_samples: int = 5,
+    filename: str = "instance_batch_sanity.png",
+    plots_subdir: str | Path = "plots",
+    display_method: str = "minmax",
+    dpi: int = 200,
+    setup_datamodule: bool = True,
+) -> Path:
+    """Save a visual sanity check for instance masks and cropped xyxy boxes."""
+    if setup_datamodule:
+        datamodule.setup("fit" if split in {"train", "val"} else "test")
+    dataloader = _get_split_dataloader(datamodule, split)
+    batch = next(iter(dataloader))
+
+    images = batch["image"].detach().cpu()
+    masks = batch["mask"].detach().cpu()
+    filenames, _ = _extract_paths(batch)
+    batch_size = min(n_samples, images.shape[0])
+
+    plots_dir = Path(output_dir) / plots_subdir
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    save_path = plots_dir / filename
+
+    fig, axes = plt.subplots(3, batch_size, figsize=(4 * batch_size, 11))
+    if batch_size == 1:
+        axes = axes.reshape(3, 1)
+
+    for i in range(batch_size):
+        image = images[i].numpy().transpose(1, 2, 0)
+        mask = masks[i].numpy()
+        boxes = _extract_instance_boxes(batch, i).detach().cpu()
+        img_vis, display_note = prepare_image_for_display(image, method=display_method)
+        cmap_image = "gray" if img_vis.ndim == 2 else None
+        title = _display_sample_key(_sample_key(filenames[i] if i < len(filenames) else None, i))
+
+        axes[0, i].imshow(img_vis, cmap=cmap_image)
+        axes[0, i].set_title(f"{title}\n{display_note}", fontsize=10)
+
+        axes[1, i].imshow(mask, cmap="nipy_spectral", interpolation="nearest")
+        axes[1, i].set_title(f"Instance Mask\ninstances: {int(mask.max())}", fontsize=10)
+
+        axes[2, i].imshow(img_vis, cmap=cmap_image)
+        axes[2, i].set_title(f"Cropped Boxes\nboxes: {boxes.shape[0]}", fontsize=10)
+        for box in boxes.tolist():
+            x1, y1, x2, y2 = box[:4]
+            width = max(x2 - x1, 0.0)
+            height = max(y2 - y1, 0.0)
+            if width <= 0 or height <= 0:
+                continue
+            axes[2, i].add_patch(
+                Rectangle(
+                    (x1, y1),
+                    width,
+                    height,
+                    fill=False,
+                    edgecolor="cyan",
+                    linewidth=1.5,
+                )
+            )
+
+        for row in range(3):
+            axes[row, i].axis("off")
+
+    fig.suptitle(
+        f"Instance Segmentation Sanity Check - {split}",
+        fontsize=16,
+        fontweight="bold",
+    )
+    fig.patch.set_facecolor("white")
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved instance sanity plot to {save_path}")
     return save_path
 
 

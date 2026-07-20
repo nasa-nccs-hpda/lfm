@@ -31,8 +31,11 @@ Instance segmentation work is paused after completing Steps 1 and 2.
 Current state:
 - The label contract is confirmed.
 - The full-model instance datamodule has been audited.
-- The main known datamodule issue is bbox cropping: labels store COCO xywh,
-  while the current center_crop() utility treats boxes like xyxy.
+- The bbox crop utility has been updated so labels stored as COCO xywh are
+  cropped/clipped correctly and emitted as xyxy crater_boxes for Graha shape
+  loss.
+- A lightweight instance sanity plotting helper exists, but still needs to be
+  run on real data in the HPC environment.
 
 Decision to make when resuming:
 - Option A: Use instance labels to support Graha semantic segmentation plus
@@ -50,8 +53,8 @@ Recommended resume path:
 
 Needed before implementation:
 - Decide whether the first working target is Option A or Option B.
-- Fix crop-safe bbox handling for COCO xywh boxes.
-- Add a visual sanity check for cropped instance masks and boxes.
+- Run the visual sanity check for cropped instance masks and boxes on real
+  train/val/test data.
 - If choosing Option B, define the model/task output contract before changing
   the datamodule.
 
@@ -199,7 +202,7 @@ The datamodule should use the same split-folder structure:
 Expected output:
 - A datamodule that can load train/val/test instance batches.
 
-Step 6: Implement Crop-Safe Label Transforms [Pending]
+Step 6: Implement Crop-Safe Label Transforms [In-Progress]
 ------------------------------------------------------
 Cropping must update every label representation consistently.
 
@@ -214,6 +217,17 @@ For center crop or configured crop:
 
 Expected output:
 - A visual sanity check showing image, cropped mask, and cropped boxes agree.
+
+Implementation status:
+- center_crop() now accepts an explicit boxes_format.
+- COCO xywh boxes are shifted into the crop frame, clipped to the crop bounds,
+  filtered for valid size, and returned as xyxy boxes.
+- This matches LunarShapeSegmentationTask.crater_shape_loss(), which expects
+  crater_boxes in [x1, y1, x2, y2] pixel coordinates.
+- plot_instance_batch_sanity() was added under lfm.full_model.utils for real
+  data visual inspection.
+- Remaining work: run the plot helper in the HPC environment against actual
+  instance labels and inspect the saved PNG.
 
 Step 7: Create Instance Notebook and Script [Pending]
 -----------------------------------------------------
@@ -230,7 +244,7 @@ Mirror the semantic segmentation workflow:
 Expected output:
 - A notebook and sbatch-compatible script for instance segmentation experiments.
 
-Step 8: Add Instance-Aware Plotting [Pending]
+Step 8: Add Instance-Aware Plotting [In-Progress]
 ---------------------------------------------
 Create plotting that can show:
 
@@ -241,6 +255,11 @@ Create plotting that can show:
 
 Expected output:
 - Validation plots saved under the run output directory.
+
+Implementation status:
+- Added plot_instance_batch_sanity() to save image, instance mask, and cropped
+  xyxy box overlays for the first samples in a requested split.
+- Future prediction plotting still depends on the selected model target.
 
 Step 9: Smoke Test [Pending]
 ----------------------------
