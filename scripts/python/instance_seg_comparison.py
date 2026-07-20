@@ -508,6 +508,7 @@ def build_graha_config(config: InstanceComparisonConfig, output_dir: Path):
         prediction_split=config.prediction_split,
         prediction_n_samples=config.prediction_n_samples,
         prediction_score_threshold=config.prediction_score_threshold,
+        progress_log_every_n_batches=config.progress_log_every_n_batches,
         mask_shift=config.mask_shift,
         seed=config.seed,
         no_fit=config.skip_graha_fit,
