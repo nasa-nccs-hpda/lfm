@@ -754,8 +754,8 @@ def plot_instance_predictions(
         axes[0, i].set_title(f"{title}\n{display_note}", fontsize=10)
 
         axes[1, i].imshow(img_vis, cmap=cmap_image)
-        axes[1, i].imshow(_instance_union(gt_masks), cmap=ListedColormap(["none", "lime"]), alpha=0.35)
-        _draw_boxes(axes[1, i], gt_boxes, color="lime")
+        axes[1, i].imshow(_instance_union(gt_masks), cmap=ListedColormap(["none", "red"]), alpha=0.35)
+        _draw_boxes(axes[1, i], gt_boxes, color="red")
         axes[1, i].set_title(f"GT Instances: {gt_boxes.shape[0]}", fontsize=10)
 
         axes[2, i].imshow(img_vis, cmap=cmap_image)
@@ -764,11 +764,11 @@ def plot_instance_predictions(
         axes[2, i].set_title(f"Pred >= {score_threshold:.2f}: {pred_boxes.shape[0]}", fontsize=10)
 
         axes[3, i].imshow(img_vis, cmap=cmap_image)
-        axes[3, i].imshow(_instance_union(gt_masks), cmap=ListedColormap(["none", "lime"]), alpha=0.25)
+        axes[3, i].imshow(_instance_union(gt_masks), cmap=ListedColormap(["none", "red"]), alpha=0.25)
         axes[3, i].imshow(_instance_union(pred_masks), cmap=ListedColormap(["none", "cyan"]), alpha=0.35)
-        _draw_boxes(axes[3, i], gt_boxes, color="lime")
+        _draw_boxes(axes[3, i], gt_boxes, color="red")
         _draw_boxes(axes[3, i], pred_boxes, color="cyan", scores=pred_scores)
-        axes[3, i].set_title("GT green / Pred cyan", fontsize=10)
+        axes[3, i].set_title("GT red / Pred cyan", fontsize=10)
 
         for row in range(4):
             axes[row, i].axis("off")
