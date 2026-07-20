@@ -41,6 +41,9 @@ class ToySemSegSplitDataModule(LightningDataModule):
         max_test_samples: int | None = None,
         output_dir: str | Path | None = None,
         pin_memory: bool = True,
+        label_file_type: str = ".npy",
+        label_npz_key: str = "mask",
+        binarize_label: bool = False,
     ) -> None:
         super().__init__()
         self.data_root = Path(data_root)
@@ -57,6 +60,9 @@ class ToySemSegSplitDataModule(LightningDataModule):
         }
         self.output_dir = Path(output_dir) if output_dir is not None else None
         self.pin_memory = pin_memory
+        self.label_file_type = label_file_type
+        self.label_npz_key = label_npz_key
+        self.binarize_label = binarize_label
 
         self.weight_assignments: list[str] | None = None
         self.mean: np.ndarray | None = None
@@ -115,6 +121,9 @@ class ToySemSegSplitDataModule(LightningDataModule):
             band_filter=self.band_filter,
             normalize_inputs=self.normalize_inputs,
             split_name=split,
+            label_file_type=self.label_file_type,
+            label_npz_key=self.label_npz_key,
+            binarize_label=self.binarize_label,
         )
 
     def _calculate_train_stats(self) -> None:
@@ -128,6 +137,9 @@ class ToySemSegSplitDataModule(LightningDataModule):
             band_filter=self.band_filter,
             normalize_inputs=False,
             split_name="train-stats",
+            label_file_type=self.label_file_type,
+            label_npz_key=self.label_npz_key,
+            binarize_label=self.binarize_label,
         )
         pixel_sum = None
         pixel_sq_sum = None

@@ -53,12 +53,17 @@ class LunarCraterDataset(Dataset):
         normalize_inputs: bool = True,
         spatial_transform: str = "resize",
         split_name: Optional[str] = None,
+        label_file_type: str = ".npy",
+        label_npz_key: str = "mask",
+        binarize_label: bool = False,
     ):
         # Hardcoded directory structure and file types
         self.image_dir = f"{base_dir}/chips"
         self.label_dir = f"{base_dir}/labels"
         self.image_file_type = ".tif"
-        self.label_file_type = ".npy"
+        self.label_file_type = label_file_type
+        self.label_npz_key = label_npz_key
+        self.binarize_label = binarize_label
         self.split_name = split_name or Path(base_dir).name
         self.log_prefix = f"[{self.split_name}] "
 
@@ -242,9 +247,16 @@ class LunarCraterDataset(Dataset):
         img_path = self.valid_image_paths[idx]
         label_path = self.valid_label_paths[idx]
 
-        # Load .tif image (C, H, W) and .npy label (H, W)
+        # Load .tif image (C, H, W) and label (H, W).
         image = rasterio.open(img_path).read()  # Shape: (C, H, W)
-        label = np.load(label_path).astype(np.int64)  # Shape: (H, W)
+        if Path(label_path).suffix == ".npz":
+            with np.load(label_path) as archive:
+                label = archive[self.label_npz_key]
+        else:
+            label = np.load(label_path)
+        label = label.astype(np.int64)
+        if self.binarize_label:
+            label = (label > 0).astype(np.int64)
 
         # Convert to (H, W, C) format for processing
         if image.ndim == 3:
