@@ -29,7 +29,11 @@ class ToyInstanceSegLightningModule(LightningModule):
         self.weight_decay = weight_decay
         self.max_epochs_for_scheduler = max_epochs
         self.max_grad_norm = max_grad_norm
+        self.model.train()
         self.save_hyperparameters(ignore=["model"])
+
+    def on_fit_start(self) -> None:
+        self.model.train()
 
     def forward(
         self,
