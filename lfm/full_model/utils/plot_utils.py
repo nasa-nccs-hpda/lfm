@@ -13,6 +13,12 @@ from lightning.pytorch.callbacks import Callback
 from matplotlib.patches import Rectangle
 from matplotlib.colors import ListedColormap
 
+from lfm.full_model.datamodules.datamodule_utils import (
+    image_to_chw_float,
+    path_key,
+    read_tif,
+)
+
 
 def calculate_f1_score(pred: np.ndarray, label: np.ndarray) -> float:
     pred = pred.reshape(-1)
@@ -690,6 +696,189 @@ def _draw_boxes(ax, boxes: torch.Tensor, *, color: str, scores: torch.Tensor | N
                 fontsize=7,
                 bbox={"facecolor": "black", "alpha": 0.45, "pad": 1, "edgecolor": "none"},
             )
+
+
+def _instance_union_np(mask: np.ndarray) -> np.ndarray:
+    return np.asarray(mask) > 0
+
+
+def _xywh_to_xyxy_np(boxes: np.ndarray | None) -> torch.Tensor:
+    if boxes is None:
+        return torch.zeros((0, 4), dtype=torch.float32)
+    boxes = np.asarray(boxes)
+    if boxes.size == 0:
+        return torch.zeros((0, 4), dtype=torch.float32)
+    boxes = boxes.reshape(-1, boxes.shape[-1])[:, :4].astype(np.float32)
+    xyxy = boxes.copy()
+    xyxy[:, 2] = boxes[:, 0] + boxes[:, 2]
+    xyxy[:, 3] = boxes[:, 1] + boxes[:, 3]
+    return torch.as_tensor(xyxy, dtype=torch.float32)
+
+
+def _find_unsplit_instance_pairs(root: str | Path) -> dict[str, tuple[Path, Path]]:
+    root = Path(root)
+    chips_dir = root / "chips"
+    labels_dir = root / "labels"
+    chips = {
+        path_key(path, "_input_wac_static_chip"): path
+        for path in sorted(chips_dir.glob("*.tif"))
+    }
+    labels = {
+        path_key(path, "_label"): path
+        for path in sorted(labels_dir.glob("*_label.npz"))
+    }
+    return {
+        key: (chips[key], labels[key])
+        for key in sorted(set(chips) & set(labels))
+    }
+
+
+def _find_split_instance_pairs(root: str | Path) -> dict[str, tuple[Path, Path]]:
+    root = Path(root)
+    pairs: dict[str, tuple[Path, Path]] = {}
+    for split in ("train", "val", "test"):
+        split_root = root / split
+        if not split_root.exists():
+            continue
+        for key, pair in _find_unsplit_instance_pairs(split_root).items():
+            pairs.setdefault(key, pair)
+    return pairs
+
+
+def _load_instance_comparison_sample(pair: tuple[Path, Path]) -> dict[str, object]:
+    chip_path, label_path = pair
+    image = image_to_chw_float(read_tif(chip_path))
+    if image.shape[0] > 7:
+        image = image[:7]
+    with np.load(label_path) as data:
+        mask = np.asarray(data["mask"])
+        boxes = np.asarray(data["bboxes"]) if "bboxes" in data else None
+    return {
+        "chip_path": chip_path,
+        "label_path": label_path,
+        "image": image.numpy().transpose(1, 2, 0),
+        "mask": mask,
+        "boxes": _xywh_to_xyxy_np(boxes),
+    }
+
+
+def _overlay_instance_gt(
+    img_vis: np.ndarray,
+    mask: np.ndarray,
+    *,
+    color: tuple[float, float, float],
+    alpha: float = 0.35,
+) -> np.ndarray:
+    if img_vis.ndim == 2:
+        img_rgb = np.stack([img_vis] * 3, axis=2)
+    else:
+        img_rgb = img_vis.copy()
+    union = _instance_union_np(mask)
+    overlay = img_rgb.copy()
+    overlay[union, 0] = color[0]
+    overlay[union, 1] = color[1]
+    overlay[union, 2] = color[2]
+    return np.where(union[:, :, None], overlay * alpha + img_rgb * (1 - alpha), img_rgb)
+
+
+def plot_instance_label_comparison(
+    kaguya_root: str | Path,
+    split_data_root: str | Path,
+    output_dir: str | Path,
+    *,
+    n_samples: int = 8,
+    filename: str = "iseg_label_comparison.png",
+    plots_subdir: str | Path = "plots",
+    display_method: str = "minmax",
+    dpi: int = 200,
+) -> Path:
+    """Compare raw Kaguya instance labels against the split instance dataset."""
+    kaguya_pairs = _find_unsplit_instance_pairs(kaguya_root)
+    split_pairs = _find_split_instance_pairs(split_data_root)
+    sample_keys = sorted(set(kaguya_pairs) & set(split_pairs))[:n_samples]
+    if not sample_keys:
+        raise ValueError(
+            f"No matching instance chip/label pairs found between {kaguya_root} "
+            f"and {split_data_root}"
+        )
+
+    green = (0.0, 1.0, 0.0)
+    red = (1.0, 0.0, 0.0)
+    n_cols = len(sample_keys)
+    fig, axes = plt.subplots(6, n_cols, figsize=(4 * n_cols, 22))
+    if n_cols == 1:
+        axes = axes.reshape(6, 1)
+
+    for col, key in enumerate(sample_keys):
+        kaguya = _load_instance_comparison_sample(kaguya_pairs[key])
+        split = _load_instance_comparison_sample(split_pairs[key])
+        kaguya_img, display_note = prepare_image_for_display(
+            kaguya["image"], method=display_method
+        )
+        split_img, _ = prepare_image_for_display(split["image"], method=display_method)
+        cmap_kaguya = "gray" if kaguya_img.ndim == 2 else None
+        cmap_split = "gray" if split_img.ndim == 2 else None
+
+        kaguya_mask = kaguya["mask"]
+        split_mask = split["mask"]
+        kaguya_boxes = kaguya["boxes"]
+        split_boxes = split["boxes"]
+
+        black = np.zeros((*kaguya_mask.shape, 3), dtype=np.float32)
+        kaguya_black = _overlay_instance_gt(black, kaguya_mask, color=green, alpha=0.8)
+        split_black = _overlay_instance_gt(black, split_mask, color=red, alpha=0.8)
+        both_black = _overlay_instance_gt(kaguya_black, split_mask, color=red, alpha=0.8)
+        both_on_kaguya = _overlay_instance_gt(kaguya_img, kaguya_mask, color=green, alpha=0.35)
+        both_on_kaguya = _overlay_instance_gt(both_on_kaguya, split_mask, color=red, alpha=0.35)
+
+        axes[0, col].imshow(kaguya_black)
+        axes[0, col].set_title(
+            f"{_display_sample_key(key)}\nKaguya GT base\n{display_note}",
+            fontsize=9,
+        )
+        _draw_boxes(axes[0, col], kaguya_boxes, color="lime")
+
+        axes[1, col].imshow(_overlay_instance_gt(kaguya_img, kaguya_mask, color=green), cmap=cmap_kaguya)
+        axes[1, col].set_title("Kaguya GT on Kaguya chip", fontsize=9)
+        _draw_boxes(axes[1, col], kaguya_boxes, color="lime")
+
+        axes[2, col].imshow(split_black)
+        axes[2, col].set_title("New GT base", fontsize=9)
+        _draw_boxes(axes[2, col], split_boxes, color="red")
+
+        axes[3, col].imshow(_overlay_instance_gt(split_img, split_mask, color=red), cmap=cmap_split)
+        axes[3, col].set_title("New GT on new chip", fontsize=9)
+        _draw_boxes(axes[3, col], split_boxes, color="red")
+
+        axes[4, col].imshow(both_black)
+        axes[4, col].set_title("Both GT on black", fontsize=9)
+        _draw_boxes(axes[4, col], kaguya_boxes, color="lime")
+        _draw_boxes(axes[4, col], split_boxes, color="red")
+
+        axes[5, col].imshow(both_on_kaguya, cmap=cmap_kaguya)
+        axes[5, col].set_title("Both GT on Kaguya chip", fontsize=9)
+        _draw_boxes(axes[5, col], kaguya_boxes, color="lime")
+        _draw_boxes(axes[5, col], split_boxes, color="red")
+
+        for row in range(6):
+            axes[row, col].axis("off")
+
+    fig.suptitle(
+        "Instance Label Comparison - Kaguya green / New split red",
+        fontsize=16,
+        fontweight="bold",
+        y=0.995,
+    )
+    fig.patch.set_facecolor("white")
+    plt.tight_layout(rect=[0, 0, 1, 0.98])
+
+    plots_dir = Path(output_dir) / plots_subdir
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    save_path = plots_dir / filename
+    plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved instance label comparison plot to {save_path}")
+    return save_path
 
 
 def plot_instance_predictions(

@@ -16,6 +16,7 @@ from .datamodule_utils import (
     normalize_image,
     read_label_file,
     read_tif,
+    shift_mask,
 )
 
 
@@ -42,6 +43,7 @@ class LunarSegmentationDataset(Dataset):
         binarize_mask: bool = True,
         no_data_replace: float | None = None,
         no_label_replace: int | None = None,
+        mask_shift: tuple[int, int] | None = None,
         transform: Callable[[dict], dict] | None = None,
         split_name: str | None = None,
     ) -> None:
@@ -52,6 +54,7 @@ class LunarSegmentationDataset(Dataset):
         self.binarize_mask = binarize_mask
         self.no_data_replace = no_data_replace
         self.no_label_replace = no_label_replace
+        self.mask_shift = mask_shift
         self.transform = transform
         self.records = find_pair_records(
             chips_dir=chips_dir,
@@ -80,6 +83,7 @@ class LunarSegmentationDataset(Dataset):
             image = torch.nan_to_num(image, nan=float(self.no_data_replace))
         if self.no_label_replace is not None:
             mask = torch.nan_to_num(mask.float(), nan=float(self.no_label_replace)).long()
+        mask = shift_mask(mask, self.mask_shift)
         if self.binarize_mask:
             mask = (mask > 0).long()
 
@@ -96,6 +100,13 @@ class LunarSegmentationDataset(Dataset):
         *,
         boxes: torch.Tensor | None = None,
     ) -> tuple[dict, torch.Tensor | None]:
+        if boxes is not None and self.mask_shift is not None and boxes.numel() > 0:
+            shift_x, shift_y = int(self.mask_shift[0]), int(self.mask_shift[1])
+            if shift_x != 0 or shift_y != 0:
+                boxes = boxes.clone()
+                boxes[:, 0] += float(shift_x)
+                boxes[:, 1] += float(shift_y)
+
         if self.crop_size is not None:
             image, mask, boxes = center_crop(
                 sample["image"],

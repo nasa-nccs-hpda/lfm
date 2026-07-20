@@ -118,6 +118,40 @@ def mask_to_hw_long(arr: np.ndarray) -> torch.Tensor:
     return torch.as_tensor(arr, dtype=torch.long)
 
 
+def shift_mask(mask: torch.Tensor, shift_xy: tuple[int, int] | None) -> torch.Tensor:
+    """Translate a HW mask by integer pixels, filling exposed pixels with 0.
+
+    ``shift_xy`` is ``(x_shift, y_shift)`` in image coordinates. Positive
+    ``x_shift`` moves labels right; positive ``y_shift`` moves labels down.
+    """
+    if shift_xy is None:
+        return mask
+    shift_x, shift_y = int(shift_xy[0]), int(shift_xy[1])
+    if shift_x == 0 and shift_y == 0:
+        return mask
+    if mask.ndim != 2:
+        raise ValueError(f"Expected 2D mask for shift, got shape {tuple(mask.shape)}")
+
+    height, width = mask.shape
+    shifted = torch.zeros_like(mask)
+
+    src_x0 = max(0, -shift_x)
+    src_x1 = min(width, width - shift_x)
+    dst_x0 = max(0, shift_x)
+    dst_x1 = min(width, width + shift_x)
+
+    src_y0 = max(0, -shift_y)
+    src_y1 = min(height, height - shift_y)
+    dst_y0 = max(0, shift_y)
+    dst_y1 = min(height, height + shift_y)
+
+    if src_x0 >= src_x1 or src_y0 >= src_y1:
+        return shifted
+
+    shifted[dst_y0:dst_y1, dst_x0:dst_x1] = mask[src_y0:src_y1, src_x0:src_x1]
+    return shifted
+
+
 def boxes_to_tensor(arr: np.ndarray | None) -> torch.Tensor:
     if arr is None:
         return torch.zeros((0, 4), dtype=torch.float32)

@@ -55,6 +55,7 @@ class InstanceFineTuningConfig:
     prediction_split: str
     prediction_n_samples: int
     prediction_score_threshold: float
+    mask_shift: tuple[int, int]
     seed: int
 
 
@@ -131,6 +132,7 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         prediction_split=args.prediction_split,
         prediction_n_samples=args.prediction_n_samples,
         prediction_score_threshold=args.prediction_score_threshold,
+        mask_shift=tuple(args.mask_shift),
         seed=args.seed,
     )
 
@@ -233,6 +235,7 @@ def common_datamodule_args(config: InstanceFineTuningConfig) -> dict[str, Any]:
         "target_box_format": "xyxy",
         "no_data_replace": 0.0,
         "no_label_replace": None,
+        "mask_shift": config.mask_shift,
     }
 
 
@@ -484,6 +487,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prediction-split", choices=["train", "val", "test"], default="val")
     parser.add_argument("--prediction-n-samples", type=int, default=5)
     parser.add_argument("--prediction-score-threshold", type=float, default=0.5)
+    parser.add_argument(
+        "--mask-shift",
+        type=int,
+        nargs=2,
+        metavar=("X_PIXELS", "Y_PIXELS"),
+        default=(0, 0),
+        help=(
+            "Integer label-mask shift applied before crop. Positive X moves labels right; "
+            "positive Y moves labels down."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-fit", action="store_true")
     parser.add_argument("--loss-smoke-only", action="store_true")
