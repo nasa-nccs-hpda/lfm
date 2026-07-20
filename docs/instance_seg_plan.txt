@@ -382,9 +382,15 @@ Compatibility checkpoint status:
   xyxy box overlays for the first samples in a requested split.
 - Current prediction plotting uses the existing binary segmentation comparison
   plots for Toy DINO and Graha.
+- Added plot_instance_predictions() to save true-instance prediction plots with
+  image, ground-truth masks/boxes, predicted masks/boxes/scores, and combined
+  overlays.
+- instance_seg_finetuning.py now saves validation instance prediction plots by
+  default after training, or after checkpoint loading when --no-fit is used.
+- instance_seg_finetuning.ipynb includes a Prediction Plots section using the
+  same script helper.
 
 Remaining true-instance work:
-- Add plotting for model predictions once Step 4 selects the output format.
 - Add summary metrics/visuals that make over-splitting, missed instances, and
   merged craters visible.
 
@@ -404,7 +410,7 @@ Run these checks before long training:
 - [Completed] Run one true instance loss step.
 - [Completed] Run Lightning fast_dev_run from notebook.
 - [In-Progress] Run max_epochs=1 from the clean notebook.
-- [In-Progress] Run max_epochs=1 from the sbatch script.
+- [Completed] Run max_epochs=1 from the sbatch script.
 
 Expected output:
 - Confirmed data/model/trainer compatibility for true instance segmentation.
@@ -432,6 +438,10 @@ Compatibility checkpoint status:
   script workflow with a main() block.
 - notebooks/full_model/sbatch_instance_seg_finetuning.sh was added for
   background HPC runs.
+- The clean sbatch workflow passed with:
+  sbatch notebooks/full_model/sbatch_instance_seg_finetuning.sh
+  --data-root /panfs/ccds02/nobackup/projects/lfm/model_inputs/300_300_inputs/full_model_inst_seg_v2
+  --max-epochs 1 --batch-size 2
 
 Step 10: Train and Evaluate True Instance Model [Pending]
 -------------------------------------
@@ -445,6 +455,7 @@ Once the smoke test works:
   architecture, or training settings.
 
 Next concrete work:
-- Run max_epochs=1 from the clean notebook and sbatch wrapper.
-- Add true-instance prediction plotting after the clean max_epochs=1 checks
-  pass.
+- Run max_epochs=1 from the clean notebook.
+- Smoke test true-instance prediction plotting from notebook and sbatch.
+- Add summary metrics/visuals that make over-splitting, missed instances, and
+  merged craters visible.

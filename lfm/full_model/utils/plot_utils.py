@@ -635,6 +635,153 @@ def plot_instance_batch_sanity(
     return save_path
 
 
+def _to_cpu_prediction_list(predictions) -> list[dict[str, torch.Tensor]]:
+    if hasattr(predictions, "output"):
+        predictions = predictions.output
+    result = []
+    for pred in predictions:
+        result.append(
+            {
+                key: value.detach().cpu() if torch.is_tensor(value) else value
+                for key, value in pred.items()
+            }
+        )
+    return result
+
+
+def _instance_union(mask_tensor: torch.Tensor) -> np.ndarray:
+    if mask_tensor.numel() == 0:
+        shape = mask_tensor.shape[-2:] if mask_tensor.ndim >= 2 else (1, 1)
+        return np.zeros(tuple(shape), dtype=bool)
+    if mask_tensor.ndim == 4 and mask_tensor.shape[1] == 1:
+        mask_tensor = mask_tensor[:, 0]
+    if mask_tensor.ndim == 3:
+        return (mask_tensor > 0).any(dim=0).numpy()
+    if mask_tensor.ndim == 2:
+        return (mask_tensor > 0).numpy()
+    raise ValueError(f"Unsupported instance mask shape: {tuple(mask_tensor.shape)}")
+
+
+def _draw_boxes(ax, boxes: torch.Tensor, *, color: str, scores: torch.Tensor | None = None) -> None:
+    if boxes.numel() == 0:
+        return
+    for i, box in enumerate(boxes.detach().cpu().tolist()):
+        x1, y1, x2, y2 = box[:4]
+        width = max(x2 - x1, 0.0)
+        height = max(y2 - y1, 0.0)
+        if width <= 0 or height <= 0:
+            continue
+        ax.add_patch(
+            Rectangle(
+                (x1, y1),
+                width,
+                height,
+                fill=False,
+                edgecolor=color,
+                linewidth=1.5,
+            )
+        )
+        if scores is not None and i < scores.numel():
+            ax.text(
+                x1,
+                y1,
+                f"{float(scores[i]):.2f}",
+                color=color,
+                fontsize=7,
+                bbox={"facecolor": "black", "alpha": 0.45, "pad": 1, "edgecolor": "none"},
+            )
+
+
+def plot_instance_predictions(
+    task,
+    datamodule,
+    output_dir: str | Path,
+    *,
+    split: str = "val",
+    n_samples: int = 5,
+    filename: str = "instance_predictions.png",
+    plots_subdir: str | Path = "plots/instance_predictions",
+    score_threshold: float = 0.5,
+    display_method: str = "minmax",
+    dpi: int = 200,
+    setup_datamodule: bool = True,
+) -> Path:
+    """Save true instance prediction plots with GT and predicted masks/boxes."""
+    if setup_datamodule:
+        datamodule.setup("fit" if split in {"train", "val"} else "test")
+
+    dataloader = _get_split_dataloader(datamodule, split)
+    batch = next(iter(dataloader))
+    device = task.device
+    x = batch["image"].to(device)
+
+    was_training = task.training
+    task.eval()
+    with torch.no_grad():
+        predictions = task.predict_step({"image": x}, batch_idx=0)
+    if was_training:
+        task.train()
+    predictions = _to_cpu_prediction_list(predictions)
+
+    images = batch["image"].detach().cpu()
+    filenames, _ = _extract_paths(batch)
+    batch_size = min(n_samples, images.shape[0], len(predictions))
+
+    plots_dir = Path(output_dir) / plots_subdir
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    save_path = plots_dir / filename
+
+    fig, axes = plt.subplots(4, batch_size, figsize=(4 * batch_size, 14))
+    if batch_size == 1:
+        axes = axes.reshape(4, 1)
+
+    for i in range(batch_size):
+        image = images[i].numpy().transpose(1, 2, 0)
+        img_vis, display_note = prepare_image_for_display(image, method=display_method)
+        cmap_image = "gray" if img_vis.ndim == 2 else None
+        title = _display_sample_key(_sample_key(filenames[i] if i < len(filenames) else None, i))
+
+        gt_boxes = batch["boxes"][i].detach().cpu()
+        gt_masks = batch["masks"][i].detach().cpu()
+        pred = predictions[i]
+        pred_scores = pred.get("scores", torch.zeros((0,), dtype=torch.float32))
+        keep = pred_scores >= score_threshold
+        pred_boxes = pred.get("boxes", torch.zeros((0, 4), dtype=torch.float32))[keep]
+        pred_masks = pred.get("masks", torch.zeros((0, *gt_masks.shape[-2:]), dtype=torch.uint8))[keep]
+        pred_scores = pred_scores[keep]
+
+        axes[0, i].imshow(img_vis, cmap=cmap_image)
+        axes[0, i].set_title(f"{title}\n{display_note}", fontsize=10)
+
+        axes[1, i].imshow(img_vis, cmap=cmap_image)
+        axes[1, i].imshow(_instance_union(gt_masks), cmap=ListedColormap(["none", "lime"]), alpha=0.35)
+        _draw_boxes(axes[1, i], gt_boxes, color="lime")
+        axes[1, i].set_title(f"GT Instances: {gt_boxes.shape[0]}", fontsize=10)
+
+        axes[2, i].imshow(img_vis, cmap=cmap_image)
+        axes[2, i].imshow(_instance_union(pred_masks), cmap=ListedColormap(["none", "cyan"]), alpha=0.35)
+        _draw_boxes(axes[2, i], pred_boxes, color="cyan", scores=pred_scores)
+        axes[2, i].set_title(f"Pred >= {score_threshold:.2f}: {pred_boxes.shape[0]}", fontsize=10)
+
+        axes[3, i].imshow(img_vis, cmap=cmap_image)
+        axes[3, i].imshow(_instance_union(gt_masks), cmap=ListedColormap(["none", "lime"]), alpha=0.25)
+        axes[3, i].imshow(_instance_union(pred_masks), cmap=ListedColormap(["none", "cyan"]), alpha=0.35)
+        _draw_boxes(axes[3, i], gt_boxes, color="lime")
+        _draw_boxes(axes[3, i], pred_boxes, color="cyan", scores=pred_scores)
+        axes[3, i].set_title("GT green / Pred cyan", fontsize=10)
+
+        for row in range(4):
+            axes[row, i].axis("off")
+
+    fig.suptitle(f"Instance Predictions - {split}", fontsize=16, fontweight="bold", y=0.995)
+    fig.patch.set_facecolor("white")
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved instance prediction plot to {save_path}")
+    return save_path
+
+
 class ValidationPlotCallback(Callback):
     """Save a lightweight validation prediction plot at the end of each epoch."""
 

@@ -20,7 +20,7 @@ import torch
 from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import ModelCheckpoint
 
-from lfm.full_model.utils import create_timestamped_output_dir
+from lfm.full_model.utils import create_timestamped_output_dir, plot_instance_predictions
 from lfm.full_model.utils.utils import ensure_data_symlink
 
 
@@ -51,6 +51,10 @@ class InstanceFineTuningConfig:
     anchor_sizes: list[list[int]]
     anchor_aspect_ratios: list[float]
     score_threshold: float
+    plot_predictions: bool
+    prediction_split: str
+    prediction_n_samples: int
+    prediction_score_threshold: float
     seed: int
 
 
@@ -123,6 +127,10 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         anchor_sizes=args.anchor_sizes,
         anchor_aspect_ratios=args.anchor_aspect_ratios,
         score_threshold=args.score_threshold,
+        plot_predictions=args.plot_predictions,
+        prediction_split=args.prediction_split,
+        prediction_n_samples=args.prediction_n_samples,
+        prediction_score_threshold=args.prediction_score_threshold,
         seed=args.seed,
     )
 
@@ -381,6 +389,15 @@ def create_trainer(config: InstanceFineTuningConfig, output_dir: Path) -> Traine
     )
 
 
+def load_lightning_checkpoint_state(task: torch.nn.Module, checkpoint_path: Path) -> None:
+    checkpoint_path = Path(checkpoint_path).resolve()
+    print(f"Loading Lightning checkpoint weights from {checkpoint_path}", flush=True)
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    state_dict = checkpoint.get("state_dict", checkpoint)
+    task.load_state_dict(state_dict, strict=True)
+    print("Loaded Lightning checkpoint weights.", flush=True)
+
+
 def save_config(config: InstanceFineTuningConfig, output_dir: Path) -> None:
     def encode(value: Any) -> Any:
         if isinstance(value, Path):
@@ -400,6 +417,26 @@ def save_timing(started_at: float, output_dir: Path) -> None:
     with (output_dir / "timing_summary.json").open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
     print(f"Elapsed time: {elapsed:.3f}s")
+
+
+def save_instance_prediction_plots(
+    task,
+    datamodule,
+    config: InstanceFineTuningConfig,
+    output_dir: Path,
+) -> Path:
+    return plot_instance_predictions(
+        task=task,
+        datamodule=datamodule,
+        output_dir=output_dir,
+        split=config.prediction_split,
+        n_samples=config.prediction_n_samples,
+        filename=f"{config.prediction_split}_instance_predictions.png",
+        plots_subdir=Path("plots") / "instance_predictions",
+        score_threshold=config.prediction_score_threshold,
+        display_method="minmax",
+        dpi=200,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -438,6 +475,15 @@ def parse_args() -> argparse.Namespace:
         default=[0.5, 1.0, 2.0],
     )
     parser.add_argument("--score-threshold", type=float, default=0.5)
+    parser.add_argument(
+        "--plot-predictions",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Save true-instance prediction plots after setup/training.",
+    )
+    parser.add_argument("--prediction-split", choices=["train", "val", "test"], default="val")
+    parser.add_argument("--prediction-n-samples", type=int, default=5)
+    parser.add_argument("--prediction-score-threshold", type=float, default=0.5)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-fit", action="store_true")
     parser.add_argument("--loss-smoke-only", action="store_true")
@@ -472,6 +518,10 @@ def main() -> None:
 
     if args.loss_smoke_only or args.no_fit:
         print("Skipping trainer.fit().")
+        if config.lightning_checkpoint is not None:
+            load_lightning_checkpoint_state(task, config.lightning_checkpoint)
+        if config.plot_predictions:
+            save_instance_prediction_plots(task, datamodule, config, output_dir)
         save_timing(started_at, output_dir)
         return
 
@@ -482,6 +532,8 @@ def main() -> None:
     if ckpt_path is not None:
         print(f"Resuming trainer.fit() from {ckpt_path}", flush=True)
     trainer.fit(task, datamodule=datamodule, ckpt_path=ckpt_path)
+    if config.plot_predictions:
+        save_instance_prediction_plots(task, datamodule, config, output_dir)
     save_timing(started_at, output_dir)
 
 
