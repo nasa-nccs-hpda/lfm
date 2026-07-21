@@ -555,6 +555,10 @@ def _make_comparison_args(config: InstanceSweepConfig) -> argparse.Namespace:
         skip_toy_fit=True,
         skip_graha_fit=True,
         no_fit=True,
+        run_epoch_test_suite=False,
+        epoch_test_split=config.prediction_split,
+        epoch_test_n_samples=_prediction_count(config),
+        epoch_test_every_n_epochs=1,
         seed=config.seed,
     )
 

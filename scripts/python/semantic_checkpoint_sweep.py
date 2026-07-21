@@ -598,6 +598,8 @@ def _make_toy_args(config: SweepConfig) -> argparse.Namespace:
         prediction_n_samples=20,
         graha_base_output_dir=None,
         graha_pretrain_dir=str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None,
+        graha_wac_mode=config.graha_wac_mode,
+        graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         graha_lightning_checkpoint=None,
         graha_stats_batch_size=config.graha_stats_batch_size,
         graha_batch_size=config.graha_batch_size,
