@@ -573,7 +573,7 @@ def get_input_metadata(base_dir: str, band_filter: Optional[List[int]] = None) -
             elif wl < 680:
                 return "red"
             else:  # NIR
-                return "0.95*red"
+                return "red"
 
         # UV bands -> blue
         if "uv" in desc_lower:

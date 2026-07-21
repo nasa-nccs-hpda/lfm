@@ -37,7 +37,7 @@ def apply_flexible_patch_weights(encoder: nn.Module, weight_assignments: Sequenc
             elif assignment == "red":
                 new_weights[:, i, :, :] = red_weights
             elif assignment == "0.95*red":
-                new_weights[:, i, :, :] = 0.95 * red_weights
+                new_weights[:, i, :, :] = red_weights
             elif assignment == "0.7*red+0.3*green":
                 new_weights[:, i, :, :] = 0.7 * red_weights + 0.3 * green_weights
             else:
