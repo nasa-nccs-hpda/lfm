@@ -14,9 +14,9 @@ intended to be updated as work progresses: mark one step [In-Progress], finish
 and smoke-test it, then mark it [Completed] before moving to the next step.
 
 Related artifacts:
-- notebooks/full_model/toy_sem_seg_comparison.ipynb: interactive comparison workflow.
-- scripts/python/toy_sem_seg_comparison.py: sbatch-compatible comparison script.
-- scripts/shell/sbatch_toy_sem_seg_comparison.sh: Slurm wrapper.
+- notebooks/full_model/semantic_seg_comparison.ipynb: interactive comparison workflow.
+- scripts/python/semantic_seg_comparison.py: sbatch-compatible comparison script.
+- scripts/shell/sbatch_semantic_seg_comparison.sh: Slurm wrapper.
 - lfm/full_model: reusable Graha/full-model datamodules, utilities, and vendor integration.
 - lfm/toy_model/sem_seg/lightning_wrappers: Lightning wrappers around the toy DINO model.
 
@@ -66,9 +66,9 @@ Linear Refactor Plan
      fraction, and matched filenames.
 
 4. [Completed] Create old-model comparison run artifacts
-   - Create notebooks/full_model/toy_sem_seg_comparison.ipynb.
-   - Create scripts/python/toy_sem_seg_comparison.py with matching logic.
-   - Create scripts/shell/sbatch_toy_sem_seg_comparison.sh.
+   - Create notebooks/full_model/semantic_seg_comparison.ipynb.
+   - Create scripts/python/semantic_seg_comparison.py with matching logic.
+   - Create scripts/shell/sbatch_semantic_seg_comparison.sh.
    - Add timestamped output directory creation.
    - Save config snapshots and dataloader file lists under the run output dir.
    - Add ./data symlink setup/check behavior to both notebook and script.

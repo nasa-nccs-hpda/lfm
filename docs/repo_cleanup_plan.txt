@@ -106,7 +106,7 @@ scripts/shell/
 
 Moved shell entrypoints now live under scripts/shell, including:
 
-- scripts/shell/sbatch_toy_sem_seg_comparison.sh
+- scripts/shell/sbatch_semantic_seg_comparison.sh
 - scripts/shell/sbatch_instance_seg_finetuning.sh
 - scripts/shell/sbatch_instance_seg_comparison.sh
 - other sbatch wrappers formerly kept under notebooks/full_model
@@ -132,7 +132,7 @@ scripts/python/
 
 Moved Python entrypoints now live under scripts/python, including:
 
-- scripts/python/toy_sem_seg_comparison.py
+- scripts/python/semantic_seg_comparison.py
 - scripts/python/semantic_checkpoint_sweep.py
 - scripts/python/instance_seg_finetuning.py
 - scripts/python/instance_seg_comparison.py

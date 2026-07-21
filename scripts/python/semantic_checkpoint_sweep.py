@@ -35,9 +35,9 @@ from lightning.pytorch import seed_everything
 from tqdm.auto import tqdm
 from torch.utils.data import Subset
 
-from lfm.full_model import lfm_seg_finetuning_direct as graha_workflow
+from lfm.full_model import semantic_seg_finetuning as graha_workflow
 from lfm.full_model.utils.utils import ensure_data_symlink
-from toy_sem_seg_comparison import (
+from semantic_seg_comparison import (
     build_config as build_toy_config,
     create_datamodule as create_toy_datamodule,
     create_lightning_module as create_toy_lightning_module,

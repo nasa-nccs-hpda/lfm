@@ -102,7 +102,7 @@ def _semantic_comparison_command(args: argparse.Namespace, base_output_dir: Path
     command = [
         sys.executable,
         "-u",
-        "scripts/python/toy_sem_seg_comparison.py",
+        "scripts/python/semantic_seg_comparison.py",
         "--base-output-dir",
         str(base_output_dir),
     ]
