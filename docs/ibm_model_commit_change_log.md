@@ -1017,3 +1017,167 @@ The entries below continue from the 10th commit and use more explicit per-file o
 - Per-file changes:
   - `scripts/python/semantic_checkpoint_sweep.py`: Fixed another semantic checkpoint sweep bug, likely a missing default or namespace field needed by the test-suite path.
 - Technical note: This is the end commit in the requested range and closes the immediate sweep/pipeline bug-fix sequence.
+
+## Commit 94: 78d2e7022b13dcf31e80f1d26e5af7a54fae368b
+
+- Date: 2026-07-21
+- Subject: large renaming/restructuring change + changelog doc
+- Size: `[very large]`
+- Per-file changes:
+  - `docs/full_model_complexity_refactor_plan.txt`: Updated the complexity/refactor plan to reflect the newer full-model comparison structure and remaining cleanup targets.
+  - `docs/ibm_model_branch_technical_notes.md`: Added a technical notes document for the IBM model branch, summarizing major implementation decisions and repo evolution.
+  - `docs/ibm_model_commit_change_log.md`: Added this commit-level changelog document so the branch history can be reviewed without reading raw diffs.
+  - `docs/model_comparison_plan.txt`: Updated the semantic model comparison plan to reflect current comparison workflows and script/notebook deliverables.
+  - `docs/repo_cleanup_plan.txt`: Updated cleanup planning for the reorganized notebook/script/full-model layout.
+  - `lfm/full_model/lfm_seg_finetuning_direct.py`: Kept the older Graha semantic fine-tuning entry point while the replacement semantic-specific module was introduced.
+  - `lfm/full_model/semantic_seg_finetuning.py`: Added a clearer semantic segmentation fine-tuning module for the full/Graha model path.
+  - `notebooks/full_model/semantic_checkpoint_sweep.ipynb`: Updated the semantic checkpoint sweep notebook for the new script names and comparison structure.
+  - `notebooks/full_model/semantic_seg_comparison.ipynb`: Renamed from the toy-specific comparison notebook to a semantic comparison notebook, reflecting that it now compares toy DINO and Graha models.
+  - `notebooks/full_model/semantic_seg_finetuning.ipynb`: Renamed from the direct Graha fine-tuning notebook to a semantic fine-tuning notebook.
+  - `scripts/python/checkpoint_pipeline.py`: Updated pipeline orchestration to reflect semantic comparison/fine-tuning naming and path changes.
+  - `scripts/python/semantic_checkpoint_sweep.py`: Updated sweep script references for the renamed semantic workflow.
+  - `scripts/python/semantic_seg_comparison.py`: Added a clearer semantic comparison script as the main script equivalent of the notebook.
+  - `scripts/python/semantic_seg_finetuning.py`: Added a script entry point for semantic Graha/full-model fine-tuning.
+  - `scripts/python/toy_sem_seg_comparison.py`: Kept/updated a compatibility wrapper for the older toy semantic comparison script name.
+  - `scripts/shell/sbatch_sem_seg_finetune.sh`: Updated shell wrapper behavior to point toward the renamed semantic fine-tuning script.
+  - `scripts/shell/sbatch_semantic_seg_comparison.sh`: Added a semantic comparison sbatch wrapper.
+  - `scripts/shell/sbatch_semantic_seg_finetuning.sh`: Added a semantic fine-tuning sbatch wrapper.
+  - `scripts/shell/sbatch_toy_sem_seg_comparison.sh`: Kept/updated compatibility wrapper behavior for the older toy semantic comparison name.
+- Technical note: This commit was the first major move away from notebook-only/full-model ad hoc names toward task-specific semantic naming.
+
+## Commit 95: ae48850d3973a44c6e1398654b0a400cc9fb195d
+
+- Date: 2026-07-21
+- Subject: another repo restructure
+- Size: `[very large]`
+- Per-file changes:
+  - `docs/full_model_complexity_refactor_plan.txt`: Updated complexity notes after the package/script split.
+  - `docs/instance_seg_plan.txt`: Updated the instance segmentation plan to reflect the true-instance path and current implementation status.
+  - `docs/model_comparison_plan.txt`: Updated model-comparison sequencing after scripts and modules were moved into task-specific locations.
+  - `docs/repo_cleanup_plan.txt`: Updated repo cleanup notes after reorganizing full-model utilities and scripts.
+  - `lfm/full_model/__init__.py`: Updated package exports/imports for the new full-model package structure.
+  - `lfm/full_model/all_tasks/__init__.py`: Added shared all-task namespace for code used across semantic and instance segmentation.
+  - `lfm/full_model/all_tasks/datamodules/__init__.py`: Added shared datamodule exports for full-model task code.
+  - `lfm/full_model/all_tasks/datamodules/datamodule_utils.py`: Moved shared datamodule helpers out of the old flat full-model datamodule folder.
+  - `lfm/full_model/all_tasks/datamodules/lunar_segmentation_datamodule.py`: Moved the parent lunar segmentation datamodule into the all-task datamodule namespace.
+  - `lfm/full_model/all_tasks/datamodules/lunar_segmentation_dataset.py`: Moved the shared lunar segmentation dataset into the all-task datamodule namespace.
+  - `lfm/full_model/all_tasks/utils/__init__.py`: Moved shared utility exports into the all-task utility namespace.
+  - `lfm/full_model/all_tasks/utils/plot_utils.py`: Moved shared plotting utilities into the all-task utility namespace.
+  - `lfm/full_model/all_tasks/utils/utils.py`: Moved shared utility functions into the all-task utility namespace.
+  - `lfm/full_model/datamodules/__init__.py`: Removed the obsolete flat datamodule namespace.
+  - `lfm/full_model/inst_seg/__init__.py`: Added instance segmentation package exports.
+  - `lfm/full_model/inst_seg/instance_mask_datamodule.py`: Renamed/moved the instance segmentation datamodule to a clearer task-specific module name.
+  - `lfm/full_model/inst_seg/instance_seg_finetuning.py`: Moved full-model instance fine-tuning code from scripts into the package implementation location.
+  - `lfm/full_model/lfm_seg_finetuning_direct.py`: Removed the obsolete direct semantic fine-tuning module.
+  - `lfm/full_model/sem_seg/__init__.py`: Added semantic segmentation package exports.
+  - `lfm/full_model/sem_seg/semantic_mask_datamodule.py`: Renamed/moved the semantic segmentation datamodule to a clearer task-specific module name.
+  - `lfm/full_model/sem_seg/semantic_seg_finetuning.py`: Moved semantic full-model fine-tuning into the task-specific package folder.
+  - `lfm/toy_model/inst_seg/lightning_wrappers/toy_dino_mask_rcnn_datamodule.py`: Updated imports for moved full-model datamodule utilities.
+  - `lfm/toy_model/inst_seg/lightning_wrappers/toy_instance_seg_datamodule.py`: Updated imports for moved full-model datamodule utilities.
+  - `notebooks/full_model/instance_checkpoint_sweep.ipynb`: Updated notebook imports/paths for the restructured package and scripts.
+  - `notebooks/full_model/instance_seg_comparison.ipynb`: Updated notebook imports/paths for the restructured package and scripts.
+  - `notebooks/full_model/instance_seg_finetuning.ipynb`: Updated notebook imports/paths for the restructured package and scripts.
+  - `notebooks/full_model/scratch.ipynb`: Updated scratch notebook imports/paths for the restructured package.
+  - `notebooks/full_model/semantic_checkpoint_sweep.ipynb`: Updated notebook imports/paths for the restructured semantic scripts.
+  - `notebooks/full_model/semantic_seg_comparison.ipynb`: Updated notebook imports/paths for the restructured semantic scripts.
+  - `notebooks/full_model/semantic_seg_finetuning.ipynb`: Updated notebook imports/paths for the restructured semantic package.
+  - `scripts/python/all_tasks/checkpoint_pipeline.py`: Moved the train-then-sweep pipeline script into an all-tasks script namespace.
+  - `scripts/python/instance_seg/instance_checkpoint_sweep.py`: Moved instance checkpoint sweep script into the instance-specific script folder.
+  - `scripts/python/instance_seg/instance_seg_comparison.py`: Moved instance comparison script into the instance-specific script folder.
+  - `scripts/python/instance_seg/instance_seg_finetuning.py`: Added a script wrapper for packaged instance fine-tuning code.
+  - `scripts/python/semantic_seg/semantic_checkpoint_sweep.py`: Moved semantic checkpoint sweep script into the semantic-specific script folder.
+  - `scripts/python/semantic_seg/semantic_seg_comparison.py`: Moved semantic comparison script into the semantic-specific script folder.
+  - `scripts/python/semantic_seg/semantic_seg_finetuning.py`: Added/updated a script wrapper for packaged semantic fine-tuning code.
+  - `scripts/python/semantic_seg/toy_sem_seg_comparison.py`: Moved compatibility script wrapper into the semantic script folder.
+  - `scripts/shell/instance_seg/*.sh`: Moved instance sbatch wrappers into the instance-specific shell folder.
+  - `scripts/shell/semantic_seg/*.sh`: Moved semantic sbatch wrappers into the semantic-specific shell folder.
+- Technical note: This commit established the aligned task layout used now: `full_model/all_tasks`, `full_model/sem_seg`, `full_model/inst_seg`, `scripts/python/{all_tasks,semantic_seg,instance_seg}`, and matching `scripts/shell/...` folders.
+
+## Commit 96: 8beec4cbb2da92c8a46daad4ceb80e6e9facb738
+
+- Date: 2026-07-21
+- Subject: adding terramind-style norm
+- Size: `[large]`
+- Per-file changes:
+  - `lfm/full_model/all_tasks/datamodules/datamodule_utils.py`: Updated shared datamodule normalization helpers to support explicit normalization behavior needed by TerraMind-style stats.
+  - `lfm/full_model/all_tasks/utils/__init__.py`: Exported the new shared normalization/stat-loading utility functions.
+  - `lfm/full_model/all_tasks/utils/utils.py`: Added utility support for loading TerraMind WAC pretraining stats from modality metadata and wiring them into training/sweep configs.
+  - `lfm/full_model/inst_seg/instance_seg_finetuning.py`: Added normalization-source handling to full-model instance fine-tuning.
+  - `lfm/full_model/sem_seg/semantic_seg_finetuning.py`: Added normalization-source handling to full-model semantic fine-tuning.
+  - `lfm/toy_model/inst_seg/lightning_wrappers/toy_dino_mask_rcnn_datamodule.py`: Added support for supplied mean/std stats and pretraining-style normalization for DINO Mask R-CNN instance data.
+  - `lfm/toy_model/inst_seg/lightning_wrappers/toy_instance_seg_datamodule.py`: Added support for supplied mean/std stats and pretraining-style normalization for toy instance data.
+  - `lfm/toy_model/sem_seg/lightning_wrappers/toy_sem_seg_datamodule.py`: Added support for supplied mean/std stats and pretraining-style normalization for toy semantic data.
+  - `lfm/toy_model/sem_seg/sseg_dataset.py`: Added lower-level dataset support for controlled input scaling and externally supplied normalization stats.
+  - `scripts/python/all_tasks/checkpoint_pipeline.py`: Passed normalization-source flags through the full train-then-sweep pipeline.
+  - `scripts/python/instance_seg/instance_checkpoint_sweep.py`: Added normalization-source support for instance checkpoint sweeps.
+  - `scripts/python/instance_seg/instance_seg_comparison.py`: Added normalization-source support for instance comparisons.
+  - `scripts/python/semantic_seg/semantic_checkpoint_sweep.py`: Added normalization-source support for semantic checkpoint sweeps.
+  - `scripts/python/semantic_seg/semantic_seg_comparison.py`: Added normalization-source support for semantic comparisons.
+- Technical note: This enabled the key experiment switch between finetuning/train-split DINO z-score stats and TerraMind/Graha pretraining stats.
+
+## Commit 97: 8cf1fd1a5281abd264bcfde5f07317f38ebbd775
+
+- Date: 2026-07-21
+- Subject: adding spatial loss to toy model + terramind style norm
+- Size: `[large]`
+- Per-file changes:
+  - `lfm/full_model/sem_seg/__init__.py`: Exported the instance-derived semantic datamodule classes.
+  - `lfm/full_model/sem_seg/semantic_from_instance_datamodule.py`: Added a semantic datamodule/dataset that reads `.npz` instance labels, converts instance masks to binary semantic masks, and keeps crater boxes available for shape/spatial loss.
+  - `lfm/full_model/sem_seg/semantic_seg_finetuning.py`: Added semantic label-source selection and configurable Graha shape-loss weight/padding.
+  - `lfm/toy_model/sem_seg/lightning_wrappers/toy_sem_seg_from_instance_datamodule.py`: Added toy semantic datamodule support for deriving semantic masks and crater boxes from instance `.npz` labels.
+  - `lfm/toy_model/sem_seg/lightning_wrappers/toy_sem_seg_shape_lightning.py`: Added a toy semantic Lightning module that combines the base segmentation loss with a box-localized spatial/shape loss.
+  - `scripts/python/all_tasks/checkpoint_pipeline.py`: Added pipeline arguments for semantic label source, toy shape loss, and Graha shape-loss controls.
+  - `scripts/python/semantic_seg/semantic_checkpoint_sweep.py`: Updated semantic sweep setup to support instance-derived semantic labels and required namespace defaults.
+  - `scripts/python/semantic_seg/semantic_seg_comparison.py`: Added CLI/config support for instance-derived semantic labels, toy spatial loss, and Graha shape-loss controls.
+  - `scripts/shell/semantic_seg/sbatch_4_sem_seg_exp.sh`: Added a four-experiment launcher for normalization/loss comparison runs.
+- Technical note: This laid the groundwork for the four semantic experiments: DINO norm versus TerraMind norm, each with Dice-only versus Dice-plus-spatial loss.
+
+## Commit 98: 3cbe7a4b8d049b818276dd1cfecea42c3f2714c3
+
+- Date: 2026-07-21
+- Subject: changing .sh files to not use CRLF
+- Size: `[moderate]`
+- Per-file changes:
+  - `.gitattributes`: Added `*.sh text eol=lf` so shell scripts stay compatible with Linux/sbatch even when edited on Windows.
+  - `scripts/shell/instance_seg/sbatch_instance_checkpoint_sweep.sh`: Normalized line endings to LF.
+  - `scripts/shell/instance_seg/sbatch_instance_seg_comparison.sh`: Normalized line endings to LF.
+  - `scripts/shell/instance_seg/sbatch_instance_seg_finetuning.sh`: Normalized line endings to LF.
+  - `scripts/shell/instance_seg/sbatch_instance_train_then_checkpoint_sweep.sh`: Normalized line endings to LF.
+  - `scripts/shell/semantic_seg/sbatch_sem_seg_finetune.sh`: Normalized line endings to LF.
+  - `scripts/shell/semantic_seg/sbatch_semantic_checkpoint_sweep.sh`: Normalized line endings to LF.
+  - `scripts/shell/semantic_seg/sbatch_semantic_seg_comparison.sh`: Normalized line endings to LF.
+  - `scripts/shell/semantic_seg/sbatch_semantic_seg_finetuning.sh`: Normalized line endings to LF.
+  - `scripts/shell/semantic_seg/sbatch_semantic_train_then_checkpoint_sweep.sh`: Normalized line endings to LF.
+  - `scripts/shell/semantic_seg/sbatch_toy_sem_seg_comparison.sh`: Normalized line endings to LF.
+- Technical note: This fixes the `sbatch: Batch script contains DOS line breaks` failure mode and makes future shell edits safer on Windows.
+
+## Commit 99: d61ed3bdfcde1e95eeb65ed232cd04ddfb1be34c
+
+- Date: 2026-07-21
+- Subject: editing 4 exp script to have more descriptive output names
+- Size: `[tiny]`
+- Per-file changes:
+  - `scripts/shell/semantic_seg/sbatch_4_sem_seg_exp.sh`: Updated four-experiment output directory names to include experiment number, semantic-label source, 7-band WAC input, crop size, normalization source, loss configuration, train-sweep behavior, epoch count, and sweep sample count.
+- Technical note: This makes long-running experiment output directories self-describing without needing to open `config.json` first.
+
+## Commit 100: d53a247fc97382dc177b0710e68ee3505554b105
+
+- Date: 2026-07-21
+- Subject: adding copying sbatch helper
+- Size: `[small]`
+- Per-file changes:
+  - `scripts/shell/semantic_seg/sbatch_publish_sem_seg_experiment.sh`: Added a CPU sbatch publishing helper that copies a selected semantic experiment output directory to the shared project experiment space, then applies recursive `chmod -R 755` and `chgrp -R j1123`.
+- Technical note: This supports leaving a background publish/copy job running after selecting the best experiment output.
+
+## Commit 101: e0a7d11d6e36fe8b5c1111527d2448c375132207
+
+- Date: 2026-07-21
+- Subject: fixing toy model embeddings
+- Size: `[small]`
+- Per-file changes:
+  - `lfm/toy_model/inst_seg/dino_mask_rcnn_model.py`: Changed the old `"0.95*red"` compatibility branch so it uses plain red patch weights instead of scaling by 0.95.
+  - `lfm/toy_model/inst_seg/iseg_dataset.py`: Changed WAC/NIR metadata assignment to emit `"red"` instead of `"0.95*red"` for toy instance segmentation.
+  - `lfm/toy_model/inst_seg/iseg_model.py`: Changed the old `"0.95*red"` compatibility branch so it uses plain red patch weights instead of scaling by 0.95.
+  - `lfm/toy_model/sem_seg/sseg_dataset.py`: Changed WAC/NIR metadata assignment to emit `"red"` instead of `"0.95*red"` for toy semantic segmentation.
+  - `lfm/toy_model/sem_seg/sseg_model.py`: Changed the old `"0.95*red"` compatibility branch so it uses plain red patch weights instead of scaling by 0.95.
+- Technical note: This removes the ad hoc 0.95 red scaling from toy DINO flexible input embeddings while keeping older `"0.95*red"` assignment strings loadable as plain red.
