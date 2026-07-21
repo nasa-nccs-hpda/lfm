@@ -66,6 +66,8 @@ class ToyComparisonConfig:
     graha_base_output_dir: Path
     graha_pretrain_dir: Path | None
     graha_lightning_checkpoint: Path | None
+    graha_wac_mode: str
+    graha_vis_uv_merge_method: str
     graha_stats_batch_size: int
     graha_batch_size: int
     graha_num_workers: int
@@ -359,6 +361,8 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         graha_base_output_dir=graha_base_output_dir,
         graha_pretrain_dir=graha_pretrain_dir,
         graha_lightning_checkpoint=graha_lightning_checkpoint,
+        graha_wac_mode=args.graha_wac_mode,
+        graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         graha_stats_batch_size=args.graha_stats_batch_size,
         graha_batch_size=args.graha_batch_size,
         graha_num_workers=args.graha_num_workers,
@@ -584,6 +588,8 @@ def run_graha_workflow(
         lightning_checkpoint=str(config.graha_lightning_checkpoint)
         if config.graha_lightning_checkpoint
         else None,
+        graha_wac_mode=config.graha_wac_mode,
+        graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         crop_size=config.target_size[0],
         stats_batch_size=config.graha_stats_batch_size,
         batch_size=config.graha_batch_size,
@@ -766,6 +772,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional Graha Lightning .ckpt. Resumes fit, or loads weights when Graha fit is skipped.",
     )
+    parser.add_argument("--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac")
+    parser.add_argument("--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean")
     parser.add_argument("--graha-stats-batch-size", type=int, default=16)
     parser.add_argument("--graha-batch-size", type=int, default=16)
     parser.add_argument("--graha-num-workers", type=int, default=10)

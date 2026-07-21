@@ -33,6 +33,8 @@ class FineTuningConfig:
     base_output_dir: Path
     lightning_checkpoint: Path | None
     normalized_wac_data_range: list[float]
+    graha_wac_mode: str
+    graha_vis_uv_merge_method: str
     crop_size: int
     stats_batch_size: int
     batch_size: int
@@ -102,6 +104,8 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         base_output_dir=base_output_dir,
         lightning_checkpoint=lightning_checkpoint,
         normalized_wac_data_range=[-1.0, 1.0],
+        graha_wac_mode=args.graha_wac_mode,
+        graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         crop_size=args.crop_size,
         stats_batch_size=args.stats_batch_size,
         batch_size=args.batch_size,
@@ -306,9 +310,12 @@ def inspect_batch(datamodule) -> dict[str, Any]:
 
 
 def create_task(config: FineTuningConfig, task_cls, sample_batch: dict[str, Any]):
-    wac_modality = "wac"
     wac_num_channels = int(sample_batch["image"].shape[1])
+    modality_args = _graha_modality_args(config, wac_num_channels)
     print("WAC channels registered for model:", wac_num_channels)
+    print("Graha WAC mode:", config.graha_wac_mode)
+    print("Backbone modalities:", modality_args["backbone_modalities"])
+    print("Backbone merge method:", modality_args["backbone_merge_method"])
 
     return task_cls(
         backbone_lr=5.0e-5,
@@ -324,17 +331,9 @@ def create_task(config: FineTuningConfig, task_cls, sample_batch: dict[str, Any]
             "backbone_checkpoint_path": str(config.backbone_weights),
             "backbone_cfg": str(config.backbone_cfg),
             "backbone_modality_info_path": str(config.modality_info),
-            "backbone_modalities": [wac_modality],
-            "backbone_new_modalities": {
-                wac_modality: {
-                    "type": "image",
-                    "num_channels": wac_num_channels,
-                    "data_range": config.normalized_wac_data_range,
-                },
-            },
+            **modality_args,
             "backbone_patch_size": 8,
             "backbone_remove_register_tokens": False,
-            "backbone_merge_method": None,
             "necks": [
                 {"name": "SelectIndices", "indices": [2, 5, 8, 11]},
                 {"name": "ReshapeTokensToImage", "remove_cls_token": False, "h": 32},
@@ -352,6 +351,32 @@ def create_task(config: FineTuningConfig, task_cls, sample_batch: dict[str, Any]
         freeze_decoder=False,
         plot_on_val=0,
     )
+
+
+def _graha_modality_args(config: FineTuningConfig, wac_num_channels: int) -> dict[str, Any]:
+    if config.graha_wac_mode == "new-wac":
+        return {
+            "backbone_modalities": ["wac"],
+            "backbone_new_modalities": {
+                "wac": {
+                    "type": "image",
+                    "num_channels": wac_num_channels,
+                    "data_range": config.normalized_wac_data_range,
+                },
+            },
+            "backbone_merge_method": None,
+        }
+    if config.graha_wac_mode == "vis-uv":
+        if wac_num_channels != 7:
+            raise ValueError(
+                f"graha_wac_mode='vis-uv' expects 7 channels (5 vis + 2 uv), got {wac_num_channels}"
+            )
+        return {
+            "backbone_modalities": ["vis", "uv"],
+            "backbone_new_modalities": None,
+            "backbone_merge_method": config.graha_vis_uv_merge_method,
+        }
+    raise ValueError(f"Unsupported graha_wac_mode: {config.graha_wac_mode}")
 
 
 def inspect_backbone(task) -> None:
@@ -422,6 +447,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional Lightning .ckpt. Resumes fit, or loads weights when --no-fit is set.",
     )
+    parser.add_argument("--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac")
+    parser.add_argument("--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean")
     parser.add_argument("--crop-size", type=int, default=256)
     parser.add_argument("--stats-batch-size", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=16)

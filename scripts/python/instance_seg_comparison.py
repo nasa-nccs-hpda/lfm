@@ -268,6 +268,8 @@ class InstanceComparisonConfig:
     dino_lightning_checkpoint: Path | None
     graha_pretrain_dir: Path | None
     graha_lightning_checkpoint: Path | None
+    graha_wac_mode: str
+    graha_vis_uv_merge_method: str
     toy_architecture: str
     target_size: int
     band_filter: list[int]
@@ -337,6 +339,8 @@ def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
             if args.graha_lightning_checkpoint
             else None
         ),
+        graha_wac_mode=args.graha_wac_mode,
+        graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         toy_architecture=args.toy_architecture,
         target_size=args.target_size,
         band_filter=args.band_filter,
@@ -636,6 +640,8 @@ def build_graha_config(config: InstanceComparisonConfig, output_dir: Path):
         lightning_checkpoint=str(config.graha_lightning_checkpoint)
         if config.graha_lightning_checkpoint
         else None,
+        graha_wac_mode=config.graha_wac_mode,
+        graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         crop_size=config.target_size,
         stats_batch_size=config.graha_stats_batch_size,
         batch_size=config.graha_batch_size,
@@ -764,6 +770,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dino-lightning-checkpoint", type=str, default=None)
     parser.add_argument("--graha-pretrain-dir", type=str, default=None)
     parser.add_argument("--graha-lightning-checkpoint", type=str, default=None)
+    parser.add_argument("--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac")
+    parser.add_argument("--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean")
     parser.add_argument(
         "--toy-architecture",
         choices=["mask2former", "dino-mask-rcnn"],

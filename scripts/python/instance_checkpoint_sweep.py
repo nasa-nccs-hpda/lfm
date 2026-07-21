@@ -81,6 +81,8 @@ class InstanceSweepConfig:
     toy_architecture: str
     dino_checkpoint: Path | None
     graha_pretrain_dir: Path | None
+    graha_wac_mode: str
+    graha_vis_uv_merge_method: str
     graha_stats_batch_size: int
     graha_batch_size: int
     graha_num_workers: int
@@ -136,6 +138,8 @@ def build_config(args: argparse.Namespace) -> InstanceSweepConfig:
         graha_pretrain_dir=Path(args.graha_pretrain_dir).resolve()
         if args.graha_pretrain_dir
         else None,
+        graha_wac_mode=args.graha_wac_mode,
+        graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         graha_stats_batch_size=args.graha_stats_batch_size,
         graha_batch_size=args.graha_batch_size,
         graha_num_workers=args.graha_num_workers,
@@ -369,6 +373,8 @@ def _make_comparison_args(config: InstanceSweepConfig) -> argparse.Namespace:
         dino_lightning_checkpoint=None,
         graha_pretrain_dir=str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None,
         graha_lightning_checkpoint=None,
+        graha_wac_mode=config.graha_wac_mode,
+        graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         target_size=config.target_size,
         band_filter=config.band_filter,
         max_train_samples=None,
@@ -581,6 +587,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--dino-checkpoint", type=str, default=None)
     parser.add_argument("--graha-pretrain-dir", type=str, default=None)
+    parser.add_argument("--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac")
+    parser.add_argument("--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean")
     parser.add_argument("--graha-stats-batch-size", type=int, default=16)
     parser.add_argument("--graha-batch-size", type=int, default=2)
     parser.add_argument("--graha-num-workers", type=int, default=4)
