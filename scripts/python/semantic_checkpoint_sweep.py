@@ -608,6 +608,10 @@ def _make_toy_args(config: SweepConfig) -> argparse.Namespace:
         no_fit=False,
         skip_dino_fit=False,
         skip_graha_fit=False,
+        run_epoch_test_suite=False,
+        epoch_test_split="test",
+        epoch_test_n_samples=config.max_test_samples if config.max_test_samples is not None else 10**9,
+        epoch_test_every_n_epochs=1,
     )
 
 
