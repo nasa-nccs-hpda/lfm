@@ -90,9 +90,6 @@ class FitProgressLogger(Callback):
             return
         print(f"[{self.model_name}] validation finished", flush=True)
 
-    def on_save_checkpoint(self, trainer, pl_module, checkpoint) -> None:
-        print(f"[{self.model_name}] checkpoint callback state saved", flush=True)
-
 
 class ToyInstancePlotCallback(Callback):
     """Save Toy instance validation plots at epoch end."""
