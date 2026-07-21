@@ -16,6 +16,25 @@ GRAHA_NUM_WORKERS="${GRAHA_NUM_WORKERS:-10}"
 GRAHA_STATS_BATCH_SIZE="${GRAHA_STATS_BATCH_SIZE:-16}"
 SWEEP_MAX_SAMPLES="${SWEEP_MAX_SAMPLES:-100}"
 PREDICTION_N_SAMPLES="${PREDICTION_N_SAMPLES:-5}"
+MIN_FREE_GB="${MIN_FREE_GB:-500}"
+
+check_output_space() {
+  mkdir -p "${BASE_OUTPUT_PARENT}"
+  local available_kb
+  local available_gb
+  available_kb="$(df -Pk "${BASE_OUTPUT_PARENT}" | awk 'NR == 2 {print $4}')"
+  available_gb="$((available_kb / 1024 / 1024))"
+
+  echo "Output parent: ${BASE_OUTPUT_PARENT}"
+  echo "Available filesystem space: ${available_gb} GB"
+  echo "Required minimum free space: ${MIN_FREE_GB} GB"
+
+  if (( available_gb < MIN_FREE_GB )); then
+    echo "Not enough free filesystem space for four checkpoint-heavy experiments." >&2
+    echo "Set BASE_OUTPUT_PARENT to a larger filesystem or lower MIN_FREE_GB if you intentionally want to proceed." >&2
+    exit 1
+  fi
+}
 
 COMMON_ARGS=(
   --data-root "${DATA_ROOT}"
@@ -77,6 +96,8 @@ submit_experiment() {
   echo "  spatial+dice: ${use_shape_loss}"
   sbatch "${args[@]}"
 }
+
+check_output_space
 
 submit_experiment \
   "exp01_semseg_from-instlabels_7band-wac_crop256_dino-finetune-norm_dice_train-sweep" \

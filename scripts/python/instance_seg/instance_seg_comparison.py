@@ -547,7 +547,8 @@ def create_toy_trainer(
             filename="model-epoch-{epoch:02d}-val-loss={val_loss:.3f}",
             auto_insert_metric_name=False,
             save_top_k=-1,
-            save_last=True,
+            save_last=False,
+            save_weights_only=True,
             every_n_epochs=1,
         ),
     ]
