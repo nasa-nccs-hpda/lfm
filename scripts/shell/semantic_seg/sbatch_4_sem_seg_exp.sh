@@ -43,7 +43,7 @@ submit_experiment() {
   local name="$1"
   local normalization_source="$2"
   local use_shape_loss="$3"
-  local output_dir="${BASE_OUTPUT_PARENT}/${name}"
+  local output_dir="${BASE_OUTPUT_PARENT}/${name}_epochs-${MAX_EPOCHS}_test-${SWEEP_MAX_SAMPLES}"
   shift 3
 
   local args=(
@@ -78,8 +78,26 @@ submit_experiment() {
   sbatch "${args[@]}"
 }
 
-submit_experiment "sseg_exp1_dino_norm_dice" "finetune" "false" "$@"
-submit_experiment "sseg_exp2_graha_norm_dice" "pretrain" "false" "$@"
-submit_experiment "sseg_exp3_dino_norm_spatial_dice" "finetune" "true" "$@"
-submit_experiment "sseg_exp4_graha_norm_spatial_dice" "pretrain" "true" "$@"
+submit_experiment \
+  "exp01_semseg_from-instlabels_7band-wac_crop256_dino-finetune-norm_dice_train-sweep" \
+  "finetune" \
+  "false" \
+  "$@"
 
+submit_experiment \
+  "exp02_semseg_from-instlabels_7band-wac_crop256_terramind-pretrain-norm_dice_train-sweep" \
+  "pretrain" \
+  "false" \
+  "$@"
+
+submit_experiment \
+  "exp03_semseg_from-instlabels_7band-wac_crop256_dino-finetune-norm_dice-plus-spatial-w0p05_train-sweep" \
+  "finetune" \
+  "true" \
+  "$@"
+
+submit_experiment \
+  "exp04_semseg_from-instlabels_7band-wac_crop256_terramind-pretrain-norm_dice-plus-spatial-w0p05_train-sweep" \
+  "pretrain" \
+  "true" \
+  "$@"
