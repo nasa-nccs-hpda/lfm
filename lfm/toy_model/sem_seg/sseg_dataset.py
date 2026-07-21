@@ -51,6 +51,7 @@ class LunarCraterDataset(Dataset):
         max_samples: Optional[int] = None,
         band_filter: List[int] = None,
         normalize_inputs: bool = True,
+        scale_inputs: bool = True,
         spatial_transform: str = "resize",
         split_name: Optional[str] = None,
         label_file_type: str = ".npy",
@@ -69,6 +70,7 @@ class LunarCraterDataset(Dataset):
 
         self.target_size = target_size
         self.normalize_inputs = normalize_inputs
+        self.scale_inputs = scale_inputs
         if spatial_transform not in {"resize", "crop"}:
             raise ValueError(
                 f"spatial_transform must be 'resize' or 'crop', got {spatial_transform}"
@@ -278,8 +280,9 @@ class LunarCraterDataset(Dataset):
         # Filter down to desired bands
         image = image[:, :, self.band_filter].astype(np.float32)
 
-        # Min-max scale .tif inputs
-        image = LunarCraterDataset._min_max_scale_bands(image)
+        if self.scale_inputs:
+            # Min-max scale .tif inputs
+            image = LunarCraterDataset._min_max_scale_bands(image)
 
         # Normalize image with dataset statistics
         if self.normalize_inputs:

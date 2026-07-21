@@ -80,6 +80,7 @@ def _common_comparison_args(args: argparse.Namespace) -> list[str]:
     _append_flag(command, "--graha-pretrain-dir", args.graha_pretrain_dir)
     _append_flag(command, "--graha-wac-mode", args.graha_wac_mode)
     _append_flag(command, "--graha-vis-uv-merge-method", args.graha_vis_uv_merge_method)
+    _append_flag(command, "--normalization-source", args.normalization_source)
     _append_flag(command, "--target-size", args.target_size)
     _append_flag(command, "--band-filter", args.band_filter)
     _append_flag(command, "--max-train-samples", args.max_train_samples)
@@ -178,6 +179,7 @@ def _semantic_sweep_command(args: argparse.Namespace, training_output_dir: Path,
     _append_flag(command, "--batch-size", args.batch_size)
     _append_flag(command, "--num-workers", args.num_workers)
     _append_flag(command, "--normalize-inputs", args.normalize_inputs)
+    _append_flag(command, "--normalization-source", args.normalization_source)
     _append_flag(command, "--max-test-samples", args.sweep_max_samples)
     _append_flag(command, "--dino-checkpoint", args.dino_checkpoint)
     _append_flag(command, "--graha-pretrain-dir", args.graha_pretrain_dir)
@@ -214,6 +216,7 @@ def _instance_sweep_command(args: argparse.Namespace, training_output_dir: Path,
     _append_flag(command, "--toy-batch-size", args.toy_batch_size)
     _append_flag(command, "--toy-num-workers", args.toy_num_workers)
     _append_flag(command, "--toy-normalize-inputs", args.toy_normalize_inputs)
+    _append_flag(command, "--normalization-source", args.normalization_source)
     _append_flag(command, "--toy-architecture", args.toy_architecture)
     _append_flag(command, "--dino-checkpoint", args.dino_checkpoint)
     _append_flag(command, "--graha-pretrain-dir", args.graha_pretrain_dir)
@@ -338,6 +341,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-decay", type=float, default=1.0e-3)
     parser.add_argument("--loss-type", type=str, default="focal_dice")
     parser.add_argument("--normalize-inputs", action="store_true")
+    parser.add_argument(
+        "--normalization-source",
+        choices=["pretrain", "finetune"],
+        default="pretrain",
+        help="When normalizing inputs, use TerraMind pretraining stats or finetuning train-split stats.",
+    )
 
     parser.add_argument("--toy-batch-size", type=int, default=2)
     parser.add_argument("--toy-num-workers", type=int, default=10)

@@ -67,6 +67,7 @@ class ToyInstanceSegSplitDataset(Dataset):
         normalize_inputs: bool = False,
         means: list[float] | None = None,
         stds: list[float] | None = None,
+        scale_inputs: bool = True,
         mask_shift: tuple[int, int] | None = None,
         max_samples: int | None = None,
         split_name: str | None = None,
@@ -78,6 +79,7 @@ class ToyInstanceSegSplitDataset(Dataset):
         self.normalize_inputs = normalize_inputs
         self.means = means
         self.stds = stds
+        self.scale_inputs = scale_inputs
         self.mask_shift = mask_shift
         self.records = find_pair_records(
             chips_dir=split_root / "chips",
@@ -107,7 +109,8 @@ class ToyInstanceSegSplitDataset(Dataset):
         mask = shift_mask(mask, self.mask_shift)
         original_size = tuple(mask.shape[-2:])
 
-        image = _minmax_scale_per_band(image)
+        if self.scale_inputs:
+            image = _minmax_scale_per_band(image)
         if self.normalize_inputs:
             image = normalize_image(image, self.means, self.stds)
 
@@ -155,6 +158,9 @@ class ToyInstanceSegSplitDataModule(LightningDataModule):
         max_train_samples: int | None = None,
         max_val_samples: int | None = None,
         max_test_samples: int | None = None,
+        means: list[float] | None = None,
+        stds: list[float] | None = None,
+        scale_inputs: bool = True,
     ) -> None:
         super().__init__()
         self.data_root = Path(data_root)
@@ -167,8 +173,9 @@ class ToyInstanceSegSplitDataModule(LightningDataModule):
         self.max_train_samples = max_train_samples
         self.max_val_samples = max_val_samples
         self.max_test_samples = max_test_samples
-        self.means: list[float] | None = None
-        self.stds: list[float] | None = None
+        self.means = means
+        self.stds = stds
+        self.scale_inputs = scale_inputs
         self.weight_assignments: list[str] | None = None
 
     def setup(self, stage: str | None = None) -> None:
@@ -194,6 +201,7 @@ class ToyInstanceSegSplitDataModule(LightningDataModule):
             normalize_inputs=self.normalize_inputs,
             means=self.means,
             stds=self.stds,
+            scale_inputs=self.scale_inputs,
             mask_shift=self.mask_shift,
             max_samples=max_samples,
             split_name=split,
@@ -205,6 +213,7 @@ class ToyInstanceSegSplitDataModule(LightningDataModule):
             target_size=self.target_size,
             band_filter=self.band_filter,
             normalize_inputs=False,
+            scale_inputs=self.scale_inputs,
             mask_shift=self.mask_shift,
             max_samples=self.max_train_samples,
             split_name="train-stats",

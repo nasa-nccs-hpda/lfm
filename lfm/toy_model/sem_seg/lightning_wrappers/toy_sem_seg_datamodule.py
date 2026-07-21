@@ -44,6 +44,9 @@ class ToySemSegSplitDataModule(LightningDataModule):
         label_file_type: str = ".npy",
         label_npz_key: str = "mask",
         binarize_label: bool = False,
+        means: list[float] | np.ndarray | None = None,
+        stds: list[float] | np.ndarray | None = None,
+        scale_inputs: bool = True,
     ) -> None:
         super().__init__()
         self.data_root = Path(data_root)
@@ -63,10 +66,15 @@ class ToySemSegSplitDataModule(LightningDataModule):
         self.label_file_type = label_file_type
         self.label_npz_key = label_npz_key
         self.binarize_label = binarize_label
+        self.scale_inputs = scale_inputs
 
         self.weight_assignments: list[str] | None = None
-        self.mean: np.ndarray | None = None
-        self.std: np.ndarray | None = None
+        self.mean: np.ndarray | None = (
+            np.asarray(means, dtype=np.float32) if means is not None else None
+        )
+        self.std: np.ndarray | None = (
+            np.asarray(stds, dtype=np.float32) if stds is not None else None
+        )
         self.train_dataset = None
         self.val_dataset = None
         self.test_dataset = None
@@ -124,6 +132,7 @@ class ToySemSegSplitDataModule(LightningDataModule):
             label_file_type=self.label_file_type,
             label_npz_key=self.label_npz_key,
             binarize_label=self.binarize_label,
+            scale_inputs=self.scale_inputs,
         )
 
     def _calculate_train_stats(self) -> None:
@@ -140,6 +149,7 @@ class ToySemSegSplitDataModule(LightningDataModule):
             label_file_type=self.label_file_type,
             label_npz_key=self.label_npz_key,
             binarize_label=self.binarize_label,
+            scale_inputs=self.scale_inputs,
         )
         pixel_sum = None
         pixel_sq_sum = None

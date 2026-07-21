@@ -345,8 +345,9 @@ def normalize_image(
 ) -> torch.Tensor:
     """Apply per-band z-score normalization to a CHW image tensor.
 
-    ``means`` and ``stds`` should be computed from the fine-tuning training
-    split after the same crop/no-data preprocessing used for training.
+    ``means`` and ``stds`` should match the post-filtered image channel order.
+    They may come from fine-tuning train-split statistics or TerraMind
+    pretraining modality metadata.
     """
     if means is None or stds is None:
         return image

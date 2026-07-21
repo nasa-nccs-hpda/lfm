@@ -24,6 +24,7 @@ from transformers import AutoImageProcessor
 from lfm.full_model.inst_seg import instance_seg_finetuning as graha_workflow
 from lfm.full_model.all_tasks.utils import (
     create_timestamped_output_dir,
+    load_terramind_wac_pretraining_stats,
     plot_instance_cache_comparison,
     plot_instance_cache_predictions,
     save_graha_instance_prediction_cache,
@@ -270,6 +271,7 @@ class InstanceComparisonConfig:
     graha_lightning_checkpoint: Path | None
     graha_wac_mode: str
     graha_vis_uv_merge_method: str
+    normalization_source: str
     toy_architecture: str
     target_size: int
     band_filter: list[int]
@@ -341,6 +343,7 @@ def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
         ),
         graha_wac_mode=args.graha_wac_mode,
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
+        normalization_source=getattr(args, "normalization_source", "pretrain"),
         toy_architecture=args.toy_architecture,
         target_size=args.target_size,
         band_filter=args.band_filter,
@@ -429,6 +432,17 @@ def load_lightning_checkpoint_state(module: torch.nn.Module, checkpoint_path: Pa
 
 
 def create_toy_datamodule(config: InstanceComparisonConfig):
+    means = None
+    stds = None
+    if config.toy_normalize_inputs and config.normalization_source == "pretrain":
+        graha_config = build_graha_config(config, config.base_output_dir)
+        means, stds = load_terramind_wac_pretraining_stats(
+            graha_config.modality_info,
+            band_filter=config.band_filter,
+        )
+    elif config.toy_normalize_inputs and config.normalization_source != "finetune":
+        raise ValueError(f"Unsupported normalization_source: {config.normalization_source}")
+
     datamodule_cls = (
         ToyDinoMaskRCNNSplitDataModule
         if config.toy_architecture == "dino-mask-rcnn"
@@ -441,6 +455,9 @@ def create_toy_datamodule(config: InstanceComparisonConfig):
         target_size=config.target_size,
         band_filter=config.band_filter,
         normalize_inputs=config.toy_normalize_inputs,
+        means=means,
+        stds=stds,
+        scale_inputs=config.normalization_source != "pretrain",
         mask_shift=config.mask_shift,
         max_train_samples=config.max_train_samples,
         max_val_samples=config.max_val_samples,
@@ -642,6 +659,7 @@ def build_graha_config(config: InstanceComparisonConfig, output_dir: Path):
         else None,
         graha_wac_mode=config.graha_wac_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
+        normalization_source=config.normalization_source,
         crop_size=config.target_size,
         stats_batch_size=config.graha_stats_batch_size,
         batch_size=config.graha_batch_size,
@@ -772,6 +790,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--graha-lightning-checkpoint", type=str, default=None)
     parser.add_argument("--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac")
     parser.add_argument("--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean")
+    parser.add_argument(
+        "--normalization-source",
+        choices=["pretrain", "finetune"],
+        default="pretrain",
+        help="When normalizing inputs, use TerraMind pretraining stats or finetuning train-split stats.",
+    )
     parser.add_argument(
         "--toy-architecture",
         choices=["mask2former", "dino-mask-rcnn"],

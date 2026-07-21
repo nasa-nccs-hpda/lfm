@@ -17,7 +17,11 @@ from .plot_utils import (
     save_prediction_cache,
     save_toy_instance_prediction_cache,
 )
-from .utils import create_timestamped_output_dir, ensure_data_symlink
+from .utils import (
+    create_timestamped_output_dir,
+    ensure_data_symlink,
+    load_terramind_wac_pretraining_stats,
+)
 
 __all__ = [
     "ValidationPlotCallback",
@@ -26,6 +30,7 @@ __all__ = [
     "create_timestamped_output_dir",
     "ensure_data_symlink",
     "evaluate_prediction_caches",
+    "load_terramind_wac_pretraining_stats",
     "plot_instance_batch_sanity",
     "plot_instance_cache_comparison",
     "plot_instance_cache_predictions",
@@ -38,4 +43,3 @@ __all__ = [
     "save_prediction_cache",
     "save_toy_instance_prediction_cache",
 ]
-

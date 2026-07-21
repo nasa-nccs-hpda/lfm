@@ -86,6 +86,7 @@ class InstanceSweepConfig:
     toy_batch_size: int
     toy_num_workers: int
     toy_normalize_inputs: bool
+    normalization_source: str
     toy_architecture: str
     dino_checkpoint: Path | None
     graha_pretrain_dir: Path | None
@@ -141,6 +142,7 @@ def build_config(args: argparse.Namespace) -> InstanceSweepConfig:
         toy_batch_size=args.toy_batch_size,
         toy_num_workers=args.toy_num_workers,
         toy_normalize_inputs=args.toy_normalize_inputs,
+        normalization_source=getattr(args, "normalization_source", "pretrain"),
         toy_architecture=args.toy_architecture,
         dino_checkpoint=Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None,
         graha_pretrain_dir=Path(args.graha_pretrain_dir).resolve()
@@ -520,6 +522,7 @@ def _make_comparison_args(config: InstanceSweepConfig) -> argparse.Namespace:
         graha_lightning_checkpoint=None,
         graha_wac_mode=config.graha_wac_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
+        normalization_source=config.normalization_source,
         target_size=config.target_size,
         band_filter=config.band_filter,
         max_train_samples=None,
@@ -731,6 +734,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--toy-batch-size", type=int, default=2)
     parser.add_argument("--toy-num-workers", type=int, default=4)
     parser.add_argument("--toy-normalize-inputs", action="store_true")
+    parser.add_argument(
+        "--normalization-source",
+        choices=["pretrain", "finetune"],
+        default="pretrain",
+    )
     parser.add_argument(
         "--toy-architecture",
         choices=["mask2former", "dino-mask-rcnn"],

@@ -28,6 +28,7 @@ from lfm.full_model.all_tasks.utils import (
     ValidationPlotCallback,
     create_timestamped_output_dir,
     evaluate_prediction_caches,
+    load_terramind_wac_pretraining_stats,
     plot_prediction_cache_comparison,
     save_prediction_cache,
 )
@@ -57,6 +58,7 @@ class ToyComparisonConfig:
     loss_type: str
     freeze_encoder: bool
     normalize_inputs: bool
+    normalization_source: str
     toy_gradient_clip_val: float | None
     plot_every_n_epochs: int
     plot_n_samples: int
@@ -398,6 +400,7 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         loss_type=args.loss_type,
         freeze_encoder=args.freeze_encoder,
         normalize_inputs=args.normalize_inputs,
+        normalization_source=getattr(args, "normalization_source", "pretrain"),
         toy_gradient_clip_val=None
         if args.disable_toy_gradient_clipping
         else args.toy_gradient_clip_val,
@@ -518,6 +521,40 @@ def record_timing(
 
 
 def create_datamodule(config: ToyComparisonConfig, output_dir: Path) -> ToySemSegSplitDataModule:
+    means = None
+    stds = None
+    if config.normalize_inputs and config.normalization_source == "pretrain":
+        graha_config = graha_workflow.build_config(
+            Namespace(
+                data_root=str(config.data_root),
+                base_output_dir=str(config.graha_base_output_dir),
+                pretrain_dir=str(config.graha_pretrain_dir)
+                if config.graha_pretrain_dir
+                else None,
+                lightning_checkpoint=None,
+                graha_wac_mode=config.graha_wac_mode,
+                graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
+                normalization_source=config.normalization_source,
+                crop_size=config.target_size[0],
+                stats_batch_size=config.graha_stats_batch_size,
+                batch_size=config.graha_batch_size,
+                num_workers=config.graha_num_workers,
+                max_epochs=config.max_epochs,
+                cache_predictions=config.cache_predictions,
+                prediction_split=config.prediction_split,
+                prediction_n_samples=config.prediction_n_samples,
+                progress_log_every_n_batches=config.progress_log_every_n_batches,
+                seed=config.seed,
+                no_fit=True,
+            )
+        )
+        means, stds = load_terramind_wac_pretraining_stats(
+            graha_config.modality_info,
+            band_filter=config.band_filter,
+        )
+    elif config.normalize_inputs and config.normalization_source != "finetune":
+        raise ValueError(f"Unsupported normalization_source: {config.normalization_source}")
+
     datamodule = ToySemSegSplitDataModule(
         data_root=config.data_root,
         batch_size=config.batch_size,
@@ -526,6 +563,9 @@ def create_datamodule(config: ToyComparisonConfig, output_dir: Path) -> ToySemSe
         spatial_transform=config.spatial_transform,
         band_filter=config.band_filter,
         normalize_inputs=config.normalize_inputs,
+        means=means,
+        stds=stds,
+        scale_inputs=config.normalization_source != "pretrain",
         max_train_samples=config.max_train_samples,
         max_val_samples=config.max_val_samples,
         max_test_samples=config.max_test_samples,
@@ -643,6 +683,7 @@ def run_graha_workflow(
         else None,
         graha_wac_mode=config.graha_wac_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
+        normalization_source=config.normalization_source,
         crop_size=config.target_size[0],
         stats_batch_size=config.graha_stats_batch_size,
         batch_size=config.graha_batch_size,
@@ -805,7 +846,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--normalize-inputs",
         action="store_true",
-        help="Enable toy DINO z-score normalization using train-split stats.",
+        help="Enable toy DINO z-score normalization.",
+    )
+    parser.add_argument(
+        "--normalization-source",
+        choices=["pretrain", "finetune"],
+        default="pretrain",
+        help="When normalizing inputs, use TerraMind pretraining stats or finetuning train-split stats.",
     )
     parser.add_argument("--toy-gradient-clip-val", type=float, default=1.0)
     parser.add_argument(

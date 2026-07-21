@@ -20,6 +20,7 @@ from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 
 from lfm.full_model.all_tasks.utils import create_timestamped_output_dir, plot_instance_predictions
+from lfm.full_model.all_tasks.utils import load_terramind_wac_pretraining_stats
 from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
 
 
@@ -84,6 +85,7 @@ class InstanceFineTuningConfig:
     normalized_wac_data_range: list[float]
     graha_wac_mode: str
     graha_vis_uv_merge_method: str
+    normalization_source: str
     crop_size: int
     stats_batch_size: int
     batch_size: int
@@ -166,6 +168,7 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         normalized_wac_data_range=[-1.0, 1.0],
         graha_wac_mode=args.graha_wac_mode,
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
+        normalization_source=getattr(args, "normalization_source", "pretrain"),
         crop_size=args.crop_size,
         stats_batch_size=args.stats_batch_size,
         batch_size=args.batch_size,
@@ -328,6 +331,17 @@ def calculate_train_stats(
     print("per-band means:", means)
     print("per-band stds:", stds)
     return means, stds
+
+
+def get_normalization_stats(
+    config: InstanceFineTuningConfig,
+    datamodule_cls,
+) -> tuple[list[float], list[float]]:
+    if config.normalization_source == "pretrain":
+        return load_terramind_wac_pretraining_stats(config.modality_info)
+    if config.normalization_source == "finetune":
+        return calculate_train_stats(config, datamodule_cls)
+    raise ValueError(f"Unsupported normalization_source: {config.normalization_source}")
 
 
 def create_datamodule(
@@ -535,6 +549,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lightning-checkpoint", type=str, default=None)
     parser.add_argument("--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac")
     parser.add_argument("--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean")
+    parser.add_argument(
+        "--normalization-source",
+        choices=["pretrain", "finetune"],
+        default="pretrain",
+        help="Use TerraMind pretraining stats or finetuning train-split stats for input z-score.",
+    )
     parser.add_argument("--crop-size", type=int, default=256)
     parser.add_argument("--stats-batch-size", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=2)
@@ -609,7 +629,7 @@ def main() -> None:
     save_config(config, output_dir)
     seed_everything(config.seed)
 
-    means, stds = calculate_train_stats(config, datamodule_cls)
+    means, stds = get_normalization_stats(config, datamodule_cls)
     datamodule = create_datamodule(config, datamodule_cls, means, stds)
     sample_batch = inspect_batch(datamodule)
     task = create_task(config, task_cls, sample_batch)
