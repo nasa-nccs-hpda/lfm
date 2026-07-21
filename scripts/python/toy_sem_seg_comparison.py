@@ -71,6 +71,7 @@ class ToyComparisonConfig:
     graha_stats_batch_size: int
     graha_batch_size: int
     graha_num_workers: int
+    progress_log_every_n_batches: int
     skip_dino_fit: bool
     skip_graha_fit: bool
     run_epoch_test_suite: bool
@@ -89,6 +90,53 @@ SEMANTIC_EPOCH_TEST_METRICS = [
     "predicted_foreground_fraction",
     "ground_truth_foreground_fraction",
 ]
+
+
+class FitProgressLogger(Callback):
+    """Flush simple progress messages for non-interactive sbatch logs."""
+
+    def __init__(self, model_name: str, log_every_n_batches: int = 25) -> None:
+        self.model_name = model_name
+        self.log_every_n_batches = max(1, log_every_n_batches)
+        self._epoch_started_at: float | None = None
+
+    def on_train_epoch_start(self, trainer, pl_module) -> None:
+        self._epoch_started_at = time.perf_counter()
+        print(
+            f"[{self.model_name}] train epoch {trainer.current_epoch + 1}/"
+            f"{trainer.max_epochs} started",
+            flush=True,
+        )
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx) -> None:
+        if batch_idx == 0 or (batch_idx + 1) % self.log_every_n_batches == 0:
+            print(
+                f"[{self.model_name}] epoch {trainer.current_epoch + 1} "
+                f"train batch {batch_idx + 1}/{trainer.num_training_batches}",
+                flush=True,
+            )
+
+    def on_train_epoch_end(self, trainer, pl_module) -> None:
+        elapsed = (
+            time.perf_counter() - self._epoch_started_at
+            if self._epoch_started_at is not None
+            else 0.0
+        )
+        print(
+            f"[{self.model_name}] train epoch {trainer.current_epoch + 1} "
+            f"finished in {elapsed:.1f}s",
+            flush=True,
+        )
+
+    def on_validation_epoch_start(self, trainer, pl_module) -> None:
+        if trainer.sanity_checking:
+            return
+        print(f"[{self.model_name}] validation started", flush=True)
+
+    def on_validation_epoch_end(self, trainer, pl_module) -> None:
+        if trainer.sanity_checking:
+            return
+        print(f"[{self.model_name}] validation finished", flush=True)
 
 
 def _semantic_metric_array(metrics: dict[str, float]) -> np.ndarray:
@@ -366,6 +414,7 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         graha_stats_batch_size=args.graha_stats_batch_size,
         graha_batch_size=args.graha_batch_size,
         graha_num_workers=args.graha_num_workers,
+        progress_log_every_n_batches=getattr(args, "progress_log_every_n_batches", 25),
         skip_dino_fit=args.no_fit or args.skip_dino_fit,
         skip_graha_fit=args.no_fit or args.skip_graha_fit,
         run_epoch_test_suite=args.run_epoch_test_suite,
@@ -530,6 +579,10 @@ def create_trainer(
 ) -> Trainer:
     print("Creating Lightning trainer...", flush=True)
     callbacks = [
+        FitProgressLogger(
+            "DINO",
+            log_every_n_batches=config.progress_log_every_n_batches,
+        ),
         ModelCheckpoint(
             dirpath=str(output_dir / "checkpoints" / "toy_model"),
             monitor="val_loss",
@@ -598,6 +651,7 @@ def run_graha_workflow(
         cache_predictions=config.cache_predictions,
         prediction_split=config.prediction_split,
         prediction_n_samples=config.prediction_n_samples,
+        progress_log_every_n_batches=config.progress_log_every_n_batches,
         seed=config.seed,
         no_fit=no_fit,
     )
@@ -777,6 +831,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--graha-stats-batch-size", type=int, default=16)
     parser.add_argument("--graha-batch-size", type=int, default=16)
     parser.add_argument("--graha-num-workers", type=int, default=10)
+    parser.add_argument(
+        "--progress-log-every-n-batches",
+        type=int,
+        default=25,
+        help="Flush train-batch progress every N batches in sbatch logs.",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-fit", action="store_true", help="Build data/model/trainer but skip fit.")
     parser.add_argument("--skip-dino-fit", action="store_true", help="Skip only DINO fitting.")

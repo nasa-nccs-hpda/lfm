@@ -118,6 +118,7 @@ def _semantic_comparison_command(args: argparse.Namespace, base_output_dir: Path
     _append_flag(command, "--graha-batch-size", args.graha_batch_size)
     _append_flag(command, "--graha-num-workers", args.graha_num_workers)
     _append_flag(command, "--graha-stats-batch-size", args.graha_stats_batch_size)
+    _append_flag(command, "--progress-log-every-n-batches", args.progress_log_every_n_batches)
     command.extend(args.comparison_extra_arg)
     return command
 
