@@ -97,25 +97,25 @@ submit_experiment() {
   sbatch "${args[@]}"
 }
 
-check_output_space
+# submit_experiment \
+#   "exp01_semseg_from-instlabels_7band-wac_crop256_dino-finetune-norm_dice_train-sweep" \
+#   "finetune" \
+#   "false" \
+#   "$@"
 
-submit_experiment \
-  "exp01_semseg_from-instlabels_7band-wac_crop256_dino-finetune-norm_dice_train-sweep" \
-  "finetune" \
-  "false" \
-  "$@"
+# submit_experiment \
+#   "exp02_semseg_from-instlabels_7band-wac_crop256_terramind-pretrain-norm_dice_train-sweep" \
+#   "pretrain" \
+#   "false" \
+#   "$@"
 
-submit_experiment \
-  "exp02_semseg_from-instlabels_7band-wac_crop256_terramind-pretrain-norm_dice_train-sweep" \
-  "pretrain" \
-  "false" \
-  "$@"
+# submit_experiment \
+#   "exp03_semseg_from-instlabels_7band-wac_crop256_dino-finetune-norm_dice-plus-spatial-w0p05_train-sweep" \
+#   "finetune" \
+#   "true" \
+#   "$@"
 
-submit_experiment \
-  "exp03_semseg_from-instlabels_7band-wac_crop256_dino-finetune-norm_dice-plus-spatial-w0p05_train-sweep" \
-  "finetune" \
-  "true" \
-  "$@"
+
 
 submit_experiment \
   "exp04_semseg_from-instlabels_7band-wac_crop256_terramind-pretrain-norm_dice-plus-spatial-w0p05_train-sweep" \
