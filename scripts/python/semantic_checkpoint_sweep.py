@@ -5,6 +5,8 @@ For each checkpoint, this script saves one folder per test sample containing:
 - ``{sample_key}_input.npy``
 - ``{sample_key}_label.npy``
 - ``{sample_key}_pred.npy``
+- ``{sample_key}_class_pred.npy``
+- ``{sample_key}_logits.npy``
 - ``metrics.npy``
 - ``metrics.txt``
 
@@ -49,6 +51,9 @@ METRIC_NAMES = [
     "foreground_recall",
     "foreground_f1",
     "iou",
+    "average_precision",
+    "background_average_precision",
+    "mean_average_precision",
     "predicted_foreground_fraction",
     "ground_truth_foreground_fraction",
 ]
@@ -316,6 +321,42 @@ def _hard_predictions(logits: torch.Tensor) -> torch.Tensor:
     return (torch.sigmoid(logits[:, 0]) > 0.5).long()
 
 
+def _class_probabilities(logits: torch.Tensor) -> torch.Tensor:
+    if logits.shape[1] > 1:
+        return torch.softmax(logits, dim=1)
+    foreground = torch.sigmoid(logits[:, 0])
+    return torch.stack([1.0 - foreground, foreground], dim=1)
+
+
+def _average_precision(scores: np.ndarray, labels: np.ndarray) -> float:
+    scores = np.asarray(scores, dtype=np.float64).reshape(-1)
+    labels = np.asarray(labels, dtype=bool).reshape(-1)
+    if labels.size == 0 or not np.any(labels):
+        return 0.0
+    order = np.argsort(-scores, kind="mergesort")
+    labels = labels[order]
+    tp = np.cumsum(labels, dtype=np.float64)
+    fp = np.cumsum(~labels, dtype=np.float64)
+    recall = tp / max(float(labels.sum()), 1.0)
+    precision = tp / np.maximum(tp + fp, 1.0)
+    recall = np.concatenate(([0.0], recall, [1.0]))
+    precision = np.concatenate(([1.0], precision, [0.0]))
+    precision = np.maximum.accumulate(precision[::-1])[::-1]
+    changed = np.where(recall[1:] != recall[:-1])[0]
+    return float(np.sum((recall[changed + 1] - recall[changed]) * precision[changed + 1]))
+
+
+def _ap_metrics_from_scores(foreground_scores: np.ndarray, labels: np.ndarray) -> dict[str, float]:
+    labels_bool = np.asarray(labels).astype(bool)
+    foreground_ap = _average_precision(foreground_scores, labels_bool)
+    background_ap = _average_precision(1.0 - foreground_scores, ~labels_bool)
+    return {
+        "average_precision": foreground_ap,
+        "background_average_precision": background_ap,
+        "mean_average_precision": float((foreground_ap + background_ap) / 2.0),
+    }
+
+
 def _confusion_counts(pred: np.ndarray, label: np.ndarray) -> dict[str, float]:
     pred_bool = pred.astype(bool).reshape(-1)
     label_bool = label.astype(bool).reshape(-1)
@@ -330,7 +371,10 @@ def _confusion_counts(pred: np.ndarray, label: np.ndarray) -> dict[str, float]:
     }
 
 
-def _metrics_from_counts(counts: dict[str, float]) -> dict[str, float]:
+def _metrics_from_counts(
+    counts: dict[str, float],
+    ap_metrics: dict[str, float] | None = None,
+) -> dict[str, float]:
     tp = counts["tp"]
     fp = counts["fp"]
     fn = counts["fn"]
@@ -342,15 +386,21 @@ def _metrics_from_counts(counts: dict[str, float]) -> dict[str, float]:
     f1 = 2 * precision * recall / (precision + recall + eps)
     iou = tp / (tp + fp + fn + eps)
     accuracy = (tp + tn) / (tp + tn + fp + fn + eps)
-    return {
+    metrics = {
         "pixel_accuracy": float(accuracy),
         "foreground_precision": float(precision),
         "foreground_recall": float(recall),
         "foreground_f1": float(f1),
         "iou": float(iou),
+        "average_precision": 0.0,
+        "background_average_precision": 0.0,
+        "mean_average_precision": 0.0,
         "predicted_foreground_fraction": float(counts["pred_fg"] / (n + eps)),
         "ground_truth_foreground_fraction": float(counts["label_fg"] / (n + eps)),
     }
+    if ap_metrics:
+        metrics.update(ap_metrics)
+    return metrics
 
 
 def _empty_counts() -> dict[str, float]:
@@ -396,6 +446,8 @@ def _run_checkpoint(
     checkpoint_output_dir = output_dir / checkpoint.name
     checkpoint_output_dir.mkdir(parents=True, exist_ok=True)
     counts_total = _empty_counts()
+    all_foreground_scores = []
+    all_labels = []
     sample_index = 0
 
     batch_bar = tqdm(
@@ -410,10 +462,13 @@ def _run_checkpoint(
             batch = _move_batch_to_device(batch, device)
             images, labels, image_paths = _extract_batch(batch)
             logits = _logits_from_output(task(images))
+            probs = _class_probabilities(logits)
             preds = _hard_predictions(logits)
 
             images_np = images.detach().cpu().numpy()
             labels_np = labels.detach().cpu().numpy()
+            logits_np = logits.detach().cpu().numpy()
+            foreground_scores_np = probs[:, 1].detach().cpu().numpy()
             preds_np = preds.detach().cpu().numpy()
 
             for i in range(images_np.shape[0]):
@@ -427,10 +482,15 @@ def _run_checkpoint(
                 np.save(sample_dir / f"{sample_key}_input.npy", images_np[i])
                 np.save(sample_dir / f"{sample_key}_label.npy", labels_np[i])
                 np.save(sample_dir / f"{sample_key}_pred.npy", preds_np[i])
+                np.save(sample_dir / f"{sample_key}_class_pred.npy", preds_np[i])
+                np.save(sample_dir / f"{sample_key}_logits.npy", logits_np[i])
 
                 sample_counts = _confusion_counts(preds_np[i], labels_np[i])
                 _add_counts(counts_total, sample_counts)
-                sample_metrics = _metrics_from_counts(sample_counts)
+                sample_ap_metrics = _ap_metrics_from_scores(foreground_scores_np[i], labels_np[i])
+                all_foreground_scores.append(foreground_scores_np[i].reshape(-1))
+                all_labels.append(labels_np[i].reshape(-1))
+                sample_metrics = _metrics_from_counts(sample_counts, sample_ap_metrics)
                 _write_metrics(
                     sample_dir,
                     sample_metrics,
@@ -443,7 +503,12 @@ def _run_checkpoint(
                 sample_index += 1
             batch_bar.set_postfix(samples=sample_index)
 
-    aggregate_metrics = _metrics_from_counts(counts_total)
+    aggregate_ap_metrics = (
+        _ap_metrics_from_scores(np.concatenate(all_foreground_scores), np.concatenate(all_labels))
+        if all_foreground_scores
+        else None
+    )
+    aggregate_metrics = _metrics_from_counts(counts_total, aggregate_ap_metrics)
     _write_metrics(
         checkpoint_output_dir,
         aggregate_metrics,
@@ -458,7 +523,9 @@ def _run_checkpoint(
     print(
         f"[{model_name}] {checkpoint.name}: "
         f"F1={aggregate_metrics['foreground_f1']:.4f}, "
-        f"IoU={aggregate_metrics['iou']:.4f}, samples={sample_index}",
+        f"IoU={aggregate_metrics['iou']:.4f}, "
+        f"AP={aggregate_metrics['average_precision']:.4f}, "
+        f"mAP={aggregate_metrics['mean_average_precision']:.4f}, samples={sample_index}",
         flush=True,
     )
     return aggregate_metrics
