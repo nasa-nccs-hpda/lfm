@@ -11,10 +11,11 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import torch
 from argparse import Namespace
 from lightning.pytorch import Trainer, seed_everything
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 
 from lfm.full_model import lfm_seg_finetuning_direct as graha_workflow
 from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_datamodule import (
@@ -70,7 +71,229 @@ class ToyComparisonConfig:
     graha_num_workers: int
     skip_dino_fit: bool
     skip_graha_fit: bool
+    run_epoch_test_suite: bool
+    epoch_test_split: str
+    epoch_test_n_samples: int
+    epoch_test_every_n_epochs: int
     seed: int
+
+
+SEMANTIC_EPOCH_TEST_METRICS = [
+    "pixel_accuracy",
+    "foreground_precision",
+    "foreground_recall",
+    "foreground_f1",
+    "iou",
+    "predicted_foreground_fraction",
+    "ground_truth_foreground_fraction",
+]
+
+
+def _semantic_metric_array(metrics: dict[str, float]) -> np.ndarray:
+    row = np.zeros((), dtype=[(name, "f8") for name in SEMANTIC_EPOCH_TEST_METRICS])
+    for name in SEMANTIC_EPOCH_TEST_METRICS:
+        row[name] = float(metrics[name])
+    return row
+
+
+def _semantic_counts(pred: np.ndarray, label: np.ndarray) -> dict[str, float]:
+    pred_bool = pred.astype(bool).reshape(-1)
+    label_bool = label.astype(bool).reshape(-1)
+    return {
+        "tp": float(np.sum(pred_bool & label_bool)),
+        "fp": float(np.sum(pred_bool & ~label_bool)),
+        "fn": float(np.sum(~pred_bool & label_bool)),
+        "tn": float(np.sum(~pred_bool & ~label_bool)),
+        "n": float(pred_bool.size),
+        "pred_fg": float(np.sum(pred_bool)),
+        "label_fg": float(np.sum(label_bool)),
+    }
+
+
+def _semantic_metrics(counts: dict[str, float]) -> dict[str, float]:
+    eps = 1e-8
+    tp, fp, fn, tn, n = counts["tp"], counts["fp"], counts["fn"], counts["tn"], counts["n"]
+    precision = tp / (tp + fp + eps)
+    recall = tp / (tp + fn + eps)
+    return {
+        "pixel_accuracy": float((tp + tn) / (tp + tn + fp + fn + eps)),
+        "foreground_precision": float(precision),
+        "foreground_recall": float(recall),
+        "foreground_f1": float(2 * precision * recall / (precision + recall + eps)),
+        "iou": float(tp / (tp + fp + fn + eps)),
+        "predicted_foreground_fraction": float(counts["pred_fg"] / (n + eps)),
+        "ground_truth_foreground_fraction": float(counts["label_fg"] / (n + eps)),
+    }
+
+
+def _write_semantic_metrics(output_dir: Path, metrics: dict[str, float], *, header: str) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    np.save(output_dir / "metrics.npy", _semantic_metric_array(metrics))
+    with (output_dir / "metrics.txt").open("w", encoding="utf-8") as f:
+        f.write(header.rstrip() + "\n")
+        for name in SEMANTIC_EPOCH_TEST_METRICS:
+            f.write(f"{name}: {metrics[name]:.8f}\n")
+
+
+def _image_for_plot(image: np.ndarray) -> np.ndarray:
+    if image.ndim == 3 and image.shape[0] >= 4:
+        rgb = np.stack([image[3], image[1], image[0]], axis=-1)
+    elif image.ndim == 3:
+        rgb = np.moveaxis(image[: min(3, image.shape[0])], 0, -1)
+        if rgb.shape[-1] == 1:
+            rgb = rgb[..., 0]
+    else:
+        rgb = image
+    arr = rgb.astype(np.float32)
+    lo, hi = np.nanpercentile(arr, [2, 98])
+    if hi <= lo:
+        lo, hi = float(np.nanmin(arr)), float(np.nanmax(arr))
+    if hi <= lo:
+        return np.zeros_like(arr, dtype=np.float32)
+    return np.clip((arr - lo) / (hi - lo), 0, 1)
+
+
+def _plot_semantic_epoch_samples(samples: list[dict[str, np.ndarray]], save_path: Path) -> None:
+    if not samples:
+        return
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import ListedColormap
+
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    n_cols = len(samples)
+    fig, axes = plt.subplots(4, n_cols, figsize=(4 * n_cols, 14))
+    if n_cols == 1:
+        axes = axes.reshape(4, 1)
+    cmap_pred = ListedColormap(["black", "yellow"])
+    cmap_label = ListedColormap(["black", "red"])
+    for col, sample in enumerate(samples):
+        image = _image_for_plot(sample["image"])
+        pred = sample["pred"]
+        label = sample["label"]
+        overlay = image.copy()
+        if overlay.ndim == 2:
+            overlay = np.repeat(overlay[..., None], 3, axis=-1)
+        overlay[pred > 0] = [1.0, 1.0, 0.0]
+        axes[0, col].imshow(image, cmap="gray" if image.ndim == 2 else None)
+        axes[0, col].set_title(sample["sample_key"], fontsize=10)
+        axes[1, col].imshow(pred, cmap=cmap_pred, vmin=0, vmax=1)
+        axes[1, col].set_title("Prediction", fontsize=10)
+        axes[2, col].imshow(overlay)
+        axes[2, col].set_title("Overlay", fontsize=10)
+        axes[3, col].imshow(label, cmap=cmap_label, vmin=0, vmax=1)
+        axes[3, col].set_title("Ground Truth", fontsize=10)
+        for row in range(4):
+            axes[row, col].axis("off")
+    fig.suptitle("Epoch Test Suite Semantic Predictions", fontsize=16, fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved semantic epoch test-suite plot to {save_path}", flush=True)
+
+
+def _sample_key_from_name(filename: str | None, index: int) -> str:
+    if filename:
+        return Path(str(filename)).name.split("_input", 1)[0].replace("_label", "")
+    return f"sample_{index:04d}"
+
+
+def _extract_semantic_batch(batch):
+    if isinstance(batch, dict):
+        return batch["image"], batch["mask"], batch.get("filename", [None] * batch["image"].shape[0])
+    if isinstance(batch, (tuple, list)) and len(batch) >= 2:
+        filenames = batch[2] if len(batch) > 2 else [None] * batch[0].shape[0]
+        return batch[0], batch[1], filenames
+    raise TypeError(f"Unsupported semantic batch type: {type(batch)}")
+
+
+class SemanticEpochTestSuiteCallback(Callback):
+    """Run a semantic test suite at epoch end and save arrays/metrics."""
+
+    def __init__(
+        self,
+        *,
+        output_dir: Path,
+        model_name: str,
+        split: str,
+        n_samples: int,
+        every_n_epochs: int,
+    ) -> None:
+        self.output_dir = Path(output_dir)
+        self.model_name = model_name
+        self.split = split
+        self.n_samples = n_samples
+        self.every_n_epochs = every_n_epochs
+
+    def on_train_epoch_end(self, trainer, pl_module) -> None:
+        epoch = trainer.current_epoch + 1
+        if self.every_n_epochs <= 0 or epoch % self.every_n_epochs != 0:
+            return
+        datamodule = trainer.datamodule
+        datamodule.setup("fit" if self.split in {"train", "val"} else "test")
+        dataloader = getattr(datamodule, f"{self.split}_dataloader")()
+        device = pl_module.device
+        was_training = pl_module.training
+        pl_module.eval()
+        epoch_dir = self.output_dir / "test_suite" / self.model_name / f"epoch_{epoch:03d}"
+        total = {"tp": 0.0, "fp": 0.0, "fn": 0.0, "tn": 0.0, "n": 0.0, "pred_fg": 0.0, "label_fg": 0.0}
+        saved = 0
+        plot_samples = []
+        with torch.no_grad():
+            for batch in dataloader:
+                images, labels, filenames = _extract_semantic_batch(batch)
+                images = images.to(device)
+                labels = labels.to(device)
+                output = pl_module(images)
+                logits = output.output if hasattr(output, "output") else output
+                preds = logits.argmax(dim=1).long() if logits.shape[1] > 1 else (torch.sigmoid(logits[:, 0]) > 0.5).long()
+                images_np = images.detach().cpu().numpy()
+                labels_np = labels.detach().cpu().numpy()
+                preds_np = preds.detach().cpu().numpy()
+                for i in range(images_np.shape[0]):
+                    if saved >= self.n_samples:
+                        break
+                    sample_key = _sample_key_from_name(filenames[i] if i < len(filenames) else None, saved)
+                    sample_dir = epoch_dir / sample_key
+                    sample_dir.mkdir(parents=True, exist_ok=True)
+                    np.save(sample_dir / f"{sample_key}_input.npy", images_np[i])
+                    np.save(sample_dir / f"{sample_key}_label.npy", labels_np[i])
+                    np.save(sample_dir / f"{sample_key}_pred.npy", preds_np[i])
+                    if len(plot_samples) < 5:
+                        plot_samples.append(
+                            {
+                                "sample_key": sample_key,
+                                "image": images_np[i],
+                                "label": labels_np[i],
+                                "pred": preds_np[i],
+                            }
+                        )
+                    counts = _semantic_counts(preds_np[i], labels_np[i])
+                    for key, value in counts.items():
+                        total[key] += value
+                    _write_semantic_metrics(
+                        sample_dir,
+                        _semantic_metrics(counts),
+                        header=f"model: {self.model_name}\nepoch: {epoch}\nsample_key: {sample_key}",
+                    )
+                    saved += 1
+                if saved >= self.n_samples:
+                    break
+        aggregate = _semantic_metrics(total)
+        _write_semantic_metrics(
+            epoch_dir,
+            aggregate,
+            header=f"model: {self.model_name}\nepoch: {epoch}\nsplit: {self.split}\nsamples: {saved}",
+        )
+        _plot_semantic_epoch_samples(
+            plot_samples,
+            epoch_dir / f"{self.split}_semantic_predictions.png",
+        )
+        pl_module.train(was_training)
+        print(
+            f"[{self.model_name}] epoch {epoch:03d} test suite: "
+            f"F1={aggregate['foreground_f1']:.4f}, IoU={aggregate['iou']:.4f}, samples={saved}",
+            flush=True,
+        )
 
 
 def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
@@ -141,6 +364,10 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         graha_num_workers=args.graha_num_workers,
         skip_dino_fit=args.no_fit or args.skip_dino_fit,
         skip_graha_fit=args.no_fit or args.skip_graha_fit,
+        run_epoch_test_suite=args.run_epoch_test_suite,
+        epoch_test_split=args.epoch_test_split,
+        epoch_test_n_samples=args.epoch_test_n_samples,
+        epoch_test_every_n_epochs=args.epoch_test_every_n_epochs,
         seed=args.seed,
     )
 
@@ -298,6 +525,36 @@ def create_trainer(
     plots_subdir: str | Path = "plots",
 ) -> Trainer:
     print("Creating Lightning trainer...", flush=True)
+    callbacks = [
+        ModelCheckpoint(
+            dirpath=str(output_dir / "checkpoints" / "toy_model"),
+            monitor="val_loss",
+            mode="min",
+            filename="model-epoch-{epoch:02d}-val-loss={val_loss:.3f}",
+            auto_insert_metric_name=False,
+            save_top_k=-1,
+            save_last=True,
+            every_n_epochs=1,
+        ),
+        ValidationPlotCallback(
+            output_dir=output_dir,
+            n_samples=config.plot_n_samples,
+            every_n_epochs=config.plot_every_n_epochs,
+            plots_subdir=plots_subdir,
+            display_method="minmax",
+            dpi=150,
+        ),
+    ]
+    if config.run_epoch_test_suite:
+        callbacks.append(
+            SemanticEpochTestSuiteCallback(
+                output_dir=output_dir,
+                model_name="toy_model",
+                split=config.epoch_test_split,
+                n_samples=config.epoch_test_n_samples,
+                every_n_epochs=config.epoch_test_every_n_epochs,
+            )
+        )
     return Trainer(
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=1,
@@ -306,26 +563,7 @@ def create_trainer(
         check_val_every_n_epoch=1,
         log_every_n_steps=5,
         logger=False,
-        callbacks=[
-            ModelCheckpoint(
-                dirpath=str(output_dir / "checkpoints" / "toy_model"),
-                monitor="val_loss",
-                mode="min",
-                filename="model-epoch-{epoch:02d}-val-loss={val_loss:.3f}",
-                auto_insert_metric_name=False,
-                save_top_k=-1,
-                save_last=True,
-                every_n_epochs=1,
-            ),
-            ValidationPlotCallback(
-                output_dir=output_dir,
-                n_samples=config.plot_n_samples,
-                every_n_epochs=config.plot_every_n_epochs,
-                plots_subdir=plots_subdir,
-                display_method="minmax",
-                dpi=150,
-            ),
-        ],
+        callbacks=callbacks,
     )
 
 
@@ -398,6 +636,16 @@ def run_graha_workflow(
         plots_subdir=Path("plots") / "single_model" / "full_model",
         checkpoint_subdir=Path("checkpoints") / "full_model",
     )
+    if config.run_epoch_test_suite:
+        trainer.callbacks.append(
+            SemanticEpochTestSuiteCallback(
+                output_dir=comparison_output_dir,
+                model_name="full_model",
+                split=config.epoch_test_split,
+                n_samples=config.epoch_test_n_samples,
+                every_n_epochs=config.epoch_test_every_n_epochs,
+            )
+        )
 
     if no_fit:
         print("Skipping Graha trainer.fit() because --no-fit was set.")
@@ -525,6 +773,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-fit", action="store_true", help="Build data/model/trainer but skip fit.")
     parser.add_argument("--skip-dino-fit", action="store_true", help="Skip only DINO fitting.")
     parser.add_argument("--skip-graha-fit", action="store_true", help="Skip only Graha fitting.")
+    parser.add_argument("--run-epoch-test-suite", action="store_true")
+    parser.add_argument("--epoch-test-split", choices=["train", "val", "test"], default="test")
+    parser.add_argument("--epoch-test-n-samples", type=int, default=100)
+    parser.add_argument("--epoch-test-every-n-epochs", type=int, default=1)
     return parser.parse_args()
 
 

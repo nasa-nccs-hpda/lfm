@@ -88,6 +88,10 @@ def _common_comparison_args(args: argparse.Namespace) -> list[str]:
     _append_flag(command, "--plot-n-samples", args.plot_n_samples)
     _append_flag(command, "--prediction-split", args.prediction_split)
     _append_flag(command, "--prediction-n-samples", args.prediction_n_samples)
+    _append_flag(command, "--run-epoch-test-suite", args.run_epoch_test_suite)
+    _append_flag(command, "--epoch-test-split", args.epoch_test_split)
+    _append_flag(command, "--epoch-test-n-samples", args.epoch_test_n_samples)
+    _append_flag(command, "--epoch-test-every-n-epochs", args.epoch_test_every_n_epochs)
     _append_flag(command, "--seed", args.seed)
     return command
 
@@ -308,6 +312,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--plot-n-samples", type=int, default=5)
     parser.add_argument("--prediction-split", choices=["train", "val", "test"], default="val")
     parser.add_argument("--prediction-n-samples", type=int, default=5)
+    parser.add_argument("--run-epoch-test-suite", action="store_true")
+    parser.add_argument("--epoch-test-split", choices=["train", "val", "test"], default="test")
+    parser.add_argument("--epoch-test-n-samples", type=int, default=100)
+    parser.add_argument("--epoch-test-every-n-epochs", type=int, default=1)
     parser.add_argument("--sweep-split", choices=["train", "val", "test"], default="test")
     parser.add_argument("--sweep-max-samples", type=int, default=None)
     parser.add_argument("--max-checkpoints", type=int, default=None)

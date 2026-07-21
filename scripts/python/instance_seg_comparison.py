@@ -188,6 +188,76 @@ class GrahaInstancePlotCallback(Callback):
         )
 
 
+class InstanceEpochTestSuiteCallback(Callback):
+    """Run an instance test suite at epoch end and save arrays/metrics."""
+
+    def __init__(
+        self,
+        *,
+        output_dir: Path,
+        model_name: str,
+        split: str,
+        n_samples: int,
+        every_n_epochs: int,
+        score_threshold: float,
+        image_processor=None,
+    ) -> None:
+        self.output_dir = Path(output_dir)
+        self.model_name = model_name
+        self.split = split
+        self.n_samples = n_samples
+        self.every_n_epochs = every_n_epochs
+        self.score_threshold = score_threshold
+        self.image_processor = image_processor
+
+    def on_train_epoch_end(self, trainer, pl_module) -> None:
+        epoch = trainer.current_epoch + 1
+        if self.every_n_epochs <= 0 or epoch % self.every_n_epochs != 0:
+            return
+        from instance_checkpoint_sweep import CheckpointRecord, _write_checkpoint_outputs
+
+        epoch_name = f"epoch_{epoch:03d}"
+        epoch_dir = self.output_dir / "test_suite" / self.model_name / epoch_name
+        if self.image_processor is None:
+            cache_dir = save_graha_instance_prediction_cache(
+                task=pl_module,
+                datamodule=trainer.datamodule,
+                output_dir=epoch_dir,
+                model_name=self.model_name,
+                split=self.split,
+                n_samples=self.n_samples,
+                score_threshold=self.score_threshold,
+            )
+        else:
+            cache_dir = save_toy_instance_prediction_cache(
+                task=pl_module,
+                datamodule=trainer.datamodule,
+                output_dir=epoch_dir,
+                image_processor=self.image_processor,
+                model_name=self.model_name,
+                split=self.split,
+                n_samples=self.n_samples,
+                score_threshold=self.score_threshold,
+            )
+        _write_checkpoint_outputs(
+            cache_dir=cache_dir,
+            checkpoint_output_dir=epoch_dir,
+            checkpoint=CheckpointRecord(
+                path=Path(f"{self.model_name}_{epoch_name}"),
+                epoch=epoch,
+                name=epoch_name,
+            ),
+            model_name=self.model_name,
+        )
+        plot_instance_cache_predictions(
+            cache_dir,
+            epoch_dir,
+            model_name=self.model_name,
+            n_samples=min(5, self.n_samples),
+            filename=f"{self.split}_instance_predictions.png",
+        )
+
+
 @dataclass(frozen=True)
 class InstanceComparisonConfig:
     notebook_dir: Path
@@ -232,6 +302,10 @@ class InstanceComparisonConfig:
     mask_shift: tuple[int, int]
     skip_toy_fit: bool
     skip_graha_fit: bool
+    run_epoch_test_suite: bool
+    epoch_test_split: str
+    epoch_test_n_samples: int
+    epoch_test_every_n_epochs: int
     seed: int
 
 
@@ -299,6 +373,10 @@ def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
         mask_shift=tuple(args.mask_shift),
         skip_toy_fit=args.no_fit or args.skip_toy_fit,
         skip_graha_fit=args.no_fit or args.skip_graha_fit,
+        run_epoch_test_suite=args.run_epoch_test_suite,
+        epoch_test_split=args.epoch_test_split,
+        epoch_test_n_samples=args.epoch_test_n_samples,
+        epoch_test_every_n_epochs=args.epoch_test_every_n_epochs,
         seed=args.seed,
     )
 
@@ -429,6 +507,41 @@ def create_toy_trainer(
     output_dir: Path,
     image_processor,
 ) -> Trainer:
+    callbacks = [
+        FitProgressLogger(
+            "Toy",
+            log_every_n_batches=config.progress_log_every_n_batches,
+        ),
+        ToyInstancePlotCallback(
+            output_dir,
+            image_processor,
+            n_samples=config.plot_n_samples,
+            every_n_epochs=config.plot_every_n_epochs,
+            score_threshold=config.prediction_score_threshold,
+        ),
+        ModelCheckpoint(
+            dirpath=str(output_dir / "checkpoints" / "toy_model"),
+            monitor="val_loss",
+            mode="min",
+            filename="model-epoch-{epoch:02d}-val-loss={val_loss:.3f}",
+            auto_insert_metric_name=False,
+            save_top_k=-1,
+            save_last=True,
+            every_n_epochs=1,
+        ),
+    ]
+    if config.run_epoch_test_suite:
+        callbacks.append(
+            InstanceEpochTestSuiteCallback(
+                output_dir=output_dir,
+                model_name="toy_model",
+                split=config.epoch_test_split,
+                n_samples=config.epoch_test_n_samples,
+                every_n_epochs=config.epoch_test_every_n_epochs,
+                score_threshold=config.prediction_score_threshold,
+                image_processor=image_processor,
+            )
+        )
     return Trainer(
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=1,
@@ -438,29 +551,7 @@ def create_toy_trainer(
         check_val_every_n_epoch=1,
         log_every_n_steps=5,
         logger=False,
-        callbacks=[
-            FitProgressLogger(
-                "Toy",
-                log_every_n_batches=config.progress_log_every_n_batches,
-            ),
-            ToyInstancePlotCallback(
-                output_dir,
-                image_processor,
-                n_samples=config.plot_n_samples,
-                every_n_epochs=config.plot_every_n_epochs,
-                score_threshold=config.prediction_score_threshold,
-            ),
-            ModelCheckpoint(
-                dirpath=str(output_dir / "checkpoints" / "toy_model"),
-                monitor="val_loss",
-                mode="min",
-                filename="model-epoch-{epoch:02d}-val-loss={val_loss:.3f}",
-                auto_insert_metric_name=False,
-                save_top_k=-1,
-                save_last=True,
-                every_n_epochs=1,
-            ),
-        ],
+        callbacks=callbacks,
     )
 
 
@@ -601,6 +692,18 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None
             score_threshold=config.prediction_score_threshold,
         )
     )
+    if config.run_epoch_test_suite:
+        trainer.callbacks.append(
+            InstanceEpochTestSuiteCallback(
+                output_dir=output_dir,
+                model_name="full_model",
+                split=config.epoch_test_split,
+                n_samples=config.epoch_test_n_samples,
+                every_n_epochs=config.epoch_test_every_n_epochs,
+                score_threshold=config.prediction_score_threshold,
+                image_processor=None,
+            )
+        )
     prediction_cache = None
 
     if config.skip_graha_fit:
@@ -715,6 +818,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-toy-fit", action="store_true")
     parser.add_argument("--skip-graha-fit", action="store_true")
     parser.add_argument("--no-fit", action="store_true")
+    parser.add_argument("--run-epoch-test-suite", action="store_true")
+    parser.add_argument("--epoch-test-split", choices=["train", "val", "test"], default="test")
+    parser.add_argument("--epoch-test-n-samples", type=int, default=100)
+    parser.add_argument("--epoch-test-every-n-epochs", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
