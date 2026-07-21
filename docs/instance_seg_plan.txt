@@ -354,8 +354,8 @@ Compatibility checkpoint status:
   removed because its name made it look like true instance segmentation.
 - True model-vs-model instance comparison now uses:
     notebooks/full_model/instance_seg_comparison.ipynb
-    scripts/python/instance_seg_comparison.py
-    scripts/shell/sbatch_instance_seg_comparison.sh
+    scripts/python/instance_seg/instance_seg_comparison.py
+    scripts/shell/instance_seg/sbatch_instance_seg_comparison.sh
 
 Remaining true-instance work:
 - Keep comparison naming reserved for true model-vs-model workflows.
@@ -433,12 +433,12 @@ Compatibility checkpoint status:
   to True.
 - notebooks/full_model/instance_seg_finetuning.ipynb was added as the clean
   notebook workflow for true instance segmentation.
-- scripts/python/instance_seg_finetuning.py was added as the matching
+- scripts/python/instance_seg/instance_seg_finetuning.py was added as the matching
   script workflow with a main() block.
-- scripts/shell/sbatch_instance_seg_finetuning.sh was added for
+- scripts/shell/instance_seg/sbatch_instance_seg_finetuning.sh was added for
   background HPC runs.
 - The clean sbatch workflow passed with:
-  sbatch scripts/shell/sbatch_instance_seg_finetuning.sh
+  sbatch scripts/shell/instance_seg/sbatch_instance_seg_finetuning.sh
   --data-root /panfs/ccds02/nobackup/projects/lfm/model_inputs/300_300_inputs/full_model_inst_seg_v2
   --max-epochs 1 --batch-size 2
 

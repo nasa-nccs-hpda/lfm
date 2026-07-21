@@ -1,2 +1,2 @@
-"""Full model package placeholder."""
+"""Full-model Graha/Lunar-FM experiment helpers."""
 

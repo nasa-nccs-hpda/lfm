@@ -9,7 +9,7 @@ import torch
 from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader
 
-from lfm.full_model.datamodules.datamodule_utils import (
+from lfm.full_model.all_tasks.datamodules.datamodule_utils import (
     collate_object_detection_instance_segmentation,
     instance_mask_to_object_detection_targets,
 )

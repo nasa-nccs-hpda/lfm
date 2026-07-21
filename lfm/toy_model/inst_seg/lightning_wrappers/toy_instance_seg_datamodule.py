@@ -10,7 +10,7 @@ import torch
 from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader, Dataset
 
-from lfm.full_model.datamodules.datamodule_utils import (
+from lfm.full_model.all_tasks.datamodules.datamodule_utils import (
     center_crop,
     find_pair_records,
     image_to_chw_float,
