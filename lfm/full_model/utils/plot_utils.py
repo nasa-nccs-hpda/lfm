@@ -1260,7 +1260,7 @@ def save_toy_instance_prediction_cache(
     task.train(was_training)
     with (cache_dir / "manifest.json").open("w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
-    print(f"Saved {saved} Toy instance prediction cache file(s) to {cache_dir}")
+    print(f"Saved {saved} {model_name} instance prediction cache file(s) to {cache_dir}")
     return cache_dir
 
 
@@ -1329,7 +1329,7 @@ def save_graha_instance_prediction_cache(
     task.train(was_training)
     with (cache_dir / "manifest.json").open("w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
-    print(f"Saved {saved} Graha instance prediction cache file(s) to {cache_dir}")
+    print(f"Saved {saved} {model_name} instance prediction cache file(s) to {cache_dir}")
     return cache_dir
 
 
