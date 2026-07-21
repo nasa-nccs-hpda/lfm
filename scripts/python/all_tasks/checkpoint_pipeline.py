@@ -109,11 +109,17 @@ def _semantic_comparison_command(args: argparse.Namespace, base_output_dir: Path
     ]
     command.extend(_common_comparison_args(args))
     _append_flag(command, "--spatial-transform", args.spatial_transform)
+    _append_flag(command, "--semantic-label-source", args.semantic_label_source)
     _append_flag(command, "--batch-size", args.batch_size)
     _append_flag(command, "--num-workers", args.num_workers)
     _append_flag(command, "--learning-rate", args.learning_rate)
     _append_flag(command, "--weight-decay", args.weight_decay)
     _append_flag(command, "--loss-type", args.loss_type)
+    _append_flag(command, "--use-toy-shape-loss", args.use_toy_shape_loss)
+    _append_flag(command, "--toy-shape-loss-weight", args.toy_shape_loss_weight)
+    _append_flag(command, "--toy-shape-loss-pad-frac", args.toy_shape_loss_pad_frac)
+    _append_flag(command, "--graha-shape-loss-weight", args.graha_shape_loss_weight)
+    _append_flag(command, "--graha-shape-loss-pad-frac", args.graha_shape_loss_pad_frac)
     _append_flag(command, "--normalize-inputs", args.normalize_inputs)
     _append_flag(command, "--disable-toy-gradient-clipping", args.disable_toy_gradient_clipping)
     _append_flag(command, "--graha-batch-size", args.graha_batch_size)
@@ -176,6 +182,7 @@ def _semantic_sweep_command(args: argparse.Namespace, training_output_dir: Path,
     _append_flag(command, "--band-filter", args.band_filter)
     _append_flag(command, "--target-size", args.target_size)
     _append_flag(command, "--spatial-transform", args.spatial_transform)
+    _append_flag(command, "--semantic-label-source", args.semantic_label_source)
     _append_flag(command, "--batch-size", args.batch_size)
     _append_flag(command, "--num-workers", args.num_workers)
     _append_flag(command, "--normalize-inputs", args.normalize_inputs)
@@ -316,6 +323,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean")
     parser.add_argument("--target-size", type=int, default=256)
     parser.add_argument("--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6])
+    parser.add_argument(
+        "--semantic-label-source",
+        choices=["semantic", "instance"],
+        default="semantic",
+        help="Semantic task label format: .npy semantic masks or .npz instance labels converted to semantic masks.",
+    )
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--max-val-samples", type=int, default=None)
     parser.add_argument("--max-test-samples", type=int, default=None)
@@ -340,6 +353,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=5.0e-5)
     parser.add_argument("--weight-decay", type=float, default=1.0e-3)
     parser.add_argument("--loss-type", type=str, default="focal_dice")
+    parser.add_argument("--use-toy-shape-loss", action="store_true")
+    parser.add_argument("--toy-shape-loss-weight", type=float, default=0.05)
+    parser.add_argument("--toy-shape-loss-pad-frac", type=float, default=0.3)
+    parser.add_argument("--graha-shape-loss-weight", type=float, default=0.05)
+    parser.add_argument("--graha-shape-loss-pad-frac", type=float, default=0.3)
     parser.add_argument("--normalize-inputs", action="store_true")
     parser.add_argument(
         "--normalization-source",

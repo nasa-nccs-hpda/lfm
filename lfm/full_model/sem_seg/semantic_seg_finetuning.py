@@ -40,6 +40,9 @@ class FineTuningConfig:
     graha_wac_mode: str
     graha_vis_uv_merge_method: str
     normalization_source: str
+    semantic_label_source: str
+    shape_loss_weight: float
+    shape_loss_pad_frac: float
     crop_size: int
     stats_batch_size: int
     batch_size: int
@@ -161,6 +164,9 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         graha_wac_mode=args.graha_wac_mode,
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=getattr(args, "normalization_source", "pretrain"),
+        semantic_label_source=getattr(args, "semantic_label_source", "semantic"),
+        shape_loss_weight=getattr(args, "shape_loss_weight", 0.05),
+        shape_loss_pad_frac=getattr(args, "shape_loss_pad_frac", 0.3),
         crop_size=args.crop_size,
         stats_batch_size=args.stats_batch_size,
         batch_size=args.batch_size,
@@ -218,13 +224,17 @@ def validate_required_paths(config: FineTuningConfig) -> None:
 def import_project_dependencies() -> dict[str, Any]:
     """Import local helpers after sys.path has been configured."""
     import terratorch_integration  # noqa: F401
-    from lfm.full_model.sem_seg import LunarSemanticMaskSegmentationDatamodule
+    from lfm.full_model.sem_seg import (
+        LunarSemanticFromInstanceDatamodule,
+        LunarSemanticMaskSegmentationDatamodule,
+    )
     from lfm.full_model.all_tasks.utils import ValidationPlotCallback
     from terratorch_integration.lunar_segmentation_task import LunarShapeSegmentationTask
     from lfm.full_model.all_tasks.utils import create_timestamped_output_dir
     from lfm.full_model.all_tasks.utils import save_prediction_cache
 
     return {
+        "LunarSemanticFromInstanceDatamodule": LunarSemanticFromInstanceDatamodule,
         "LunarSemanticMaskSegmentationDatamodule": LunarSemanticMaskSegmentationDatamodule,
         "LunarShapeSegmentationTask": LunarShapeSegmentationTask,
         "ValidationPlotCallback": ValidationPlotCallback,
@@ -390,8 +400,8 @@ def create_task(config: FineTuningConfig, task_cls, sample_batch: dict[str, Any]
         layer_decay=0.75,
         weight_decay=0.05,
         warmup_steps=500,
-        shape_loss_weight=0.05,
-        shape_loss_pad_frac=0.3,
+        shape_loss_weight=config.shape_loss_weight,
+        shape_loss_pad_frac=config.shape_loss_pad_frac,
         model_factory="EncoderDecoderFactory",
         model_args={
             "backbone": "lunarmind_v1_base",
@@ -526,6 +536,14 @@ def parse_args() -> argparse.Namespace:
         default="pretrain",
         help="Use TerraMind pretraining stats or finetuning train-split stats for input z-score.",
     )
+    parser.add_argument(
+        "--semantic-label-source",
+        choices=["semantic", "instance"],
+        default="semantic",
+        help="Use .npy semantic labels or .npz instance labels converted to semantic masks.",
+    )
+    parser.add_argument("--shape-loss-weight", type=float, default=0.05)
+    parser.add_argument("--shape-loss-pad-frac", type=float, default=0.3)
     parser.add_argument("--crop-size", type=int, default=256)
     parser.add_argument("--stats-batch-size", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=16)
@@ -554,7 +572,11 @@ def main() -> None:
     validate_required_paths(config)
 
     deps = import_project_dependencies()
-    datamodule_cls = deps["LunarSemanticMaskSegmentationDatamodule"]
+    datamodule_cls = deps[
+        "LunarSemanticFromInstanceDatamodule"
+        if config.semantic_label_source == "instance"
+        else "LunarSemanticMaskSegmentationDatamodule"
+    ]
     task_cls = make_notebook_task_class(deps["LunarShapeSegmentationTask"])
 
     output_dir = create_output_dirs(config, deps["create_timestamped_output_dir"])

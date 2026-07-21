@@ -21,8 +21,14 @@ from lfm.full_model.sem_seg import semantic_seg_finetuning as graha_workflow
 from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_datamodule import (
     ToySemSegSplitDataModule,
 )
+from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_from_instance_datamodule import (
+    ToySemSegFromInstanceDataModule,
+)
 from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_lightning import (
     ToySemSegLightningModule,
+)
+from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_shape_lightning import (
+    ToySemSegShapeLightningModule,
 )
 from lfm.full_model.all_tasks.utils import (
     ValidationPlotCallback,
@@ -47,6 +53,7 @@ class ToyComparisonConfig:
     band_filter: list[int]
     target_size: tuple[int, int]
     spatial_transform: str
+    semantic_label_source: str
     max_train_samples: int | None
     max_val_samples: int | None
     max_test_samples: int | None
@@ -56,6 +63,9 @@ class ToyComparisonConfig:
     learning_rate: float
     weight_decay: float
     loss_type: str
+    use_toy_shape_loss: bool
+    toy_shape_loss_weight: float
+    toy_shape_loss_pad_frac: float
     freeze_encoder: bool
     normalize_inputs: bool
     normalization_source: str
@@ -70,6 +80,8 @@ class ToyComparisonConfig:
     graha_lightning_checkpoint: Path | None
     graha_wac_mode: str
     graha_vis_uv_merge_method: str
+    graha_shape_loss_weight: float
+    graha_shape_loss_pad_frac: float
     graha_stats_batch_size: int
     graha_batch_size: int
     graha_num_workers: int
@@ -389,6 +401,7 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         band_filter=args.band_filter,
         target_size=(args.target_size, args.target_size),
         spatial_transform=args.spatial_transform,
+        semantic_label_source=args.semantic_label_source,
         max_train_samples=args.max_train_samples,
         max_val_samples=args.max_val_samples,
         max_test_samples=args.max_test_samples,
@@ -398,6 +411,9 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         learning_rate=args.learning_rate,
         weight_decay=args.weight_decay,
         loss_type=args.loss_type,
+        use_toy_shape_loss=args.use_toy_shape_loss,
+        toy_shape_loss_weight=args.toy_shape_loss_weight,
+        toy_shape_loss_pad_frac=args.toy_shape_loss_pad_frac,
         freeze_encoder=args.freeze_encoder,
         normalize_inputs=args.normalize_inputs,
         normalization_source=getattr(args, "normalization_source", "pretrain"),
@@ -414,6 +430,8 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         graha_lightning_checkpoint=graha_lightning_checkpoint,
         graha_wac_mode=args.graha_wac_mode,
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
+        graha_shape_loss_weight=getattr(args, "graha_shape_loss_weight", 0.05),
+        graha_shape_loss_pad_frac=getattr(args, "graha_shape_loss_pad_frac", 0.3),
         graha_stats_batch_size=args.graha_stats_batch_size,
         graha_batch_size=args.graha_batch_size,
         graha_num_workers=args.graha_num_workers,
@@ -521,6 +539,11 @@ def record_timing(
 
 
 def create_datamodule(config: ToyComparisonConfig, output_dir: Path) -> ToySemSegSplitDataModule:
+    datamodule_cls = (
+        ToySemSegFromInstanceDataModule
+        if config.semantic_label_source == "instance"
+        else ToySemSegSplitDataModule
+    )
     means = None
     stds = None
     if config.normalize_inputs and config.normalization_source == "pretrain":
@@ -555,7 +578,7 @@ def create_datamodule(config: ToyComparisonConfig, output_dir: Path) -> ToySemSe
     elif config.normalize_inputs and config.normalization_source != "finetune":
         raise ValueError(f"Unsupported normalization_source: {config.normalization_source}")
 
-    datamodule = ToySemSegSplitDataModule(
+    datamodule = datamodule_cls(
         data_root=config.data_root,
         batch_size=config.batch_size,
         num_workers=config.num_workers,
@@ -601,13 +624,21 @@ def create_lightning_module(
     config: ToyComparisonConfig,
     model: DINOSegmentation,
 ) -> ToySemSegLightningModule:
-    return ToySemSegLightningModule(
+    module_cls = ToySemSegShapeLightningModule if config.use_toy_shape_loss else ToySemSegLightningModule
+    kwargs = {}
+    if config.use_toy_shape_loss:
+        kwargs = {
+            "shape_loss_weight": config.toy_shape_loss_weight,
+            "shape_loss_pad_frac": config.toy_shape_loss_pad_frac,
+        }
+    return module_cls(
         model=model,
         loss_type=config.loss_type,
         learning_rate=config.learning_rate,
         weight_decay=config.weight_decay,
         max_epochs=config.max_epochs,
         max_grad_norm=config.toy_gradient_clip_val,
+        **kwargs,
     )
 
 
@@ -684,6 +715,9 @@ def run_graha_workflow(
         graha_wac_mode=config.graha_wac_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         normalization_source=config.normalization_source,
+        semantic_label_source=config.semantic_label_source,
+        shape_loss_weight=config.graha_shape_loss_weight,
+        shape_loss_pad_frac=config.graha_shape_loss_pad_frac,
         crop_size=config.target_size[0],
         stats_batch_size=config.graha_stats_batch_size,
         batch_size=config.graha_batch_size,
@@ -702,7 +736,11 @@ def run_graha_workflow(
     graha_workflow.validate_required_paths(graha_config)
 
     deps = graha_workflow.import_project_dependencies()
-    datamodule_cls = deps["LunarSemanticMaskSegmentationDatamodule"]
+    datamodule_cls = deps[
+        "LunarSemanticFromInstanceDatamodule"
+        if config.semantic_label_source == "instance"
+        else "LunarSemanticMaskSegmentationDatamodule"
+    ]
     task_cls = graha_workflow.make_notebook_task_class(deps["LunarShapeSegmentationTask"])
 
     output_dir = graha_workflow.create_output_dirs(
@@ -833,6 +871,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6])
     parser.add_argument("--target-size", type=int, default=256)
     parser.add_argument("--spatial-transform", choices=["resize", "crop"], default="crop")
+    parser.add_argument(
+        "--semantic-label-source",
+        choices=["semantic", "instance"],
+        default="semantic",
+        help="Use .npy semantic labels or .npz instance labels converted to semantic masks.",
+    )
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--max-val-samples", type=int, default=None)
     parser.add_argument("--max-test-samples", type=int, default=None)
@@ -842,6 +886,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=5e-5)
     parser.add_argument("--weight-decay", type=float, default=1e-3)
     parser.add_argument("--loss-type", type=str, default="focal_dice")
+    parser.add_argument("--use-toy-shape-loss", action="store_true")
+    parser.add_argument("--toy-shape-loss-weight", type=float, default=0.05)
+    parser.add_argument("--toy-shape-loss-pad-frac", type=float, default=0.3)
     parser.add_argument("--freeze-encoder", action="store_true")
     parser.add_argument(
         "--normalize-inputs",
@@ -875,6 +922,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac")
     parser.add_argument("--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean")
+    parser.add_argument("--graha-shape-loss-weight", type=float, default=0.05)
+    parser.add_argument("--graha-shape-loss-pad-frac", type=float, default=0.3)
     parser.add_argument("--graha-stats-batch-size", type=int, default=16)
     parser.add_argument("--graha-batch-size", type=int, default=16)
     parser.add_argument("--graha-num-workers", type=int, default=10)

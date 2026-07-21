@@ -77,6 +77,7 @@ class SweepConfig:
     band_filter: list[int]
     target_size: int
     spatial_transform: str
+    semantic_label_source: str
     batch_size: int
     num_workers: int
     normalize_inputs: bool
@@ -131,6 +132,7 @@ def build_config(args: argparse.Namespace) -> SweepConfig:
         band_filter=args.band_filter,
         target_size=args.target_size,
         spatial_transform=args.spatial_transform,
+        semantic_label_source=getattr(args, "semantic_label_source", "semantic"),
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         normalize_inputs=args.normalize_inputs,
@@ -580,6 +582,7 @@ def _make_toy_args(config: SweepConfig) -> argparse.Namespace:
         band_filter=config.band_filter,
         target_size=config.target_size,
         spatial_transform=config.spatial_transform,
+        semantic_label_source=config.semantic_label_source,
         max_train_samples=None,
         max_val_samples=None,
         max_test_samples=config.max_test_samples,
@@ -589,6 +592,9 @@ def _make_toy_args(config: SweepConfig) -> argparse.Namespace:
         learning_rate=5e-5,
         weight_decay=0.05,
         loss_type="dice",
+        use_toy_shape_loss=False,
+        toy_shape_loss_weight=0.05,
+        toy_shape_loss_pad_frac=0.3,
         freeze_encoder=False,
         normalize_inputs=config.normalize_inputs,
         normalization_source=config.normalization_source,
@@ -691,6 +697,9 @@ def _make_graha_args(config: SweepConfig) -> argparse.Namespace:
         graha_wac_mode=config.graha_wac_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         normalization_source=config.normalization_source,
+        semantic_label_source=config.semantic_label_source,
+        shape_loss_weight=0.0,
+        shape_loss_pad_frac=0.3,
         crop_size=config.target_size,
         stats_batch_size=config.graha_stats_batch_size,
         batch_size=config.graha_batch_size,
@@ -719,7 +728,11 @@ def run_graha_sweep(config: SweepConfig) -> list[dict[str, Any]]:
         graha_workflow.validate_required_paths(graha_config)
 
         deps = graha_workflow.import_project_dependencies()
-        datamodule_cls = deps["LunarSemanticMaskSegmentationDatamodule"]
+        datamodule_cls = deps[
+            "LunarSemanticFromInstanceDatamodule"
+            if config.semantic_label_source == "instance"
+            else "LunarSemanticMaskSegmentationDatamodule"
+        ]
         task_cls = graha_workflow.make_notebook_task_class(deps["LunarShapeSegmentationTask"])
         means, stds = graha_workflow.calculate_train_stats(graha_config, datamodule_cls)
         datamodule = graha_workflow.create_datamodule(graha_config, datamodule_cls, means, stds)
@@ -803,6 +816,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6])
     parser.add_argument("--target-size", type=int, default=256)
     parser.add_argument("--spatial-transform", choices=["crop", "resize"], default="crop")
+    parser.add_argument(
+        "--semantic-label-source",
+        choices=["semantic", "instance"],
+        default="semantic",
+    )
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=10)
     parser.add_argument("--normalize-inputs", action="store_true")
