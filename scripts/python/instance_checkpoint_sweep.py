@@ -78,6 +78,7 @@ class InstanceSweepConfig:
     toy_batch_size: int
     toy_num_workers: int
     toy_normalize_inputs: bool
+    toy_architecture: str
     dino_checkpoint: Path | None
     graha_pretrain_dir: Path | None
     graha_stats_batch_size: int
@@ -130,6 +131,7 @@ def build_config(args: argparse.Namespace) -> InstanceSweepConfig:
         toy_batch_size=args.toy_batch_size,
         toy_num_workers=args.toy_num_workers,
         toy_normalize_inputs=args.toy_normalize_inputs,
+        toy_architecture=args.toy_architecture,
         dino_checkpoint=Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None,
         graha_pretrain_dir=Path(args.graha_pretrain_dir).resolve()
         if args.graha_pretrain_dir
@@ -382,6 +384,7 @@ def _make_comparison_args(config: InstanceSweepConfig) -> argparse.Namespace:
         toy_weight_decay=1.0e-3,
         toy_freeze_backbone=False,
         toy_normalize_inputs=config.toy_normalize_inputs,
+        toy_architecture=config.toy_architecture,
         toy_gradient_clip_val=1.0,
         disable_toy_gradient_clipping=True,
         graha_backbone_lr=config.graha_backbone_lr,
@@ -415,7 +418,7 @@ def _setup_toy(config: InstanceSweepConfig):
             comparison_config,
             datamodule.weight_assignments or [],
         )
-        image_processor = comparison_workflow.create_toy_image_processor(config.target_size)
+        image_processor = comparison_workflow.create_toy_image_processor(comparison_config)
     task.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
     return comparison_config, datamodule, task, image_processor
 
@@ -462,16 +465,27 @@ def run_toy_sweep(config: InstanceSweepConfig) -> list[dict[str, Any]]:
     rows = []
     for checkpoint in tqdm(checkpoints, desc="Toy checkpoints", dynamic_ncols=True):
         _load_lightning_checkpoint_state(task, checkpoint.path)
-        cache_dir = save_toy_instance_prediction_cache(
-            task=task,
-            datamodule=datamodule,
-            output_dir=model_output_dir / checkpoint.name,
-            image_processor=image_processor,
-            model_name="toy",
-            split=config.prediction_split,
-            n_samples=_prediction_count(config),
-            score_threshold=config.prediction_score_threshold,
-        )
+        if image_processor is None:
+            cache_dir = save_graha_instance_prediction_cache(
+                task=task,
+                datamodule=datamodule,
+                output_dir=model_output_dir / checkpoint.name,
+                model_name="toy",
+                split=config.prediction_split,
+                n_samples=_prediction_count(config),
+                score_threshold=config.prediction_score_threshold,
+            )
+        else:
+            cache_dir = save_toy_instance_prediction_cache(
+                task=task,
+                datamodule=datamodule,
+                output_dir=model_output_dir / checkpoint.name,
+                image_processor=image_processor,
+                model_name="toy",
+                split=config.prediction_split,
+                n_samples=_prediction_count(config),
+                score_threshold=config.prediction_score_threshold,
+            )
         metrics = _write_checkpoint_outputs(
             cache_dir=cache_dir,
             checkpoint_output_dir=model_output_dir / checkpoint.name,
@@ -560,6 +574,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--toy-batch-size", type=int, default=2)
     parser.add_argument("--toy-num-workers", type=int, default=4)
     parser.add_argument("--toy-normalize-inputs", action="store_true")
+    parser.add_argument(
+        "--toy-architecture",
+        choices=["mask2former", "dino-mask-rcnn"],
+        default="mask2former",
+    )
     parser.add_argument("--dino-checkpoint", type=str, default=None)
     parser.add_argument("--graha-pretrain-dir", type=str, default=None)
     parser.add_argument("--graha-stats-batch-size", type=int, default=16)

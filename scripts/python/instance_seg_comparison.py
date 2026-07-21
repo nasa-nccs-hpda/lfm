@@ -30,11 +30,14 @@ from lfm.full_model.utils import (
     save_toy_instance_prediction_cache,
 )
 from lfm.full_model.utils.utils import ensure_data_symlink
+from lfm.toy_model.inst_seg.dino_mask_rcnn_model import create_dino_mask_rcnn_model
 from lfm.toy_model.inst_seg.iseg_model import (
     create_mask2former_dinov3_model,
     load_dinov3_encoder,
 )
 from lfm.toy_model.inst_seg.lightning_wrappers import (
+    ToyDinoMaskRCNNLightningModule,
+    ToyDinoMaskRCNNSplitDataModule,
     ToyInstanceSegLightningModule,
     ToyInstanceSegSplitDataModule,
 )
@@ -115,17 +118,29 @@ class ToyInstancePlotCallback(Callback):
         epoch = trainer.current_epoch
         if self.every_n_epochs <= 0 or (epoch + 1) % self.every_n_epochs != 0:
             return
-        cache_dir = save_toy_instance_prediction_cache(
-            task=pl_module,
-            datamodule=trainer.datamodule,
-            output_dir=self.output_dir,
-            image_processor=self.image_processor,
-            model_name="toy",
-            split="val",
-            n_samples=self.n_samples,
-            score_threshold=self.score_threshold,
-            setup_datamodule=False,
-        )
+        if self.image_processor is None:
+            cache_dir = save_graha_instance_prediction_cache(
+                task=pl_module,
+                datamodule=trainer.datamodule,
+                output_dir=self.output_dir,
+                model_name="toy",
+                split="val",
+                n_samples=self.n_samples,
+                score_threshold=self.score_threshold,
+                setup_datamodule=False,
+            )
+        else:
+            cache_dir = save_toy_instance_prediction_cache(
+                task=pl_module,
+                datamodule=trainer.datamodule,
+                output_dir=self.output_dir,
+                image_processor=self.image_processor,
+                model_name="toy",
+                split="val",
+                n_samples=self.n_samples,
+                score_threshold=self.score_threshold,
+                setup_datamodule=False,
+            )
         plot_instance_cache_predictions(
             cache_dir,
             self.output_dir / "plots" / "single_model" / "toy_model",
@@ -186,6 +201,7 @@ class InstanceComparisonConfig:
     dino_lightning_checkpoint: Path | None
     graha_pretrain_dir: Path | None
     graha_lightning_checkpoint: Path | None
+    toy_architecture: str
     target_size: int
     band_filter: list[int]
     max_train_samples: int | None
@@ -250,6 +266,7 @@ def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
             if args.graha_lightning_checkpoint
             else None
         ),
+        toy_architecture=args.toy_architecture,
         target_size=args.target_size,
         band_filter=args.band_filter,
         max_train_samples=args.max_train_samples,
@@ -332,8 +349,13 @@ def load_lightning_checkpoint_state(module: torch.nn.Module, checkpoint_path: Pa
     print(f"Loaded {model_name} Lightning checkpoint weights.", flush=True)
 
 
-def create_toy_datamodule(config: InstanceComparisonConfig) -> ToyInstanceSegSplitDataModule:
-    datamodule = ToyInstanceSegSplitDataModule(
+def create_toy_datamodule(config: InstanceComparisonConfig):
+    datamodule_cls = (
+        ToyDinoMaskRCNNSplitDataModule
+        if config.toy_architecture == "dino-mask-rcnn"
+        else ToyInstanceSegSplitDataModule
+    )
+    datamodule = datamodule_cls(
         data_root=config.data_root,
         batch_size=config.toy_batch_size,
         num_workers=config.toy_num_workers,
@@ -351,7 +373,7 @@ def create_toy_datamodule(config: InstanceComparisonConfig) -> ToyInstanceSegSpl
     return datamodule
 
 
-def create_toy_task(config: InstanceComparisonConfig, weight_assignments: list[str]) -> ToyInstanceSegLightningModule:
+def create_toy_task(config: InstanceComparisonConfig, weight_assignments: list[str]):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if config.dino_checkpoint is not None:
         encoder = load_dinov3_encoder(
@@ -360,6 +382,23 @@ def create_toy_task(config: InstanceComparisonConfig, weight_assignments: list[s
         )
     else:
         encoder = load_dinov3_encoder(device=device)
+    if config.toy_architecture == "dino-mask-rcnn":
+        model = create_dino_mask_rcnn_model(
+            encoder=encoder,
+            num_bands=len(weight_assignments),
+            target_size=config.target_size,
+            weight_assignments=weight_assignments,
+            freeze_backbone=config.toy_freeze_backbone,
+            anchor_sizes=config.graha_anchor_sizes,
+            anchor_aspect_ratios=config.graha_anchor_aspect_ratios,
+        ).to(device)
+        return ToyDinoMaskRCNNLightningModule(
+            model=model,
+            learning_rate=config.toy_learning_rate,
+            weight_decay=config.toy_weight_decay,
+            max_epochs=config.max_epochs,
+            max_grad_norm=config.toy_gradient_clip_val,
+        )
     model = create_mask2former_dinov3_model(
         encoder=encoder,
         freeze_backbone=config.toy_freeze_backbone,
@@ -376,11 +415,13 @@ def create_toy_task(config: InstanceComparisonConfig, weight_assignments: list[s
     )
 
 
-def create_toy_image_processor(target_size: int):
+def create_toy_image_processor(config: InstanceComparisonConfig):
+    if config.toy_architecture == "dino-mask-rcnn":
+        return None
     return AutoImageProcessor.from_pretrained(
         "facebook/mask2former-swin-large-coco-instance",
         do_resize=True,
-        size={"height": target_size, "width": target_size},
+        size={"height": config.target_size, "width": config.target_size},
         do_normalize=False,
         do_reduce_labels=False,
     )
@@ -427,12 +468,17 @@ def create_toy_trainer(
 
 
 def run_toy(config: InstanceComparisonConfig, output_dir: Path) -> Path | None:
-    print("\n=== Toy DINO Mask2Former instance segmentation ===", flush=True)
+    title = (
+        "Toy DINO Mask R-CNN"
+        if config.toy_architecture == "dino-mask-rcnn"
+        else "Toy DINO Mask2Former"
+    )
+    print(f"\n=== {title} instance segmentation ===", flush=True)
     started = time.perf_counter()
     seed_everything(config.seed)
     datamodule = create_toy_datamodule(config)
     task = create_toy_task(config, datamodule.weight_assignments or [])
-    image_processor = create_toy_image_processor(config.target_size)
+    image_processor = create_toy_image_processor(config)
     trainer = create_toy_trainer(config, output_dir, image_processor)
     prediction_cache = None
 
@@ -454,16 +500,27 @@ def run_toy(config: InstanceComparisonConfig, output_dir: Path) -> Path | None:
         toy_checkpoints = sorted((output_dir / "checkpoints" / "toy_model").glob("*.ckpt"))
         print(f"[Toy] saved {len(toy_checkpoints)} checkpoint file(s).", flush=True)
 
-    prediction_cache = save_toy_instance_prediction_cache(
-        task=task,
-        datamodule=datamodule,
-        output_dir=output_dir,
-        image_processor=image_processor,
-        model_name="toy",
-        split=config.prediction_split,
-        n_samples=config.prediction_n_samples,
-        score_threshold=config.prediction_score_threshold,
-    )
+    if image_processor is None:
+        prediction_cache = save_graha_instance_prediction_cache(
+            task=task,
+            datamodule=datamodule,
+            output_dir=output_dir,
+            model_name="toy",
+            split=config.prediction_split,
+            n_samples=config.prediction_n_samples,
+            score_threshold=config.prediction_score_threshold,
+        )
+    else:
+        prediction_cache = save_toy_instance_prediction_cache(
+            task=task,
+            datamodule=datamodule,
+            output_dir=output_dir,
+            image_processor=image_processor,
+            model_name="toy",
+            split=config.prediction_split,
+            n_samples=config.prediction_n_samples,
+            score_threshold=config.prediction_score_threshold,
+        )
     plot_path = plot_instance_cache_predictions(
         prediction_cache,
         output_dir / "plots" / "single_model" / "toy_model",
@@ -607,6 +664,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dino-lightning-checkpoint", type=str, default=None)
     parser.add_argument("--graha-pretrain-dir", type=str, default=None)
     parser.add_argument("--graha-lightning-checkpoint", type=str, default=None)
+    parser.add_argument(
+        "--toy-architecture",
+        choices=["mask2former", "dino-mask-rcnn"],
+        default="mask2former",
+        help="Toy instance head to train. Use dino-mask-rcnn for a tighter Mask R-CNN comparison.",
+    )
     parser.add_argument("--target-size", type=int, default=256)
     parser.add_argument("--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6])
     parser.add_argument("--max-train-samples", type=int, default=None)
