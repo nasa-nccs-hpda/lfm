@@ -15,8 +15,8 @@ from lfm.full_model.all_tasks.datamodules.datamodule_utils import (
     image_to_chw_float,
     mask_to_hw_long,
     normalize_image,
+    read_image_file,
     read_label_file,
-    read_tif,
     shift_mask,
 )
 from lfm.toy_model.inst_seg.iseg_dataset import get_input_metadata
@@ -102,7 +102,7 @@ class ToyInstanceSegSplitDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict[str, Any]:
         record = self.records[index]
-        image = image_to_chw_float(read_tif(record.image_path))
+        image = image_to_chw_float(read_image_file(record.image_path))
         if self.band_filter is not None:
             image = image[self.band_filter]
 
@@ -155,6 +155,10 @@ class ToyInstanceSegSplitDataModule(LightningDataModule):
         batch_size: int = 2,
         num_workers: int = 10,
         target_size: int | tuple[int, int] = 256,
+        image_glob: str = "*.tif",
+        label_glob: str = "*_label.npz",
+        image_suffix: str = "_input_wac_static_chip",
+        label_suffix: str = "_label",
         band_filter: list[int] | None = None,
         normalize_inputs: bool = False,
         mask_shift: tuple[int, int] | None = None,
@@ -170,6 +174,10 @@ class ToyInstanceSegSplitDataModule(LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.target_size = target_size
+        self.image_glob = image_glob
+        self.label_glob = label_glob
+        self.image_suffix = image_suffix
+        self.label_suffix = label_suffix
         self.band_filter = band_filter
         self.normalize_inputs = normalize_inputs
         self.mask_shift = mask_shift
@@ -202,6 +210,10 @@ class ToyInstanceSegSplitDataModule(LightningDataModule):
         return ToyInstanceSegSplitDataset(
             self.data_root / split,
             target_size=self.target_size,
+            image_glob=self.image_glob,
+            label_glob=self.label_glob,
+            image_suffix=self.image_suffix,
+            label_suffix=self.label_suffix,
             band_filter=self.band_filter,
             normalize_inputs=self.normalize_inputs,
             means=self.means,
@@ -216,6 +228,10 @@ class ToyInstanceSegSplitDataModule(LightningDataModule):
         stats_dataset = ToyInstanceSegSplitDataset(
             self.data_root / "train",
             target_size=self.target_size,
+            image_glob=self.image_glob,
+            label_glob=self.label_glob,
+            image_suffix=self.image_suffix,
+            label_suffix=self.label_suffix,
             band_filter=self.band_filter,
             normalize_inputs=False,
             scale_inputs=self.scale_inputs,

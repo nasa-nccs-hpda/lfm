@@ -275,6 +275,10 @@ class InstanceComparisonConfig:
     graha_wac_mode: str
     graha_vis_uv_merge_method: str
     normalization_source: str
+    image_glob: str
+    label_glob: str
+    image_suffix: str
+    label_suffix: str
     toy_architecture: str
     target_size: int
     band_filter: list[int]
@@ -351,6 +355,10 @@ def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
         graha_wac_mode=args.graha_wac_mode,
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=getattr(args, "normalization_source", "pretrain"),
+        image_glob=args.image_glob,
+        label_glob=args.label_glob,
+        image_suffix=args.image_suffix,
+        label_suffix=args.label_suffix,
         toy_architecture=args.toy_architecture,
         target_size=args.target_size,
         band_filter=args.band_filter,
@@ -469,6 +477,10 @@ def create_toy_datamodule(config: InstanceComparisonConfig):
         batch_size=config.toy_batch_size,
         num_workers=config.toy_num_workers,
         target_size=config.target_size,
+        image_glob=config.image_glob,
+        label_glob=config.label_glob,
+        image_suffix=config.image_suffix,
+        label_suffix=config.label_suffix,
         band_filter=config.band_filter,
         normalize_inputs=config.toy_normalize_inputs,
         means=means,
@@ -685,6 +697,10 @@ def build_graha_config(config: InstanceComparisonConfig, output_dir: Path):
         graha_wac_mode=config.graha_wac_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         normalization_source=config.normalization_source,
+        image_glob=config.image_glob,
+        label_glob=config.label_glob,
+        image_suffix=config.image_suffix,
+        label_suffix=config.label_suffix,
         crop_size=config.target_size,
         stats_batch_size=config.graha_stats_batch_size,
         batch_size=config.graha_batch_size,
@@ -830,6 +846,26 @@ def parse_args() -> argparse.Namespace:
         choices=["pretrain", "finetune"],
         default="pretrain",
         help="When normalizing inputs, use TerraMind pretraining stats or finetuning train-split stats.",
+    )
+    parser.add_argument(
+        "--image-glob",
+        default="*.tif",
+        help="Chip filename glob inside each split/chips directory.",
+    )
+    parser.add_argument(
+        "--label-glob",
+        default="*_label.*",
+        help="Label filename glob inside each split/labels directory.",
+    )
+    parser.add_argument(
+        "--image-suffix",
+        default="_input_wac_static_chip",
+        help="Suffix stripped from chip stems before matching labels.",
+    )
+    parser.add_argument(
+        "--label-suffix",
+        default="_label",
+        help="Suffix stripped from label stems before matching chips.",
     )
     parser.add_argument(
         "--toy-architecture",

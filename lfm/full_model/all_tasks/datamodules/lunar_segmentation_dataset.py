@@ -14,8 +14,8 @@ from .datamodule_utils import (
     image_to_chw_float,
     mask_to_hw_long,
     normalize_image,
+    read_image_file,
     read_label_file,
-    read_tif,
     shift_mask,
 )
 
@@ -74,7 +74,7 @@ class LunarSegmentationDataset(Dataset):
 
     def _load_common(self, index: int) -> tuple[dict, object]:
         record = self.records[index]
-        image = image_to_chw_float(read_tif(record.image_path))
+        image = image_to_chw_float(read_image_file(record.image_path))
         label = read_label_file(record.label_path)
         label_mask = label["mask"] if isinstance(label, dict) else label
         mask = mask_to_hw_long(label_mask)

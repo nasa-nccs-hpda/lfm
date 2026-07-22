@@ -573,8 +573,17 @@ def get_input_metadata(
         Index corresponds to band position after filtering.
     """
 
+    from lfm.full_model.all_tasks.datamodules.datamodule_utils import read_image_file
+
     image_dir = f"{base_dir}/chips"
-    all_image_paths = glob(os.path.join(image_dir, "*.tif"))
+    all_image_paths = []
+    for pattern in ("*.tif", "*.tiff", "*.npy", "*.npz", "*.nc"):
+        all_image_paths.extend(glob(os.path.join(image_dir, pattern)))
+    all_image_paths = sorted(all_image_paths)
+    if not all_image_paths:
+        raise FileNotFoundError(
+            f"No image chips found in {image_dir} for .tif/.tiff/.npy/.npz/.nc"
+        )
     image_path = all_image_paths[0]
 
     # Known wavelengths for visible bands (indices 0-4)
@@ -605,10 +614,23 @@ def get_input_metadata(
         # Everything else (static data) -> red
         return "red"
 
-    # Read band descriptions
-    with rasterio.open(image_path) as src:
-        num_bands = src.count
-        descriptions = [src.descriptions[i] or f"Band {i+1}" for i in range(num_bands)]
+    # Read band descriptions when available. Array-backed formats do not carry
+    # wavelength metadata here, so fall back to band-index conventions.
+    if Path(image_path).suffix.lower() in {".tif", ".tiff"}:
+        with rasterio.open(image_path) as src:
+            num_bands = src.count
+            descriptions = [
+                src.descriptions[i] or f"Band {i+1}" for i in range(num_bands)
+            ]
+    else:
+        image = np.asarray(read_image_file(Path(image_path)))
+        if image.ndim == 2:
+            num_bands = 1
+        elif image.ndim == 3:
+            num_bands = image.shape[0] if image.shape[0] <= image.shape[-1] else image.shape[-1]
+        else:
+            raise ValueError(f"Expected 2D or 3D image array, got {image.shape}")
+        descriptions = [f"Band {i + 1}" for i in range(num_bands)]
 
     # Apply band filter
     if band_filter is None:

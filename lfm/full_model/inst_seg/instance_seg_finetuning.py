@@ -89,6 +89,10 @@ class InstanceFineTuningConfig:
     graha_wac_mode: str
     graha_vis_uv_merge_method: str
     normalization_source: str
+    image_glob: str
+    label_glob: str
+    image_suffix: str
+    label_suffix: str
     crop_size: int
     stats_batch_size: int
     batch_size: int
@@ -174,6 +178,10 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         graha_wac_mode=args.graha_wac_mode,
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=getattr(args, "normalization_source", "pretrain"),
+        image_glob=args.image_glob,
+        label_glob=args.label_glob,
+        image_suffix=args.image_suffix,
+        label_suffix=args.label_suffix,
         crop_size=args.crop_size,
         stats_batch_size=args.stats_batch_size,
         batch_size=args.batch_size,
@@ -286,10 +294,10 @@ def common_datamodule_args(config: InstanceFineTuningConfig) -> dict[str, Any]:
     return {
         "data_root": config.data_root,
         "crop_size": config.crop_size,
-        "image_glob": "*.tif",
-        "label_glob": "*_label.*",
-        "image_suffix": "_input_wac_static_chip",
-        "label_suffix": "_label",
+        "image_glob": config.image_glob,
+        "label_glob": config.label_glob,
+        "image_suffix": config.image_suffix,
+        "label_suffix": config.label_suffix,
         "target_box_format": "xyxy",
         "no_data_replace": 0.0,
         "no_label_replace": None,
@@ -577,6 +585,26 @@ def parse_args() -> argparse.Namespace:
         choices=["pretrain", "finetune"],
         default="pretrain",
         help="Use TerraMind pretraining stats or finetuning train-split stats for input z-score.",
+    )
+    parser.add_argument(
+        "--image-glob",
+        default="*.tif",
+        help="Chip filename glob inside each split/chips directory.",
+    )
+    parser.add_argument(
+        "--label-glob",
+        default="*_label.*",
+        help="Label filename glob inside each split/labels directory.",
+    )
+    parser.add_argument(
+        "--image-suffix",
+        default="_input_wac_static_chip",
+        help="Suffix stripped from chip stems before matching labels.",
+    )
+    parser.add_argument(
+        "--label-suffix",
+        default="_label",
+        help="Suffix stripped from label stems before matching chips.",
     )
     parser.add_argument("--crop-size", type=int, default=256)
     parser.add_argument("--stats-batch-size", type=int, default=16)

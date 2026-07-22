@@ -81,6 +81,45 @@ def read_tif(path: Path) -> np.ndarray:
         return tifffile.imread(path)
 
 
+def read_netcdf(path: Path, *, variable: str = "band_data") -> np.ndarray:
+    """Read a NetCDF image variable with xarray."""
+    import xarray as xr
+
+    with xr.open_dataset(path) as dataset:
+        if variable in dataset:
+            arr = dataset[variable].values
+        elif len(dataset.data_vars) == 1:
+            arr = next(iter(dataset.data_vars.values())).values
+        else:
+            available = ", ".join(dataset.data_vars)
+            raise KeyError(
+                f"{path} does not contain variable {variable!r}. "
+                f"Available variables: {available}"
+            )
+    return np.asarray(arr)
+
+
+def read_image_file(path: Path) -> np.ndarray:
+    suffix = path.suffix.lower()
+    if suffix == ".npy":
+        return np.load(path)
+    if suffix == ".npz":
+        with np.load(path) as data:
+            if "image" in data:
+                return data["image"]
+            if "data" in data:
+                return data["data"]
+            if len(data.files) == 1:
+                return data[data.files[0]]
+            raise KeyError(
+                f"{path} is an image .npz but does not contain 'image' or 'data'. "
+                f"Available keys: {data.files}"
+            )
+    if suffix == ".nc":
+        return read_netcdf(path)
+    return read_tif(path)
+
+
 def read_label_file(path: Path) -> np.ndarray | dict[str, np.ndarray | None]:
     if path.suffix.lower() == ".npy":
         return np.load(path)

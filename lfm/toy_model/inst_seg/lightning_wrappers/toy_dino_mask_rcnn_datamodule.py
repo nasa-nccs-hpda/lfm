@@ -49,6 +49,10 @@ class ToyDinoMaskRCNNSplitDataModule(LightningDataModule):
         batch_size: int = 2,
         num_workers: int = 10,
         target_size: int | tuple[int, int] = 256,
+        image_glob: str = "*.tif",
+        label_glob: str = "*_label.npz",
+        image_suffix: str = "_input_wac_static_chip",
+        label_suffix: str = "_label",
         band_filter: list[int] | None = None,
         normalize_inputs: bool = False,
         mask_shift: tuple[int, int] | None = None,
@@ -64,6 +68,10 @@ class ToyDinoMaskRCNNSplitDataModule(LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.target_size = target_size
+        self.image_glob = image_glob
+        self.label_glob = label_glob
+        self.image_suffix = image_suffix
+        self.label_suffix = label_suffix
         self.band_filter = band_filter
         self.normalize_inputs = normalize_inputs
         self.mask_shift = mask_shift
@@ -96,6 +104,10 @@ class ToyDinoMaskRCNNSplitDataModule(LightningDataModule):
         return ToyDinoMaskRCNNSplitDataset(
             self.data_root / split,
             target_size=self.target_size,
+            image_glob=self.image_glob,
+            label_glob=self.label_glob,
+            image_suffix=self.image_suffix,
+            label_suffix=self.label_suffix,
             band_filter=self.band_filter,
             normalize_inputs=self.normalize_inputs,
             means=self.means,
@@ -110,6 +122,10 @@ class ToyDinoMaskRCNNSplitDataModule(LightningDataModule):
         stats_dataset = ToyDinoMaskRCNNSplitDataset(
             self.data_root / "train",
             target_size=self.target_size,
+            image_glob=self.image_glob,
+            label_glob=self.label_glob,
+            image_suffix=self.image_suffix,
+            label_suffix=self.label_suffix,
             band_filter=self.band_filter,
             normalize_inputs=False,
             scale_inputs=self.scale_inputs,
