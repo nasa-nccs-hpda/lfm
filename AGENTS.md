@@ -125,6 +125,7 @@ This copies a selected experiment output directory to the project experiment spa
 
 ## Working Rules
 
+- Do not generate code unless the user prompts with "start the refactor", "generate code for x", or something similar.
 - Preserve notebook organization when changing notebook behavior.
 - Keep semantic and instance workflows aligned where practical.
 - Prefer task-specific modules/scripts over adding more logic directly into notebooks.
