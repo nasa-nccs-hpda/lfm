@@ -25,6 +25,11 @@ import torch.nn.functional as F
 from tqdm import tqdm
 import rasterio
 
+from lfm.full_model.all_tasks.datamodules.datamodule_utils import (
+    path_key,
+    read_image_file,
+)
+
 
 class LunarCraterDataset(Dataset):
     """
@@ -57,15 +62,20 @@ class LunarCraterDataset(Dataset):
         scale_inputs: bool = True,
         spatial_transform: str = "resize",
         split_name: Optional[str] = None,
+        image_file_type: str = ".tif",
         label_file_type: str = ".npy",
+        image_suffix: str = "_input_wac_static_chip",
+        label_suffix: str = "_label",
         label_npz_key: str = "mask",
         binarize_label: bool = False,
     ):
         # Hardcoded directory structure and file types
         self.image_dir = f"{base_dir}/chips"
         self.label_dir = f"{base_dir}/labels"
-        self.image_file_type = ".tif"
+        self.image_file_type = image_file_type
         self.label_file_type = label_file_type
+        self.image_suffix = image_suffix
+        self.label_suffix = label_suffix
         self.label_npz_key = label_npz_key
         self.binarize_label = binarize_label
         self.split_name = split_name or Path(base_dir).name
@@ -132,11 +142,11 @@ class LunarCraterDataset(Dataset):
 
         # Extract basenames for matching
         self.image_basenames = [
-            "_".join(Path(filename).stem.split("_")[:3])
+            path_key(Path(filename), self.image_suffix)
             for filename in self.image_paths
         ]
         label_basenames = [
-            "_".join(Path(filename).stem.split("_")[:3]) for filename in label_paths
+            path_key(Path(filename), self.label_suffix) for filename in label_paths
         ]
 
         # Create lookup dictionary for labels
@@ -173,19 +183,12 @@ class LunarCraterDataset(Dataset):
             )
 
     def _load_example_input(self, img_path: str) -> int:
-        """
-        Load an example .tif image to determine number of bands.
-
-        Returns:
-            Number of channels in the image
-        """
-        image = rasterio.open(img_path).read()  # Shape: (C, H, W)
+        """Load an example image to determine number of bands."""
+        image = read_image_file(Path(img_path))
 
         if image.ndim == 3:
-            # TIF format is (C, H, W)
-            return image.shape[0]
+            return image.shape[0] if image.shape[0] <= image.shape[-1] else image.shape[-1]
         elif image.ndim == 2:
-            # Grayscale image
             return 1
         else:
             raise ValueError(
@@ -256,8 +259,7 @@ class LunarCraterDataset(Dataset):
         img_path = self.valid_image_paths[idx]
         label_path = self.valid_label_paths[idx]
 
-        # Load .tif image (C, H, W) and label (H, W).
-        image = rasterio.open(img_path).read()  # Shape: (C, H, W)
+        image = read_image_file(Path(img_path))
         if Path(label_path).suffix == ".npz":
             with np.load(label_path) as archive:
                 label = archive[self.label_npz_key]
@@ -637,7 +639,14 @@ def get_input_metadata(
     """
 
     image_dir = f"{base_dir}/chips"
-    all_image_paths = glob(os.path.join(image_dir, "*.tif"))
+    all_image_paths = []
+    for pattern in ("*.tif", "*.tiff", "*.npy", "*.npz", "*.nc"):
+        all_image_paths.extend(glob(os.path.join(image_dir, pattern)))
+    all_image_paths = sorted(all_image_paths)
+    if not all_image_paths:
+        raise FileNotFoundError(
+            f"No image chips found in {image_dir} for .tif/.tiff/.npy/.npz/.nc"
+        )
     image_path = all_image_paths[0]
 
     # Known wavelengths for visible bands (indices 0-4)
@@ -668,10 +677,25 @@ def get_input_metadata(
         # Everything else (static data) -> red
         return "red"
 
-    # Read band descriptions
-    with rasterio.open(image_path) as src:
-        num_bands = src.count
-        descriptions = [src.descriptions[i] or f"Band {i+1}" for i in range(num_bands)]
+    # Read band descriptions when available. Array-backed formats do not carry
+    # wavelength metadata here, so fall back to band-index conventions.
+    if Path(image_path).suffix.lower() in {".tif", ".tiff"}:
+        with rasterio.open(image_path) as src:
+            num_bands = src.count
+            descriptions = [
+                src.descriptions[i] or f"Band {i+1}" for i in range(num_bands)
+            ]
+    else:
+        image = np.asarray(read_image_file(Path(image_path)))
+        if image.ndim == 2:
+            num_bands = 1
+        elif image.ndim == 3:
+            num_bands = (
+                image.shape[0] if image.shape[0] <= image.shape[-1] else image.shape[-1]
+            )
+        else:
+            raise ValueError(f"Expected 2D or 3D image array, got {image.shape}")
+        descriptions = [f"Band {i + 1}" for i in range(num_bands)]
 
     # Apply band filter
     if band_filter is None:

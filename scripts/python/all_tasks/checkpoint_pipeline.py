@@ -116,6 +116,10 @@ def _semantic_comparison_command(
     command.extend(_common_comparison_args(args))
     _append_flag(command, "--spatial-transform", args.spatial_transform)
     _append_flag(command, "--semantic-label-source", args.semantic_label_source)
+    _append_flag(command, "--image-glob", args.image_glob)
+    _append_flag(command, "--label-glob", args.label_glob)
+    _append_flag(command, "--image-suffix", args.image_suffix)
+    _append_flag(command, "--label-suffix", args.label_suffix)
     _append_flag(command, "--batch-size", args.batch_size)
     _append_flag(command, "--num-workers", args.num_workers)
     _append_flag(command, "--learning-rate", args.learning_rate)
@@ -151,6 +155,10 @@ def _instance_comparison_command(
         str(base_output_dir),
     ]
     command.extend(_common_comparison_args(args))
+    _append_flag(command, "--image-glob", args.image_glob)
+    _append_flag(command, "--label-glob", args.label_glob)
+    _append_flag(command, "--image-suffix", args.image_suffix)
+    _append_flag(command, "--label-suffix", args.label_suffix)
     _append_flag(command, "--toy-batch-size", args.toy_batch_size)
     _append_flag(command, "--toy-num-workers", args.toy_num_workers)
     _append_flag(command, "--toy-learning-rate", args.toy_learning_rate)
@@ -211,6 +219,10 @@ def _semantic_sweep_command(
     _append_flag(command, "--target-size", args.target_size)
     _append_flag(command, "--spatial-transform", args.spatial_transform)
     _append_flag(command, "--semantic-label-source", args.semantic_label_source)
+    _append_flag(command, "--image-glob", args.image_glob)
+    _append_flag(command, "--label-glob", args.label_glob)
+    _append_flag(command, "--image-suffix", args.image_suffix)
+    _append_flag(command, "--label-suffix", args.label_suffix)
     _append_flag(command, "--batch-size", args.batch_size)
     _append_flag(command, "--num-workers", args.num_workers)
     _append_flag(command, "--normalize-inputs", args.normalize_inputs)
@@ -255,6 +267,10 @@ def _instance_sweep_command(
     _append_flag(command, "--models", args.models)
     _append_flag(command, "--target-size", args.target_size)
     _append_flag(command, "--band-filter", args.band_filter)
+    _append_flag(command, "--image-glob", args.image_glob)
+    _append_flag(command, "--label-glob", args.label_glob)
+    _append_flag(command, "--image-suffix", args.image_suffix)
+    _append_flag(command, "--label-suffix", args.label_suffix)
     _append_flag(command, "--max-samples", args.sweep_max_samples)
     _append_flag(command, "--toy-batch-size", args.toy_batch_size)
     _append_flag(command, "--toy-num-workers", args.toy_num_workers)
@@ -382,6 +398,26 @@ def parse_args() -> argparse.Namespace:
         choices=["semantic", "instance"],
         default="semantic",
         help="Semantic task label format: .npy semantic masks or .npz instance labels converted to semantic masks.",
+    )
+    parser.add_argument(
+        "--image-glob",
+        default="*.tif",
+        help="Semantic chip filename glob inside each split/chips directory.",
+    )
+    parser.add_argument(
+        "--label-glob",
+        default="*_label.*",
+        help="Semantic label filename glob inside each split/labels directory.",
+    )
+    parser.add_argument(
+        "--image-suffix",
+        default="_input_wac_static_chip",
+        help="Semantic suffix stripped from chip stems before matching labels.",
+    )
+    parser.add_argument(
+        "--label-suffix",
+        default="_label",
+        help="Semantic suffix stripped from label stems before matching chips.",
     )
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--max-val-samples", type=int, default=None)

@@ -80,6 +80,10 @@ class InstanceSweepConfig:
     models: list[str]
     target_size: int
     band_filter: list[int]
+    image_glob: str
+    label_glob: str
+    image_suffix: str
+    label_suffix: str
     max_samples: int | None
     toy_batch_size: int
     toy_num_workers: int
@@ -140,6 +144,10 @@ def build_config(args: argparse.Namespace) -> InstanceSweepConfig:
         models=models,
         target_size=args.target_size,
         band_filter=args.band_filter,
+        image_glob=args.image_glob,
+        label_glob=args.label_glob,
+        image_suffix=args.image_suffix,
+        label_suffix=args.label_suffix,
         max_samples=args.max_samples,
         toy_batch_size=args.toy_batch_size,
         toy_num_workers=args.toy_num_workers,
@@ -572,6 +580,10 @@ def _make_comparison_args(config: InstanceSweepConfig) -> argparse.Namespace:
         normalization_source=config.normalization_source,
         target_size=config.target_size,
         band_filter=config.band_filter,
+        image_glob=config.image_glob,
+        label_glob=config.label_glob,
+        image_suffix=config.image_suffix,
+        label_suffix=config.label_suffix,
         max_train_samples=None,
         max_val_samples=None,
         max_test_samples=config.max_samples,
@@ -788,6 +800,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-size", type=int, default=256)
     parser.add_argument(
         "--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6]
+    )
+    parser.add_argument(
+        "--image-glob",
+        default="*.tif",
+        help="Chip filename glob inside each split/chips directory.",
+    )
+    parser.add_argument(
+        "--label-glob",
+        default="*_label.*",
+        help="Label filename glob inside each split/labels directory.",
+    )
+    parser.add_argument(
+        "--image-suffix",
+        default="_input_wac_static_chip",
+        help="Suffix stripped from chip stems before matching labels.",
+    )
+    parser.add_argument(
+        "--label-suffix",
+        default="_label",
+        help="Suffix stripped from label stems before matching chips.",
     )
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--toy-batch-size", type=int, default=2)

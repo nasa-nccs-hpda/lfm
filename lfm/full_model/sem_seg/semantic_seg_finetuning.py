@@ -41,6 +41,10 @@ class FineTuningConfig:
     graha_vis_uv_merge_method: str
     normalization_source: str
     semantic_label_source: str
+    image_glob: str
+    label_glob: str
+    image_suffix: str
+    label_suffix: str
     shape_loss_weight: float
     shape_loss_pad_frac: float
     crop_size: int
@@ -167,6 +171,10 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=getattr(args, "normalization_source", "pretrain"),
         semantic_label_source=getattr(args, "semantic_label_source", "semantic"),
+        image_glob=args.image_glob,
+        label_glob=args.label_glob,
+        image_suffix=args.image_suffix,
+        label_suffix=args.label_suffix,
         shape_loss_weight=getattr(args, "shape_loss_weight", 0.05),
         shape_loss_pad_frac=getattr(args, "shape_loss_pad_frac", 0.3),
         crop_size=args.crop_size,
@@ -304,10 +312,10 @@ def common_datamodule_args(config: FineTuningConfig) -> dict[str, Any]:
     return {
         "data_root": config.data_root,
         "crop_size": config.crop_size,
-        "image_glob": "*.tif",
-        "label_glob": "*_label.*",
-        "image_suffix": "_input_wac_static_chip",
-        "label_suffix": "_label",
+        "image_glob": config.image_glob,
+        "label_glob": config.label_glob,
+        "image_suffix": config.image_suffix,
+        "label_suffix": config.label_suffix,
         "no_data_replace": 0.0,
         "no_label_replace": None,
     }
@@ -572,6 +580,26 @@ def parse_args() -> argparse.Namespace:
         choices=["semantic", "instance"],
         default="semantic",
         help="Use .npy semantic labels or .npz instance labels converted to semantic masks.",
+    )
+    parser.add_argument(
+        "--image-glob",
+        default="*.tif",
+        help="Chip filename glob inside each split/chips directory.",
+    )
+    parser.add_argument(
+        "--label-glob",
+        default="*_label.*",
+        help="Label filename glob inside each split/labels directory.",
+    )
+    parser.add_argument(
+        "--image-suffix",
+        default="_input_wac_static_chip",
+        help="Suffix stripped from chip stems before matching labels.",
+    )
+    parser.add_argument(
+        "--label-suffix",
+        default="_label",
+        help="Suffix stripped from label stems before matching chips.",
     )
     parser.add_argument("--shape-loss-weight", type=float, default=0.05)
     parser.add_argument("--shape-loss-pad-frac", type=float, default=0.3)

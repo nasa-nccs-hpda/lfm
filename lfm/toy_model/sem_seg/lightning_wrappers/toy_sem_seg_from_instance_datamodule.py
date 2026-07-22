@@ -99,6 +99,9 @@ class ToySemSegFromInstanceDataModule(ToySemSegSplitDataModule):
             band_filter=self.band_filter,
             normalize_inputs=self.normalize_inputs,
             split_name=split,
+            image_file_type=self.image_file_type,
+            image_suffix=self.image_suffix,
+            label_suffix=self.label_suffix,
             scale_inputs=self.scale_inputs,
         )
 
@@ -113,6 +116,9 @@ class ToySemSegFromInstanceDataModule(ToySemSegSplitDataModule):
             band_filter=self.band_filter,
             normalize_inputs=False,
             split_name="train-stats",
+            image_file_type=self.image_file_type,
+            image_suffix=self.image_suffix,
+            label_suffix=self.label_suffix,
             scale_inputs=self.scale_inputs,
         )
         pixel_sum = None

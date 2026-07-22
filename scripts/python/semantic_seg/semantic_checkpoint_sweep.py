@@ -76,6 +76,10 @@ class SweepConfig:
     target_size: int
     spatial_transform: str
     semantic_label_source: str
+    image_glob: str
+    label_glob: str
+    image_suffix: str
+    label_suffix: str
     batch_size: int
     num_workers: int
     normalize_inputs: bool
@@ -135,6 +139,10 @@ def build_config(args: argparse.Namespace) -> SweepConfig:
         target_size=args.target_size,
         spatial_transform=args.spatial_transform,
         semantic_label_source=getattr(args, "semantic_label_source", "semantic"),
+        image_glob=args.image_glob,
+        label_glob=args.label_glob,
+        image_suffix=args.image_suffix,
+        label_suffix=args.label_suffix,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         normalize_inputs=args.normalize_inputs,
@@ -626,6 +634,10 @@ def _make_toy_args(config: SweepConfig) -> argparse.Namespace:
         target_size=config.target_size,
         spatial_transform=config.spatial_transform,
         semantic_label_source=config.semantic_label_source,
+        image_glob=config.image_glob,
+        label_glob=config.label_glob,
+        image_suffix=config.image_suffix,
+        label_suffix=config.label_suffix,
         max_train_samples=None,
         max_val_samples=None,
         max_test_samples=config.max_test_samples,
@@ -749,6 +761,10 @@ def _make_graha_args(config: SweepConfig) -> argparse.Namespace:
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         normalization_source=config.normalization_source,
         semantic_label_source=config.semantic_label_source,
+        image_glob=config.image_glob,
+        label_glob=config.label_glob,
+        image_suffix=config.image_suffix,
+        label_suffix=config.label_suffix,
         shape_loss_weight=0.0,
         shape_loss_pad_frac=0.3,
         crop_size=config.target_size,
@@ -887,6 +903,26 @@ def parse_args() -> argparse.Namespace:
         "--semantic-label-source",
         choices=["semantic", "instance"],
         default="semantic",
+    )
+    parser.add_argument(
+        "--image-glob",
+        default="*.tif",
+        help="Chip filename glob inside each split/chips directory.",
+    )
+    parser.add_argument(
+        "--label-glob",
+        default="*_label.*",
+        help="Label filename glob inside each split/labels directory.",
+    )
+    parser.add_argument(
+        "--image-suffix",
+        default="_input_wac_static_chip",
+        help="Suffix stripped from chip stems before matching labels.",
+    )
+    parser.add_argument(
+        "--label-suffix",
+        default="_label",
+        help="Suffix stripped from label stems before matching chips.",
     )
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=10)

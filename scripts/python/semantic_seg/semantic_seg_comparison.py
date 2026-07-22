@@ -54,6 +54,11 @@ class ToyComparisonConfig:
     target_size: tuple[int, int]
     spatial_transform: str
     semantic_label_source: str
+    image_glob: str
+    label_glob: str
+    image_suffix: str
+    label_suffix: str
+    image_file_type: str
     max_train_samples: int | None
     max_val_samples: int | None
     max_test_samples: int | None
@@ -93,6 +98,11 @@ class ToyComparisonConfig:
     epoch_test_n_samples: int
     epoch_test_every_n_epochs: int
     seed: int
+
+
+def _file_type_from_glob(pattern: str) -> str:
+    suffix = Path(pattern.replace("*", "")).suffix
+    return suffix or ".tif"
 
 
 SEMANTIC_EPOCH_TEST_METRICS = [
@@ -438,6 +448,11 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         target_size=(args.target_size, args.target_size),
         spatial_transform=args.spatial_transform,
         semantic_label_source=args.semantic_label_source,
+        image_glob=args.image_glob,
+        label_glob=args.label_glob,
+        image_suffix=args.image_suffix,
+        label_suffix=args.label_suffix,
+        image_file_type=_file_type_from_glob(args.image_glob),
         max_train_samples=args.max_train_samples,
         max_val_samples=args.max_val_samples,
         max_test_samples=args.max_test_samples,
@@ -607,6 +622,10 @@ def create_datamodule(
                 graha_wac_mode=config.graha_wac_mode,
                 graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
                 normalization_source=config.normalization_source,
+                image_glob=config.image_glob,
+                label_glob=config.label_glob,
+                image_suffix=config.image_suffix,
+                label_suffix=config.label_suffix,
                 crop_size=config.target_size[0],
                 stats_batch_size=config.graha_stats_batch_size,
                 batch_size=config.graha_batch_size,
@@ -635,6 +654,9 @@ def create_datamodule(
         num_workers=config.num_workers,
         target_size=config.target_size,
         spatial_transform=config.spatial_transform,
+        image_file_type=config.image_file_type,
+        image_suffix=config.image_suffix,
+        label_suffix=config.label_suffix,
         band_filter=config.band_filter,
         normalize_inputs=config.normalize_inputs,
         means=means,
@@ -778,6 +800,10 @@ def run_graha_workflow(
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         normalization_source=config.normalization_source,
         semantic_label_source=config.semantic_label_source,
+        image_glob=config.image_glob,
+        label_glob=config.label_glob,
+        image_suffix=config.image_suffix,
+        label_suffix=config.label_suffix,
         shape_loss_weight=config.graha_shape_loss_weight,
         shape_loss_pad_frac=config.graha_shape_loss_pad_frac,
         crop_size=config.target_size[0],
@@ -946,6 +972,26 @@ def parse_args() -> argparse.Namespace:
         choices=["semantic", "instance"],
         default="semantic",
         help="Use .npy semantic labels or .npz instance labels converted to semantic masks.",
+    )
+    parser.add_argument(
+        "--image-glob",
+        default="*.tif",
+        help="Chip filename glob inside each split/chips directory.",
+    )
+    parser.add_argument(
+        "--label-glob",
+        default="*_label.*",
+        help="Label filename glob inside each split/labels directory.",
+    )
+    parser.add_argument(
+        "--image-suffix",
+        default="_input_wac_static_chip",
+        help="Suffix stripped from chip stems before matching labels.",
+    )
+    parser.add_argument(
+        "--label-suffix",
+        default="_label",
+        help="Suffix stripped from label stems before matching chips.",
     )
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--max-val-samples", type=int, default=None)

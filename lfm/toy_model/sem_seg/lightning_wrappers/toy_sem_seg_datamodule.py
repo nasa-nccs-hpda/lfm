@@ -41,7 +41,10 @@ class ToySemSegSplitDataModule(LightningDataModule):
         max_test_samples: int | None = None,
         output_dir: str | Path | None = None,
         pin_memory: bool = True,
+        image_file_type: str = ".tif",
         label_file_type: str = ".npy",
+        image_suffix: str = "_input_wac_static_chip",
+        label_suffix: str = "_label",
         label_npz_key: str = "mask",
         binarize_label: bool = False,
         means: list[float] | np.ndarray | None = None,
@@ -63,7 +66,10 @@ class ToySemSegSplitDataModule(LightningDataModule):
         }
         self.output_dir = Path(output_dir) if output_dir is not None else None
         self.pin_memory = pin_memory
+        self.image_file_type = image_file_type
         self.label_file_type = label_file_type
+        self.image_suffix = image_suffix
+        self.label_suffix = label_suffix
         self.label_npz_key = label_npz_key
         self.binarize_label = binarize_label
         self.scale_inputs = scale_inputs
@@ -130,7 +136,10 @@ class ToySemSegSplitDataModule(LightningDataModule):
             band_filter=self.band_filter,
             normalize_inputs=self.normalize_inputs,
             split_name=split,
+            image_file_type=self.image_file_type,
             label_file_type=self.label_file_type,
+            image_suffix=self.image_suffix,
+            label_suffix=self.label_suffix,
             label_npz_key=self.label_npz_key,
             binarize_label=self.binarize_label,
             scale_inputs=self.scale_inputs,
@@ -147,7 +156,10 @@ class ToySemSegSplitDataModule(LightningDataModule):
             band_filter=self.band_filter,
             normalize_inputs=False,
             split_name="train-stats",
+            image_file_type=self.image_file_type,
             label_file_type=self.label_file_type,
+            image_suffix=self.image_suffix,
+            label_suffix=self.label_suffix,
             label_npz_key=self.label_npz_key,
             binarize_label=self.binarize_label,
             scale_inputs=self.scale_inputs,
