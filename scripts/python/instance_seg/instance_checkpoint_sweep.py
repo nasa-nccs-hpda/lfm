@@ -38,8 +38,8 @@ from tqdm.auto import tqdm
 
 import instance_seg_comparison as comparison_workflow
 from lfm.full_model.inst_seg import instance_seg_finetuning as graha_workflow
-from lfm.full_model.all_tasks.utils.plot_utils import (
-    _instance_metrics,
+from lfm.full_model.all_tasks.utils.metrics import _instance_metrics
+from lfm.full_model.inst_seg.instance_prediction_cache import (
     _load_instance_prediction_cache,
 )
 from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
@@ -47,7 +47,6 @@ from lfm.full_model.all_tasks.utils import (
     save_graha_instance_prediction_cache,
     save_toy_instance_prediction_cache,
 )
-
 
 METRIC_NAMES = [
     "semantic_f1",
@@ -123,7 +122,9 @@ def build_config(args: argparse.Namespace) -> InstanceSweepConfig:
 
     return InstanceSweepConfig(
         notebook_dir=notebook_dir,
-        data_root=Path(args.data_root).resolve() if args.data_root else notebook_dir / "data",
+        data_root=(
+            Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
+        ),
         output_root=(
             Path(args.output_root).resolve()
             if args.output_root
@@ -133,7 +134,9 @@ def build_config(args: argparse.Namespace) -> InstanceSweepConfig:
             Path(args.toy_checkpoint_dir).resolve() if args.toy_checkpoint_dir else None
         ),
         graha_checkpoint_dir=(
-            Path(args.graha_checkpoint_dir).resolve() if args.graha_checkpoint_dir else None
+            Path(args.graha_checkpoint_dir).resolve()
+            if args.graha_checkpoint_dir
+            else None
         ),
         models=models,
         target_size=args.target_size,
@@ -144,10 +147,12 @@ def build_config(args: argparse.Namespace) -> InstanceSweepConfig:
         toy_normalize_inputs=args.toy_normalize_inputs,
         normalization_source=getattr(args, "normalization_source", "pretrain"),
         toy_architecture=args.toy_architecture,
-        dino_checkpoint=Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None,
-        graha_pretrain_dir=Path(args.graha_pretrain_dir).resolve()
-        if args.graha_pretrain_dir
-        else None,
+        dino_checkpoint=(
+            Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None
+        ),
+        graha_pretrain_dir=(
+            Path(args.graha_pretrain_dir).resolve() if args.graha_pretrain_dir else None
+        ),
         graha_wac_mode=args.graha_wac_mode,
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         graha_stats_batch_size=args.graha_stats_batch_size,
@@ -187,15 +192,27 @@ def discover_checkpoints(
 ) -> list[CheckpointRecord]:
     checkpoint_dir = Path(checkpoint_dir).resolve()
     if not checkpoint_dir.exists():
-        raise FileNotFoundError(f"Checkpoint directory does not exist: {checkpoint_dir}")
+        raise FileNotFoundError(
+            f"Checkpoint directory does not exist: {checkpoint_dir}"
+        )
     paths = sorted(path for path in checkpoint_dir.rglob("*.ckpt") if path.is_file())
     if not paths:
         raise FileNotFoundError(f"No .ckpt files found under {checkpoint_dir}")
     records = [
-        CheckpointRecord(path=path, epoch=_parse_epoch(path), name=_checkpoint_output_name(path, _parse_epoch(path)))
+        CheckpointRecord(
+            path=path,
+            epoch=_parse_epoch(path),
+            name=_checkpoint_output_name(path, _parse_epoch(path)),
+        )
         for path in paths
     ]
-    records.sort(key=lambda item: (item.epoch is None, item.epoch if item.epoch is not None else 10**9, str(item.path)))
+    records.sort(
+        key=lambda item: (
+            item.epoch is None,
+            item.epoch if item.epoch is not None else 10**9,
+            str(item.path),
+        )
+    )
     if max_checkpoints is not None:
         records = records[:max_checkpoints]
     return records
@@ -217,14 +234,18 @@ def _checkpoint_output_name(path: Path, epoch: int | None) -> str:
     return stem or "checkpoint"
 
 
-def _load_lightning_checkpoint_state(module: torch.nn.Module, checkpoint_path: Path) -> None:
+def _load_lightning_checkpoint_state(
+    module: torch.nn.Module, checkpoint_path: Path
+) -> None:
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
             message=".*You are using `torch.load` with `weights_only=False`.*",
             category=FutureWarning,
         )
-        checkpoint = torch.load(Path(checkpoint_path).resolve(), map_location="cpu", weights_only=False)
+        checkpoint = torch.load(
+            Path(checkpoint_path).resolve(), map_location="cpu", weights_only=False
+        )
     module.load_state_dict(checkpoint.get("state_dict", checkpoint), strict=True)
 
 
@@ -251,11 +272,15 @@ def _normalize_prediction_scores(sample: dict[str, Any]) -> np.ndarray:
     num_instances = len([value for value in np.unique(pred_mask) if int(value) != 0])
     scores = np.asarray(sample["pred_scores"], dtype=np.float32).reshape(-1)
     if scores.shape[0] < num_instances:
-        scores = np.pad(scores, (0, num_instances - scores.shape[0]), constant_values=1.0)
+        scores = np.pad(
+            scores, (0, num_instances - scores.shape[0]), constant_values=1.0
+        )
     return scores
 
 
-def _threshold_instance_sample(sample: dict[str, Any], score_threshold: float) -> dict[str, Any]:
+def _threshold_instance_sample(
+    sample: dict[str, Any], score_threshold: float
+) -> dict[str, Any]:
     scores = _normalize_prediction_scores(sample)
     keep = scores >= float(score_threshold)
     pred_mask = np.asarray(sample["pred_mask"])
@@ -308,10 +333,14 @@ def _average_precision_from_detections(
     precision = np.concatenate(([1.0], precision, [0.0]))
     precision = np.maximum.accumulate(precision[::-1])[::-1]
     changed = np.where(recall[1:] != recall[:-1])[0]
-    return float(np.sum((recall[changed + 1] - recall[changed]) * precision[changed + 1]))
+    return float(
+        np.sum((recall[changed + 1] - recall[changed]) * precision[changed + 1])
+    )
 
 
-def _instance_ap_at_threshold(samples: list[dict[str, Any]], iou_threshold: float) -> float:
+def _instance_ap_at_threshold(
+    samples: list[dict[str, Any]], iou_threshold: float
+) -> float:
     detections: list[tuple[float, bool]] = []
     total_gt = 0
     for sample in samples:
@@ -320,7 +349,11 @@ def _instance_ap_at_threshold(samples: list[dict[str, Any]], iou_threshold: floa
         pred_scores = _normalize_prediction_scores(sample)
         total_gt += len(gt_masks)
         matched_gt: set[int] = set()
-        order = np.argsort(-pred_scores, kind="mergesort") if pred_scores.size else np.asarray([], dtype=np.int64)
+        order = (
+            np.argsort(-pred_scores, kind="mergesort")
+            if pred_scores.size
+            else np.asarray([], dtype=np.int64)
+        )
         for pred_index in order:
             if pred_index >= len(pred_masks):
                 detections.append((float(pred_scores[pred_index]), False))
@@ -382,7 +415,9 @@ def _metrics_to_array(metrics: dict[str, float]) -> np.ndarray:
     return row
 
 
-def _write_metrics(output_dir: Path, metrics: dict[str, float], *, header: str | None = None) -> None:
+def _write_metrics(
+    output_dir: Path, metrics: dict[str, float], *, header: str | None = None
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     np.save(output_dir / "metrics.npy", _metrics_to_array(metrics))
     with (output_dir / "metrics.txt").open("w", encoding="utf-8") as f:
@@ -427,10 +462,21 @@ def _write_checkpoint_outputs(
             sample_dir / f"{display_key}_pred_classes.npy",
             np.ones((thresholded_sample["pred_scores"].shape[0],), dtype=np.int64),
         )
-        np.save(sample_dir / f"{display_key}_pred_logits.npy", _score_logits(thresholded_sample["pred_scores"]))
-        np.save(sample_dir / f"{display_key}_gt_boxes.npy", thresholded_sample["gt_boxes"])
-        np.save(sample_dir / f"{display_key}_pred_boxes.npy", thresholded_sample["pred_boxes"])
-        np.save(sample_dir / f"{display_key}_pred_scores.npy", thresholded_sample["pred_scores"])
+        np.save(
+            sample_dir / f"{display_key}_pred_logits.npy",
+            _score_logits(thresholded_sample["pred_scores"]),
+        )
+        np.save(
+            sample_dir / f"{display_key}_gt_boxes.npy", thresholded_sample["gt_boxes"]
+        )
+        np.save(
+            sample_dir / f"{display_key}_pred_boxes.npy",
+            thresholded_sample["pred_boxes"],
+        )
+        np.save(
+            sample_dir / f"{display_key}_pred_scores.npy",
+            thresholded_sample["pred_scores"],
+        )
 
         metrics = _sample_metrics(thresholded_sample)
         metrics.update(_instance_ap_metrics([sample]))
@@ -518,7 +564,9 @@ def _make_comparison_args(config: InstanceSweepConfig) -> argparse.Namespace:
         base_output_dir=str(config.output_root / "_setup"),
         dino_checkpoint=str(config.dino_checkpoint) if config.dino_checkpoint else None,
         dino_lightning_checkpoint=None,
-        graha_pretrain_dir=str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None,
+        graha_pretrain_dir=(
+            str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None
+        ),
         graha_lightning_checkpoint=None,
         graha_wac_mode=config.graha_wac_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
@@ -576,7 +624,9 @@ def _setup_toy(config: InstanceSweepConfig):
             comparison_config,
             datamodule.weight_assignments or [],
         )
-        image_processor = comparison_workflow.create_toy_image_processor(comparison_config)
+        image_processor = comparison_workflow.create_toy_image_processor(
+            comparison_config
+        )
     task.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
     return comparison_config, datamodule, task, image_processor
 
@@ -616,7 +666,9 @@ def _setup_graha(config: InstanceSweepConfig):
 def run_toy_sweep(config: InstanceSweepConfig) -> list[dict[str, Any]]:
     if config.toy_checkpoint_dir is None:
         raise ValueError("Toy sweep requested but toy_checkpoint_dir is not set.")
-    checkpoints = discover_checkpoints(config.toy_checkpoint_dir, max_checkpoints=config.max_checkpoints)
+    checkpoints = discover_checkpoints(
+        config.toy_checkpoint_dir, max_checkpoints=config.max_checkpoints
+    )
     print(f"[Toy] Found {len(checkpoints)} checkpoint(s).")
     _, datamodule, task, image_processor = _setup_toy(config)
     model_output_dir = config.output_root / "toy_model"
@@ -670,7 +722,9 @@ def run_toy_sweep(config: InstanceSweepConfig) -> list[dict[str, Any]]:
 def run_graha_sweep(config: InstanceSweepConfig) -> list[dict[str, Any]]:
     if config.graha_checkpoint_dir is None:
         raise ValueError("Graha sweep requested but graha_checkpoint_dir is not set.")
-    checkpoints = discover_checkpoints(config.graha_checkpoint_dir, max_checkpoints=config.max_checkpoints)
+    checkpoints = discover_checkpoints(
+        config.graha_checkpoint_dir, max_checkpoints=config.max_checkpoints
+    )
     print(f"[Graha] Found {len(checkpoints)} checkpoint(s).")
     datamodule, task = _setup_graha(config)
     model_output_dir = config.output_root / "graha_model"
@@ -722,14 +776,20 @@ def run_sweep(config: InstanceSweepConfig) -> dict[str, list[dict[str, Any]]]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--simlink-dest", "--symlink-dest", dest="simlink_dest", type=str, default=None)
+    parser.add_argument(
+        "--simlink-dest", "--symlink-dest", dest="simlink_dest", type=str, default=None
+    )
     parser.add_argument("--data-root", type=str, default=None)
     parser.add_argument("--output-root", type=str, default=None)
     parser.add_argument("--toy-checkpoint-dir", type=str, default=None)
     parser.add_argument("--graha-checkpoint-dir", type=str, default=None)
-    parser.add_argument("--models", nargs="+", default=["toy", "graha"], choices=["toy", "graha"])
+    parser.add_argument(
+        "--models", nargs="+", default=["toy", "graha"], choices=["toy", "graha"]
+    )
     parser.add_argument("--target-size", type=int, default=256)
-    parser.add_argument("--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6])
+    parser.add_argument(
+        "--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6]
+    )
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--toy-batch-size", type=int, default=2)
     parser.add_argument("--toy-num-workers", type=int, default=4)
@@ -746,8 +806,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--dino-checkpoint", type=str, default=None)
     parser.add_argument("--graha-pretrain-dir", type=str, default=None)
-    parser.add_argument("--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac")
-    parser.add_argument("--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean")
+    parser.add_argument(
+        "--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac"
+    )
+    parser.add_argument(
+        "--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean"
+    )
     parser.add_argument("--graha-stats-batch-size", type=int, default=16)
     parser.add_argument("--graha-batch-size", type=int, default=2)
     parser.add_argument("--graha-num-workers", type=int, default=4)
@@ -756,10 +820,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--graha-layer-decay", type=float, default=0.75)
     parser.add_argument("--graha-weight-decay", type=float, default=0.05)
     parser.add_argument("--graha-warmup-steps", type=int, default=500)
-    parser.add_argument("--graha-anchor-sizes", type=lambda value: [[int(x)] for x in value.split(",")], default=[[8], [16], [32], [64]])
-    parser.add_argument("--graha-anchor-aspect-ratios", type=lambda value: [float(x) for x in value.split(",")], default=[0.5, 1.0, 2.0])
+    parser.add_argument(
+        "--graha-anchor-sizes",
+        type=lambda value: [[int(x)] for x in value.split(",")],
+        default=[[8], [16], [32], [64]],
+    )
+    parser.add_argument(
+        "--graha-anchor-aspect-ratios",
+        type=lambda value: [float(x) for x in value.split(",")],
+        default=[0.5, 1.0, 2.0],
+    )
     parser.add_argument("--graha-score-threshold", type=float, default=0.5)
-    parser.add_argument("--prediction-split", choices=["train", "val", "test"], default="test")
+    parser.add_argument(
+        "--prediction-split", choices=["train", "val", "test"], default="test"
+    )
     parser.add_argument("--prediction-score-threshold", type=float, default=0.5)
     parser.add_argument("--mask-shift", type=int, nargs=2, default=(0, 0))
     parser.add_argument("--max-checkpoints", type=int, default=None)

@@ -8,7 +8,11 @@ from .semantic_from_instance_datamodule import (
     LunarSemanticFromInstanceDatamodule,
     LunarSemanticFromInstanceDataset,
 )
-from .plotting import plot_prediction_cache_comparison, plot_validation_predictions
+from .semantic_plotting import (
+    plot_prediction_cache_comparison,
+    plot_validation_predictions,
+)
+from .semantic_prediction_cache import save_prediction_cache
 
 __all__ = [
     "LunarSemanticFromInstanceDatamodule",
@@ -17,4 +21,5 @@ __all__ = [
     "LunarSemanticMaskSegmentationDataset",
     "plot_prediction_cache_comparison",
     "plot_validation_predictions",
+    "save_prediction_cache",
 ]

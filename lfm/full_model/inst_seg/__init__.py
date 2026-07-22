@@ -6,7 +6,7 @@ from .instance_mask_datamodule import (
     LunarObjectDetectionInstanceMaskDatamodule,
     LunarObjectDetectionInstanceMaskDataset,
 )
-from .plotting import (
+from .instance_plotting import (
     plot_instance_batch_sanity,
     plot_instance_cache_comparison,
     plot_instance_cache_predictions,

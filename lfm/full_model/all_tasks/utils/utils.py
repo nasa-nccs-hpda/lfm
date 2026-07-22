@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import yaml
 
 
 def create_timestamped_output_dir(base_dir: str | Path) -> Path:
@@ -58,8 +59,9 @@ def ensure_data_symlink(
     return data_symlink
 
 
-def _load_stats_with_yaml(modality_info_path: Path) -> tuple[list[float], list[float]]:
-    import yaml
+def _load_stats_with_yaml(
+        modality_info_path: Path
+) -> tuple[list[float], list[float]]:
 
     with modality_info_path.open("r", encoding="utf-8") as f:
         modality_info = yaml.safe_load(f)
@@ -71,7 +73,9 @@ def _load_stats_with_yaml(modality_info_path: Path) -> tuple[list[float], list[f
     return means, stds
 
 
-def _load_stats_without_yaml(modality_info_path: Path) -> tuple[list[float], list[float]]:
+def _load_stats_without_yaml(
+    modality_info_path: Path,
+) -> tuple[list[float], list[float]]:
     lines = modality_info_path.read_text(encoding="utf-8").splitlines()
 
     def top_level_block(name: str) -> list[str]:
@@ -95,7 +99,7 @@ def _load_stats_without_yaml(modality_info_path: Path) -> tuple[list[float], lis
         for index, line in enumerate(block):
             if line.strip() == f"{key}:":
                 values = []
-                for value_line in block[index + 1 :]:
+                for value_line in block[index+1:]:
                     stripped = value_line.strip()
                     if not stripped.startswith("- "):
                         break
@@ -128,7 +132,7 @@ def load_terramind_wac_pretraining_stats(
         means, stds = _load_stats_without_yaml(modality_info_path)
     except KeyError as exc:
         raise KeyError(
-            f"Could not load vis/uv pretraining stats from {modality_info_path}"
+            f"Couldn't load vis/uv pretraining stats from {modality_info_path}"
         ) from exc
 
     if len(means) != 7 or len(stds) != 7:

@@ -138,7 +138,9 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
     if args.pretrain_dir is not None:
         pretrain_dir = Path(args.pretrain_dir).resolve()
 
-    data_root = Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
+    data_root = (
+        Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
+    )
     base_output_dir = (
         Path(args.base_output_dir).resolve()
         if args.base_output_dir
@@ -229,7 +231,9 @@ def import_project_dependencies() -> dict[str, Any]:
         LunarSemanticMaskSegmentationDatamodule,
     )
     from lfm.full_model.all_tasks.utils import ValidationPlotCallback
-    from terratorch_integration.lunar_segmentation_task import LunarShapeSegmentationTask
+    from terratorch_integration.lunar_segmentation_task import (
+        LunarShapeSegmentationTask,
+    )
     from lfm.full_model.all_tasks.utils import create_timestamped_output_dir
     from lfm.full_model.all_tasks.utils import save_prediction_cache
 
@@ -255,16 +259,24 @@ def make_notebook_task_class(lunar_shape_segmentation_task_cls):
             return batch
 
         def training_step(self, batch, *args, **kwargs):
-            return super().training_step(self._drop_extra_batch_metadata(batch), *args, **kwargs)
+            return super().training_step(
+                self._drop_extra_batch_metadata(batch), *args, **kwargs
+            )
 
         def validation_step(self, batch, *args, **kwargs):
-            return super().validation_step(self._drop_extra_batch_metadata(batch), *args, **kwargs)
+            return super().validation_step(
+                self._drop_extra_batch_metadata(batch), *args, **kwargs
+            )
 
         def test_step(self, batch, *args, **kwargs):
-            return super().test_step(self._drop_extra_batch_metadata(batch), *args, **kwargs)
+            return super().test_step(
+                self._drop_extra_batch_metadata(batch), *args, **kwargs
+            )
 
         def predict_step(self, batch, *args, **kwargs):
-            return super().predict_step(self._drop_extra_batch_metadata(batch), *args, **kwargs)
+            return super().predict_step(
+                self._drop_extra_batch_metadata(batch), *args, **kwargs
+            )
 
     return NotebookLunarShapeSegmentationTask
 
@@ -301,7 +313,9 @@ def common_datamodule_args(config: FineTuningConfig) -> dict[str, Any]:
     }
 
 
-def calculate_train_stats(config: FineTuningConfig, datamodule_cls) -> tuple[list[float], list[float]]:
+def calculate_train_stats(
+    config: FineTuningConfig, datamodule_cls
+) -> tuple[list[float], list[float]]:
     """Compute per-band mean/std from cropped, unnormalized training batches."""
     stats_datamodule = datamodule_cls(
         **common_datamodule_args(config),
@@ -330,7 +344,9 @@ def calculate_train_stats(config: FineTuningConfig, datamodule_cls) -> tuple[lis
         raise RuntimeError("No training pixels were available for statistics.")
 
     means_tensor = sum_x / n_pixels
-    stds_tensor = torch.sqrt(torch.clamp(sum_x2 / n_pixels - means_tensor**2, min=1e-12))
+    stds_tensor = torch.sqrt(
+        torch.clamp(sum_x2 / n_pixels - means_tensor**2, min=1e-12)
+    )
     means = means_tensor.tolist()
     stds = stds_tensor.tolist()
     print("per-band means:", means)
@@ -382,7 +398,10 @@ def inspect_batch(datamodule) -> dict[str, Any]:
     print("mask:", tuple(sample_batch["mask"].shape), sample_batch["mask"].dtype)
     print("mask values:", torch.unique(sample_batch["mask"]).tolist())
     if "crater_boxes" in sample_batch:
-        print("crater boxes per image:", [tuple(x.shape) for x in sample_batch["crater_boxes"]])
+        print(
+            "crater boxes per image:",
+            [tuple(x.shape) for x in sample_batch["crater_boxes"]],
+        )
     return sample_batch
 
 
@@ -430,7 +449,9 @@ def create_task(config: FineTuningConfig, task_cls, sample_batch: dict[str, Any]
     )
 
 
-def _graha_modality_args(config: FineTuningConfig, wac_num_channels: int) -> dict[str, Any]:
+def _graha_modality_args(
+    config: FineTuningConfig, wac_num_channels: int
+) -> dict[str, Any]:
     if config.graha_wac_mode == "new-wac":
         return {
             "backbone_modalities": ["wac"],
@@ -463,10 +484,15 @@ def inspect_backbone(task) -> None:
     print(f"backbone params: {backbone.get_num_params():,}")
 
 
-def load_lightning_checkpoint_state(task: torch.nn.Module, checkpoint_path: Path, model_name: str) -> None:
+def load_lightning_checkpoint_state(
+    task: torch.nn.Module, checkpoint_path: Path, model_name: str
+) -> None:
     """Load Lightning checkpoint weights into an already-built task."""
     checkpoint_path = Path(checkpoint_path).resolve()
-    print(f"Loading {model_name} Lightning checkpoint weights from {checkpoint_path}", flush=True)
+    print(
+        f"Loading {model_name} Lightning checkpoint weights from {checkpoint_path}",
+        flush=True,
+    )
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     state_dict = checkpoint.get("state_dict", checkpoint)
     task.load_state_dict(state_dict, strict=True)
@@ -529,8 +555,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional Lightning .ckpt. Resumes fit, or loads weights when --no-fit is set.",
     )
-    parser.add_argument("--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac")
-    parser.add_argument("--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean")
+    parser.add_argument(
+        "--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac"
+    )
+    parser.add_argument(
+        "--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean"
+    )
     parser.add_argument(
         "--normalization-source",
         choices=["pretrain", "finetune"],
@@ -551,7 +581,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=10)
     parser.add_argument("--max-epochs", type=int, default=100)
     parser.add_argument("--cache-predictions", action="store_true")
-    parser.add_argument("--prediction-split", choices=["train", "val", "test"], default="val")
+    parser.add_argument(
+        "--prediction-split", choices=["train", "val", "test"], default="val"
+    )
     parser.add_argument("--prediction-n-samples", type=int, default=20)
     parser.add_argument(
         "--progress-log-every-n-batches",
@@ -560,7 +592,9 @@ def parse_args() -> argparse.Namespace:
         help="Flush train-batch progress every N batches in sbatch logs.",
     )
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--no-fit", action="store_true", help="Build everything but skip trainer.fit().")
+    parser.add_argument(
+        "--no-fit", action="store_true", help="Build everything but skip trainer.fit()."
+    )
     return parser.parse_args()
 
 
@@ -574,9 +608,11 @@ def main() -> None:
 
     deps = import_project_dependencies()
     datamodule_cls = deps[
-        "LunarSemanticFromInstanceDatamodule"
-        if config.semantic_label_source == "instance"
-        else "LunarSemanticMaskSegmentationDatamodule"
+        (
+            "LunarSemanticFromInstanceDatamodule"
+            if config.semantic_label_source == "instance"
+            else "LunarSemanticMaskSegmentationDatamodule"
+        )
     ]
     task_cls = make_notebook_task_class(deps["LunarShapeSegmentationTask"])
 
@@ -605,7 +641,9 @@ def main() -> None:
                 )
         return
     ckpt_path = (
-        str(config.lightning_checkpoint) if config.lightning_checkpoint is not None else None
+        str(config.lightning_checkpoint)
+        if config.lightning_checkpoint is not None
+        else None
     )
     if ckpt_path is not None:
         print(f"Resuming trainer.fit() from {ckpt_path}", flush=True)

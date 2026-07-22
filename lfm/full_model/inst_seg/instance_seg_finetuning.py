@@ -19,7 +19,10 @@ import torch
 from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 
-from lfm.full_model.all_tasks.utils import create_timestamped_output_dir, plot_instance_predictions
+from lfm.full_model.all_tasks.utils import (
+    create_timestamped_output_dir,
+    plot_instance_predictions,
+)
 from lfm.full_model.all_tasks.utils import load_terramind_wac_pretraining_stats
 from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
 
@@ -143,7 +146,9 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
     if args.pretrain_dir is not None:
         pretrain_dir = Path(args.pretrain_dir).resolve()
 
-    data_root = Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
+    data_root = (
+        Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
+    )
     base_output_dir = (
         Path(args.base_output_dir).resolve()
         if args.base_output_dir
@@ -234,7 +239,9 @@ def validate_required_paths(config: InstanceFineTuningConfig) -> None:
 
 def import_project_dependencies() -> dict[str, Any]:
     import terratorch_integration  # noqa: F401
-    from terratorch_integration.lunar_object_detection_task import LunarObjectDetectionTask
+    from terratorch_integration.lunar_object_detection_task import (
+        LunarObjectDetectionTask,
+    )
 
     from lfm.full_model.inst_seg.instance_mask_datamodule import (
         LunarObjectDetectionInstanceMaskDatamodule,
@@ -254,11 +261,7 @@ def make_notebook_object_detection_task_class(lunar_object_detection_task_cls):
     class NotebookLunarObjectDetectionTask(lunar_object_detection_task_cls):
         def reformat_batch(self, batch: Any, batch_size: int):
             y = []
-            has_masks = (
-                "masks" in batch
-                or "mask" in batch
-                or self.masks_field in batch
-            )
+            has_masks = "masks" in batch or "mask" in batch or self.masks_field in batch
             for i in range(batch_size):
                 target = {
                     "boxes": batch[self.boxes_field][i],
@@ -325,7 +328,9 @@ def calculate_train_stats(
         raise RuntimeError("No training pixels were available for statistics.")
 
     means_tensor = sum_x / n_pixels
-    stds_tensor = torch.sqrt(torch.clamp(sum_x2 / n_pixels - means_tensor**2, min=1e-12))
+    stds_tensor = torch.sqrt(
+        torch.clamp(sum_x2 / n_pixels - means_tensor**2, min=1e-12)
+    )
     means = means_tensor.tolist()
     stds = stds_tensor.tolist()
     print("per-band means:", means)
@@ -364,8 +369,12 @@ def inspect_batch(datamodule) -> dict[str, Any]:
     sample_batch = next(iter(datamodule.train_dataloader()))
     print("batch keys:", sample_batch.keys())
     print("image:", tuple(sample_batch["image"].shape), sample_batch["image"].dtype)
-    print("batch image per-band mean:", sample_batch["image"].mean(dim=(0, 2, 3)).tolist())
-    print("batch image per-band std:", sample_batch["image"].std(dim=(0, 2, 3)).tolist())
+    print(
+        "batch image per-band mean:", sample_batch["image"].mean(dim=(0, 2, 3)).tolist()
+    )
+    print(
+        "batch image per-band std:", sample_batch["image"].std(dim=(0, 2, 3)).tolist()
+    )
     print("boxes per image:", [tuple(x.shape) for x in sample_batch["boxes"]])
     print("labels per image:", [tuple(x.shape) for x in sample_batch["labels"]])
     print("masks per image:", [tuple(x.shape) for x in sample_batch["masks"]])
@@ -373,7 +382,9 @@ def inspect_batch(datamodule) -> dict[str, Any]:
     return sample_batch
 
 
-def create_task(config: InstanceFineTuningConfig, task_cls, sample_batch: dict[str, Any]):
+def create_task(
+    config: InstanceFineTuningConfig, task_cls, sample_batch: dict[str, Any]
+):
     wac_num_channels = int(sample_batch["image"].shape[1])
     modality_args = _graha_modality_args(config, wac_num_channels)
     print("WAC channels registered for model:", wac_num_channels)
@@ -417,7 +428,9 @@ def create_task(config: InstanceFineTuningConfig, task_cls, sample_batch: dict[s
     )
 
 
-def _graha_modality_args(config: InstanceFineTuningConfig, wac_num_channels: int) -> dict[str, Any]:
+def _graha_modality_args(
+    config: InstanceFineTuningConfig, wac_num_channels: int
+) -> dict[str, Any]:
     if config.graha_wac_mode == "new-wac":
         return {
             "backbone_modalities": ["wac"],
@@ -451,7 +464,10 @@ def run_loss_smoke(task, sample_batch: dict[str, Any]) -> None:
     if not isinstance(loss_dict, dict):
         loss_dict = loss_dict.output
     loss = sum(loss_dict.values())
-    print("loss terms:", {key: float(value.detach().cpu()) for key, value in loss_dict.items()})
+    print(
+        "loss terms:",
+        {key: float(value.detach().cpu()) for key, value in loss_dict.items()},
+    )
     print("single-step train loss:", float(loss.detach().cpu()))
 
 
@@ -484,7 +500,9 @@ def create_trainer(config: InstanceFineTuningConfig, output_dir: Path) -> Traine
     )
 
 
-def load_lightning_checkpoint_state(task: torch.nn.Module, checkpoint_path: Path) -> None:
+def load_lightning_checkpoint_state(
+    task: torch.nn.Module, checkpoint_path: Path
+) -> None:
     checkpoint_path = Path(checkpoint_path).resolve()
     print(f"Loading Lightning checkpoint weights from {checkpoint_path}", flush=True)
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
@@ -548,8 +566,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-output-dir", type=str, default=None)
     parser.add_argument("--pretrain-dir", type=str, default=None)
     parser.add_argument("--lightning-checkpoint", type=str, default=None)
-    parser.add_argument("--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac")
-    parser.add_argument("--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean")
+    parser.add_argument(
+        "--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac"
+    )
+    parser.add_argument(
+        "--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean"
+    )
     parser.add_argument(
         "--normalization-source",
         choices=["pretrain", "finetune"],
@@ -584,7 +606,9 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Save true-instance prediction plots after setup/training.",
     )
-    parser.add_argument("--prediction-split", choices=["train", "val", "test"], default="val")
+    parser.add_argument(
+        "--prediction-split", choices=["train", "val", "test"], default="val"
+    )
     parser.add_argument("--prediction-n-samples", type=int, default=5)
     parser.add_argument("--prediction-score-threshold", type=float, default=0.5)
     parser.add_argument(
@@ -623,7 +647,9 @@ def main() -> None:
 
     deps = import_project_dependencies()
     datamodule_cls = deps["LunarObjectDetectionInstanceMaskDatamodule"]
-    task_cls = make_notebook_object_detection_task_class(deps["LunarObjectDetectionTask"])
+    task_cls = make_notebook_object_detection_task_class(
+        deps["LunarObjectDetectionTask"]
+    )
 
     output_dir = create_timestamped_output_dir(config.base_output_dir)
     (output_dir / "checkpoints" / "full_model").mkdir(parents=True, exist_ok=True)
@@ -647,7 +673,9 @@ def main() -> None:
 
     trainer = create_trainer(config, output_dir)
     ckpt_path = (
-        str(config.lightning_checkpoint) if config.lightning_checkpoint is not None else None
+        str(config.lightning_checkpoint)
+        if config.lightning_checkpoint is not None
+        else None
     )
     if ckpt_path is not None:
         print(f"Resuming trainer.fit() from {ckpt_path}", flush=True)

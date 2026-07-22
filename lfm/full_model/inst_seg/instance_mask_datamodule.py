@@ -61,7 +61,9 @@ class LunarObjectDetectionInstanceMaskDataset(LunarInstanceMaskSegmentationDatas
         **kwargs,
     ) -> None:
         if binarize_mask:
-            raise ValueError("Object-detection instance targets require instance-id masks.")
+            raise ValueError(
+                "Object-detection instance targets require instance-id masks."
+            )
         super().__init__(*args, binarize_mask=False, **kwargs)
         if target_box_format not in {"xyxy", "cxcywh"}:
             raise ValueError(f"Unsupported target_box_format: {target_box_format}")
