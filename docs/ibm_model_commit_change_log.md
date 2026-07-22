@@ -1181,3 +1181,62 @@ The entries below continue from the 10th commit and use more explicit per-file o
   - `lfm/toy_model/sem_seg/sseg_dataset.py`: Changed WAC/NIR metadata assignment to emit `"red"` instead of `"0.95*red"` for toy semantic segmentation.
   - `lfm/toy_model/sem_seg/sseg_model.py`: Changed the old `"0.95*red"` compatibility branch so it uses plain red patch weights instead of scaling by 0.95.
 - Technical note: This removes the ad hoc 0.95 red scaling from toy DINO flexible input embeddings while keeping older `"0.95*red"` assignment strings loadable as plain red.
+
+## Commit 102: d5d6cf2551f364ca78c931f03e5ccbddc3a712a7
+
+- Date: 2026-07-21
+- Subject: updating changelog
+- Size: `[small]`
+- Per-file changes:
+  - `docs/ibm_model_commit_change_log.md`: Extended this changelog with entries for the late-July semantic experiment, normalization, task-layout, shell-script, publishing, and toy-embedding commits.
+- Technical note: This is documentation-only history maintenance. It records the branch evolution through commit 101 without changing runtime behavior.
+
+## Commit 103: 455449f345850026035e973cc0ce2ba04bae5dd6
+
+- Date: 2026-07-21
+- Subject: fixing checkpointing hopefully
+- Size: `[small]`
+- Per-file changes:
+  - `lfm/full_model/inst_seg/instance_seg_finetuning.py`: Changed full-model instance checkpointing to avoid saving `last.ckpt` and save weights only for each epoch checkpoint.
+  - `lfm/full_model/sem_seg/semantic_seg_finetuning.py`: Applied the same weights-only/no-last checkpoint behavior to full-model semantic fine-tuning.
+  - `scripts/python/instance_seg/instance_seg_comparison.py`: Applied the same checkpoint-size reduction to the toy/comparison instance trainer.
+  - `scripts/python/semantic_seg/semantic_seg_comparison.py`: Applied the same checkpoint-size reduction to the toy/comparison semantic trainer.
+  - `scripts/shell/semantic_seg/sbatch_4_sem_seg_exp.sh`: Added a free-space preflight check for the four-experiment launcher, defaulting to a 500 GB minimum under `BASE_OUTPUT_PARENT`.
+- Technical note: The checkpoint changes reduce storage pressure from Lightning checkpoint files by saving model weights only and avoiding duplicate `last.ckpt` artifacts.
+
+## Commit 104: 85fb2f57bf38fb8efaccb1ee4c5c7c20364f36d9
+
+- Date: 2026-07-21
+- Subject: adding smaller orchestrator
+- Size: `[tiny]`
+- Per-file changes:
+  - `scripts/shell/semantic_seg/sbatch_4_sem_seg_exp.sh`: Commented out the first three semantic experiment submissions and left only the fourth experiment active.
+- Technical note: This turns the four-experiment launcher into a smaller one-experiment orchestrator, useful when storage or queue pressure makes launching all four variants impractical.
+
+## Commit 105: 1b3c48c881d3a70338aec9e6b2496a51d0125224
+
+- Date: 2026-07-21
+- Subject: updating test plots
+- Size: `[moderate]`
+- Per-file changes:
+  - `notebooks/full_model/Metrics_LFM.ipynb`: Added a new metrics-oriented notebook for reviewing Lunar-FM/Graha semantic test results.
+  - `notebooks/full_model/sem_seg_test_metrics.ipynb`: Updated the semantic test metrics notebook and plot workflow.
+- Technical note: The large line count is notebook JSON churn. Conceptually, this commit improves result inspection and plotting for semantic segmentation test metrics.
+
+## Commit 106: 9e01eb01d8751c7e5c83e469173cd87fe6dee45a
+
+- Date: 2026-07-22
+- Subject: updating stats nb to have faster stats calc
+- Size: `[moderate]`
+- Per-file changes:
+  - `notebooks/full_model/sem_seg_test_metrics.ipynb`: Updated the semantic metrics notebook to calculate statistics faster.
+- Technical note: This is notebook-only performance work for analysis/metrics iteration, not a training-code or model-architecture change.
+
+## Commit 107: c3961074b81dadf4dafb0ff6c3d072aa52843169
+
+- Date: 2026-07-22
+- Subject: adding AGENTS.md
+- Size: `[small]`
+- Per-file changes:
+  - `AGENTS.md`: Added repo-level agent instructions describing the `lfm` repo purpose, local micromamba environment, current package/script/notebook layout, important semantic and instance workflows, HPC notes, experiment defaults, docs to read, and working rules.
+- Technical note: This creates the working context document for future Codex/changelog agents. It also clarifies that the active repository root is the `lfm` directory and documents the current full-model/toy-model workflow expectations.
