@@ -1,0 +1,84 @@
+Modality Refactor Plan
+======================
+
+Purpose
+-------
+
+This document tracks the remaining repo cleanup needed to make NAC and WAC modality support explicit, less error-prone, and easier to use from notebooks, scripts, and sbatch wrappers.
+
+Current State
+-------------
+
+- WAC VIS+UV workflows are supported through `--graha-wac-mode vis-uv` and `--normalization-modality vis_uv`.
+- NAC workflows currently work, but still use some WAC-era plumbing:
+  - `--normalization-modality nac` controls NAC/DTM pretraining normalization stats.
+  - `--graha-wac-mode new-wac` registers the NAC tensor as a new image modality in the Graha/Lunar-FM backbone.
+  - `--band-filter 0` selects PHO/NAC only.
+  - `--band-filter 0 1` should select PHO/NAC + DTM when the dataset was created with DTM.
+- A 100 epoch semantic segmentation experiment is currently being run on the non-DTM NAC dataset with TerraMind-style NAC normalization and spatial + Dice loss.
+
+Planned Steps
+-------------
+
+1. [Pending] Add a high-level `--modality` CLI argument.
+   - Supported values should initially be `vis_uv` and `nac`.
+   - `--modality vis_uv` should imply:
+     - `normalization_modality = vis_uv`
+     - Graha modality registration through the existing VIS+UV path
+     - expected channel count of 7
+   - `--modality nac` should imply:
+     - `normalization_modality = nac`
+     - Graha modality registration through the current new-image/new-modality path
+     - expected channel count of 1 or 2
+   - Keep lower-level flags temporarily as overrides for debugging and backward compatibility.
+
+2. [Pending] Rename WAC-specific internal argument names.
+   - `graha_wac_mode` is now misleading for NAC.
+   - Consider replacing it with one of:
+     - `graha_modality_mode`
+     - `input_modality_mode`
+     - `modality_family`
+   - Update scripts, notebooks, dataclasses, config JSON, and docs after the external CLI behavior is stable.
+
+3. [Pending] Add explicit NAC channel-layout validation.
+   - For `--modality nac`, validate that the datamodule emits either 1 or 2 channels.
+   - 1 channel means PHO/NAC only.
+   - 2 channels means PHO/NAC + DTM.
+   - Any other channel count should fail early with a clear error.
+
+4. [Pending] Decide the final DTM normalization behavior.
+   - Current NAC pretraining normalization uses:
+     - PHO/NAC mean/std: `0.451789 / 0.169636`
+     - DTM mean/std: `0.0 / 15.533791`
+   - The original NAC+DTM TerraTorch configs normalized DTM with per-image mean subtraction and a global DTM std.
+   - Decide whether to:
+     - implement local DTM normalization for channel 1 in the generic split datamodules, or
+     - keep fixed z-score normalization and document that it differs from the original NAC+DTM config.
+
+5. [Pending] Document canonical commands.
+   - Add or update docs for:
+     - NAC PHO-only semantic segmentation.
+     - NAC PHO+DTM semantic segmentation.
+     - NAC PHO-only instance segmentation.
+     - NAC PHO+DTM instance segmentation.
+     - WAC VIS+UV semantic and instance segmentation.
+   - Include both smoke-test and full-run commands.
+
+6. [Pending] Update notebooks after script behavior stabilizes.
+   - Scripts and sbatch wrappers are the priority for HPC runs.
+   - Once `--modality` behavior is stable, update notebooks so users do not need to understand the old WAC-specific implementation details.
+
+7. [Pending] Add lightweight tests for modality behavior.
+   - Validate that `--modality vis_uv` maps to 7-channel VIS+UV behavior.
+   - Validate that `--modality nac` maps to 1-channel and 2-channel NAC behavior.
+   - Validate that pretraining stats have the same channel count as datamodule outputs.
+   - Validate that unsupported channel layouts fail before training begins.
+
+Near-Term Checks For Current NAC Run
+------------------------------------
+
+- Confirm logs print `TerraMind NAC pretraining mean` and `TerraMind NAC pretraining std`.
+- Confirm DINO and Graha both receive image tensors shaped `(B, 1, 256, 256)` for the non-DTM run.
+- Confirm checkpoints are saved under both model checkpoint directories.
+- Confirm the epoch test suite creates per-epoch outputs.
+- Confirm validation plots are nonblank and labels align with NAC inputs.
