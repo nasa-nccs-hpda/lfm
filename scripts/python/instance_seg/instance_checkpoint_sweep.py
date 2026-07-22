@@ -89,6 +89,7 @@ class InstanceSweepConfig:
     toy_num_workers: int
     toy_normalize_inputs: bool
     normalization_source: str
+    normalization_modality: str
     toy_architecture: str
     dino_checkpoint: Path | None
     graha_pretrain_dir: Path | None
@@ -153,6 +154,7 @@ def build_config(args: argparse.Namespace) -> InstanceSweepConfig:
         toy_num_workers=args.toy_num_workers,
         toy_normalize_inputs=args.toy_normalize_inputs,
         normalization_source=getattr(args, "normalization_source", "pretrain"),
+        normalization_modality=getattr(args, "normalization_modality", "vis_uv"),
         toy_architecture=args.toy_architecture,
         dino_checkpoint=(
             Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None
@@ -578,6 +580,7 @@ def _make_comparison_args(config: InstanceSweepConfig) -> argparse.Namespace:
         graha_wac_mode=config.graha_wac_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         normalization_source=config.normalization_source,
+        normalization_modality=config.normalization_modality,
         target_size=config.target_size,
         band_filter=config.band_filter,
         image_glob=config.image_glob,
@@ -657,7 +660,7 @@ def _setup_graha(config: InstanceSweepConfig):
         task_cls = graha_workflow.make_notebook_object_detection_task_class(
             deps["LunarObjectDetectionTask"]
         )
-        means, stds = graha_workflow.calculate_train_stats(
+        means, stds = graha_workflow.get_normalization_stats(
             graha_config,
             datamodule_cls,
         )
@@ -829,6 +832,11 @@ def parse_args() -> argparse.Namespace:
         "--normalization-source",
         choices=["pretrain", "finetune"],
         default="pretrain",
+    )
+    parser.add_argument(
+        "--normalization-modality",
+        choices=["vis_uv", "nac"],
+        default="vis_uv",
     )
     parser.add_argument(
         "--toy-architecture",

@@ -23,7 +23,7 @@ from lfm.full_model.all_tasks.utils import (
     create_timestamped_output_dir,
     plot_instance_predictions,
 )
-from lfm.full_model.all_tasks.utils import load_terramind_wac_pretraining_stats
+from lfm.full_model.all_tasks.utils import load_terramind_pretraining_stats
 from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
 
 
@@ -89,6 +89,7 @@ class InstanceFineTuningConfig:
     graha_wac_mode: str
     graha_vis_uv_merge_method: str
     normalization_source: str
+    normalization_modality: str
     image_glob: str
     label_glob: str
     image_suffix: str
@@ -178,6 +179,7 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         graha_wac_mode=args.graha_wac_mode,
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=getattr(args, "normalization_source", "pretrain"),
+        normalization_modality=getattr(args, "normalization_modality", "vis_uv"),
         image_glob=args.image_glob,
         label_glob=args.label_glob,
         image_suffix=args.image_suffix,
@@ -346,12 +348,35 @@ def calculate_train_stats(
     return means, stds
 
 
+def infer_train_num_channels(
+    config: InstanceFineTuningConfig,
+    datamodule_cls,
+) -> int:
+    datamodule = datamodule_cls(
+        **common_datamodule_args(config),
+        batch_size=1,
+        num_workers=0,
+        means=None,
+        stds=None,
+    )
+    datamodule.setup("fit")
+    batch = next(iter(datamodule.train_dataloader()))
+    return int(batch["image"].shape[1])
+
+
 def get_normalization_stats(
     config: InstanceFineTuningConfig,
     datamodule_cls,
 ) -> tuple[list[float], list[float]]:
     if config.normalization_source == "pretrain":
-        return load_terramind_wac_pretraining_stats(config.modality_info)
+        band_filter = None
+        if config.normalization_modality == "nac":
+            band_filter = list(range(infer_train_num_channels(config, datamodule_cls)))
+        return load_terramind_pretraining_stats(
+            config.modality_info,
+            normalization_modality=config.normalization_modality,
+            band_filter=band_filter,
+        )
     if config.normalization_source == "finetune":
         return calculate_train_stats(config, datamodule_cls)
     raise ValueError(f"Unsupported normalization_source: {config.normalization_source}")
@@ -585,6 +610,12 @@ def parse_args() -> argparse.Namespace:
         choices=["pretrain", "finetune"],
         default="pretrain",
         help="Use TerraMind pretraining stats or finetuning train-split stats for input z-score.",
+    )
+    parser.add_argument(
+        "--normalization-modality",
+        choices=["vis_uv", "nac"],
+        default="vis_uv",
+        help="Which modality family to use when --normalization-source=pretrain.",
     )
     parser.add_argument(
         "--image-glob",

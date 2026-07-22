@@ -9,6 +9,8 @@ from __future__ import annotations
 from .utils import (
     create_timestamped_output_dir,
     ensure_data_symlink,
+    load_terramind_nac_pretraining_stats,
+    load_terramind_pretraining_stats,
     load_terramind_wac_pretraining_stats,
 )
 
@@ -19,6 +21,8 @@ __all__ = [
     "create_timestamped_output_dir",
     "ensure_data_symlink",
     "evaluate_prediction_caches",
+    "load_terramind_nac_pretraining_stats",
+    "load_terramind_pretraining_stats",
     "load_terramind_wac_pretraining_stats",
     "plot_instance_batch_sanity",
     "plot_instance_cache_comparison",

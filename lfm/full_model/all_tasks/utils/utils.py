@@ -146,3 +146,57 @@ def load_terramind_wac_pretraining_stats(
     print("TerraMind WAC pretraining mean:", means)
     print("TerraMind WAC pretraining std:", stds)
     return [float(value) for value in means], [float(value) for value in stds]
+
+
+def load_terramind_nac_pretraining_stats(
+    *,
+    band_filter: list[int] | None = None,
+) -> tuple[list[float], list[float]]:
+    """Load NAC/DTM normalization constants from TerraTorch NAC configs.
+
+    The supported chip layouts are:
+
+    * ``[0]``: PHO/NAC only.
+    * ``[0, 1]``: PHO/NAC plus DTM. The DTM branch uses a zero mean with the
+      global DTM std from the NAC+DTM configs because the generic split
+      datamodules do fixed per-channel z-score rather than per-image DTM mean
+      subtraction.
+    """
+    means = [0.451789, 0.0]
+    stds = [0.169636, 15.533791]
+
+    if band_filter is None:
+        band_filter = [0]
+
+    if any(index not in {0, 1} for index in band_filter):
+        raise ValueError(
+            "normalization_modality='nac' only supports band_filter values "
+            f"0 (PHO/NAC) and 1 (DTM), got {band_filter}."
+        )
+
+    means = [means[index] for index in band_filter]
+    stds = [stds[index] for index in band_filter]
+
+    print("TerraMind NAC pretraining mean:", means)
+    print("TerraMind NAC pretraining std:", stds)
+    return [float(value) for value in means], [float(value) for value in stds]
+
+
+def load_terramind_pretraining_stats(
+    modality_info_path: str | Path,
+    *,
+    normalization_modality: str = "vis_uv",
+    band_filter: list[int] | None = None,
+) -> tuple[list[float], list[float]]:
+    """Load pretraining normalization stats for a requested input modality."""
+    if normalization_modality == "vis_uv":
+        return load_terramind_wac_pretraining_stats(
+            modality_info_path,
+            band_filter=band_filter,
+        )
+    if normalization_modality == "nac":
+        return load_terramind_nac_pretraining_stats(band_filter=band_filter)
+    raise ValueError(
+        "normalization_modality must be one of {'vis_uv', 'nac'}, got "
+        f"{normalization_modality!r}."
+    )

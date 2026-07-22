@@ -24,7 +24,7 @@ from transformers import AutoImageProcessor
 from lfm.full_model.inst_seg import instance_seg_finetuning as graha_workflow
 from lfm.full_model.all_tasks.utils import (
     create_timestamped_output_dir,
-    load_terramind_wac_pretraining_stats,
+    load_terramind_pretraining_stats,
     plot_instance_cache_comparison,
     plot_instance_cache_predictions,
     save_graha_instance_prediction_cache,
@@ -275,6 +275,7 @@ class InstanceComparisonConfig:
     graha_wac_mode: str
     graha_vis_uv_merge_method: str
     normalization_source: str
+    normalization_modality: str
     image_glob: str
     label_glob: str
     image_suffix: str
@@ -355,6 +356,7 @@ def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
         graha_wac_mode=args.graha_wac_mode,
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=getattr(args, "normalization_source", "pretrain"),
+        normalization_modality=getattr(args, "normalization_modality", "vis_uv"),
         image_glob=args.image_glob,
         label_glob=args.label_glob,
         image_suffix=args.image_suffix,
@@ -458,8 +460,9 @@ def create_toy_datamodule(config: InstanceComparisonConfig):
     stds = None
     if config.toy_normalize_inputs and config.normalization_source == "pretrain":
         graha_config = build_graha_config(config, config.base_output_dir)
-        means, stds = load_terramind_wac_pretraining_stats(
+        means, stds = load_terramind_pretraining_stats(
             graha_config.modality_info,
+            normalization_modality=config.normalization_modality,
             band_filter=config.band_filter,
         )
     elif config.toy_normalize_inputs and config.normalization_source != "finetune":
@@ -697,6 +700,7 @@ def build_graha_config(config: InstanceComparisonConfig, output_dir: Path):
         graha_wac_mode=config.graha_wac_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         normalization_source=config.normalization_source,
+        normalization_modality=config.normalization_modality,
         image_glob=config.image_glob,
         label_glob=config.label_glob,
         image_suffix=config.image_suffix,
@@ -743,7 +747,7 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None
     )
 
     seed_everything(graha_config.seed)
-    means, stds = graha_workflow.calculate_train_stats(graha_config, datamodule_cls)
+    means, stds = graha_workflow.get_normalization_stats(graha_config, datamodule_cls)
     datamodule = graha_workflow.create_datamodule(
         graha_config, datamodule_cls, means, stds
     )
@@ -846,6 +850,12 @@ def parse_args() -> argparse.Namespace:
         choices=["pretrain", "finetune"],
         default="pretrain",
         help="When normalizing inputs, use TerraMind pretraining stats or finetuning train-split stats.",
+    )
+    parser.add_argument(
+        "--normalization-modality",
+        choices=["vis_uv", "nac"],
+        default="vis_uv",
+        help="Which modality family to use when --normalization-source=pretrain.",
     )
     parser.add_argument(
         "--image-glob",

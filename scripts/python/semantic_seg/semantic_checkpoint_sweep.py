@@ -84,6 +84,7 @@ class SweepConfig:
     num_workers: int
     normalize_inputs: bool
     normalization_source: str
+    normalization_modality: str
     max_test_samples: int | None
     dino_checkpoint: Path | None
     graha_pretrain_dir: Path | None
@@ -147,6 +148,7 @@ def build_config(args: argparse.Namespace) -> SweepConfig:
         num_workers=args.num_workers,
         normalize_inputs=args.normalize_inputs,
         normalization_source=getattr(args, "normalization_source", "pretrain"),
+        normalization_modality=getattr(args, "normalization_modality", "vis_uv"),
         max_test_samples=args.max_test_samples,
         dino_checkpoint=dino_checkpoint,
         graha_pretrain_dir=graha_pretrain_dir,
@@ -653,6 +655,7 @@ def _make_toy_args(config: SweepConfig) -> argparse.Namespace:
         freeze_encoder=False,
         normalize_inputs=config.normalize_inputs,
         normalization_source=config.normalization_source,
+        normalization_modality=config.normalization_modality,
         toy_gradient_clip_val=1.0,
         disable_toy_gradient_clipping=True,
         plot_every_n_epochs=1,
@@ -760,6 +763,7 @@ def _make_graha_args(config: SweepConfig) -> argparse.Namespace:
         graha_wac_mode=config.graha_wac_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         normalization_source=config.normalization_source,
+        normalization_modality=config.normalization_modality,
         semantic_label_source=config.semantic_label_source,
         image_glob=config.image_glob,
         label_glob=config.label_glob,
@@ -807,7 +811,10 @@ def run_graha_sweep(config: SweepConfig) -> list[dict[str, Any]]:
         task_cls = graha_workflow.make_notebook_task_class(
             deps["LunarShapeSegmentationTask"]
         )
-        means, stds = graha_workflow.calculate_train_stats(graha_config, datamodule_cls)
+        means, stds = graha_workflow.get_normalization_stats(
+            graha_config,
+            datamodule_cls,
+        )
         datamodule = graha_workflow.create_datamodule(
             graha_config, datamodule_cls, means, stds
         )
@@ -931,6 +938,11 @@ def parse_args() -> argparse.Namespace:
         "--normalization-source",
         choices=["pretrain", "finetune"],
         default="pretrain",
+    )
+    parser.add_argument(
+        "--normalization-modality",
+        choices=["vis_uv", "nac"],
+        default="vis_uv",
     )
     parser.add_argument("--max-test-samples", type=int, default=None)
     parser.add_argument("--dino-checkpoint", type=str, default=None)
