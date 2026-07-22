@@ -101,7 +101,10 @@ class ToyComparisonConfig:
 
 
 def _file_type_from_glob(pattern: str) -> str:
-    suffix = Path(pattern.replace("*", "")).suffix
+    stripped = pattern.replace("*", "")
+    if stripped.startswith(".") and stripped.count(".") == 1:
+        return stripped
+    suffix = Path(stripped).suffix
     return suffix or ".tif"
 
 
