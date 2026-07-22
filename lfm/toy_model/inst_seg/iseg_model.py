@@ -9,16 +9,18 @@ import torch
 import torch.nn as nn
 from typing import List, Dict
 from types import SimpleNamespace
-from transformers import AutoModel, AutoModelForUniversalSegmentation
+from transformers import AutoModelForUniversalSegmentation
 import logging
 import os
 
 import warnings
+
 warnings.filterwarnings("ignore", message=".*HF Hub.*")
 
 logger = logging.getLogger(__name__)
 
-CKPT = '/explore/nobackup/projects/lfm/model_weights/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth'
+CKPT = "/explore/nobackup/projects/lfm/model_weights/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth"
+
 
 def load_dinov3_encoder(
     weights_local_checkpoint=CKPT, device="cuda", model="dinov3_vitl16"
@@ -45,10 +47,7 @@ class Adapter(nn.Module):
     def __init__(self, in_channels: int, out_channels: List[int]):
         super().__init__()
         self.projections = nn.ModuleList(
-            [
-                nn.Conv2d(in_channels, out_ch, kernel_size=1)
-                for out_ch in out_channels
-            ]
+            [nn.Conv2d(in_channels, out_ch, kernel_size=1) for out_ch in out_channels]
         )
 
     def forward(self, features: List[torch.Tensor]) -> List[torch.Tensor]:
@@ -110,10 +109,12 @@ class DinoV3WithAdapterBackbone(nn.Module):
 
     def _get_hidden_size(self) -> int:
         """Extract hidden size from torch.hub DINOv3 model."""
-        if hasattr(self.encoder, 'norm') and hasattr(self.encoder.norm, 'normalized_shape'):
+        if hasattr(self.encoder, "norm") and hasattr(
+            self.encoder.norm, "normalized_shape"
+        ):
             # DinoVisionTransformer has LayerNorm with normalized_shape
             return self.encoder.norm.normalized_shape[0]
-        elif hasattr(self.encoder, 'patch_embed'):
+        elif hasattr(self.encoder, "patch_embed"):
             # Alternative: get from patch embedding output channels
             return self.encoder.patch_embed.proj.out_channels
         else:
@@ -136,8 +137,8 @@ class DinoV3WithAdapterBackbone(nn.Module):
         outputs = self.encoder.get_intermediate_layers(
             x,
             n=self.layers_to_extract,  # Which layers to extract
-            return_class_token=False,   # Don't need CLS token
-            reshape=True                # Automatically reshape to (B, C, H, W)
+            return_class_token=False,  # Don't need CLS token
+            reshape=True,  # Automatically reshape to (B, C, H, W)
         )
 
         # outputs is a list of tensors, already in (B, C, H, W) format
@@ -145,7 +146,7 @@ class DinoV3WithAdapterBackbone(nn.Module):
         adapted_features = self.adapter(outputs)
 
         # Return in the format Mask2Former expects
-        from types import SimpleNamespace
+
         return SimpleNamespace(
             feature_maps=adapted_features,
             hidden_states=tuple(adapted_features),
@@ -165,7 +166,9 @@ class DinoV3WithAdapterBackbone(nn.Module):
         patch_embed = self.encoder.patch_embed.proj
 
         with torch.no_grad():
-            original_weights = patch_embed.weight.data.clone()  # Shape: (out_channels, 3, H, W)
+            original_weights = (
+                patch_embed.weight.data.clone()
+            )  # Shape: (out_channels, 3, H, W)
             # original_weights channels: [0]=Red, [1]=Green, [2]=Blue
 
             # Create new weights for multi-band input
@@ -194,13 +197,16 @@ class DinoV3WithAdapterBackbone(nn.Module):
                     new_weights[:, i, :, :] = 0.7 * red_weights + 0.3 * green_weights
                 else:
                     # Default fallback to red weights
-                    print(f"Warning: Unknown weight assignment '{assignment}' for band {i}, using red weights")
+                    print(
+                        f"Warning: Unknown weight assignment '{assignment}' for band {i}, using red weights"
+                    )
                     new_weights[:, i, :, :] = red_weights
 
             # Replace patch embedding weights
             patch_embed.weight.data = new_weights
 
         print(f"Applied flexible embedding approach: {self.weight_assignments}")
+
 
 def create_mask2former_dinov3_model(
     encoder: nn.Module,
@@ -230,7 +236,7 @@ def create_mask2former_dinov3_model(
 
     logger.info("Creating DINOv3-Large-Mask2Former model...")
     logger.info(f"  - Mask2Former base: {mask2former_model_name}")
-    logger.info(f"  - DINOv3 backbone: torch.hub (dinov3_vitl16)")
+    logger.info("  - DINOv3 backbone: torch.hub (dinov3_vitl16)")
     logger.info(f"  - Expected channels: {expected_channels}")
     logger.info(f"  - Freeze backbone: {freeze_backbone}")
     logger.info(f"  - Number of bands: {num_bands}")
@@ -258,7 +264,7 @@ def create_mask2former_dinov3_model(
     custom_backbone = DinoV3WithAdapterBackbone(
         out_channels=expected_channels,
         encoder=encoder,
-        weight_assignments=weight_assignments
+        weight_assignments=weight_assignments,
     )
 
     # 3. Replace the backbone with DinoV3
@@ -291,9 +297,7 @@ def get_model_info(model: AutoModelForUniversalSegmentation) -> Dict:
 
     # Count parameters
     total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(
-        p.numel() for p in model.parameters() if p.requires_grad
-    )
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     backbone_params = sum(p.numel() for p in backbone.model.parameters())
     frozen_params = sum(
         p.numel() for p in backbone.model.parameters() if not p.requires_grad

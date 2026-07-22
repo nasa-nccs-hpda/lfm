@@ -22,7 +22,6 @@ https://github.com/google-research/big_vision/blob/main/big_vision/models/proj/f
 import torch
 import torch.nn.functional as F
 
-
 _PINV_CACHE: dict[tuple[int, int, int, int, torch.dtype, str], torch.Tensor] = {}
 
 
@@ -40,7 +39,9 @@ def _bilinear_resize(x: torch.Tensor, new_hw: tuple[int, int]) -> torch.Tensor:
     )[0, 0]
 
 
-def _build_resize_matrix(old_hw: tuple[int, int], new_hw: tuple[int, int]) -> torch.Tensor:
+def _build_resize_matrix(
+    old_hw: tuple[int, int], new_hw: tuple[int, int]
+) -> torch.Tensor:
     """Construct the bilinear resize operator ``B`` from ``old_hw`` to ``new_hw``.
 
     Each column of ``B`` is the flattened bilinear resize of a one-hot basis

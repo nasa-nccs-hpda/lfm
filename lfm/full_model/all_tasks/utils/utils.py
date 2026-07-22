@@ -59,9 +59,7 @@ def ensure_data_symlink(
     return data_symlink
 
 
-def _load_stats_with_yaml(
-        modality_info_path: Path
-) -> tuple[list[float], list[float]]:
+def _load_stats_with_yaml(modality_info_path: Path) -> tuple[list[float], list[float]]:
 
     with modality_info_path.open("r", encoding="utf-8") as f:
         modality_info = yaml.safe_load(f)
@@ -99,7 +97,7 @@ def _load_stats_without_yaml(
         for index, line in enumerate(block):
             if line.strip() == f"{key}:":
                 values = []
-                for value_line in block[index+1:]:
+                for value_line in block[index + 1 :]:
                     stripped = value_line.strip()
                     if not stripped.startswith("- "):
                         break

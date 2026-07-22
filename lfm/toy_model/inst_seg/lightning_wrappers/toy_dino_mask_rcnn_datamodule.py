@@ -90,7 +90,9 @@ class ToyDinoMaskRCNNSplitDataModule(LightningDataModule):
         if stage in (None, "test", "predict"):
             self.test_dataset = self._make_dataset("test", self.max_test_samples)
 
-    def _make_dataset(self, split: str, max_samples: int | None) -> ToyDinoMaskRCNNSplitDataset:
+    def _make_dataset(
+        self, split: str, max_samples: int | None
+    ) -> ToyDinoMaskRCNNSplitDataset:
         return ToyDinoMaskRCNNSplitDataset(
             self.data_root / split,
             target_size=self.target_size,
@@ -127,9 +129,13 @@ class ToyDinoMaskRCNNSplitDataModule(LightningDataModule):
             sum_x2 = x2_sum if sum_x2 is None else sum_x2 + x2_sum
             n_pixels += pixels
         if sum_x is None or sum_x2 is None or n_pixels == 0:
-            raise RuntimeError("No train pixels available for Toy DINO Mask R-CNN statistics.")
+            raise RuntimeError(
+                "No train pixels available for Toy DINO Mask R-CNN statistics."
+            )
         means = (sum_x / n_pixels).tolist()
-        stds = torch.sqrt(torch.clamp(sum_x2 / n_pixels - (sum_x / n_pixels) ** 2, min=1e-12)).tolist()
+        stds = torch.sqrt(
+            torch.clamp(sum_x2 / n_pixels - (sum_x / n_pixels) ** 2, min=1e-12)
+        ).tolist()
         print("[train] Toy DINO Mask R-CNN z-score mean:", means)
         print("[train] Toy DINO Mask R-CNN z-score std:", stds)
         return means, stds

@@ -23,7 +23,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import gc
-import json
 import os
 import re
 import warnings

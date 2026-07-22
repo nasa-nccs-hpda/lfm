@@ -117,7 +117,9 @@ class ToySemSegShapeLightningModule(ToySemSegLightningModule):
         return base_loss + self.shape_loss_weight * shape_loss
 
     @staticmethod
-    def _unpack_batch(batch: tuple[Any, ...]) -> tuple[Tensor, Tensor, list[Tensor] | None]:
+    def _unpack_batch(
+        batch: tuple[Any, ...],
+    ) -> tuple[Tensor, Tensor, list[Tensor] | None]:
         images, labels, *rest = batch
         crater_boxes = rest[2] if len(rest) >= 3 else None
         return images, labels, crater_boxes
@@ -133,7 +135,14 @@ class ToySemSegShapeLightningModule(ToySemSegLightningModule):
             stage="train",
             batch_size=batch_size,
         )
-        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=batch_size)
+        self.log(
+            "train/loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            batch_size=batch_size,
+        )
         return loss
 
     def validation_step(self, batch: tuple[Any, ...], batch_idx: int) -> Tensor:
@@ -147,8 +156,22 @@ class ToySemSegShapeLightningModule(ToySemSegLightningModule):
             stage="val",
             batch_size=batch_size,
         )
-        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=batch_size)
-        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=False, batch_size=batch_size)
+        self.log(
+            "val/loss",
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            batch_size=batch_size,
+        )
+        self.log(
+            "val_loss",
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+            batch_size=batch_size,
+        )
         for name, value in binary_segmentation_stats(logits, labels).items():
             self.log(
                 f"val/{name}",
@@ -173,5 +196,11 @@ class ToySemSegShapeLightningModule(ToySemSegLightningModule):
         )
         self.log("test/loss", loss, on_step=False, on_epoch=True, batch_size=batch_size)
         for name, value in binary_segmentation_stats(logits, labels).items():
-            self.log(f"test/{name}", value, on_step=False, on_epoch=True, batch_size=batch_size)
+            self.log(
+                f"test/{name}",
+                value,
+                on_step=False,
+                on_epoch=True,
+                batch_size=batch_size,
+            )
         return loss

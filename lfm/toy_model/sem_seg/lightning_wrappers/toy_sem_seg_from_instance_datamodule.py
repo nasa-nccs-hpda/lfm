@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -131,7 +130,9 @@ class ToySemSegFromInstanceDataModule(ToySemSegSplitDataModule):
             pixel_count += image.shape[1] * image.shape[2]
 
         if pixel_sum is None or pixel_sq_sum is None or pixel_count == 0:
-            raise ValueError("Could not compute toy train statistics from an empty dataset.")
+            raise ValueError(
+                "Could not compute toy train statistics from an empty dataset."
+            )
 
         mean = pixel_sum / pixel_count
         variance = (pixel_sq_sum / pixel_count) - (mean**2)
@@ -158,8 +159,12 @@ class ToySemSegFromInstanceDataModule(ToySemSegSplitDataModule):
             "std": self.std.tolist() if self.std is not None else None,
             "weight_assignments": self.weight_assignments,
             "train_samples": len(self.train_dataset),
-            "val_samples": len(self.val_dataset) if self.val_dataset is not None else None,
-            "test_samples": len(self.test_dataset) if self.test_dataset is not None else None,
+            "val_samples": (
+                len(self.val_dataset) if self.val_dataset is not None else None
+            ),
+            "test_samples": (
+                len(self.test_dataset) if self.test_dataset is not None else None
+            ),
             "sample_image_shape": tuple(image.shape),
             "sample_mask_shape": tuple(mask.shape),
             "sample_mask_values": torch.unique(mask).tolist(),

@@ -27,7 +27,7 @@ from .scheduling_utils import scaled_cosine_alphas
 
 
 class DDPMScheduler(DDPMS):
-    """ Denoising diffusion probabilistic models (DDPMs) explores the connections between denoising score matching and
+    """Denoising diffusion probabilistic models (DDPMs) explores the connections between denoising score matching and
     Langevin dynamics sampling.
 
     [`~ConfigMixin`] takes care of storing all config attributes that are passed in the scheduler's `__init__`
@@ -96,11 +96,19 @@ class DDPMScheduler(DDPMS):
             if trained_betas is not None:
                 self.betas = torch.tensor(trained_betas, dtype=torch.float32)
             elif beta_schedule == "linear":
-                self.betas = torch.linspace(beta_start, beta_end, num_train_timesteps, dtype=torch.float32)
+                self.betas = torch.linspace(
+                    beta_start, beta_end, num_train_timesteps, dtype=torch.float32
+                )
             elif beta_schedule == "scaled_linear":
                 # this schedule is very specific to the latent diffusion model.
                 self.betas = (
-                    torch.linspace(beta_start**0.5, beta_end**0.5, num_train_timesteps, dtype=torch.float32) ** 2
+                    torch.linspace(
+                        beta_start**0.5,
+                        beta_end**0.5,
+                        num_train_timesteps,
+                        dtype=torch.float32,
+                    )
+                    ** 2
                 )
             elif beta_schedule == "squaredcos_cap_v2":
                 # Glide cosine schedule
@@ -110,7 +118,9 @@ class DDPMScheduler(DDPMS):
                 betas = torch.linspace(-6, 6, num_train_timesteps)
                 self.betas = torch.sigmoid(betas) * (beta_end - beta_start) + beta_start
             else:
-                raise NotImplementedError(f"{beta_schedule} does is not implemented for {self.__class__}")
+                raise NotImplementedError(
+                    f"{beta_schedule} does is not implemented for {self.__class__}"
+                )
 
             if rescale_betas_zero_snr:
                 self.betas = rescale_zero_terminal_snr(self.betas)
@@ -126,11 +136,15 @@ class DDPMScheduler(DDPMS):
         # setable values
         self.custom_timesteps = False
         self.num_inference_steps = None
-        self.timesteps = torch.from_numpy(np.arange(0, num_train_timesteps)[::-1].copy())
+        self.timesteps = torch.from_numpy(
+            np.arange(0, num_train_timesteps)[::-1].copy()
+        )
 
         self.variance_type = variance_type
 
-    def get_alpha_sigma_sqrts(self, timesteps, device, dtype, shape) -> torch.FloatTensor:
+    def get_alpha_sigma_sqrts(
+        self, timesteps, device, dtype, shape
+    ) -> torch.FloatTensor:
         # Make sure alphas_cumprod and timestep have same device and dtype as original_samples
         alphas_cumprod = self.alphas_cumprod.to(device=device, dtype=dtype)
         timesteps = timesteps.to(device)

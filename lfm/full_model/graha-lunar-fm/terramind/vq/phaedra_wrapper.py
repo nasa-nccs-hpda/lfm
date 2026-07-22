@@ -26,9 +26,9 @@ import torch
 
 from omegaconf import OmegaConf
 
-
 try:
     from phaedra import PhaedraModel, PhaedraSystem
+
     PHAEDRA_AVAILABLE = True
 except ImportError:
     PHAEDRA_AVAILABLE = False
@@ -85,12 +85,16 @@ class PhaedraWrapper(torch.nn.Module):
             if "data" in self.config and "resolutions" in self.config.data:
                 self.image_size = self.config.data.resolutions[0]
             else:
-                self.image_size = self.config.tokenizer_hyperparameters.vae_hyperparameters.input_h
+                self.image_size = (
+                    self.config.tokenizer_hyperparameters.vae_hyperparameters.input_h
+                )
         else:
             self.image_size = image_size
 
         if n_channels is None:
-            self.n_channels = self.config.tokenizer_hyperparameters.vae_hyperparameters.input_channels
+            self.n_channels = (
+                self.config.tokenizer_hyperparameters.vae_hyperparameters.input_channels
+            )
         else:
             self.n_channels = n_channels
 
@@ -106,7 +110,9 @@ class PhaedraWrapper(torch.nn.Module):
 
         # Calculate spatial downsampling factor for token count calculation
         # Phaedra's encoder downsamples by 2^(number of encoder levels)
-        encoder_mult = self.config.tokenizer_hyperparameters.vae_hyperparameters.encoder_channel_mult
+        encoder_mult = (
+            self.config.tokenizer_hyperparameters.vae_hyperparameters.encoder_channel_mult
+        )
         self.downsample_factor = 2 ** (len(encoder_mult) - 1)
 
         # Compatibility shims with TerraMind's VQ interface
@@ -122,8 +128,11 @@ class PhaedraWrapper(torch.nn.Module):
         if ema_path.exists():
             try:
                 from torch_ema import ExponentialMovingAverage
+
                 ema = ExponentialMovingAverage(self.system.parameters(), decay=0.999)
-                ema.load_state_dict(torch.load(ema_path, map_location="cpu", weights_only=False))
+                ema.load_state_dict(
+                    torch.load(ema_path, map_location="cpu", weights_only=False)
+                )
                 self.system.ema = ema
                 print(f"Loaded EMA weights from {ema_path}")
             except ImportError:
@@ -148,8 +157,11 @@ class PhaedraWrapper(torch.nn.Module):
 
     def _load_state_file(self, path: Path):
         """Load a state dict from a .safetensors file."""
-        assert path.suffix == ".safetensors", f"File must be of safetensors, but found {path.suffix}"
+        assert (
+            path.suffix == ".safetensors"
+        ), f"File must be of safetensors, but found {path.suffix}"
         from safetensors.torch import load_file
+
         state_dict = load_file(str(path), device="cpu")
 
         try:
@@ -160,7 +172,9 @@ class PhaedraWrapper(torch.nn.Module):
             self.system.model.load_state_dict(state_dict)
             print(f"Loaded Phaedra inner-model state from {path}")
 
-    def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def encode(
+        self, x: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Encode input to quantized representation and tokens.
 
         Args:
@@ -218,14 +232,16 @@ class PhaedraWrapper(torch.nn.Module):
         """
         # Ensure tokens are in [B, L, C] format
         if tokens.ndim != 3:
-            raise ValueError(f"Expected tokens with shape [B, L, C], got shape {tokens.shape}")
+            raise ValueError(
+                f"Expected tokens with shape [B, L, C], got shape {tokens.shape}"
+            )
 
         B, L, C = tokens.shape
         if C != 2:
             raise ValueError(f"Expected C=2 codebooks for Phaedra, got C={C}")
 
         # Reshape from [B, L, 2] to [B, H, W, 2]
-        H = W = int(L ** 0.5)
+        H = W = int(L**0.5)
         if H * W != L:
             raise ValueError(f"Token sequence length {L} must be a perfect square")
 
@@ -236,8 +252,12 @@ class PhaedraWrapper(torch.nn.Module):
         amp_tokens = tokens_spatial[..., 1]  # [B, H, W]
 
         # Get embeddings from codebooks
-        morph_embeddings = self.model.quantizer.get_codebook_entry(morph_tokens)  # [B, D-1, H, W]
-        amp_embeddings = self.model.approximate_continuous.get_codebook_entry(amp_tokens)  # [B, 1, H, W]
+        morph_embeddings = self.model.quantizer.get_codebook_entry(
+            morph_tokens
+        )  # [B, D-1, H, W]
+        amp_embeddings = self.model.approximate_continuous.get_codebook_entry(
+            amp_tokens
+        )  # [B, 1, H, W]
 
         # Concatenate to form full quantized representation
         quant = torch.cat([morph_embeddings, amp_embeddings], dim=1)  # [B, D, H, W]

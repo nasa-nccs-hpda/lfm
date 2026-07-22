@@ -215,7 +215,10 @@ class InstanceEpochTestSuiteCallback(Callback):
         epoch = trainer.current_epoch + 1
         if self.every_n_epochs <= 0 or epoch % self.every_n_epochs != 0:
             return
-        from instance_checkpoint_sweep import CheckpointRecord, _write_checkpoint_outputs
+        from instance_checkpoint_sweep import (
+            CheckpointRecord,
+            _write_checkpoint_outputs,
+        )
 
         epoch_name = f"epoch_{epoch:03d}"
         epoch_dir = self.output_dir / "test_suite" / self.model_name / epoch_name
@@ -321,21 +324,25 @@ def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
     return InstanceComparisonConfig(
         notebook_dir=notebook_dir,
         lfm_root=lfm_root,
-        data_root=Path(args.data_root).resolve() if args.data_root else notebook_dir / "data",
+        data_root=(
+            Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
+        ),
         base_output_dir=(
             Path(args.base_output_dir).resolve()
             if args.base_output_dir
             else scripts_output_dir / "instance_seg_comparison"
         ),
-        dino_checkpoint=Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None,
+        dino_checkpoint=(
+            Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None
+        ),
         dino_lightning_checkpoint=(
             Path(args.dino_lightning_checkpoint).resolve()
             if args.dino_lightning_checkpoint
             else None
         ),
-        graha_pretrain_dir=Path(args.graha_pretrain_dir).resolve()
-        if args.graha_pretrain_dir
-        else None,
+        graha_pretrain_dir=(
+            Path(args.graha_pretrain_dir).resolve() if args.graha_pretrain_dir else None
+        ),
         graha_lightning_checkpoint=(
             Path(args.graha_lightning_checkpoint).resolve()
             if args.graha_lightning_checkpoint
@@ -360,9 +367,9 @@ def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
         toy_weight_decay=args.toy_weight_decay,
         toy_freeze_backbone=args.toy_freeze_backbone,
         toy_normalize_inputs=args.toy_normalize_inputs,
-        toy_gradient_clip_val=None
-        if args.disable_toy_gradient_clipping
-        else args.toy_gradient_clip_val,
+        toy_gradient_clip_val=(
+            None if args.disable_toy_gradient_clipping else args.toy_gradient_clip_val
+        ),
         graha_backbone_lr=args.graha_backbone_lr,
         graha_head_lr=args.graha_head_lr,
         graha_layer_decay=args.graha_layer_decay,
@@ -421,11 +428,18 @@ def save_config(config: InstanceComparisonConfig, output_dir: Path) -> None:
         return value
 
     with (output_dir / "config.json").open("w", encoding="utf-8") as f:
-        json.dump({key: encode(value) for key, value in asdict(config).items()}, f, indent=2)
+        json.dump(
+            {key: encode(value) for key, value in asdict(config).items()}, f, indent=2
+        )
 
 
-def load_lightning_checkpoint_state(module: torch.nn.Module, checkpoint_path: Path, model_name: str) -> None:
-    print(f"Loading {model_name} Lightning checkpoint weights from {checkpoint_path}", flush=True)
+def load_lightning_checkpoint_state(
+    module: torch.nn.Module, checkpoint_path: Path, model_name: str
+) -> None:
+    print(
+        f"Loading {model_name} Lightning checkpoint weights from {checkpoint_path}",
+        flush=True,
+    )
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     module.load_state_dict(checkpoint.get("state_dict", checkpoint), strict=True)
     print(f"Loaded {model_name} Lightning checkpoint weights.", flush=True)
@@ -441,7 +455,9 @@ def create_toy_datamodule(config: InstanceComparisonConfig):
             band_filter=config.band_filter,
         )
     elif config.toy_normalize_inputs and config.normalization_source != "finetune":
-        raise ValueError(f"Unsupported normalization_source: {config.normalization_source}")
+        raise ValueError(
+            f"Unsupported normalization_source: {config.normalization_source}"
+        )
 
     datamodule_cls = (
         ToyDinoMaskRCNNSplitDataModule
@@ -595,7 +611,9 @@ def run_toy(config: InstanceComparisonConfig, output_dir: Path) -> Path | None:
     if config.skip_toy_fit:
         print("Skipping Toy trainer.fit().", flush=True)
         if config.dino_lightning_checkpoint is not None:
-            load_lightning_checkpoint_state(task, config.dino_lightning_checkpoint, "Toy")
+            load_lightning_checkpoint_state(
+                task, config.dino_lightning_checkpoint, "Toy"
+            )
     else:
         ckpt_path = (
             str(config.dino_lightning_checkpoint)
@@ -607,7 +625,9 @@ def run_toy(config: InstanceComparisonConfig, output_dir: Path) -> Path | None:
         print("Starting Toy trainer.fit()...", flush=True)
         trainer.fit(task, datamodule=datamodule, ckpt_path=ckpt_path)
         print("Finished Toy trainer.fit().", flush=True)
-        toy_checkpoints = sorted((output_dir / "checkpoints" / "toy_model").glob("*.ckpt"))
+        toy_checkpoints = sorted(
+            (output_dir / "checkpoints" / "toy_model").glob("*.ckpt")
+        )
         print(f"[Toy] saved {len(toy_checkpoints)} checkpoint file(s).", flush=True)
 
     if image_processor is None:
@@ -654,10 +674,14 @@ def build_graha_config(config: InstanceComparisonConfig, output_dir: Path):
         simlink_dest=None,
         data_root=str(config.data_root),
         base_output_dir=str(output_dir),
-        pretrain_dir=str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None,
-        lightning_checkpoint=str(config.graha_lightning_checkpoint)
-        if config.graha_lightning_checkpoint
-        else None,
+        pretrain_dir=(
+            str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None
+        ),
+        lightning_checkpoint=(
+            str(config.graha_lightning_checkpoint)
+            if config.graha_lightning_checkpoint
+            else None
+        ),
         graha_wac_mode=config.graha_wac_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         normalization_source=config.normalization_source,
@@ -704,7 +728,9 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None
 
     seed_everything(graha_config.seed)
     means, stds = graha_workflow.calculate_train_stats(graha_config, datamodule_cls)
-    datamodule = graha_workflow.create_datamodule(graha_config, datamodule_cls, means, stds)
+    datamodule = graha_workflow.create_datamodule(
+        graha_config, datamodule_cls, means, stds
+    )
     sample_batch = graha_workflow.inspect_batch(datamodule)
     task = graha_workflow.create_task(graha_config, task_cls, sample_batch)
     graha_workflow.run_loss_smoke(task, sample_batch)
@@ -749,7 +775,9 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None
         print("Starting Graha trainer.fit()...", flush=True)
         trainer.fit(task, datamodule=datamodule, ckpt_path=ckpt_path)
         print("Finished Graha trainer.fit().", flush=True)
-        graha_checkpoints = sorted((output_dir / "checkpoints" / "full_model").glob("*.ckpt"))
+        graha_checkpoints = sorted(
+            (output_dir / "checkpoints" / "full_model").glob("*.ckpt")
+        )
         print(f"[Graha] saved {len(graha_checkpoints)} checkpoint file(s).", flush=True)
 
     if graha_config.plot_predictions:
@@ -782,15 +810,21 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--simlink-dest", "--symlink-dest", dest="simlink_dest", type=str, default=None)
+    parser.add_argument(
+        "--simlink-dest", "--symlink-dest", dest="simlink_dest", type=str, default=None
+    )
     parser.add_argument("--data-root", type=str, default=None)
     parser.add_argument("--base-output-dir", type=str, default=None)
     parser.add_argument("--dino-checkpoint", type=str, default=None)
     parser.add_argument("--dino-lightning-checkpoint", type=str, default=None)
     parser.add_argument("--graha-pretrain-dir", type=str, default=None)
     parser.add_argument("--graha-lightning-checkpoint", type=str, default=None)
-    parser.add_argument("--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac")
-    parser.add_argument("--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean")
+    parser.add_argument(
+        "--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac"
+    )
+    parser.add_argument(
+        "--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean"
+    )
     parser.add_argument(
         "--normalization-source",
         choices=["pretrain", "finetune"],
@@ -804,7 +838,9 @@ def parse_args() -> argparse.Namespace:
         help="Toy instance head to train. Use dino-mask-rcnn for a tighter Mask R-CNN comparison.",
     )
     parser.add_argument("--target-size", type=int, default=256)
-    parser.add_argument("--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6])
+    parser.add_argument(
+        "--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6]
+    )
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--max-val-samples", type=int, default=None)
     parser.add_argument("--max-test-samples", type=int, default=None)
@@ -844,7 +880,9 @@ def parse_args() -> argparse.Namespace:
         default=25,
         help="Flush train-batch progress every N batches in sbatch logs.",
     )
-    parser.add_argument("--prediction-split", choices=["train", "val", "test"], default="val")
+    parser.add_argument(
+        "--prediction-split", choices=["train", "val", "test"], default="val"
+    )
     parser.add_argument("--prediction-n-samples", type=int, default=5)
     parser.add_argument("--prediction-score-threshold", type=float, default=0.5)
     parser.add_argument("--mask-shift", type=int, nargs=2, default=(0, 0))
@@ -852,7 +890,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-graha-fit", action="store_true")
     parser.add_argument("--no-fit", action="store_true")
     parser.add_argument("--run-epoch-test-suite", action="store_true")
-    parser.add_argument("--epoch-test-split", choices=["train", "val", "test"], default="test")
+    parser.add_argument(
+        "--epoch-test-split", choices=["train", "val", "test"], default="test"
+    )
     parser.add_argument("--epoch-test-n-samples", type=int, default=100)
     parser.add_argument("--epoch-test-every-n-epochs", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)

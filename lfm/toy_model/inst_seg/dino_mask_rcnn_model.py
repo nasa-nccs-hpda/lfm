@@ -13,7 +13,9 @@ from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.ops import MultiScaleRoIAlign
 
 
-def apply_flexible_patch_weights(encoder: nn.Module, weight_assignments: Sequence[str]) -> None:
+def apply_flexible_patch_weights(
+    encoder: nn.Module, weight_assignments: Sequence[str]
+) -> None:
     """Expand DINO's RGB patch embedding to the requested WAC band layout."""
     patch_embed = encoder.patch_embed.proj
     with torch.no_grad():
@@ -47,7 +49,9 @@ def apply_flexible_patch_weights(encoder: nn.Module, weight_assignments: Sequenc
                 )
                 new_weights[:, i, :, :] = red_weights
         patch_embed.weight.data = new_weights
-    print(f"Applied flexible DINO patch embedding: {list(weight_assignments)}", flush=True)
+    print(
+        f"Applied flexible DINO patch embedding: {list(weight_assignments)}", flush=True
+    )
 
 
 class DinoMaskRCNNBackbone(nn.Module):
@@ -69,7 +73,10 @@ class DinoMaskRCNNBackbone(nn.Module):
         self.output_strides = list(output_strides)
         hidden_size = self._hidden_size()
         self.projections = nn.ModuleList(
-            [nn.Conv2d(hidden_size, out_channels, kernel_size=1) for _ in self.layers_to_extract]
+            [
+                nn.Conv2d(hidden_size, out_channels, kernel_size=1)
+                for _ in self.layers_to_extract
+            ]
         )
         self.out_channels = out_channels
 
@@ -84,7 +91,9 @@ class DinoMaskRCNNBackbone(nn.Module):
             print("DINO Mask R-CNN encoder unfrozen.", flush=True)
 
     def _hidden_size(self) -> int:
-        if hasattr(self.encoder, "norm") and hasattr(self.encoder.norm, "normalized_shape"):
+        if hasattr(self.encoder, "norm") and hasattr(
+            self.encoder.norm, "normalized_shape"
+        ):
             return int(self.encoder.norm.normalized_shape[0])
         if hasattr(self.encoder, "patch_embed"):
             return int(self.encoder.patch_embed.proj.out_channels)
@@ -133,7 +142,9 @@ def create_dino_mask_rcnn_model(
         weight_assignments=weight_assignments,
         freeze_encoder=freeze_backbone,
     )
-    aspect_ratios = tuple(tuple(float(r) for r in anchor_aspect_ratios) for _ in anchor_sizes)
+    aspect_ratios = tuple(
+        tuple(float(r) for r in anchor_aspect_ratios) for _ in anchor_sizes
+    )
     anchor_generator = AnchorGenerator(
         sizes=tuple(tuple(int(s) for s in level) for level in anchor_sizes),
         aspect_ratios=aspect_ratios,

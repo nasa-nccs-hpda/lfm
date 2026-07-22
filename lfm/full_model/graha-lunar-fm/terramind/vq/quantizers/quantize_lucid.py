@@ -125,7 +125,9 @@ def sample_vectors_distributed(local_samples, num):
     all_num_samples = all_gather_sizes(local_samples, dim=0)
 
     if rank == 0:
-        samples_per_rank = sample_multinomial(num, all_num_samples / all_num_samples.sum())
+        samples_per_rank = sample_multinomial(
+            num, all_num_samples / all_num_samples.sum()
+        )
     else:
         samples_per_rank = torch.empty_like(all_num_samples)
 
@@ -165,7 +167,9 @@ def kmeans(
         if use_cosine_sim:
             dists = samples @ means.t()
         else:
-            diffs = rearrange(samples, "n d -> n () d") - rearrange(means, "c d -> () c d")
+            diffs = rearrange(samples, "n d -> n () d") - rearrange(
+                means, "c d -> () c d"
+            )
             dists = -(diffs**2).sum(dim=-1)
 
         buckets = torch.argmax(dists, dim=-1)
@@ -288,7 +292,9 @@ class EuclideanCodebook(torch.nn.Module):
             # Replace dead codes by most used codes + some noise (Linde-Buzo-Gray splitting algorithm)
             self.replace_linde_buzo_gray(mask=expired_codes)
         else:
-            raise ValueError(f"{self.code_replacement_policy} is not a valid dead code replacement strategy.")
+            raise ValueError(
+                f"{self.code_replacement_policy} is not a valid dead code replacement strategy."
+            )
 
     @torch.amp.autocast("cuda", enabled=False)
     def forward(self, x):
@@ -423,7 +429,9 @@ class CosineSimCodebook(torch.nn.Module):
             # Replace dead codes by most used codes + some noise (Linde-Buzo-Gray splitting algorithm)
             self.replace_linde_buzo_gray(mask=expired_codes)
         else:
-            raise ValueError(f"{self.code_replacement_policy} is not a valid dead code replacement strategy.")
+            raise ValueError(
+                f"{self.code_replacement_policy} is not a valid dead code replacement strategy."
+            )
 
     @torch.amp.autocast("cuda", enabled=False)
     def forward(self, x):
@@ -460,7 +468,9 @@ class CosineSimCodebook(torch.nn.Module):
 
             embed_normalized = (embed_sum / bins.unsqueeze(0)).t()
             embed_normalized = l2norm(embed_normalized)
-            embed_normalized = torch.where(zero_mask[..., None], embed, embed_normalized)
+            embed_normalized = torch.where(
+                zero_mask[..., None], embed, embed_normalized
+            )
             ema_inplace(self.embed, embed_normalized, self.decay)
             self.expire_codes_(x)
 
@@ -500,8 +510,16 @@ class VectorQuantize(torch.nn.Module):
         codebook_input_dim = codebook_dim * heads
 
         requires_projection = codebook_input_dim != dim
-        self.project_in = torch.nn.Linear(dim, codebook_input_dim) if requires_projection else torch.nn.Identity()
-        self.project_out = torch.nn.Linear(codebook_input_dim, dim) if requires_projection else torch.nn.Identity()
+        self.project_in = (
+            torch.nn.Linear(dim, codebook_input_dim)
+            if requires_projection
+            else torch.nn.Identity()
+        )
+        self.project_out = (
+            torch.nn.Linear(codebook_input_dim, dim)
+            if requires_projection
+            else torch.nn.Identity()
+        )
 
         self.eps = eps
         self.commitment_weight = commitment_weight
@@ -590,8 +608,13 @@ class VectorQuantize(torch.nn.Module):
                     codebook = codebook[unique_code_ids]
 
                 num_codes = codebook.shape[0]
-                if exists(self.orthogonal_reg_max_codes) and num_codes > self.orthogonal_reg_max_codes:
-                    rand_ids = torch.randperm(num_codes, device=device)[:self.orthogonal_reg_max_codes]
+                if (
+                    exists(self.orthogonal_reg_max_codes)
+                    and num_codes > self.orthogonal_reg_max_codes
+                ):
+                    rand_ids = torch.randperm(num_codes, device=device)[
+                        : self.orthogonal_reg_max_codes
+                    ]
                     codebook = codebook[rand_ids]
 
                 orthogonal_reg_loss = orthgonal_loss_fn(codebook)
@@ -608,7 +631,9 @@ class VectorQuantize(torch.nn.Module):
 
         if self.accept_image_fmap:
             quantize = rearrange(quantize, "b (h w) c -> b c h w", h=height, w=width)
-            embed_ind = rearrange(embed_ind, "b (h w) ... -> b h w ...", h=height, w=width)
+            embed_ind = rearrange(
+                embed_ind, "b (h w) ... -> b h w ...", h=height, w=width
+            )
             if is_multiheaded:
                 embed_ind = rearrange(embed_ind, "b h w ... -> b ... h w")
 

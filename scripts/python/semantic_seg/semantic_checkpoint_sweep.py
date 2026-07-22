@@ -22,7 +22,6 @@ import contextlib
 import gc
 import os
 import re
-import sys
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,7 +42,6 @@ from semantic_seg_comparison import (
     create_lightning_module as create_toy_lightning_module,
     create_model as create_toy_model,
 )
-
 
 METRIC_NAMES = [
     "pixel_accuracy",
@@ -100,7 +98,9 @@ def build_config(args: argparse.Namespace) -> SweepConfig:
     script_dir = Path(__file__).resolve().parent
     notebook_dir = script_dir.parents[2] / "notebooks" / "full_model"
     scripts_output_dir = script_dir.parents[2] / "scripts" / "outputs"
-    data_root = Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
+    data_root = (
+        Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
+    )
     output_root = (
         Path(args.output_root).resolve()
         if args.output_root
@@ -112,7 +112,9 @@ def build_config(args: argparse.Namespace) -> SweepConfig:
     graha_checkpoint_dir = (
         Path(args.graha_checkpoint_dir).resolve() if args.graha_checkpoint_dir else None
     )
-    dino_checkpoint = Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None
+    dino_checkpoint = (
+        Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None
+    )
     graha_pretrain_dir = (
         Path(args.graha_pretrain_dir).resolve() if args.graha_pretrain_dir else None
     )
@@ -162,7 +164,9 @@ def _quiet(enabled: bool):
             yield
 
 
-def _load_lightning_checkpoint_state(task: torch.nn.Module, checkpoint_path: Path) -> None:
+def _load_lightning_checkpoint_state(
+    task: torch.nn.Module, checkpoint_path: Path
+) -> None:
     checkpoint_path = Path(checkpoint_path).resolve()
     with warnings.catch_warnings():
         warnings.filterwarnings(
@@ -175,7 +179,9 @@ def _load_lightning_checkpoint_state(task: torch.nn.Module, checkpoint_path: Pat
     task.load_state_dict(state_dict, strict=True)
 
 
-def _limit_dataset(dataset, max_samples: int | None, *, model_name: str, split_name: str):
+def _limit_dataset(
+    dataset, max_samples: int | None, *, model_name: str, split_name: str
+):
     if max_samples is None:
         return dataset
     if max_samples < 0:
@@ -188,10 +194,14 @@ def _limit_dataset(dataset, max_samples: int | None, *, model_name: str, split_n
     return Subset(dataset, range(limited_count))
 
 
-def discover_checkpoints(checkpoint_dir: Path, *, max_checkpoints: int | None = None) -> list[CheckpointRecord]:
+def discover_checkpoints(
+    checkpoint_dir: Path, *, max_checkpoints: int | None = None
+) -> list[CheckpointRecord]:
     checkpoint_dir = Path(checkpoint_dir).resolve()
     if not checkpoint_dir.exists():
-        raise FileNotFoundError(f"Checkpoint directory does not exist: {checkpoint_dir}")
+        raise FileNotFoundError(
+            f"Checkpoint directory does not exist: {checkpoint_dir}"
+        )
 
     paths = sorted(path for path in checkpoint_dir.rglob("*.ckpt") if path.is_file())
     if not paths:
@@ -205,7 +215,13 @@ def discover_checkpoints(checkpoint_dir: Path, *, max_checkpoints: int | None = 
         )
         for path in paths
     ]
-    records.sort(key=lambda item: (item.epoch is None, item.epoch if item.epoch is not None else 10**9, str(item.path)))
+    records.sort(
+        key=lambda item: (
+            item.epoch is None,
+            item.epoch if item.epoch is not None else 10**9,
+            str(item.path),
+        )
+    )
 
     unique_records = []
     used_names: dict[str, int] = {}
@@ -265,15 +281,24 @@ def _extract_batch(batch: Any) -> tuple[torch.Tensor, torch.Tensor, list[str | N
         images = batch[0]
         labels = batch[1]
         image_paths = batch[2] if len(batch) > 2 else [None] * images.shape[0]
-        return images, labels, [str(item) if item is not None else None for item in image_paths]
+        return (
+            images,
+            labels,
+            [str(item) if item is not None else None for item in image_paths],
+        )
     raise TypeError(f"Unsupported batch type: {type(batch)}")
 
 
 def _move_batch_to_device(batch: Any, device: torch.device) -> Any:
     if isinstance(batch, dict):
-        return {key: value.to(device) if torch.is_tensor(value) else value for key, value in batch.items()}
+        return {
+            key: value.to(device) if torch.is_tensor(value) else value
+            for key, value in batch.items()
+        }
     if isinstance(batch, (tuple, list)):
-        return tuple(value.to(device) if torch.is_tensor(value) else value for value in batch)
+        return tuple(
+            value.to(device) if torch.is_tensor(value) else value for value in batch
+        )
     return batch.to(device) if torch.is_tensor(batch) else batch
 
 
@@ -347,10 +372,14 @@ def _average_precision(scores: np.ndarray, labels: np.ndarray) -> float:
     precision = np.concatenate(([1.0], precision, [0.0]))
     precision = np.maximum.accumulate(precision[::-1])[::-1]
     changed = np.where(recall[1:] != recall[:-1])[0]
-    return float(np.sum((recall[changed + 1] - recall[changed]) * precision[changed + 1]))
+    return float(
+        np.sum((recall[changed + 1] - recall[changed]) * precision[changed + 1])
+    )
 
 
-def _ap_metrics_from_scores(foreground_scores: np.ndarray, labels: np.ndarray) -> dict[str, float]:
+def _ap_metrics_from_scores(
+    foreground_scores: np.ndarray, labels: np.ndarray
+) -> dict[str, float]:
     labels_bool = np.asarray(labels).astype(bool)
     foreground_ap = _average_precision(foreground_scores, labels_bool)
     background_ap = _average_precision(1.0 - foreground_scores, ~labels_bool)
@@ -408,7 +437,15 @@ def _metrics_from_counts(
 
 
 def _empty_counts() -> dict[str, float]:
-    return {"tp": 0.0, "fp": 0.0, "fn": 0.0, "tn": 0.0, "n": 0.0, "pred_fg": 0.0, "label_fg": 0.0}
+    return {
+        "tp": 0.0,
+        "fp": 0.0,
+        "fn": 0.0,
+        "tn": 0.0,
+        "n": 0.0,
+        "pred_fg": 0.0,
+        "label_fg": 0.0,
+    }
 
 
 def _add_counts(total: dict[str, float], part: dict[str, float]) -> None:
@@ -424,7 +461,9 @@ def _metrics_to_array(metrics: dict[str, float]) -> np.ndarray:
     return row
 
 
-def _write_metrics(output_dir: Path, metrics: dict[str, float], *, header: str | None = None) -> None:
+def _write_metrics(
+    output_dir: Path, metrics: dict[str, float], *, header: str | None = None
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     np.save(output_dir / "metrics.npy", _metrics_to_array(metrics))
     with (output_dir / "metrics.txt").open("w", encoding="utf-8") as f:
@@ -491,7 +530,9 @@ def _run_checkpoint(
 
                 sample_counts = _confusion_counts(preds_np[i], labels_np[i])
                 _add_counts(counts_total, sample_counts)
-                sample_ap_metrics = _ap_metrics_from_scores(foreground_scores_np[i], labels_np[i])
+                sample_ap_metrics = _ap_metrics_from_scores(
+                    foreground_scores_np[i], labels_np[i]
+                )
                 all_foreground_scores.append(foreground_scores_np[i].reshape(-1))
                 all_labels.append(labels_np[i].reshape(-1))
                 sample_metrics = _metrics_from_counts(sample_counts, sample_ap_metrics)
@@ -508,7 +549,9 @@ def _run_checkpoint(
             batch_bar.set_postfix(samples=sample_index)
 
     aggregate_ap_metrics = (
-        _ap_metrics_from_scores(np.concatenate(all_foreground_scores), np.concatenate(all_labels))
+        _ap_metrics_from_scores(
+            np.concatenate(all_foreground_scores), np.concatenate(all_labels)
+        )
         if all_foreground_scores
         else None
     )
@@ -606,7 +649,9 @@ def _make_toy_args(config: SweepConfig) -> argparse.Namespace:
         prediction_split="test",
         prediction_n_samples=20,
         graha_base_output_dir=None,
-        graha_pretrain_dir=str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None,
+        graha_pretrain_dir=(
+            str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None
+        ),
         graha_wac_mode=config.graha_wac_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         graha_lightning_checkpoint=None,
@@ -619,7 +664,9 @@ def _make_toy_args(config: SweepConfig) -> argparse.Namespace:
         skip_graha_fit=False,
         run_epoch_test_suite=False,
         epoch_test_split="test",
-        epoch_test_n_samples=config.max_test_samples if config.max_test_samples is not None else 10**9,
+        epoch_test_n_samples=(
+            config.max_test_samples if config.max_test_samples is not None else 10**9
+        ),
         epoch_test_every_n_epochs=1,
     )
 
@@ -628,7 +675,9 @@ def run_toy_sweep(config: SweepConfig) -> list[dict[str, Any]]:
     if config.toy_checkpoint_dir is None:
         raise ValueError("Toy sweep requested but toy_checkpoint_dir is not set.")
 
-    checkpoints = discover_checkpoints(config.toy_checkpoint_dir, max_checkpoints=config.max_checkpoints)
+    checkpoints = discover_checkpoints(
+        config.toy_checkpoint_dir, max_checkpoints=config.max_checkpoints
+    )
     print(f"[Toy] Found {len(checkpoints)} checkpoint(s).")
 
     toy_config = build_toy_config(_make_toy_args(config))
@@ -692,7 +741,9 @@ def _make_graha_args(config: SweepConfig) -> argparse.Namespace:
     return SimpleNamespace(
         data_root=str(config.data_root),
         base_output_dir=str(config.output_root / "_graha_setup"),
-        pretrain_dir=str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None,
+        pretrain_dir=(
+            str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None
+        ),
         lightning_checkpoint=None,
         graha_wac_mode=config.graha_wac_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
@@ -718,7 +769,9 @@ def run_graha_sweep(config: SweepConfig) -> list[dict[str, Any]]:
     if config.graha_checkpoint_dir is None:
         raise ValueError("Graha sweep requested but graha_checkpoint_dir is not set.")
 
-    checkpoints = discover_checkpoints(config.graha_checkpoint_dir, max_checkpoints=config.max_checkpoints)
+    checkpoints = discover_checkpoints(
+        config.graha_checkpoint_dir, max_checkpoints=config.max_checkpoints
+    )
     print(f"[Graha] Found {len(checkpoints)} checkpoint(s).")
 
     with _quiet(not config.verbose):
@@ -729,13 +782,19 @@ def run_graha_sweep(config: SweepConfig) -> list[dict[str, Any]]:
 
         deps = graha_workflow.import_project_dependencies()
         datamodule_cls = deps[
-            "LunarSemanticFromInstanceDatamodule"
-            if config.semantic_label_source == "instance"
-            else "LunarSemanticMaskSegmentationDatamodule"
+            (
+                "LunarSemanticFromInstanceDatamodule"
+                if config.semantic_label_source == "instance"
+                else "LunarSemanticMaskSegmentationDatamodule"
+            )
         ]
-        task_cls = graha_workflow.make_notebook_task_class(deps["LunarShapeSegmentationTask"])
+        task_cls = graha_workflow.make_notebook_task_class(
+            deps["LunarShapeSegmentationTask"]
+        )
         means, stds = graha_workflow.calculate_train_stats(graha_config, datamodule_cls)
-        datamodule = graha_workflow.create_datamodule(graha_config, datamodule_cls, means, stds)
+        datamodule = graha_workflow.create_datamodule(
+            graha_config, datamodule_cls, means, stds
+        )
         datamodule.setup("test")
         datamodule.test_dataset = _limit_dataset(
             datamodule.test_dataset,
@@ -807,15 +866,23 @@ def run_sweep(config: SweepConfig) -> dict[str, list[dict[str, Any]]]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--simlink-dest", "--symlink-dest", dest="simlink_dest", type=str, default=None)
+    parser.add_argument(
+        "--simlink-dest", "--symlink-dest", dest="simlink_dest", type=str, default=None
+    )
     parser.add_argument("--data-root", type=str, default=None)
     parser.add_argument("--output-root", type=str, default=None)
     parser.add_argument("--toy-checkpoint-dir", type=str, default=None)
     parser.add_argument("--graha-checkpoint-dir", type=str, default=None)
-    parser.add_argument("--models", nargs="+", default=["toy", "graha"], choices=["toy", "graha"])
-    parser.add_argument("--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6])
+    parser.add_argument(
+        "--models", nargs="+", default=["toy", "graha"], choices=["toy", "graha"]
+    )
+    parser.add_argument(
+        "--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6]
+    )
     parser.add_argument("--target-size", type=int, default=256)
-    parser.add_argument("--spatial-transform", choices=["crop", "resize"], default="crop")
+    parser.add_argument(
+        "--spatial-transform", choices=["crop", "resize"], default="crop"
+    )
     parser.add_argument(
         "--semantic-label-source",
         choices=["semantic", "instance"],
@@ -832,14 +899,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-test-samples", type=int, default=None)
     parser.add_argument("--dino-checkpoint", type=str, default=None)
     parser.add_argument("--graha-pretrain-dir", type=str, default=None)
-    parser.add_argument("--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac")
-    parser.add_argument("--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean")
+    parser.add_argument(
+        "--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac"
+    )
+    parser.add_argument(
+        "--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean"
+    )
     parser.add_argument("--graha-stats-batch-size", type=int, default=16)
     parser.add_argument("--graha-batch-size", type=int, default=16)
     parser.add_argument("--graha-num-workers", type=int, default=10)
     parser.add_argument("--max-checkpoints", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--verbose", action="store_true", help="Show model/datamodule setup output.")
+    parser.add_argument(
+        "--verbose", action="store_true", help="Show model/datamodule setup output."
+    )
     parser.add_argument(
         "--no-preload-test-batches",
         dest="preload_test_batches",
@@ -855,7 +928,9 @@ def main() -> None:
     notebook_dir = Path(__file__).resolve().parents[2] / "notebooks" / "full_model"
     ensure_data_symlink(args.simlink_dest, notebook_dir / "data")
     config = build_config(args)
-    print("REMINDER: after rerunning training, confirm checkpoint directory structure before large sweeps.")
+    print(
+        "REMINDER: after rerunning training, confirm checkpoint directory structure before large sweeps."
+    )
     print("Output root:", config.output_root)
     print("Data root:", config.data_root)
     run_sweep(config)

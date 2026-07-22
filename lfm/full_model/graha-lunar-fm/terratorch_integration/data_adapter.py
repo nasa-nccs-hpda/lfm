@@ -10,7 +10,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -24,7 +23,9 @@ from skimage import measure
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
-from terratorch_integration.data_utils import load_nc_band as _load_nc_band  # noqa: F401  (re-exported)
+from terratorch_integration.data_utils import (
+    load_nc_band as _load_nc_band,
+)  # noqa: F401  (re-exported)
 
 
 class Normalize:
@@ -33,7 +34,12 @@ class Normalize:
     Similar to mVHR10 normalization but adapted for lunar images.
     """
 
-    def __init__(self, means: list[float], stds: list[float], max_pixel_value: float | None = None):
+    def __init__(
+        self,
+        means: list[float],
+        stds: list[float],
+        max_pixel_value: float | None = None,
+    ):
         """Initialize normalizer.
 
         Args:
@@ -56,7 +62,11 @@ class Normalize:
             Normalized batch
         """
         batch["image"] = torch.stack(tuple(batch["image"]))
-        image = batch["image"] / self.max_pixel_value if self.max_pixel_value is not None else batch["image"]
+        image = (
+            batch["image"] / self.max_pixel_value
+            if self.max_pixel_value is not None
+            else batch["image"]
+        )
 
         # Handle different tensor shapes
         if len(image.shape) == 5:
@@ -68,7 +78,9 @@ class Normalize:
             means = torch.tensor(self.means, device=image.device).view(1, -1, 1, 1)
             stds = torch.tensor(self.stds, device=image.device).view(1, -1, 1, 1)
         else:
-            msg = f"Expected batch to have 5 or 4 dimensions, but got {len(image.shape)}"
+            msg = (
+                f"Expected batch to have 5 or 4 dimensions, but got {len(image.shape)}"
+            )
             raise ValueError(msg)
 
         batch["image"] = (image - means) / stds
@@ -145,7 +157,9 @@ class LunarCraterDataset(Dataset):
 
         # Build image list
         self.images = self.coco_data["images"]
-        self.categories = {cat["id"]: cat["name"] for cat in self.coco_data["categories"]}
+        self.categories = {
+            cat["id"]: cat["name"] for cat in self.coco_data["categories"]
+        }
 
     def __len__(self) -> int:
         return len(self.images)
@@ -175,7 +189,9 @@ class LunarCraterDataset(Dataset):
 
         # Resize if image_size is specified
         if self.image_size is not None:
-            image = image.resize((self.image_size, self.image_size), Image.Resampling.BILINEAR)
+            image = image.resize(
+                (self.image_size, self.image_size), Image.Resampling.BILINEAR
+            )
             scale_x = self.image_size / orig_w
             scale_y = self.image_size / orig_h
         else:
@@ -269,11 +285,16 @@ class LunarCraterDataset(Dataset):
             >>> fig = dataset.plot(sample, suptitle="Lunar Crater Detection")
             >>> plt.show()
         """
-        assert show_feats in {"boxes", "masks", "both"}, \
-            f"show_feats must be 'boxes', 'masks', or 'both', got {show_feats}"
+        assert show_feats in {
+            "boxes",
+            "masks",
+            "both",
+        }, f"show_feats must be 'boxes', 'masks', or 'both', got {show_feats}"
 
         # Normalize image for display (handle single-channel grayscale)
-        image = sample["image"].squeeze().cpu().numpy()  # Remove channel dim for grayscale
+        image = (
+            sample["image"].squeeze().cpu().numpy()
+        )  # Remove channel dim for grayscale
 
         # Normalize to [0, 1] for display
         if image.max() > 1.0:
@@ -284,12 +305,16 @@ class LunarCraterDataset(Dataset):
         labels = sample[self.labels_output_tag].cpu().numpy()
 
         # Check if we have masks
-        has_masks = (self.masks_output_tag in sample and
-                    len(sample[self.masks_output_tag]) > 0 and
-                    sample[self.masks_output_tag][0].numel() > 0)
+        has_masks = (
+            self.masks_output_tag in sample
+            and len(sample[self.masks_output_tag]) > 0
+            and sample[self.masks_output_tag][0].numel() > 0
+        )
 
         if has_masks:
-            masks = [mask.squeeze().cpu().numpy() for mask in sample[self.masks_output_tag]]
+            masks = [
+                mask.squeeze().cpu().numpy() for mask in sample[self.masks_output_tag]
+            ]
 
         n_gt = len(boxes)
 
@@ -298,16 +323,24 @@ class LunarCraterDataset(Dataset):
         ncols = 2 if show_predictions else 1
 
         if show_predictions:
-            prediction_labels = sample[f"prediction_{self.labels_output_tag}"].cpu().numpy()
-            prediction_scores = sample[f"prediction_{self.scores_output_tag}"].cpu().numpy()
+            prediction_labels = (
+                sample[f"prediction_{self.labels_output_tag}"].cpu().numpy()
+            )
+            prediction_scores = (
+                sample[f"prediction_{self.scores_output_tag}"].cpu().numpy()
+            )
             show_pred_boxes = f"prediction_{self.boxes_output_tag}" in sample
             show_pred_masks = f"prediction_{self.masks_output_tag}" in sample
 
             if show_pred_boxes:
-                prediction_boxes = sample[f"prediction_{self.boxes_output_tag}"].cpu().numpy()
+                prediction_boxes = (
+                    sample[f"prediction_{self.boxes_output_tag}"].cpu().numpy()
+                )
             if show_pred_masks:
-                prediction_masks = [mask.squeeze().cpu().numpy()
-                                   for mask in sample[f"prediction_{self.masks_output_tag}"]]
+                prediction_masks = [
+                    mask.squeeze().cpu().numpy()
+                    for mask in sample[f"prediction_{self.masks_output_tag}"]
+                ]
 
             n_pred = len(prediction_labels)
 
@@ -344,7 +377,8 @@ class LunarCraterDataset(Dataset):
                 # Add label
                 label_name = self.categories.get(class_num, f"Class {class_num}")
                 axs[0, 0].text(
-                    x1, y1 - 8,
+                    x1,
+                    y1 - 8,
                     label_name,
                     color="white",
                     size=11,
@@ -359,7 +393,9 @@ class LunarCraterDataset(Dataset):
                     contours = measure.find_contours(mask, 0.5)
                     for verts in contours:
                         verts = np.fliplr(verts)
-                        p = patches.Polygon(verts, facecolor=color, alpha=mask_alpha, edgecolor="white")
+                        p = patches.Polygon(
+                            verts, facecolor=color, alpha=mask_alpha, edgecolor="white"
+                        )
                         axs[0, 0].add_patch(p)
 
         if show_titles:
@@ -397,7 +433,8 @@ class LunarCraterDataset(Dataset):
                     label_name = self.categories.get(class_num, f"Class {class_num}")
                     caption = f"{label_name} {score:.3f}"
                     axs[0, 1].text(
-                        x1, y1 - 8,
+                        x1,
+                        y1 - 8,
                         caption,
                         color="white",
                         size=11,
@@ -496,7 +533,7 @@ class LunarCraterDataModule(LightningDataModule):
             # Use grayscale normalization (single channel)
             # Default to generic grayscale values if not specified
             means = norm_means or [0.5]  # Single channel mean
-            stds = norm_stds or [0.25]   # Single channel std
+            stds = norm_stds or [0.25]  # Single channel std
             self.aug = Normalize(means, stds, max_pixel_value=max_pixel_value)
         else:
             # No normalization - just scale to [0, 1]
@@ -650,16 +687,16 @@ _PACKED_SEQ_PAD = -1
 # Mapping from parquet column names to the variable names used by MetadataTransform
 # and seen by the model during pretraining.
 _PARQUET_TO_METADATA_VAR: dict[str, str] = {
-    "EMISSION_ANGLE":           "EM_ANG",
-    "INCIDENCE_ANGLE":          "INC_ANG",
-    "PHASE_ANGLE":              "PHASE_ANG",
+    "EMISSION_ANGLE": "EM_ANG",
+    "INCIDENCE_ANGLE": "INC_ANG",
+    "PHASE_ANGLE": "PHASE_ANG",
     "SUB_SOLAR_GROUND_AZIMUTH": "SS_GROUND_AZIMUTH",
-    "SUB_SOLAR_LATITUDE":       "SS_LAT",
-    "SUB_SOLAR_LONGITUDE":      "SS_LON",
-    "UPPER_LEFT_LONGITUDE":     "UL_LON",
-    "UPPER_LEFT_LATITUDE":      "UL_LAT",
-    "LOWER_RIGHT_LONGITUDE":    "LR_LON",
-    "LOWER_RIGHT_LATITUDE":     "LR_LAT",
+    "SUB_SOLAR_LATITUDE": "SS_LAT",
+    "SUB_SOLAR_LONGITUDE": "SS_LON",
+    "UPPER_LEFT_LONGITUDE": "UL_LON",
+    "UPPER_LEFT_LATITUDE": "UL_LAT",
+    "LOWER_RIGHT_LONGITUDE": "LR_LON",
+    "LOWER_RIGHT_LATITUDE": "LR_LAT",
 }
 
 # Number of metadata tokens (one per variable, no EOS — that is added by the masking layer)
@@ -692,9 +729,7 @@ class MetadataEncoder:
         "terramind/utils/tokenizer/trained/"
         "text_tokenizer_terramind_wordpiece_30k_binned_xyxy_reindexed.json"
     )
-    _DEFAULT_BINNING = (
-        "terramind/utils/tokenizer/trained/metadata_binning_config.csv"
-    )
+    _DEFAULT_BINNING = "terramind/utils/tokenizer/trained/metadata_binning_config.csv"
 
     def __init__(
         self,
@@ -743,7 +778,7 @@ class MetadataEncoder:
             binned, self._tokenizer, max_tokens=_METADATA_MAX_TOKENS
         )
         flat = [i for chunk in ids_nested for i in chunk]
-        
+
         return torch.tensor(flat, dtype=torch.long)
 
 
@@ -758,7 +793,9 @@ class LocalNormalizeDTM:
     * ``"separate"`` – operates on ``batch["dtm_3m"]``  (shape ``B, 1, H, W``)
     """
 
-    def __init__(self, dtm_global_std: float, output_mode: str = "stack", channel: int | None = 1):
+    def __init__(
+        self, dtm_global_std: float, output_mode: str = "stack", channel: int | None = 1
+    ):
         """Initialize.
 
         Args:
@@ -790,9 +827,9 @@ class LocalNormalizeDTM:
         else:
             image = batch["image"]  # (B, C, H, W)
             c = self.channel
-            dtm = image[:, c:c + 1, :, :]
+            dtm = image[:, c : c + 1, :, :]
             dtm_mean = dtm.mean(dim=(-2, -1), keepdim=True)
-            image[:, c:c + 1, :, :] = (dtm - dtm_mean) / self.dtm_global_std
+            image[:, c : c + 1, :, :] = (dtm - dtm_mean) / self.dtm_global_std
             batch["image"] = image
         return batch
 
@@ -940,12 +977,16 @@ class LunarNACDTMDataset(Dataset):
                 f"circle_diameter_mode must be 'min', 'max', or 'mean', got '{circle_diameter_mode}'"
             )
         if (nac_norm_mean is None) != (nac_norm_std is None):
-            raise ValueError("nac_norm_mean and nac_norm_std must both be set or both be None.")
+            raise ValueError(
+                "nac_norm_mean and nac_norm_std must both be set or both be None."
+            )
 
         _modalities = modalities if modalities is not None else ["nac", "dtm"]
         for m in _modalities:
             if m not in ("nac", "dtm", "metadata"):
-                raise ValueError(f"modalities entries must be 'nac', 'dtm', or 'metadata', got '{m}'")
+                raise ValueError(
+                    f"modalities entries must be 'nac', 'dtm', or 'metadata', got '{m}'"
+                )
         if not _modalities:
             raise ValueError("modalities must contain at least one entry.")
 
@@ -1001,11 +1042,13 @@ class LunarNACDTMDataset(Dataset):
         self._metadata_lookup: dict[str, Any] = {}
         for _, row in split_df.iterrows():
             pho_name = Path(row["PHO_TILE"]).name
-            self._samples.append({
-                "pho_name": pho_name,
-                "pho_path": self.data_dir / row["PHO_TILE"],
-                "dtm_path": self.data_dir / row["DTM_TILE"],
-            })
+            self._samples.append(
+                {
+                    "pho_name": pho_name,
+                    "pho_path": self.data_dir / row["PHO_TILE"],
+                    "dtm_path": self.data_dir / row["DTM_TILE"],
+                }
+            )
             self._metadata_lookup[pho_name] = row
 
         # ------------------------------------------------------------------
@@ -1116,9 +1159,13 @@ class LunarNACDTMDataset(Dataset):
         # Impute: replace NaN and -9999 sentinel with 0
         # ------------------------------------------------------------------
         if nac_np is not None:
-            nac_np = np.where(np.isnan(nac_np) | (nac_np == self.NODATA_VALUE), 0.0, nac_np)
+            nac_np = np.where(
+                np.isnan(nac_np) | (nac_np == self.NODATA_VALUE), 0.0, nac_np
+            )
         if dtm_np is not None:
-            dtm_np = np.where(np.isnan(dtm_np) | (dtm_np == self.NODATA_VALUE), 0.0, dtm_np)
+            dtm_np = np.where(
+                np.isnan(dtm_np) | (dtm_np == self.NODATA_VALUE), 0.0, dtm_np
+            )
 
         # ------------------------------------------------------------------
         # Optional resize (PIL bilinear for whichever modalities are present)
@@ -1142,11 +1189,11 @@ class LunarNACDTMDataset(Dataset):
 
         nac_t = (
             torch.from_numpy(nac_np.copy()).unsqueeze(0) * self.nac_scale_factor
-            if nac_np is not None else None
+            if nac_np is not None
+            else None
         )
         dtm_t = (
-            torch.from_numpy(dtm_np.copy()).unsqueeze(0)
-            if dtm_np is not None else None
+            torch.from_numpy(dtm_np.copy()).unsqueeze(0) if dtm_np is not None else None
         )
 
         # ------------------------------------------------------------------
@@ -1160,8 +1207,11 @@ class LunarNACDTMDataset(Dataset):
             ):
                 nac_t = _minmax_scale_tensor(
                     nac_t[0],
-                    self.nac_valid_min, self.nac_valid_max,
-                    self.nac_mask_threshold, self.nac_mask_fill_value, self.nac_mask_eps,
+                    self.nac_valid_min,
+                    self.nac_valid_max,
+                    self.nac_mask_threshold,
+                    self.nac_mask_fill_value,
+                    self.nac_mask_eps,
                 ).unsqueeze(0)
             if self.nac_norm_mean is not None:
                 nac_t = (nac_t - self.nac_norm_mean) / self.nac_norm_std
@@ -1194,12 +1244,14 @@ class LunarNACDTMDataset(Dataset):
             y2i = int(min(orig_h, y1 + h + 1))
             if invalid_mask[y1i:y2i, x1i:x2i].any():
                 continue  # drop annotation that overlaps invalid data
-            boxes.append([
-                x1 * scale_x,
-                y1 * scale_y,
-                (x1 + w) * scale_x,
-                (y1 + h) * scale_y,
-            ])
+            boxes.append(
+                [
+                    x1 * scale_x,
+                    y1 * scale_y,
+                    (x1 + w) * scale_x,
+                    (y1 + h) * scale_y,
+                ]
+            )
             # Remap all crater annotations to foreground class 1
             labels.append(1)
             masks.append(torch.zeros((0, 0), dtype=torch.uint8))
@@ -1288,7 +1340,9 @@ class LunarNACDTMDataset(Dataset):
                         f"increase image_size or lower _PACKED_SEQ_LEN."
                     )
                 meta_channel = torch.full(
-                    (flat_len,), _PACKED_SEQ_PAD, dtype=torch.float32,
+                    (flat_len,),
+                    _PACKED_SEQ_PAD,
+                    dtype=torch.float32,
                 )
                 meta_channel[: metadata_t.numel()] = metadata_t.to(torch.float32)
                 channels.append(meta_channel.view(1, h, w))
@@ -1372,7 +1426,7 @@ class LunarNACDTMDataset(Dataset):
             nac_arr = sample["nac"].squeeze(0).cpu().numpy() if has_nac else None
             dtm_arr = sample["dtm_3m"].squeeze(0).cpu().numpy() if has_dtm else None
         else:
-            img = sample["image"].cpu().numpy()                      # (C, H, W)
+            img = sample["image"].cpu().numpy()  # (C, H, W)
             has_nac = self.use_nac
             has_dtm = self.use_dtm
             nac_arr = img[0] if has_nac else None
@@ -1399,20 +1453,28 @@ class LunarNACDTMDataset(Dataset):
                 modalities.append(("DTM", dtm_display))
             ncols = len(modalities) * (2 if pred_mask is not None else 1)
             fig, axs = plt.subplots(1, ncols, squeeze=False, figsize=(ncols * 6, 6))
+
             def _overlay(ax, base, mask_arr, title):
                 ax.imshow(base, cmap="gray", vmin=0, vmax=1)
                 if mask_arr is not None:
-                    m = mask_arr.cpu().numpy() if hasattr(mask_arr, "cpu") else np.asarray(mask_arr)
+                    m = (
+                        mask_arr.cpu().numpy()
+                        if hasattr(mask_arr, "cpu")
+                        else np.asarray(mask_arr)
+                    )
                     ax.imshow(np.ma.masked_where(m == 0, m), cmap="autumn", alpha=0.5)
                 ax.axis("off")
                 if show_titles:
                     ax.set_title(title, fontsize=12, fontweight="bold")
+
             col = 0
             for name, display in modalities:
-                _overlay(axs[0, col], display, gt_mask, f"{name} — GT mask"); col += 1
+                _overlay(axs[0, col], display, gt_mask, f"{name} — GT mask")
+                col += 1
             if pred_mask is not None:
                 for name, display in modalities:
-                    _overlay(axs[0, col], display, pred_mask, f"{name} — pred mask"); col += 1
+                    _overlay(axs[0, col], display, pred_mask, f"{name} — pred mask")
+                    col += 1
             if suptitle is not None:
                 fig.suptitle(suptitle)
             fig.tight_layout()
@@ -1421,9 +1483,9 @@ class LunarNACDTMDataset(Dataset):
         # ------------------------------------------------------------------
         # Ground-truth annotations
         # ------------------------------------------------------------------
-        boxes  = sample[self.boxes_output_tag].cpu().numpy()
+        boxes = sample[self.boxes_output_tag].cpu().numpy()
         labels = sample[self.labels_output_tag].cpu().numpy()
-        n_gt   = len(boxes)
+        n_gt = len(boxes)
 
         # ------------------------------------------------------------------
         # Predictions (optional)
@@ -1433,8 +1495,11 @@ class LunarNACDTMDataset(Dataset):
         if show_predictions:
             pred_labels = sample[pred_key].cpu().numpy()
             pred_scores = sample[f"prediction_{self.scores_output_tag}"].cpu().numpy()
-            pred_boxes  = sample[f"prediction_{self.boxes_output_tag}"].cpu().numpy() \
-                if f"prediction_{self.boxes_output_tag}" in sample else None
+            pred_boxes = (
+                sample[f"prediction_{self.boxes_output_tag}"].cpu().numpy()
+                if f"prediction_{self.boxes_output_tag}" in sample
+                else None
+            )
             n_pred = len(pred_labels)
 
         # ------------------------------------------------------------------
@@ -1446,13 +1511,13 @@ class LunarNACDTMDataset(Dataset):
             det_modalities.append(("NAC", nac_display, "gray"))
         if dtm_display is not None:
             det_modalities.append(("DTM", dtm_display, "terrain"))
-        gt_cols   = len(det_modalities)
+        gt_cols = len(det_modalities)
         pred_cols = gt_cols if show_predictions else 0
-        ncols     = gt_cols + pred_cols
+        ncols = gt_cols + pred_cols
 
         fig, axs = plt.subplots(1, ncols, squeeze=False, figsize=(ncols * 6, 6))
 
-        cm          = plt.get_cmap("gist_rainbow")
+        cm = plt.get_cmap("gist_rainbow")
         num_classes = max(len(self.categories), 2)
 
         def _draw_boxes(ax, box_array, lbl_array, score_array=None):
@@ -1461,11 +1526,18 @@ class LunarNACDTMDataset(Dataset):
                     continue
                 color = cm(int(lbl_array[i]) / num_classes)
                 x1, y1, x2, y2 = box_array[i]
-                ax.add_patch(patches.Rectangle(
-                    (x1, y1), x2 - x1, y2 - y1,
-                    linewidth=1.5, alpha=box_alpha,
-                    linestyle="dashed", edgecolor=color, facecolor="none",
-                ))
+                ax.add_patch(
+                    patches.Rectangle(
+                        (x1, y1),
+                        x2 - x1,
+                        y2 - y1,
+                        linewidth=1.5,
+                        alpha=box_alpha,
+                        linestyle="dashed",
+                        edgecolor=color,
+                        facecolor="none",
+                    )
+                )
                 caption = self.categories.get(int(lbl_array[i]), f"cls {lbl_array[i]}")
                 if score_array is not None:
                     caption += f" {score_array[i]:.2f}"
@@ -1478,7 +1550,9 @@ class LunarNACDTMDataset(Dataset):
             axs[0, i].axis("off")
             _draw_boxes(axs[0, i], boxes, labels)
             if show_titles:
-                axs[0, i].set_title(f"{name} — Ground Truth", fontsize=12, fontweight="bold")
+                axs[0, i].set_title(
+                    f"{name} — Ground Truth", fontsize=12, fontweight="bold"
+                )
 
         # --- Prediction columns (mirroring the GT layout) ---
         if show_predictions:
@@ -1489,7 +1563,9 @@ class LunarNACDTMDataset(Dataset):
                 if pred_boxes is not None:
                     _draw_boxes(axs[0, col], pred_boxes, pred_labels, pred_scores)
                 if show_titles:
-                    axs[0, col].set_title(f"{name} — Prediction", fontsize=12, fontweight="bold")
+                    axs[0, col].set_title(
+                        f"{name} — Prediction", fontsize=12, fontweight="bold"
+                    )
 
         if suptitle is not None:
             plt.suptitle(suptitle, fontsize=14, fontweight="bold")
@@ -1632,7 +1708,9 @@ class LunarNACDTMDataModule(LightningDataModule):
                 f"task_mode must be 'detection' or 'segmentation', got '{task_mode}'"
             )
         if (nac_norm_mean is None) != (nac_norm_std is None):
-            raise ValueError("nac_norm_mean and nac_norm_std must both be set or both be None.")
+            raise ValueError(
+                "nac_norm_mean and nac_norm_std must both be set or both be None."
+            )
         super().__init__()
 
         _modalities = modalities if modalities is not None else ["nac", "dtm"]
@@ -1717,7 +1795,9 @@ class LunarNACDTMDataModule(LightningDataModule):
         self.val_dataset: LunarNACDTMDataset | None = None
         self.test_dataset: LunarNACDTMDataset | None = None
 
-    def _make_dataset(self, split: str, transforms: Callable | None) -> LunarNACDTMDataset:
+    def _make_dataset(
+        self, split: str, transforms: Callable | None
+    ) -> LunarNACDTMDataset:
         return LunarNACDTMDataset(
             data_dir=self.data_dir,
             metadata_file=self.metadata_file,
@@ -1806,7 +1886,9 @@ class LunarNACDTMDataModule(LightningDataModule):
 # ---------------------------------------------------------------------------
 
 
-def _minmax_scale_tensor(nac: torch.Tensor, valid_min, valid_max, mask_threshold, mask_fill_value, mask_eps) -> torch.Tensor:
+def _minmax_scale_tensor(
+    nac: torch.Tensor, valid_min, valid_max, mask_threshold, mask_fill_value, mask_eps
+) -> torch.Tensor:
     """Apply per-image min-max scaling to a (H, W) NAC tensor."""
     if mask_threshold is not None:
         valid_mask = nac > mask_threshold
@@ -1816,7 +1898,9 @@ def _minmax_scale_tensor(nac: torch.Tensor, valid_min, valid_max, mask_threshold
             vmax = valid_max if valid_max is not None else float(valid.max())
             if vmax > vmin:
                 nac = nac.clone()
-                nac[valid_mask] = (valid - vmin) / (vmax - vmin) * (1.0 - mask_eps) + mask_eps
+                nac[valid_mask] = (valid - vmin) / (vmax - vmin) * (
+                    1.0 - mask_eps
+                ) + mask_eps
             else:
                 nac = nac.clone()
                 nac[valid_mask] = 1.0
@@ -1864,8 +1948,12 @@ class _NACMinMaxScale:
             nac_batch = batch["nac"]  # (B, 1, H, W)
             processed = [
                 _minmax_scale_tensor(
-                    img[0], self.valid_min, self.valid_max,
-                    self.mask_threshold, self.mask_fill_value, self.mask_eps,
+                    img[0],
+                    self.valid_min,
+                    self.valid_max,
+                    self.mask_threshold,
+                    self.mask_fill_value,
+                    self.mask_eps,
                 ).unsqueeze(0)
                 for img in nac_batch
             ]
@@ -1876,8 +1964,12 @@ class _NACMinMaxScale:
             processed_imgs = []
             for img in image:
                 nac = _minmax_scale_tensor(
-                    img[c], self.valid_min, self.valid_max,
-                    self.mask_threshold, self.mask_fill_value, self.mask_eps,
+                    img[c],
+                    self.valid_min,
+                    self.valid_max,
+                    self.mask_threshold,
+                    self.mask_fill_value,
+                    self.mask_eps,
                 )
                 img = img.clone()
                 img[c] = nac
@@ -1915,7 +2007,9 @@ class _DTMMaskFill:
         else:
             image = batch["image"]  # (B, C, H, W)
             c = self.channel
-            image[:, c, :, :][image[:, c, :, :] <= self.mask_threshold] = self.mask_fill_value
+            image[:, c, :, :][
+                image[:, c, :, :] <= self.mask_threshold
+            ] = self.mask_fill_value
             batch["image"] = image
         return batch
 
@@ -1931,7 +2025,13 @@ class _NACChannelNormalize:
     * ``"separate"`` – operates on ``batch["nac"]``  (shape ``B, 1, H, W``)
     """
 
-    def __init__(self, mean: float, std: float, output_mode: str = "stack", channel: int | None = 0):
+    def __init__(
+        self,
+        mean: float,
+        std: float,
+        output_mode: str = "stack",
+        channel: int | None = 0,
+    ):
         self.mean = mean
         self.std = std
         self.output_mode = output_mode
@@ -1943,7 +2043,9 @@ class _NACChannelNormalize:
         else:
             image = batch["image"]  # (B, C, H, W)
             c = self.channel
-            image[:, c:c + 1, :, :] = (image[:, c:c + 1, :, :] - self.mean) / self.std
+            image[:, c : c + 1, :, :] = (
+                image[:, c : c + 1, :, :] - self.mean
+            ) / self.std
             batch["image"] = image
         return batch
 

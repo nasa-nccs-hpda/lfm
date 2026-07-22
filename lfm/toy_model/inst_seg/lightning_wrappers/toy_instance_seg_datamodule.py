@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import torch
 from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader, Dataset
@@ -31,7 +30,9 @@ def _minmax_scale_per_band(image: torch.Tensor) -> torch.Tensor:
     return (image - band_min) / denom
 
 
-def _mask_to_binary_instance_targets(mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def _mask_to_binary_instance_targets(
+    mask: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
     mask_labels: list[torch.Tensor] = []
     class_labels: list[torch.Tensor] = []
     for instance_id in torch.unique(mask).tolist():
@@ -92,7 +93,9 @@ class ToyInstanceSegSplitDataset(Dataset):
         if max_samples is not None:
             self.records = self.records[:max_samples]
             print(f"[{self.split_name}] Limited to {len(self.records)} samples")
-        print(f"[{self.split_name}] Found {len(self.records)} matched image-label pairs in {split_root}")
+        print(
+            f"[{self.split_name}] Found {len(self.records)} matched image-label pairs in {split_root}"
+        )
 
     def __len__(self) -> int:
         return len(self.records)
@@ -193,7 +196,9 @@ class ToyInstanceSegSplitDataModule(LightningDataModule):
         if stage in (None, "test", "predict"):
             self.test_dataset = self._make_dataset("test", self.max_test_samples)
 
-    def _make_dataset(self, split: str, max_samples: int | None) -> ToyInstanceSegSplitDataset:
+    def _make_dataset(
+        self, split: str, max_samples: int | None
+    ) -> ToyInstanceSegSplitDataset:
         return ToyInstanceSegSplitDataset(
             self.data_root / split,
             target_size=self.target_size,
@@ -232,7 +237,9 @@ class ToyInstanceSegSplitDataModule(LightningDataModule):
         if sum_x is None or sum_x2 is None or n_pixels == 0:
             raise RuntimeError("No train pixels available for toy instance statistics.")
         means = (sum_x / n_pixels).tolist()
-        stds = torch.sqrt(torch.clamp(sum_x2 / n_pixels - (sum_x / n_pixels) ** 2, min=1e-12)).tolist()
+        stds = torch.sqrt(
+            torch.clamp(sum_x2 / n_pixels - (sum_x / n_pixels) ** 2, min=1e-12)
+        ).tolist()
         print("[train] Toy instance z-score mean:", means)
         print("[train] Toy instance z-score std:", stds)
         return means, stds

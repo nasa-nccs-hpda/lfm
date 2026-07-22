@@ -5,10 +5,12 @@ Supports images with any number of channels (grayscale, RGB, multispectral, etc.
 """
 
 import os
-os.environ['HF_HUB_DISABLE_PROGRESS_BARS'] = '1'
-os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = '1'
+
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
 
 import warnings
+
 warnings.filterwarnings("ignore", message=".*HF Hub.*")
 warnings.filterwarnings("ignore", message=".*unauthenticated.*")
 
@@ -115,14 +117,12 @@ class LunarCraterDatasetMask2Former(Dataset):
             for filename in self.image_paths
         ]
         label_basenames = [
-            "_".join(Path(filename).stem.split("_")[:3])
-            for filename in label_paths
+            "_".join(Path(filename).stem.split("_")[:3]) for filename in label_paths
         ]
 
         # Create lookup dictionary for labels
         self.label_lookup = {
-            basename: path
-            for basename, path in zip(label_basenames, label_paths)
+            basename: path for basename, path in zip(label_basenames, label_paths)
         }
 
         # Filter to only images that have matching labels
@@ -135,9 +135,7 @@ class LunarCraterDatasetMask2Former(Dataset):
                 self.valid_label_paths.append(self.label_lookup[basename])
 
         # Limit to max_samples if specified
-        if max_samples is not None and max_samples < len(
-            self.valid_image_paths
-        ):
+        if max_samples is not None and max_samples < len(self.valid_image_paths):
             self.valid_image_paths = self.valid_image_paths[:max_samples]
             self.valid_label_paths = self.valid_label_paths[:max_samples]
             print(f"Limited to {max_samples} samples")
@@ -261,17 +259,24 @@ class LunarCraterDatasetMask2Former(Dataset):
         image_tensor = F.interpolate(
             image_tensor.unsqueeze(0),
             size=self.target_size,
-            mode='bilinear',
-            align_corners=False
-        ).squeeze(0)  # Result: (C, H, W)
+            mode="bilinear",
+            align_corners=False,
+        ).squeeze(
+            0
+        )  # Result: (C, H, W)
 
         # Resize instance mask
         instance_mask_tensor = torch.from_numpy(instance_mask).long()
-        instance_mask_resized = F.interpolate(
-            instance_mask_tensor.unsqueeze(0).unsqueeze(0).float(),
-            size=self.target_size,
-            mode='nearest'
-        ).squeeze(0).squeeze(0).long()  # Result: (H, W)
+        instance_mask_resized = (
+            F.interpolate(
+                instance_mask_tensor.unsqueeze(0).unsqueeze(0).float(),
+                size=self.target_size,
+                mode="nearest",
+            )
+            .squeeze(0)
+            .squeeze(0)
+            .long()
+        )  # Result: (H, W)
 
         # ============================================
         # EXTRACT INSTANCE MASKS MANUALLY
@@ -298,7 +303,7 @@ class LunarCraterDatasetMask2Former(Dataset):
         # Return in EXACT Mask2Former format
         return {
             "pixel_values": image_tensor,  # (C, H, W)
-            "mask_labels": mask_labels,    # (num_instances, H, W)
+            "mask_labels": mask_labels,  # (num_instances, H, W)
             "class_labels": class_labels,  # (num_instances,)
             "original_size": (original_height, original_width),
         }
@@ -327,8 +332,7 @@ def calculate_dataset_statistics(
     """
     if input_file_type not in [".npy", ".npz", ".tif"]:
         raise ValueError(
-            "Calculating dataset statistics expects .npy, .npz, or .tif "
-            "filetypes."
+            "Calculating dataset statistics expects .npy, .npz, or .tif " "filetypes."
         )
 
     input_paths = glob(os.path.join(image_dir, f"*{input_file_type}"))
@@ -364,7 +368,9 @@ def calculate_dataset_statistics(
             elif img.ndim == 2:
                 img = img[:, :, np.newaxis]
             else:
-                print(f"Warning: Image has {img.ndim} dimensions, skipping {image_path}")
+                print(
+                    f"Warning: Image has {img.ndim} dimensions, skipping {image_path}"
+                )
                 problematic_files.append((image_path, f"invalid_dimensions_{img.ndim}"))
                 continue
 
@@ -401,14 +407,20 @@ def calculate_dataset_statistics(
                 if band_max == band_min:
                     has_issues = True
                     issue_reasons.append(f"constant_band_{band_idx}_value_{band_min}")
-                    print(f"⚠️ Constant band {band_idx} in {image_path}: value={band_min}")
+                    print(
+                        f"⚠️ Constant band {band_idx} in {image_path}: value={band_min}"
+                    )
 
             # Check 3: Extremely large or small values
             img_min, img_max = img.min(), img.max()
             if abs(img_min) > 1e10 or abs(img_max) > 1e10:
                 has_issues = True
-                issue_reasons.append(f"extreme_values_min_{img_min:.2e}_max_{img_max:.2e}")
-                print(f"⚠️ Extreme values in {image_path}: min={img_min:.6e}, max={img_max:.6e}")
+                issue_reasons.append(
+                    f"extreme_values_min_{img_min:.2e}_max_{img_max:.2e}"
+                )
+                print(
+                    f"⚠️ Extreme values in {image_path}: min={img_min:.6e}, max={img_max:.6e}"
+                )
 
             # Check 4: Very large range (potential scaling issues)
             for band_idx in range(img.shape[2]):
@@ -416,8 +428,12 @@ def calculate_dataset_statistics(
                 band_range = band.max() - band.min()
                 if band_range > 1e10:
                     has_issues = True
-                    issue_reasons.append(f"huge_range_band_{band_idx}_range_{band_range:.2e}")
-                    print(f"⚠️ Huge range in band {band_idx} of {image_path}: {band_range:.6e}")
+                    issue_reasons.append(
+                        f"huge_range_band_{band_idx}_range_{band_range:.2e}"
+                    )
+                    print(
+                        f"⚠️ Huge range in band {band_idx} of {image_path}: {band_range:.6e}"
+                    )
 
             # Check 5: All zeros or near-zero variance
             if np.allclose(img, 0, atol=1e-10):
@@ -444,9 +460,13 @@ def calculate_dataset_statistics(
 
             # Verify consistent number of channels
             if img.shape[2] != num_channels:
-                print(f"Warning: Inconsistent channels. Expected {num_channels}, "
-                    f"got {img.shape[2]} for {image_path}. Skipping.")
-                problematic_files.append((image_path, f"channel_mismatch_{img.shape[2]}_vs_{num_channels}"))
+                print(
+                    f"Warning: Inconsistent channels. Expected {num_channels}, "
+                    f"got {img.shape[2]} for {image_path}. Skipping."
+                )
+                problematic_files.append(
+                    (image_path, f"channel_mismatch_{img.shape[2]}_vs_{num_channels}")
+                )
                 continue
 
             # Track min/max per band across all images
@@ -474,7 +494,7 @@ def calculate_dataset_statistics(
 
             # Accumulate statistics
             pixel_sum += img.sum(axis=(0, 1))
-            pixel_sq_sum += (img.astype(np.float64)**2).sum(axis=(0, 1))
+            pixel_sq_sum += (img.astype(np.float64) ** 2).sum(axis=(0, 1))
             pixel_count += img.shape[0] * img.shape[1]
             valid_images += 1
 
@@ -483,6 +503,7 @@ def calculate_dataset_statistics(
             problematic_files.append((image_path, f"exception_{str(e)[:50]}"))
             if debug:
                 import traceback
+
                 traceback.print_exc()
             continue
 
@@ -494,7 +515,7 @@ def calculate_dataset_statistics(
     # Save to file for review/deletion
     if problematic_files:
         output_file = "problematic_files.txt"
-        with open(output_file, 'w') as f:
+        with open(output_file, "w") as f:
             f.write("# Problematic files found during statistics computation\n")
             f.write("# Format: filepath | reason\n\n")
             for filepath, reason in problematic_files:
@@ -509,9 +530,7 @@ def calculate_dataset_statistics(
     mean = pixel_sum / pixel_count
     std = np.sqrt((pixel_sq_sum / pixel_count) - (mean**2))
 
-    print(
-        f"\nProcessed {valid_images} valid images out of {len(input_paths)} total"
-    )
+    print(f"\nProcessed {valid_images} valid images out of {len(input_paths)} total")
     print(f"Mean per channel: {mean}")
     print(f"Std per channel: {std}")
 
@@ -532,12 +551,16 @@ def calculate_dataset_statistics(
 
     print("\nGlobal value ranges per band (before scaling):")
     for band_idx in range(num_channels):
-        print(f"  Band {band_idx}: min={band_min_vals[band_idx]:.6e}, max={band_max_vals[band_idx]:.6e}")
+        print(
+            f"  Band {band_idx}: min={band_min_vals[band_idx]:.6e}, max={band_max_vals[band_idx]:.6e}"
+        )
 
     return mean, std
 
 
-def get_input_metadata(base_dir: str, band_filter: Optional[List[int]] = None) -> List[str]:
+def get_input_metadata(
+    base_dir: str, band_filter: Optional[List[int]] = None
+) -> List[str]:
     """
     Extract band metadata and return RGB weight assignments for each band.
 
@@ -593,8 +616,7 @@ def get_input_metadata(base_dir: str, band_filter: Optional[List[int]] = None) -
 
     # Get weight assignments for filtered bands
     weight_assignments = [
-        _get_weight_assignment(descriptions[idx], idx)
-        for idx in band_filter
+        _get_weight_assignment(descriptions[idx], idx) for idx in band_filter
     ]
 
     return weight_assignments
@@ -669,9 +691,7 @@ def get_dataloaders(
         print("Computing dataset statistics...")
         # Note: calculate_dataset_statistics should be updated to use base_dir
         image_dir = f"{base_dir}/chips"
-        mean, std = calculate_dataset_statistics(
-            image_dir, ".tif", debug
-        )
+        mean, std = calculate_dataset_statistics(image_dir, ".tif", debug)
 
         # Save statistics if directory provided
         if stats_save_dir is not None:
@@ -690,7 +710,7 @@ def get_dataloaders(
         target_size=target_size,
         max_samples=max_samples,
         band_filter=band_filter,
-        normalize_inputs=normalize_inputs
+        normalize_inputs=normalize_inputs,
     )
 
     # Split into train/val

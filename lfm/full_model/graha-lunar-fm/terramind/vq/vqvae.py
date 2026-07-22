@@ -33,7 +33,6 @@ from terramind.vq.models.mlp_models import build_mlp
 from terramind.vq.quantizers import Memcodes, VectorQuantizerLucid
 from terramind.vq.scheduling import DDIMScheduler, DDPMScheduler, PipelineCond
 
-
 # If freeze_enc is True, the following modules will be frozen
 FREEZE_MODULES = ["encoder", "quant_proj", "quantize", "cls_emb"]
 
@@ -146,7 +145,9 @@ class VQ(torch.nn.Module, PyTorchModelHubMixin):
 
         # For semantic segmentation
         if n_labels is not None:
-            self.cls_emb = torch.nn.Embedding(num_embeddings=n_labels, embedding_dim=n_channels)
+            self.cls_emb = torch.nn.Embedding(
+                num_embeddings=n_labels, embedding_dim=n_channels
+            )
             self.colorize = torch.randn(3, n_labels, 1, 1)
         else:
             self.cls_emb = None
@@ -311,7 +312,9 @@ class VQ(torch.nn.Module, PyTorchModelHubMixin):
         x = (x - x.min()) / (x.max() - x.min())
         return x
 
-    def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.LongTensor]:
+    def encode(
+        self, x: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.LongTensor]:
         """Encodes an input image tensor and quantizes the latent code.
 
         Args:
@@ -328,7 +331,7 @@ class VQ(torch.nn.Module, PyTorchModelHubMixin):
         h = self.quant_proj(h)
         if self.quant_type == "fsq":
             quant, tokens = self.quantize(h)
-            code_loss = torch.Tensor([0.]).to(h.device)
+            code_loss = torch.Tensor([0.0]).to(h.device)
         else:
             quant, code_loss, tokens = self.quantize(h)
         return quant, code_loss, tokens
@@ -386,9 +389,11 @@ class VQ(torch.nn.Module, PyTorchModelHubMixin):
         # Conv2d-based decoders (post_quant_proj) expect (B, D, H, W).
         # Detect channels-last: ndim==4 and last dim matches latent_dim but
         # second dim matches the spatial height of the token grid.
-        if (quant.ndim == 4
-                and quant.shape[-1] == self.latent_dim
-                and quant.shape[1] != self.latent_dim):
+        if (
+            quant.ndim == 4
+            and quant.shape[-1] == self.latent_dim
+            and quant.shape[1] != self.latent_dim
+        ):
             quant = quant.permute(0, 3, 1, 2).contiguous()
 
         return quant
@@ -405,8 +410,10 @@ class VQ(torch.nn.Module, PyTorchModelHubMixin):
         quant = self.tokens_to_embedding(tokens)
 
         # Get image size from token shape
-        image_size = (kwargs.pop("image_size", None) or
-                      (tokens.shape[-2] * self.patch_size, tokens.shape[-1] * self.patch_size))
+        image_size = kwargs.pop("image_size", None) or (
+            tokens.shape[-2] * self.patch_size,
+            tokens.shape[-1] * self.patch_size,
+        )
 
         dec = self.decode_quant(quant, image_size=image_size, **kwargs)
         return dec
@@ -451,7 +458,7 @@ class VQVAE(VQ):
         patch_size_dec: int | None = None,
         config: dict[str, Any] | None = None,
         out_conv: bool = True,
-        out_conv_upsample_stages: int=4,
+        out_conv_upsample_stages: int = 4,
         *args,
         **kwargs,
     ):
@@ -487,7 +494,9 @@ class VQVAE(VQ):
             )
             self.dec_dim = self.decoder.dim_tokens
         elif "MLP" in dec_type:
-            self.decoder = build_mlp(model_id=dec_type, dim_in=None, dim_out=out_channels)
+            self.decoder = build_mlp(
+                model_id=dec_type, dim_in=None, dim_out=out_channels
+            )
             self.dec_dim = self.decoder.dim_in
         else:
             raise NotImplementedError(f"{dec_type} not implemented.")
@@ -497,7 +506,9 @@ class VQVAE(VQ):
 
         enc_params = sum(p.numel() for p in self.encoder.parameters())
         dec_params = sum(p.numel() for p in self.decoder.parameters())
-        print(f"Encoder params: {enc_params / 1e6:.1f}M, Decoder params: {dec_params / 1e6:.1f}M")
+        print(
+            f"Encoder params: {enc_params / 1e6:.1f}M, Decoder params: {dec_params / 1e6:.1f}M"
+        )
 
         # Load checkpoint
         if self.ckpt_path is not None:
@@ -627,7 +638,9 @@ class DiVAE(VQ):
         self.zero_terminal_snr = zero_terminal_snr
 
         if cls_free_guidance_dropout > 0.0:
-            self.cfg_dist = torch.distributions.Bernoulli(probs=cls_free_guidance_dropout)
+            self.cfg_dist = torch.distributions.Bernoulli(
+                probs=cls_free_guidance_dropout
+            )
         else:
             self.cfg_dist = None
         self.masked_cfg = masked_cfg
@@ -674,7 +687,9 @@ class DiVAE(VQ):
         if self.ckpt_path is not None:
             self.init_from_ckpt(self.ckpt_path, ignore_keys=self.ignore_keys)
 
-    def sample_mask(self, quant: torch.Tensor, low: int = 0, high: int | None = None) -> torch.BoolTensor:
+    def sample_mask(
+        self, quant: torch.Tensor, low: int = 0, high: int | None = None
+    ) -> torch.BoolTensor:
         """Returns a mask of shape B H_Q W_Q, where True = masked-out, False = keep.
 
         Args:
@@ -690,9 +705,13 @@ class DiVAE(VQ):
         num_tokens = H_Q * W_Q
         high = high if high is not None else num_tokens
 
-        zero_idxs = torch.randint(low=low, high=high + 1, size=(B,), device=quant.device)
+        zero_idxs = torch.randint(
+            low=low, high=high + 1, size=(B,), device=quant.device
+        )
         noise = torch.rand(B, num_tokens, device=quant.device)
-        ids_arange_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
+        ids_arange_shuffle = torch.argsort(
+            noise, dim=1
+        )  # ascend: small is keep, large is remove
         mask = torch.where(ids_arange_shuffle < zero_idxs.unsqueeze(1), 0, 1)
         mask = rearrange(mask, "b (h w) -> b h w", h=H_Q, w=W_Q).bool()
 
@@ -712,7 +731,9 @@ class DiVAE(VQ):
         if scheduler is None:
             return self.pipeline
 
-        return PipelineCond(model=self.decoder, scheduler=scheduler, n_channels=self.n_channels)
+        return PipelineCond(
+            model=self.decoder, scheduler=scheduler, n_channels=self.n_channels
+        )
 
     def decode_quant(
         self,
@@ -827,8 +848,12 @@ class DiVAE(VQ):
             cond_mask = self.cfg_dist.sample((B,)).to(quant.device, dtype=torch.bool)
             cond_mask = repeat(cond_mask, "b -> b h w", h=H_Q, w=W_Q)
             if self.masked_cfg:
-                mask = self.sample_mask(quant, low=self.masked_cfg_low, high=self.masked_cfg_high)
+                mask = self.sample_mask(
+                    quant, low=self.masked_cfg_low, high=self.masked_cfg_high
+                )
                 cond_mask = mask * cond_mask
 
-        dec = self.decoder(input_noised, timesteps, quant, cond_mask=cond_mask, orig_res=orig_res)
+        dec = self.decoder(
+            input_noised, timesteps, quant, cond_mask=cond_mask, orig_res=orig_res
+        )
         return dec, code_loss

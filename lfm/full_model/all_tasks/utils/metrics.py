@@ -12,8 +12,7 @@ from lfm.full_model.all_tasks.utils.common import (
     _display_sample_key,
     _model_display_name,
 )
-from lfm.full_model.all_tasks.utils.prediction_cache import \
-    _load_prediction_cache
+from lfm.full_model.all_tasks.utils.prediction_cache import _load_prediction_cache
 
 
 def calculate_f1_score(pred: np.ndarray, label: np.ndarray) -> float:
@@ -61,9 +60,7 @@ def evaluate_prediction_caches(
     filename_prefix: str = "prediction_cache_metrics",
 ) -> tuple[list[dict], list[dict]]:
     """Compute binary segmentation metrics from prediction caches."""
-    loaded = {
-        name: _load_prediction_cache(path) for name, path in cache_dirs.items()
-    }
+    loaded = {name: _load_prediction_cache(path) for name, path in cache_dirs.items()}
     if not loaded:
         raise ValueError("No prediction caches were provided.")
 
@@ -73,9 +70,7 @@ def evaluate_prediction_caches(
         shared_keys &= set(samples)
     sample_keys = sorted(shared_keys)
     if not sample_keys:
-        raise ValueError(
-            "Prediction caches do not contain matching sample keys."
-        )
+        raise ValueError("Prediction caches do not contain matching sample keys.")
 
     rows = []
     for model_name, samples in loaded.items():

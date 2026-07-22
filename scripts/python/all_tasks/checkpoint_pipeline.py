@@ -54,7 +54,11 @@ def _snapshot_children(path: Path) -> set[Path]:
 
 
 def _latest_child(path: Path, *, exclude: set[Path]) -> Path:
-    candidates = [child for child in path.iterdir() if child.is_dir() and child.resolve() not in exclude]
+    candidates = [
+        child
+        for child in path.iterdir()
+        if child.is_dir() and child.resolve() not in exclude
+    ]
     if not candidates:
         candidates = [child for child in path.iterdir() if child.is_dir()]
     if not candidates:
@@ -99,7 +103,9 @@ def _common_comparison_args(args: argparse.Namespace) -> list[str]:
     return command
 
 
-def _semantic_comparison_command(args: argparse.Namespace, base_output_dir: Path) -> list[str]:
+def _semantic_comparison_command(
+    args: argparse.Namespace, base_output_dir: Path
+) -> list[str]:
     command = [
         sys.executable,
         "-u",
@@ -121,16 +127,22 @@ def _semantic_comparison_command(args: argparse.Namespace, base_output_dir: Path
     _append_flag(command, "--graha-shape-loss-weight", args.graha_shape_loss_weight)
     _append_flag(command, "--graha-shape-loss-pad-frac", args.graha_shape_loss_pad_frac)
     _append_flag(command, "--normalize-inputs", args.normalize_inputs)
-    _append_flag(command, "--disable-toy-gradient-clipping", args.disable_toy_gradient_clipping)
+    _append_flag(
+        command, "--disable-toy-gradient-clipping", args.disable_toy_gradient_clipping
+    )
     _append_flag(command, "--graha-batch-size", args.graha_batch_size)
     _append_flag(command, "--graha-num-workers", args.graha_num_workers)
     _append_flag(command, "--graha-stats-batch-size", args.graha_stats_batch_size)
-    _append_flag(command, "--progress-log-every-n-batches", args.progress_log_every_n_batches)
+    _append_flag(
+        command, "--progress-log-every-n-batches", args.progress_log_every_n_batches
+    )
     command.extend(args.comparison_extra_arg)
     return command
 
 
-def _instance_comparison_command(args: argparse.Namespace, base_output_dir: Path) -> list[str]:
+def _instance_comparison_command(
+    args: argparse.Namespace, base_output_dir: Path
+) -> list[str]:
     command = [
         sys.executable,
         "-u",
@@ -145,7 +157,9 @@ def _instance_comparison_command(args: argparse.Namespace, base_output_dir: Path
     _append_flag(command, "--toy-weight-decay", args.toy_weight_decay)
     _append_flag(command, "--toy-normalize-inputs", args.toy_normalize_inputs)
     _append_flag(command, "--toy-architecture", args.toy_architecture)
-    _append_flag(command, "--disable-toy-gradient-clipping", args.disable_toy_gradient_clipping)
+    _append_flag(
+        command, "--disable-toy-gradient-clipping", args.disable_toy_gradient_clipping
+    )
     _append_flag(command, "--graha-batch-size", args.graha_batch_size)
     _append_flag(command, "--graha-num-workers", args.graha_num_workers)
     _append_flag(command, "--graha-stats-batch-size", args.graha_stats_batch_size)
@@ -155,16 +169,24 @@ def _instance_comparison_command(args: argparse.Namespace, base_output_dir: Path
     _append_flag(command, "--graha-weight-decay", args.graha_weight_decay)
     _append_flag(command, "--graha-warmup-steps", args.graha_warmup_steps)
     _append_flag(command, "--graha-anchor-sizes", args.graha_anchor_sizes)
-    _append_flag(command, "--graha-anchor-aspect-ratios", args.graha_anchor_aspect_ratios)
+    _append_flag(
+        command, "--graha-anchor-aspect-ratios", args.graha_anchor_aspect_ratios
+    )
     _append_flag(command, "--graha-score-threshold", args.graha_score_threshold)
-    _append_flag(command, "--prediction-score-threshold", args.prediction_score_threshold)
-    _append_flag(command, "--progress-log-every-n-batches", args.progress_log_every_n_batches)
+    _append_flag(
+        command, "--prediction-score-threshold", args.prediction_score_threshold
+    )
+    _append_flag(
+        command, "--progress-log-every-n-batches", args.progress_log_every_n_batches
+    )
     _append_flag(command, "--mask-shift", args.mask_shift)
     command.extend(args.comparison_extra_arg)
     return command
 
 
-def _semantic_sweep_command(args: argparse.Namespace, training_output_dir: Path, sweep_output_dir: Path) -> list[str]:
+def _semantic_sweep_command(
+    args: argparse.Namespace, training_output_dir: Path, sweep_output_dir: Path
+) -> list[str]:
     command = [
         sys.executable,
         "-u",
@@ -173,9 +195,15 @@ def _semantic_sweep_command(args: argparse.Namespace, training_output_dir: Path,
         str(sweep_output_dir),
     ]
     if "toy" in args.models:
-        _append_flag(command, "--toy-checkpoint-dir", _checkpoint_dir(training_output_dir, "toy"))
+        _append_flag(
+            command, "--toy-checkpoint-dir", _checkpoint_dir(training_output_dir, "toy")
+        )
     if "graha" in args.models:
-        _append_flag(command, "--graha-checkpoint-dir", _checkpoint_dir(training_output_dir, "graha"))
+        _append_flag(
+            command,
+            "--graha-checkpoint-dir",
+            _checkpoint_dir(training_output_dir, "graha"),
+        )
     _append_flag(command, "--simlink-dest", args.simlink_dest)
     _append_flag(command, "--data-root", args.data_root)
     _append_flag(command, "--models", args.models)
@@ -202,7 +230,9 @@ def _semantic_sweep_command(args: argparse.Namespace, training_output_dir: Path,
     return command
 
 
-def _instance_sweep_command(args: argparse.Namespace, training_output_dir: Path, sweep_output_dir: Path) -> list[str]:
+def _instance_sweep_command(
+    args: argparse.Namespace, training_output_dir: Path, sweep_output_dir: Path
+) -> list[str]:
     command = [
         sys.executable,
         "-u",
@@ -211,9 +241,15 @@ def _instance_sweep_command(args: argparse.Namespace, training_output_dir: Path,
         str(sweep_output_dir),
     ]
     if "toy" in args.models:
-        _append_flag(command, "--toy-checkpoint-dir", _checkpoint_dir(training_output_dir, "toy"))
+        _append_flag(
+            command, "--toy-checkpoint-dir", _checkpoint_dir(training_output_dir, "toy")
+        )
     if "graha" in args.models:
-        _append_flag(command, "--graha-checkpoint-dir", _checkpoint_dir(training_output_dir, "graha"))
+        _append_flag(
+            command,
+            "--graha-checkpoint-dir",
+            _checkpoint_dir(training_output_dir, "graha"),
+        )
     _append_flag(command, "--simlink-dest", args.simlink_dest)
     _append_flag(command, "--data-root", args.data_root)
     _append_flag(command, "--models", args.models)
@@ -238,10 +274,14 @@ def _instance_sweep_command(args: argparse.Namespace, training_output_dir: Path,
     _append_flag(command, "--graha-weight-decay", args.graha_weight_decay)
     _append_flag(command, "--graha-warmup-steps", args.graha_warmup_steps)
     _append_flag(command, "--graha-anchor-sizes", args.graha_anchor_sizes)
-    _append_flag(command, "--graha-anchor-aspect-ratios", args.graha_anchor_aspect_ratios)
+    _append_flag(
+        command, "--graha-anchor-aspect-ratios", args.graha_anchor_aspect_ratios
+    )
     _append_flag(command, "--graha-score-threshold", args.graha_score_threshold)
     _append_flag(command, "--prediction-split", args.sweep_split)
-    _append_flag(command, "--prediction-score-threshold", args.prediction_score_threshold)
+    _append_flag(
+        command, "--prediction-score-threshold", args.prediction_score_threshold
+    )
     _append_flag(command, "--mask-shift", args.mask_shift)
     _append_flag(command, "--max-checkpoints", args.max_checkpoints)
     _append_flag(command, "--seed", args.seed)
@@ -253,8 +293,12 @@ def _instance_sweep_command(args: argparse.Namespace, training_output_dir: Path,
 def run_pipeline(args: argparse.Namespace) -> PipelineResult:
     script_dir = Path(__file__).resolve().parent
     repo_root = script_dir.parents[2]
-    default_base = repo_root / "scripts" / "outputs" / f"{args.task}_train_then_checkpoint_sweep"
-    base_output_dir = Path(args.base_output_dir).resolve() if args.base_output_dir else default_base
+    default_base = (
+        repo_root / "scripts" / "outputs" / f"{args.task}_train_then_checkpoint_sweep"
+    )
+    base_output_dir = (
+        Path(args.base_output_dir).resolve() if args.base_output_dir else default_base
+    )
     base_output_dir.mkdir(parents=True, exist_ok=True)
 
     training_seconds: float | None = None
@@ -310,19 +354,29 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", choices=["semantic", "instance"], required=True)
-    parser.add_argument("--simlink-dest", "--symlink-dest", dest="simlink_dest", type=str, default=None)
+    parser.add_argument(
+        "--simlink-dest", "--symlink-dest", dest="simlink_dest", type=str, default=None
+    )
     parser.add_argument("--data-root", type=str, default=None)
     parser.add_argument("--base-output-dir", type=str, default=None)
     parser.add_argument("--existing-training-output-dir", type=str, default=None)
     parser.add_argument("--sweep-output-root", type=str, default=None)
     parser.add_argument("--skip-sweep", action="store_true")
-    parser.add_argument("--models", nargs="+", default=["toy", "graha"], choices=["toy", "graha"])
+    parser.add_argument(
+        "--models", nargs="+", default=["toy", "graha"], choices=["toy", "graha"]
+    )
     parser.add_argument("--dino-checkpoint", type=str, default=None)
     parser.add_argument("--graha-pretrain-dir", type=str, default=None)
-    parser.add_argument("--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac")
-    parser.add_argument("--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean")
+    parser.add_argument(
+        "--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac"
+    )
+    parser.add_argument(
+        "--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean"
+    )
     parser.add_argument("--target-size", type=int, default=256)
-    parser.add_argument("--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6])
+    parser.add_argument(
+        "--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6]
+    )
     parser.add_argument(
         "--semantic-label-source",
         choices=["semantic", "instance"],
@@ -335,19 +389,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-epochs", type=int, default=100)
     parser.add_argument("--plot-every-n-epochs", type=int, default=1)
     parser.add_argument("--plot-n-samples", type=int, default=5)
-    parser.add_argument("--prediction-split", choices=["train", "val", "test"], default="val")
+    parser.add_argument(
+        "--prediction-split", choices=["train", "val", "test"], default="val"
+    )
     parser.add_argument("--prediction-n-samples", type=int, default=5)
     parser.add_argument("--run-epoch-test-suite", action="store_true")
-    parser.add_argument("--epoch-test-split", choices=["train", "val", "test"], default="test")
+    parser.add_argument(
+        "--epoch-test-split", choices=["train", "val", "test"], default="test"
+    )
     parser.add_argument("--epoch-test-n-samples", type=int, default=100)
     parser.add_argument("--epoch-test-every-n-epochs", type=int, default=1)
-    parser.add_argument("--sweep-split", choices=["train", "val", "test"], default="test")
+    parser.add_argument(
+        "--sweep-split", choices=["train", "val", "test"], default="test"
+    )
     parser.add_argument("--sweep-max-samples", type=int, default=None)
     parser.add_argument("--max-checkpoints", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--verbose", action="store_true")
 
-    parser.add_argument("--spatial-transform", choices=["crop", "resize"], default="crop")
+    parser.add_argument(
+        "--spatial-transform", choices=["crop", "resize"], default="crop"
+    )
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=10)
     parser.add_argument("--learning-rate", type=float, default=5.0e-5)

@@ -87,7 +87,9 @@ class ToyInstanceSegLightningModule(LightningModule):
     def test_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
         return self._shared_loss_step(batch, "test")
 
-    def predict_step(self, batch: dict[str, Any], batch_idx: int, dataloader_idx: int = 0):
+    def predict_step(
+        self, batch: dict[str, Any], batch_idx: int, dataloader_idx: int = 0
+    ):
         return self.model(pixel_values=batch["pixel_values"])
 
     def configure_optimizers(self):
@@ -104,7 +106,9 @@ class ToyInstanceSegLightningModule(LightningModule):
                 eta_min=1e-7,
             )
         else:
-            warmup_epochs = max(1, min(10, math.ceil(0.1 * self.max_epochs_for_scheduler)))
+            warmup_epochs = max(
+                1, min(10, math.ceil(0.1 * self.max_epochs_for_scheduler))
+            )
             warmup_epochs = min(warmup_epochs, self.max_epochs_for_scheduler - 1)
             warmup_scheduler = LinearLR(
                 optimizer,

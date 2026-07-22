@@ -10,7 +10,6 @@ from tokenizers.models import WordPiece
 from tokenizers.normalizers import BertNormalizer
 from tokenizers.pre_tokenizers import BertPreTokenizer
 
-
 UNK_TOKEN = "[UNK]"
 PAD_TOKEN = "[PAD]"
 SOS_TOKEN = "[SOS]"
@@ -33,7 +32,9 @@ def generate_coord_tokens(bins=1000):
 
     for s in coords_str:
         for i in range(bins):
-            tokens.append(AddedToken(content=s.format(i), single_word=True, normalized=False))
+            tokens.append(
+                AddedToken(content=s.format(i), single_word=True, normalized=False)
+            )
 
     return tokens
 
@@ -134,7 +135,9 @@ def encode_sequence(
         # Add EOS as an extra chunk
         seq_chunks.append([eos_id])
         # Truncate sequence to keep all chunks below max token length
-        cumulative_token_count = np.cumsum(np.array([len(chunk) for chunk in seq_chunks]))
+        cumulative_token_count = np.cumsum(
+            np.array([len(chunk) for chunk in seq_chunks])
+        )
         seq_ids = [
             chunk
             for (chunk, token_count) in zip(seq_chunks, cumulative_token_count)
@@ -176,14 +179,18 @@ def decode_token_sequences(
         ids = [token_id for token_id in ids if token_id != pad_id]
         sentence = []
         for i in ids:
-            sentence.append(tokenizer.decode([i], skip_special_tokens=skip_special_tokens))
+            sentence.append(
+                tokenizer.decode([i], skip_special_tokens=skip_special_tokens)
+            )
         text = " ".join([x for x in sentence if x != ""])
         decoded.append(text)
     return decoded
 
 
 def get_sentinel_to_id_mapping(tokenizer, match_str="[S_"):
-    sentinel_tokens = {k: v for k, v in tokenizer.get_vocab().items() if k.startswith(match_str)}
+    sentinel_tokens = {
+        k: v for k, v in tokenizer.get_vocab().items() if k.startswith(match_str)
+    }
     # Extract the sentinel token id, the id is of the form "[S_0]", "[S_1]", etc.
     sentinel_to_id = {
         int(k.split("_")[1][:-1]): v

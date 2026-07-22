@@ -22,6 +22,7 @@ from skimage.transform import resize
 from transformers import AutoImageProcessor
 
 import warnings
+
 warnings.filterwarnings("ignore", message=".*HF Hub.*")
 
 
@@ -41,16 +42,12 @@ def print_model_summary(model):
         # Try to access encoder/decoder (might not exist in Mask2Former)
         if hasattr(model, "encoder") and hasattr(model, "decoder"):
             encoder_trainable = sum(
-                p.numel()
-                for p in model.encoder.parameters()
-                if p.requires_grad
+                p.numel() for p in model.encoder.parameters() if p.requires_grad
             )
             encoder_total = sum(p.numel() for p in model.encoder.parameters())
 
             decoder_trainable = sum(
-                p.numel()
-                for p in model.decoder.parameters()
-                if p.requires_grad
+                p.numel() for p in model.decoder.parameters() if p.requires_grad
             )
             decoder_total = sum(p.numel() for p in model.decoder.parameters())
 
@@ -69,9 +66,7 @@ def print_model_summary(model):
             )
 
         # Total parameters (always works)
-        trainable_params = sum(
-            p.numel() for p in model.parameters() if p.requires_grad
-        )
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         total_params = sum(p.numel() for p in model.parameters())
 
         print("\nTotal Model:")
@@ -85,9 +80,7 @@ def print_model_summary(model):
         print(f"Could not generate detailed model summary: {e}")
         print("Printing basic parameter count only...")
 
-        trainable_params = sum(
-            p.numel() for p in model.parameters() if p.requires_grad
-        )
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         total_params = sum(p.numel() for p in model.parameters())
 
         print(f"\n{'='*60}")
@@ -149,22 +142,20 @@ def load_model_weights(model, checkpoint_path, device):
     if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
         model.load_state_dict(checkpoint["model_state_dict"])
         epoch = checkpoint.get("epoch", None)
-        print(f"Loaded model from checkpoint (new format)")
+        print("Loaded model from checkpoint (new format)")
         if epoch is not None:
             print(f"Checkpoint was from epoch: {epoch}")
         return epoch
     else:
         try:
             model.load_state_dict(checkpoint)
-            print(f"Loaded model from checkpoint (old format - state_dict)")
+            print("Loaded model from checkpoint (old format - state_dict)")
         except:
             if hasattr(model, "load_parameters"):
                 model.load_parameters(checkpoint_path)
-                print(f"Loaded model using model.load_parameters() method")
+                print("Loaded model using model.load_parameters() method")
             else:
-                raise ValueError(
-                    "Unable to load checkpoint. Format not recognized."
-                )
+                raise ValueError("Unable to load checkpoint. Format not recognized.")
         return None
 
 
@@ -412,9 +403,7 @@ def prepare_image_for_display(
             )
             band_clipped = np.clip(band, p_low, p_high)
             if p_high > p_low:
-                img_clipped[:, :, c] = (band_clipped - p_low) / (
-                    p_high - p_low
-                )
+                img_clipped[:, :, c] = (band_clipped - p_low) / (p_high - p_low)
             else:
                 img_clipped[:, :, c] = 0.5  # Constant band
         img_normalized = np.clip(img_clipped, 0, 1)
@@ -612,31 +601,25 @@ def visualize_predictions(
             mask_labels = batch["mask_labels"]
 
             batch_size = pixel_values.shape[0]
-            target_sizes = [
-                (pixel_values.shape[2], pixel_values.shape[3])
-            ] * batch_size
+            target_sizes = [(pixel_values.shape[2], pixel_values.shape[3])] * batch_size
 
             # Forward pass
             outputs = model(pixel_values=pixel_values)
 
             # Post-process
             try:
-                post_processed = (
-                    image_processor.post_process_instance_segmentation(
-                        outputs,
-                        threshold=threshold,
-                        target_sizes=target_sizes,
-                        return_binary_maps=True,
-                    )
+                post_processed = image_processor.post_process_instance_segmentation(
+                    outputs,
+                    threshold=threshold,
+                    target_sizes=target_sizes,
+                    return_binary_maps=True,
                 )
             except Exception as e:
                 print(f"Warning: Post-processing failed: {e}")
-                post_processed = (
-                    image_processor.post_process_instance_segmentation(
-                        outputs,
-                        threshold=threshold,
-                        target_sizes=target_sizes,
-                    )
+                post_processed = image_processor.post_process_instance_segmentation(
+                    outputs,
+                    threshold=threshold,
+                    target_sizes=target_sizes,
                 )
 
             # Convert to instance masks
@@ -648,9 +631,7 @@ def visualize_predictions(
                     # Pass class labels if available
                     class_labels = result.get("segments_info", None)
                     if class_labels and "label_id" in class_labels[0]:
-                        labels = np.array(
-                            [seg["label_id"] for seg in class_labels]
-                        )
+                        labels = np.array([seg["label_id"] for seg in class_labels])
                     else:
                         labels = None
                     instance_mask = convert_binary_masks_to_instance_map(
@@ -784,8 +765,7 @@ def visualize_predictions(
             axes[2, i].add_patch(rect)
 
         axes[2, i].set_title(
-            f"Prediction Overlay\n"
-            f"Mean IoU: {inst_metrics['mean_iou']:.3f}",
+            f"Prediction Overlay\n" f"Mean IoU: {inst_metrics['mean_iou']:.3f}",
             fontsize=11,
         )
         axes[2, i].axis("off")
@@ -840,7 +820,7 @@ def visualize_predictions(
     )
 
     fig.patch.set_visible(True)  # Make patch visible
-    fig.patch.set_facecolor('white')  # Set to white
+    fig.patch.set_facecolor("white")  # Set to white
     plt.tight_layout()
 
     # Save figure
@@ -951,12 +931,8 @@ def validate_epoch(model, dataloader, device, desc="Validation"):
         for batch in progress_bar:
             # Move batch to device
             pixel_values = batch["pixel_values"].to(device)
-            mask_labels = [
-                labels.to(device) for labels in batch["mask_labels"]
-            ]
-            class_labels = [
-                labels.to(device) for labels in batch["class_labels"]
-            ]
+            mask_labels = [labels.to(device) for labels in batch["mask_labels"]]
+            class_labels = [labels.to(device) for labels in batch["class_labels"]]
 
             # Forward pass
             outputs = model(
@@ -981,6 +957,7 @@ def validate_epoch(model, dataloader, device, desc="Validation"):
 # ============================================================================
 # EVALUATION
 # ============================================================================
+
 
 def evaluate_model(model, val_loader, image_processor, output_dir, device):
     """
@@ -1112,9 +1089,7 @@ def train_model(
     os.makedirs(visualization_dir, exist_ok=True)
 
     # NO CRITERION - Mask2Former computes loss internally!
-    print(
-        "Using Mask2Former's built-in loss (Hungarian matching + combined losses)"
-    )
+    print("Using Mask2Former's built-in loss (Hungarian matching + combined losses)")
 
     # Optimizer: only affect unfrozen model parameters
     optimizer = AdamW(
@@ -1268,10 +1243,7 @@ def train_model(
             patience_counter += 1
 
         # Early stopping check
-        if (
-            early_stopping_patience
-            and patience_counter >= early_stopping_patience
-        ):
+        if early_stopping_patience and patience_counter >= early_stopping_patience:
             print(f"\n{'='*60}")
             print(f"⚠️  Early stopping triggered after {epoch} epochs")
             print(f"No improvement for {early_stopping_patience} epochs")
@@ -1279,7 +1251,7 @@ def train_model(
 
             # Load best model for final evaluation
             best_model_path = os.path.join(checkpoint_dir, "best_model.pt")
-            print(f"\n📊 Loading best model for final evaluation...")
+            print("\n📊 Loading best model for final evaluation...")
             print(f"Best model path: {best_model_path}")
             load_model_weights(model, best_model_path, device)
 
@@ -1287,12 +1259,10 @@ def train_model(
             print(
                 f"\n🔍 Running evaluation on best model (val_loss: {best_val_loss:.4f})..."
             )
-            evaluate_model(
-                model, val_loader, image_processor, output_dir, device
-            )
+            evaluate_model(model, val_loader, image_processor, output_dir, device)
 
             # Generate final visualizations
-            print(f"\n📸 Generating final visualizations...")
+            print("\n📸 Generating final visualizations...")
             visualize_predictions(
                 model,
                 val_loader,
@@ -1302,7 +1272,7 @@ def train_model(
                 epoch=f"early_stop_epoch_{epoch}",  # Mark as early stopped
             )
 
-            print(f"\n✅ Early stopping evaluation complete")
+            print("\n✅ Early stopping evaluation complete")
             print(f"{'='*60}\n")
             break
 
@@ -1354,6 +1324,4 @@ def train_model(
 
 
 if __name__ == "__main__":
-    print(
-        "Import this module and call train_model() with your model and dataloaders."
-    )
+    print("Import this module and call train_model() with your model and dataloaders.")

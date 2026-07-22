@@ -46,13 +46,9 @@ def prepare_image_for_display(
     return img_normalized[:, :, :3], f"{num_channels}ch (first 3)"
 
 
-def create_overlay_image(
-    img_vis: np.ndarray, pred_mask: np.ndarray
-) -> np.ndarray:
+def create_overlay_image(img_vis: np.ndarray, pred_mask: np.ndarray) -> np.ndarray:
     color = (1.0, 1.0, 0.0)
-    return create_colored_overlay_image(
-        img_vis, pred_mask, color=color
-    )
+    return create_colored_overlay_image(img_vis, pred_mask, color=color)
 
 
 def create_colored_overlay_image(

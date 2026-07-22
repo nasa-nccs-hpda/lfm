@@ -33,13 +33,17 @@ def build_2d_sincos_posemb(h, w, embed_dim=1024, temperature=10000.0):
     grid_w = torch.arange(w, dtype=torch.float32)
     grid_h = torch.arange(h, dtype=torch.float32)
     grid_w, grid_h = torch.meshgrid(grid_w, grid_h, indexing="ij")
-    assert (embed_dim % 4 == 0), "Embed dimension must be divisible by 4 for 2D sin-cos position embedding"
+    assert (
+        embed_dim % 4 == 0
+    ), "Embed dimension must be divisible by 4 for 2D sin-cos position embedding"
     pos_dim = embed_dim // 4
     omega = torch.arange(pos_dim, dtype=torch.float32) / pos_dim
     omega = 1.0 / (temperature**omega)
     out_w = torch.einsum("m,d->md", [grid_w.flatten(), omega])
     out_h = torch.einsum("m,d->md", [grid_h.flatten(), omega])
-    pos_emb = torch.cat([torch.sin(out_w), torch.cos(out_w), torch.sin(out_h), torch.cos(out_h)], dim=1)[None, :, :]
+    pos_emb = torch.cat(
+        [torch.sin(out_w), torch.cos(out_w), torch.sin(out_h), torch.cos(out_h)], dim=1
+    )[None, :, :]
     pos_emb = rearrange(pos_emb, "b (h w) d -> b d h w", h=h, w=w, d=embed_dim)
     return pos_emb
 
@@ -115,7 +119,9 @@ def drop_path(x, drop_prob: float = 0.0, training: bool = False):
     if drop_prob == 0.0 or not training:
         return x
     keep_prob = 1 - drop_prob
-    shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
+    shape = (x.shape[0],) + (1,) * (
+        x.ndim - 1
+    )  # work with diff dim tensors, not just 2D ConvNets
     random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
     random_tensor.floor_()  # binarize
     output = x.div(keep_prob) * random_tensor
@@ -177,11 +183,17 @@ class Attention(nn.Module):
 
     def forward(self, x):
         B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        qkv = (
+            self.qkv(x)
+            .reshape(B, N, 3, self.num_heads, C // self.num_heads)
+            .permute(2, 0, 3, 1, 4)
+        )
         q, k, v = qkv.unbind(0)  # (B, num_heads, N, head_dim)
 
         x = F.scaled_dot_product_attention(
-            q, k, v,
+            q,
+            k,
+            v,
             dropout_p=self.attn_drop.p if self.training else 0.0,
             scale=self.scale,
         )
@@ -211,12 +223,22 @@ class CrossAttention(nn.Module):
         B, N, C = x.shape
         _, M, _ = context.shape
 
-        q = self.q(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)  # (B, H, N, Dh)
-        kv = self.kv(context).reshape(B, M, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        q = (
+            self.q(x)
+            .reshape(B, N, self.num_heads, C // self.num_heads)
+            .permute(0, 2, 1, 3)
+        )  # (B, H, N, Dh)
+        kv = (
+            self.kv(context)
+            .reshape(B, M, 2, self.num_heads, C // self.num_heads)
+            .permute(2, 0, 3, 1, 4)
+        )
         k, v = kv[0], kv[1]  # (B, H, M, Dh)
 
         x = F.scaled_dot_product_attention(
-            q, k, v,
+            q,
+            k,
+            v,
             dropout_p=self.attn_drop.p if self.training else 0.0,
             scale=self.scale,
         )
@@ -308,7 +330,9 @@ class DecoderBlock(nn.Module):
 
     def forward(self, x, context, **kwargs):
         x = x + self.drop_path(self.self_attn(self.norm1(x)))
-        x = x + self.drop_path(self.cross_attn(self.query_norm(x), self.context_norm(context)))
+        x = x + self.drop_path(
+            self.cross_attn(self.query_norm(x), self.context_norm(context))
+        )
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
 
@@ -334,7 +358,9 @@ class LayerNorm(nn.Module):
 
     def forward(self, x):
         if self.data_format == "channels_last":
-            return F.layer_norm(x, self.normalized_shape, self.weight, self.bias, self.eps)
+            return F.layer_norm(
+                x, self.normalized_shape, self.weight, self.bias, self.eps
+            )
         elif self.data_format == "channels_first":
             u = x.mean(1, keepdim=True)
             s = (x - u).pow(2).mean(1, keepdim=True)
@@ -359,13 +385,17 @@ class ConvNeXtBlock(nn.Module):
 
     def __init__(self, dim, drop_path=0.0, layer_scale_init_value=1e-6):
         super().__init__()
-        self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim)  # depthwise conv
+        self.dwconv = nn.Conv2d(
+            dim, dim, kernel_size=7, padding=3, groups=dim
+        )  # depthwise conv
         self.norm = ChannelLastLayerNorm(dim)
         self.pwconv1 = nn.Conv2d(in_channels=dim, out_channels=4 * dim, kernel_size=1)
         self.act = nn.GELU()
         self.pwconv2 = nn.Conv2d(in_channels=4 * dim, out_channels=dim, kernel_size=1)
         self.gamma = (
-            nn.Parameter(layer_scale_init_value * torch.ones((dim, 1, 1)), requires_grad=True)
+            nn.Parameter(
+                layer_scale_init_value * torch.ones((dim, 1, 1)), requires_grad=True
+            )
             if layer_scale_init_value > 0
             else None
         )
@@ -385,7 +415,9 @@ class ConvNeXtBlock(nn.Module):
         return x
 
 
-def icnr_init(weight: torch.Tensor, upsample_factor: int = 2, init=nn.init.kaiming_normal_):
+def icnr_init(
+    weight: torch.Tensor, upsample_factor: int = 2, init=nn.init.kaiming_normal_
+):
     """ICNR initialization for sub-pixel convolutions to reduce checkerboard artifacts.
 
     weight: [out_c, in_c, k, k] where out_c = out_ch * r^2
@@ -396,7 +428,9 @@ def icnr_init(weight: torch.Tensor, upsample_factor: int = 2, init=nn.init.kaimi
     assert out_c % (r * r) == 0, f"out_channels={out_c} not divisible by r^2={r*r}"
     new_out_c = out_c // (r * r)
     # initialize a smaller kernel then tile
-    subkernel = torch.zeros([new_out_c, in_c, k1, k2], device=weight.device, dtype=weight.dtype)
+    subkernel = torch.zeros(
+        [new_out_c, in_c, k1, k2], device=weight.device, dtype=weight.dtype
+    )
     init(subkernel)
     subkernel = subkernel.repeat_interleave(r * r, dim=0)
     with torch.no_grad():
@@ -408,10 +442,15 @@ class PixelShuffleUpsample(nn.Module):
     """Conv (in_ch -> out_ch * r^2) -> PixelShuffle(r) -> optional 3x3 conv cleanup.
     Produces [B, out_ch, H*r, W*r].
     """
-    def __init__(self, in_ch: int, out_ch: int, r: int = 2, padding_mode: str = "reflect"):
+
+    def __init__(
+        self, in_ch: int, out_ch: int, r: int = 2, padding_mode: str = "reflect"
+    ):
         super().__init__()
         self.r = r
-        self.expand = nn.Conv2d(in_ch, out_ch * (r * r), kernel_size=3, padding=1, padding_mode=padding_mode)
+        self.expand = nn.Conv2d(
+            in_ch, out_ch * (r * r), kernel_size=3, padding=1, padding_mode=padding_mode
+        )
         # ICNR init to reduce checkerboard patterns
         icnr_init(self.expand.weight, upsample_factor=r)
         nn.init.zeros_(self.expand.bias)
@@ -504,7 +543,9 @@ class ViTEncoder(nn.Module):
         N_W = self.W // self.P_W
 
         if sincos_pos_emb:
-            self.pos_emb = build_2d_sincos_posemb(h=N_H, w=N_W, embed_dim=self.dim_tokens)
+            self.pos_emb = build_2d_sincos_posemb(
+                h=N_H, w=N_W, embed_dim=self.dim_tokens
+            )
             self.pos_emb = nn.Parameter(self.pos_emb, requires_grad=learnable_pos_emb)
         else:
             self.pos_emb = nn.Parameter(torch.zeros(1, self.dim_tokens, N_H, N_W))
@@ -527,7 +568,9 @@ class ViTEncoder(nn.Module):
             )
 
         # Transformer blocks
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
+        dpr = [
+            x.item() for x in torch.linspace(0, drop_path_rate, depth)
+        ]  # stochastic depth decay rule
         self.blocks = nn.Sequential(
             *[
                 Block(
@@ -546,21 +589,29 @@ class ViTEncoder(nn.Module):
 
         if post_mlp:
             self.norm_mlp = norm_layer(dim_tokens)
-            self.post_mlp = Mlp(dim_tokens, int(mlp_ratio * dim_tokens), act_layer=nn.Tanh)
+            self.post_mlp = Mlp(
+                dim_tokens, int(mlp_ratio * dim_tokens), act_layer=nn.Tanh
+            )
 
         self.apply(self._init_weights)
         for name, m in self.named_modules():
             if isinstance(m, nn.Linear):
                 if "qkv" in name:
                     # treat the weights of Q, K, V separately
-                    val = math.sqrt(6.0 / float(m.weight.shape[0] // 3 + m.weight.shape[1]))
+                    val = math.sqrt(
+                        6.0 / float(m.weight.shape[0] // 3 + m.weight.shape[1])
+                    )
                     nn.init.uniform_(m.weight, -val, val)
                 elif "kv" in name:
                     # treat the weights of K, V separately
-                    val = math.sqrt(6.0 / float(m.weight.shape[0] // 2 + m.weight.shape[1]))
+                    val = math.sqrt(
+                        6.0 / float(m.weight.shape[0] // 2 + m.weight.shape[1])
+                    )
                     nn.init.uniform_(m.weight, -val, val)
 
-            if isinstance(m, nn.Conv2d) and ".proj" in name:  # I think this should be "proj"
+            if (
+                isinstance(m, nn.Conv2d) and ".proj" in name
+            ):  # I think this should be "proj"
                 # From MAE, initialize projection like nn.Linear (instead of nn.Conv2d)
                 w = m.weight.data
                 nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
@@ -609,14 +660,19 @@ class ViTEncoder(nn.Module):
             assert (H % self.P_H == 0) and (
                 W % self.P_W == 0
             ), f"Image sizes {H}x{W} must be divisible by patch sizes {self.P_H}x{self.P_W}"
-            N_H, N_W = H // self.P_H, W // self.P_W  # Number of patches in height and width
+            N_H, N_W = (
+                H // self.P_H,
+                W // self.P_W,
+            )  # Number of patches in height and width
         else:
             B, C, N_H, N_W = x.shape
         x = rearrange(self.proj(x), "b d nh nw -> b (nh nw) d")
 
         if self.pos_emb is not None:
             # Create positional embedding
-            x_pos_emb = F.interpolate(self.pos_emb, size=(N_H, N_W), mode="bicubic", align_corners=False)
+            x_pos_emb = F.interpolate(
+                self.pos_emb, size=(N_H, N_W), mode="bicubic", align_corners=False
+            )
             x_pos_emb = rearrange(x_pos_emb, "b d nh nw -> b (nh nw) d")
             # Add positional embeddings to patches
             x = x + x_pos_emb
@@ -625,7 +681,11 @@ class ViTEncoder(nn.Module):
         x = self.blocks(x)
 
         if hasattr(self, "post_mlp"):
-            with torch.amp.autocast("cuda", enabled=False) if x.is_cuda else nullcontext():
+            with (
+                torch.amp.autocast("cuda", enabled=False)
+                if x.is_cuda
+                else nullcontext()
+            ):
                 x = x.float() + self.post_mlp(self.norm_mlp(x.float()))
 
         # Reshape into 2D grid
@@ -700,14 +760,18 @@ class ViTDecoder(nn.Module):
         N_W = self.W // self.P_W
 
         if sincos_pos_emb:
-            self.pos_emb = build_2d_sincos_posemb(h=N_H, w=N_W, embed_dim=self.dim_tokens)
+            self.pos_emb = build_2d_sincos_posemb(
+                h=N_H, w=N_W, embed_dim=self.dim_tokens
+            )
             self.pos_emb = nn.Parameter(self.pos_emb, requires_grad=learnable_pos_emb)
         else:
             self.pos_emb = nn.Parameter(torch.zeros(1, self.dim_tokens, N_H, N_W))
             trunc_normal_(self.pos_emb, std=0.02)
 
         # Transformer blocks
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
+        dpr = [
+            x.item() for x in torch.linspace(0, drop_path_rate, depth)
+        ]  # stochastic depth decay rule
         self.blocks = nn.Sequential(
             *[
                 Block(
@@ -727,15 +791,21 @@ class ViTDecoder(nn.Module):
         # Tokens -> image output projection
         if out_conv:
             if not self.patch_proj:
-                raise NotImplementedError("out_conv only tested for patch projection. Set out_conv=False.")
+                raise NotImplementedError(
+                    "out_conv only tested for patch projection. Set out_conv=False."
+                )
             # Skip post mlp and patch proj if output conv blocks are used
             post_mlp = self.patch_proj = False
 
         if post_mlp:
             self.norm_mlp = norm_layer(dim_tokens)
-            self.post_mlp = Mlp(dim_tokens, int(mlp_ratio * dim_tokens), act_layer=nn.Tanh)
+            self.post_mlp = Mlp(
+                dim_tokens, int(mlp_ratio * dim_tokens), act_layer=nn.Tanh
+            )
         if self.patch_proj:
-            self.out_proj = nn.Linear(dim_tokens, self.out_channels * self.P_H * self.P_W)
+            self.out_proj = nn.Linear(
+                dim_tokens, self.out_channels * self.P_H * self.P_W
+            )
         elif not out_conv:
             self.out_proj = nn.Linear(dim_tokens, self.out_channels)
 
@@ -744,19 +814,31 @@ class ViTDecoder(nn.Module):
             curr_dim = conv_dim
             layers = []
             for _ in range(out_conv_upsample_stages):
-                layers.extend([
-                    PixelShuffleUpsample(in_dim, curr_dim, r=2),
-                    ConvNeXtBlock(dim=curr_dim),
-                ])
+                layers.extend(
+                    [
+                        PixelShuffleUpsample(in_dim, curr_dim, r=2),
+                        ConvNeXtBlock(dim=curr_dim),
+                    ]
+                )
                 in_dim = curr_dim
                 curr_dim = max(curr_dim // 2, self.out_channels)
 
             final_dim = in_dim
-            layers.extend([
-                ChannelLastLayerNorm(final_dim),
-                nn.GELU(),
-                zero_module(nn.Conv2d(final_dim, self.out_channels, kernel_size=3, padding=1, padding_mode="reflect"))
-            ])
+            layers.extend(
+                [
+                    ChannelLastLayerNorm(final_dim),
+                    nn.GELU(),
+                    zero_module(
+                        nn.Conv2d(
+                            final_dim,
+                            self.out_channels,
+                            kernel_size=3,
+                            padding=1,
+                            padding_mode="reflect",
+                        )
+                    ),
+                ]
+            )
             self.out_conv = nn.Sequential(*layers)
 
         self.apply(self._init_weights)
@@ -764,11 +846,15 @@ class ViTDecoder(nn.Module):
             if isinstance(m, nn.Linear):
                 if "qkv" in name:
                     # treat the weights of Q, K, V separately
-                    val = math.sqrt(6.0 / float(m.weight.shape[0] // 3 + m.weight.shape[1]))
+                    val = math.sqrt(
+                        6.0 / float(m.weight.shape[0] // 3 + m.weight.shape[1])
+                    )
                     nn.init.uniform_(m.weight, -val, val)
                 elif "kv" in name:
                     # treat the weights of K, V separately
-                    val = math.sqrt(6.0 / float(m.weight.shape[0] // 2 + m.weight.shape[1]))
+                    val = math.sqrt(
+                        6.0 / float(m.weight.shape[0] // 2 + m.weight.shape[1])
+                    )
                     nn.init.uniform_(m.weight, -val, val)
 
             if isinstance(m, nn.Conv2d) and ".proj" in name:
@@ -807,7 +893,9 @@ class ViTDecoder(nn.Module):
 
         if self.pos_emb is not None:
             # Create positional embedding
-            x_pos_emb = F.interpolate(self.pos_emb, size=(N_H, N_W), mode="bicubic", align_corners=False)
+            x_pos_emb = F.interpolate(
+                self.pos_emb, size=(N_H, N_W), mode="bicubic", align_corners=False
+            )
             x_pos_emb = rearrange(x_pos_emb, "b d nh nw -> b (nh nw) d")
             # Add positional embeddings to patches
             x = x + x_pos_emb

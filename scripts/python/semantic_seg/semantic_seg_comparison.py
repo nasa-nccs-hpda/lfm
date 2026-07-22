@@ -176,7 +176,13 @@ def _semantic_counts(pred: np.ndarray, label: np.ndarray) -> dict[str, float]:
 
 def _semantic_metrics(counts: dict[str, float]) -> dict[str, float]:
     eps = 1e-8
-    tp, fp, fn, tn, n = counts["tp"], counts["fp"], counts["fn"], counts["tn"], counts["n"]
+    tp, fp, fn, tn, n = (
+        counts["tp"],
+        counts["fp"],
+        counts["fn"],
+        counts["tn"],
+        counts["n"],
+    )
     precision = tp / (tp + fp + eps)
     recall = tp / (tp + fn + eps)
     return {
@@ -190,7 +196,9 @@ def _semantic_metrics(counts: dict[str, float]) -> dict[str, float]:
     }
 
 
-def _write_semantic_metrics(output_dir: Path, metrics: dict[str, float], *, header: str) -> None:
+def _write_semantic_metrics(
+    output_dir: Path, metrics: dict[str, float], *, header: str
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     np.save(output_dir / "metrics.npy", _semantic_metric_array(metrics))
     with (output_dir / "metrics.txt").open("w", encoding="utf-8") as f:
@@ -217,7 +225,9 @@ def _image_for_plot(image: np.ndarray) -> np.ndarray:
     return np.clip((arr - lo) / (hi - lo), 0, 1)
 
 
-def _plot_semantic_epoch_samples(samples: list[dict[str, np.ndarray]], save_path: Path) -> None:
+def _plot_semantic_epoch_samples(
+    samples: list[dict[str, np.ndarray]], save_path: Path
+) -> None:
     if not samples:
         return
     import matplotlib.pyplot as plt
@@ -248,7 +258,9 @@ def _plot_semantic_epoch_samples(samples: list[dict[str, np.ndarray]], save_path
         axes[3, col].set_title("Ground Truth", fontsize=10)
         for row in range(4):
             axes[row, col].axis("off")
-    fig.suptitle("Epoch Test Suite Semantic Predictions", fontsize=16, fontweight="bold")
+    fig.suptitle(
+        "Epoch Test Suite Semantic Predictions", fontsize=16, fontweight="bold"
+    )
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -263,7 +275,11 @@ def _sample_key_from_name(filename: str | None, index: int) -> str:
 
 def _extract_semantic_batch(batch):
     if isinstance(batch, dict):
-        return batch["image"], batch["mask"], batch.get("filename", [None] * batch["image"].shape[0])
+        return (
+            batch["image"],
+            batch["mask"],
+            batch.get("filename", [None] * batch["image"].shape[0]),
+        )
     if isinstance(batch, (tuple, list)) and len(batch) >= 2:
         filenames = batch[2] if len(batch) > 2 else [None] * batch[0].shape[0]
         return batch[0], batch[1], filenames
@@ -298,8 +314,18 @@ class SemanticEpochTestSuiteCallback(Callback):
         device = pl_module.device
         was_training = pl_module.training
         pl_module.eval()
-        epoch_dir = self.output_dir / "test_suite" / self.model_name / f"epoch_{epoch:03d}"
-        total = {"tp": 0.0, "fp": 0.0, "fn": 0.0, "tn": 0.0, "n": 0.0, "pred_fg": 0.0, "label_fg": 0.0}
+        epoch_dir = (
+            self.output_dir / "test_suite" / self.model_name / f"epoch_{epoch:03d}"
+        )
+        total = {
+            "tp": 0.0,
+            "fp": 0.0,
+            "fn": 0.0,
+            "tn": 0.0,
+            "n": 0.0,
+            "pred_fg": 0.0,
+            "label_fg": 0.0,
+        }
         saved = 0
         plot_samples = []
         with torch.no_grad():
@@ -309,14 +335,20 @@ class SemanticEpochTestSuiteCallback(Callback):
                 labels = labels.to(device)
                 output = pl_module(images)
                 logits = output.output if hasattr(output, "output") else output
-                preds = logits.argmax(dim=1).long() if logits.shape[1] > 1 else (torch.sigmoid(logits[:, 0]) > 0.5).long()
+                preds = (
+                    logits.argmax(dim=1).long()
+                    if logits.shape[1] > 1
+                    else (torch.sigmoid(logits[:, 0]) > 0.5).long()
+                )
                 images_np = images.detach().cpu().numpy()
                 labels_np = labels.detach().cpu().numpy()
                 preds_np = preds.detach().cpu().numpy()
                 for i in range(images_np.shape[0]):
                     if saved >= self.n_samples:
                         break
-                    sample_key = _sample_key_from_name(filenames[i] if i < len(filenames) else None, saved)
+                    sample_key = _sample_key_from_name(
+                        filenames[i] if i < len(filenames) else None, saved
+                    )
                     sample_dir = epoch_dir / sample_key
                     sample_dir.mkdir(parents=True, exist_ok=True)
                     np.save(sample_dir / f"{sample_key}_input.npy", images_np[i])
@@ -365,13 +397,17 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
     repo_root = script_dir.parents[2]
     notebook_dir = repo_root / "notebooks" / "full_model"
     scripts_output_dir = repo_root / "scripts" / "outputs"
-    data_root = Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
+    data_root = (
+        Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
+    )
     base_output_dir = (
         Path(args.base_output_dir).resolve()
         if args.base_output_dir
         else scripts_output_dir / "semantic_seg_comparison"
     )
-    dino_checkpoint = Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None
+    dino_checkpoint = (
+        Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None
+    )
     dino_lightning_checkpoint = (
         Path(args.dino_lightning_checkpoint).resolve()
         if args.dino_lightning_checkpoint
@@ -417,9 +453,9 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         freeze_encoder=args.freeze_encoder,
         normalize_inputs=args.normalize_inputs,
         normalization_source=getattr(args, "normalization_source", "pretrain"),
-        toy_gradient_clip_val=None
-        if args.disable_toy_gradient_clipping
-        else args.toy_gradient_clip_val,
+        toy_gradient_clip_val=(
+            None if args.disable_toy_gradient_clipping else args.toy_gradient_clip_val
+        ),
         plot_every_n_epochs=args.plot_every_n_epochs,
         plot_n_samples=args.plot_n_samples,
         cache_predictions=args.cache_predictions,
@@ -466,7 +502,8 @@ def validate_data_paths(config: ToyComparisonConfig) -> None:
     missing = [path for path in required if not path.exists()]
     if missing:
         raise FileNotFoundError(
-            "Missing required split data paths:\n" + "\n".join(str(path) for path in missing)
+            "Missing required split data paths:\n"
+            + "\n".join(str(path) for path in missing)
         )
 
 
@@ -483,10 +520,15 @@ def save_config(config: ToyComparisonConfig, output_dir: Path) -> None:
         json.dump(payload, f, indent=2)
 
 
-def load_lightning_checkpoint_state(task: torch.nn.Module, checkpoint_path: Path, model_name: str) -> None:
+def load_lightning_checkpoint_state(
+    task: torch.nn.Module, checkpoint_path: Path, model_name: str
+) -> None:
     """Load Lightning checkpoint weights into an already-built task."""
     checkpoint_path = Path(checkpoint_path).resolve()
-    print(f"Loading {model_name} Lightning checkpoint weights from {checkpoint_path}", flush=True)
+    print(
+        f"Loading {model_name} Lightning checkpoint weights from {checkpoint_path}",
+        flush=True,
+    )
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     state_dict = checkpoint.get("state_dict", checkpoint)
     task.load_state_dict(state_dict, strict=True)
@@ -535,10 +577,15 @@ def record_timing(
             "elapsed_hms": _format_seconds(elapsed),
         }
     )
-    print(f"[timing] {model} {stage}: {_format_seconds(elapsed)} ({elapsed:.3f}s)", flush=True)
+    print(
+        f"[timing] {model} {stage}: {_format_seconds(elapsed)} ({elapsed:.3f}s)",
+        flush=True,
+    )
 
 
-def create_datamodule(config: ToyComparisonConfig, output_dir: Path) -> ToySemSegSplitDataModule:
+def create_datamodule(
+    config: ToyComparisonConfig, output_dir: Path
+) -> ToySemSegSplitDataModule:
     datamodule_cls = (
         ToySemSegFromInstanceDataModule
         if config.semantic_label_source == "instance"
@@ -551,9 +598,11 @@ def create_datamodule(config: ToyComparisonConfig, output_dir: Path) -> ToySemSe
             Namespace(
                 data_root=str(config.data_root),
                 base_output_dir=str(config.graha_base_output_dir),
-                pretrain_dir=str(config.graha_pretrain_dir)
-                if config.graha_pretrain_dir
-                else None,
+                pretrain_dir=(
+                    str(config.graha_pretrain_dir)
+                    if config.graha_pretrain_dir
+                    else None
+                ),
                 lightning_checkpoint=None,
                 graha_wac_mode=config.graha_wac_mode,
                 graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
@@ -576,7 +625,9 @@ def create_datamodule(config: ToyComparisonConfig, output_dir: Path) -> ToySemSe
             band_filter=config.band_filter,
         )
     elif config.normalize_inputs and config.normalization_source != "finetune":
-        raise ValueError(f"Unsupported normalization_source: {config.normalization_source}")
+        raise ValueError(
+            f"Unsupported normalization_source: {config.normalization_source}"
+        )
 
     datamodule = datamodule_cls(
         data_root=config.data_root,
@@ -601,7 +652,9 @@ def create_datamodule(config: ToyComparisonConfig, output_dir: Path) -> ToySemSe
     return datamodule
 
 
-def create_model(config: ToyComparisonConfig, weight_assignments: list[str]) -> DINOSegmentation:
+def create_model(
+    config: ToyComparisonConfig, weight_assignments: list[str]
+) -> DINOSegmentation:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if config.dino_checkpoint is not None:
         encoder = load_dinov3_encoder(
@@ -624,7 +677,11 @@ def create_lightning_module(
     config: ToyComparisonConfig,
     model: DINOSegmentation,
 ) -> ToySemSegLightningModule:
-    module_cls = ToySemSegShapeLightningModule if config.use_toy_shape_loss else ToySemSegLightningModule
+    module_cls = (
+        ToySemSegShapeLightningModule
+        if config.use_toy_shape_loss
+        else ToySemSegLightningModule
+    )
     kwargs = {}
     if config.use_toy_shape_loss:
         kwargs = {
@@ -709,10 +766,14 @@ def run_graha_workflow(
     graha_args = Namespace(
         data_root=str(config.data_root),
         base_output_dir=str(comparison_output_dir),
-        pretrain_dir=str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None,
-        lightning_checkpoint=str(config.graha_lightning_checkpoint)
-        if config.graha_lightning_checkpoint
-        else None,
+        pretrain_dir=(
+            str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None
+        ),
+        lightning_checkpoint=(
+            str(config.graha_lightning_checkpoint)
+            if config.graha_lightning_checkpoint
+            else None
+        ),
         graha_wac_mode=config.graha_wac_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         normalization_source=config.normalization_source,
@@ -738,11 +799,15 @@ def run_graha_workflow(
 
     deps = graha_workflow.import_project_dependencies()
     datamodule_cls = deps[
-        "LunarSemanticFromInstanceDatamodule"
-        if config.semantic_label_source == "instance"
-        else "LunarSemanticMaskSegmentationDatamodule"
+        (
+            "LunarSemanticFromInstanceDatamodule"
+            if config.semantic_label_source == "instance"
+            else "LunarSemanticMaskSegmentationDatamodule"
+        )
     ]
-    task_cls = graha_workflow.make_notebook_task_class(deps["LunarShapeSegmentationTask"])
+    task_cls = graha_workflow.make_notebook_task_class(
+        deps["LunarShapeSegmentationTask"]
+    )
 
     output_dir = graha_workflow.create_output_dirs(
         graha_config,
@@ -869,9 +934,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional DINO Lightning .ckpt. Resumes fit, or loads weights when DINO fit is skipped.",
     )
-    parser.add_argument("--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6])
+    parser.add_argument(
+        "--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6]
+    )
     parser.add_argument("--target-size", type=int, default=256)
-    parser.add_argument("--spatial-transform", choices=["resize", "crop"], default="crop")
+    parser.add_argument(
+        "--spatial-transform", choices=["resize", "crop"], default="crop"
+    )
     parser.add_argument(
         "--semantic-label-source",
         choices=["semantic", "instance"],
@@ -911,7 +980,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--plot-every-n-epochs", type=int, default=1)
     parser.add_argument("--plot-n-samples", type=int, default=5)
     parser.add_argument("--cache-predictions", action="store_true")
-    parser.add_argument("--prediction-split", choices=["train", "val", "test"], default="val")
+    parser.add_argument(
+        "--prediction-split", choices=["train", "val", "test"], default="val"
+    )
     parser.add_argument("--prediction-n-samples", type=int, default=20)
     parser.add_argument("--graha-base-output-dir", type=str, default=None)
     parser.add_argument("--graha-pretrain-dir", type=str, default=None)
@@ -921,8 +992,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional Graha Lightning .ckpt. Resumes fit, or loads weights when Graha fit is skipped.",
     )
-    parser.add_argument("--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac")
-    parser.add_argument("--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean")
+    parser.add_argument(
+        "--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac"
+    )
+    parser.add_argument(
+        "--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean"
+    )
     parser.add_argument("--graha-shape-loss-weight", type=float, default=0.05)
     parser.add_argument("--graha-shape-loss-pad-frac", type=float, default=0.3)
     parser.add_argument("--graha-stats-batch-size", type=int, default=16)
@@ -935,11 +1010,19 @@ def parse_args() -> argparse.Namespace:
         help="Flush train-batch progress every N batches in sbatch logs.",
     )
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--no-fit", action="store_true", help="Build data/model/trainer but skip fit.")
-    parser.add_argument("--skip-dino-fit", action="store_true", help="Skip only DINO fitting.")
-    parser.add_argument("--skip-graha-fit", action="store_true", help="Skip only Graha fitting.")
+    parser.add_argument(
+        "--no-fit", action="store_true", help="Build data/model/trainer but skip fit."
+    )
+    parser.add_argument(
+        "--skip-dino-fit", action="store_true", help="Skip only DINO fitting."
+    )
+    parser.add_argument(
+        "--skip-graha-fit", action="store_true", help="Skip only Graha fitting."
+    )
     parser.add_argument("--run-epoch-test-suite", action="store_true")
-    parser.add_argument("--epoch-test-split", choices=["train", "val", "test"], default="test")
+    parser.add_argument(
+        "--epoch-test-split", choices=["train", "val", "test"], default="test"
+    )
     parser.add_argument("--epoch-test-n-samples", type=int, default=100)
     parser.add_argument("--epoch-test-every-n-epochs", type=int, default=1)
     return parser.parse_args()
@@ -973,7 +1056,9 @@ def main() -> None:
     if config.skip_dino_fit:
         print("Skipping DINO trainer.fit().")
         if config.dino_lightning_checkpoint is not None:
-            load_lightning_checkpoint_state(task, config.dino_lightning_checkpoint, "DINO")
+            load_lightning_checkpoint_state(
+                task, config.dino_lightning_checkpoint, "DINO"
+            )
     else:
         print("Starting DINO trainer.fit()...", flush=True)
         fit_started_at = time.perf_counter()

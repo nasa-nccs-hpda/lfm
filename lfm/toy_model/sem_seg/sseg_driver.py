@@ -7,7 +7,6 @@ Handles images with any number of channels (grayscale, RGB, multispectral, etc.)
 
 import os
 import time
-import shutil
 import math
 
 import torch
@@ -20,6 +19,7 @@ from matplotlib.colors import ListedColormap
 from tqdm import tqdm
 
 from .sseg_utils import get_loss_function
+
 
 # ============================================================================
 # UTILITIES
@@ -37,9 +37,7 @@ def print_model_summary(model):
     decoder_total = sum(p.numel() for p in model.decoder.parameters())
 
     # Calculate trainable parameters for combined model
-    trainable_params = sum(
-        p.numel() for p in model.parameters() if p.requires_grad
-    )
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total_params = sum(p.numel() for p in model.parameters())
 
     print(f"\n{'='*60}")
@@ -148,7 +146,7 @@ def load_model_weights(model, checkpoint_path, device):
     if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
         model.load_state_dict(checkpoint["model_state_dict"])
         epoch = checkpoint.get("epoch", None)
-        print(f"Loaded model from checkpoint (new format)")
+        print("Loaded model from checkpoint (new format)")
         if epoch is not None:
             print(f"Checkpoint was from epoch: {epoch}")
         return epoch
@@ -157,12 +155,12 @@ def load_model_weights(model, checkpoint_path, device):
         try:
             # Try loading as state_dict directly
             model.load_state_dict(checkpoint)
-            print(f"Loaded model from checkpoint (old format - state_dict)")
+            print("Loaded model from checkpoint (old format - state_dict)")
         except:
             # If model has custom load_parameters method (like DINOEncoderLoRA)
             if hasattr(model, "load_parameters"):
                 model.load_parameters(checkpoint_path)
-                print(f"Loaded model using model.load_parameters() method")
+                print("Loaded model using model.load_parameters() method")
             else:
                 raise ValueError(
                     "Unable to load checkpoint. Format not recognized and "
@@ -174,6 +172,7 @@ def load_model_weights(model, checkpoint_path, device):
 # ============================================================================
 # METRICS
 # ============================================================================
+
 
 def calculate_f1_score(pred, label):
     """
@@ -248,9 +247,7 @@ def prepare_image_for_display(
             )
             band_clipped = np.clip(band, p_low, p_high)
             if p_high > p_low:
-                img_clipped[:, :, c] = (band_clipped - p_low) / (
-                    p_high - p_low
-                )
+                img_clipped[:, :, c] = (band_clipped - p_low) / (p_high - p_low)
             else:
                 img_clipped[:, :, c] = 0.5  # Constant band
         img_normalized = np.clip(img_clipped, 0, 1)
@@ -350,9 +347,7 @@ def create_overlay_image(img_vis, pred_mask):
     overlay[mask_bool, 0] = 1.0  # Red channel
     overlay[mask_bool, 1] = 1.0  # Green channel
     overlay[mask_bool, 2] = 0.0  # Blue channel (0 = yellow)
-    overlay[:, :, 3] = np.where(
-        mask_bool, 0.5, 1.0
-    )  # 50% transparent where pred=1
+    overlay[:, :, 3] = np.where(mask_bool, 0.5, 1.0)  # 50% transparent where pred=1
 
     # Blend images
     alpha = overlay[:, :, 3:4]
@@ -397,13 +392,9 @@ def visualize_predictions(
 
             # Get crater class only (class 1) if 2 channels
             if probs.shape[1] == 2:
-                probs = probs[
-                    :, 1:2
-                ]  # Select class 1, keep channel dim [B, 1, H, W]
+                probs = probs[:, 1:2]  # Select class 1, keep channel dim [B, 1, H, W]
 
-            preds = (
-                (probs > 0.5).float().squeeze(1)
-            )  # [B, H, W] - squeeze channel dim
+            preds = (probs > 0.5).float().squeeze(1)  # [B, H, W] - squeeze channel dim
 
             # Move to CPU for visualization
             images_list.append(images.cpu())
@@ -461,9 +452,7 @@ def visualize_predictions(
 
         # Row 0: Original image with F1 score
         axes[0, i].imshow(img_vis, cmap=cmap_image)
-        axes[0, i].set_title(
-            f"Image {i}\nF1: {f1:.3f}", fontsize=16, fontweight="bold"
-        )
+        axes[0, i].set_title(f"Image {i}\nF1: {f1:.3f}", fontsize=16, fontweight="bold")
         axes[0, i].axis("off")
 
         # Row 1: Predicted mask in black and yellow
@@ -493,7 +482,7 @@ def visualize_predictions(
     )
 
     fig.patch.set_visible(True)  # Make patch visible
-    fig.patch.set_facecolor('white')  # Set to white
+    fig.patch.set_facecolor("white")  # Set to white
     plt.tight_layout()
 
     # Handle epoch formatting (can be "eval" or a number)
@@ -871,9 +860,7 @@ def train_model(
         # Visualize predictions periodically
         if epoch % visualize_every == 0:
             print("\n  Generating visualizations...")
-            visualize_predictions(
-                model, val_loader, device, visualization_dir, epoch
-            )
+            visualize_predictions(model, val_loader, device, visualization_dir, epoch)
 
         # Save best model
         # Early stopping check
@@ -896,10 +883,7 @@ def train_model(
             patience_counter += 1
 
         # Early stopping check
-        if (
-            early_stopping_patience
-            and patience_counter >= early_stopping_patience
-        ):
+        if early_stopping_patience and patience_counter >= early_stopping_patience:
             print(f"\n{'='*60}")
             print(f"⚠️  Early stopping triggered after {epoch} epochs")
             print(f"No improvement for {early_stopping_patience} epochs")
@@ -907,7 +891,7 @@ def train_model(
 
             # Load best model for final evaluation
             best_model_path = os.path.join(checkpoint_dir, "best_model.pt")
-            print(f"\n📊 Loading best model for final evaluation...")
+            print("\n📊 Loading best model for final evaluation...")
             print(f"Best model path: {best_model_path}")
             load_model_weights(model, best_model_path, device)
 
@@ -918,7 +902,7 @@ def train_model(
             evaluate_model(model, val_loader, output_dir, device)
 
             # Generate final visualizations
-            print(f"\n📸 Generating final visualizations...")
+            print("\n📸 Generating final visualizations...")
             visualize_predictions(
                 model,
                 val_loader,
@@ -927,7 +911,7 @@ def train_model(
                 epoch=f"early_stop_epoch_{epoch}",  # Mark as early stopped
             )
 
-            print(f"\n✅ Early stopping evaluation complete")
+            print("\n✅ Early stopping evaluation complete")
             print(f"{'='*60}\n")
             break
 
@@ -980,6 +964,4 @@ def train_model(
 
 if __name__ == "__main__":
     # This allows the driver to be run as a script or imported
-    print(
-        "Import this module and call train_model() with your model and dataloaders."
-    )
+    print("Import this module and call train_model() with your model and dataloaders.")

@@ -23,7 +23,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from scipy import ndimage
 
-import hdf5plugin  # required to import given a bug (not able to find the package at runtime)
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -32,7 +31,6 @@ import torchvision.transforms.v2.functional as TF
 from einops import rearrange, reduce, repeat
 
 from terramind.data.io_utils import load_netcdf
-
 
 DEFAULT_BINNING_FILE = "terramind/utils/tokenizer/trained/metadata_binning_config.csv"
 
@@ -61,10 +59,14 @@ def _check_tensor(tensor: torch.Tensor):
     if not tensor.is_floating_point():
         raise TypeError(f"Input tensor should be a float tensor. Got {tensor.dtype}.")
     if tensor.ndim < 3:
-        raise ValueError(f"Expected tensor to be of size (..., C, H, W). Got tensor.size() = {tensor.size()}")
+        raise ValueError(
+            f"Expected tensor to be of size (..., C, H, W). Got tensor.size() = {tensor.size()}"
+        )
 
 
-def minmax_op(tensor: torch.Tensor, min_value: Sequence[float], max_value: Sequence[float]):
+def minmax_op(
+    tensor: torch.Tensor, min_value: Sequence[float], max_value: Sequence[float]
+):
 
     _check_tensor(tensor)
 
@@ -82,7 +84,9 @@ def minmax_op(tensor: torch.Tensor, min_value: Sequence[float], max_value: Seque
     return tensor_minmax
 
 
-def minmax_op_reverse(tensor: torch.Tensor, min_value: Sequence[float], max_value: Sequence[float]):
+def minmax_op_reverse(
+    tensor: torch.Tensor, min_value: Sequence[float], max_value: Sequence[float]
+):
 
     _check_tensor(tensor)
 
@@ -101,13 +105,13 @@ def minmax_op_reverse(tensor: torch.Tensor, min_value: Sequence[float], max_valu
 
 
 def scale_data(
-        data: torch.Tensor,
-        scaler: str | None,
-        mean: Sequence[float] | None = None,
-        std: Sequence[float] | None = None,
-        min_value: Sequence[float] | None = None,
-        max_value: Sequence[float] | None = None,
-        inplace: bool = True,
+    data: torch.Tensor,
+    scaler: str | None,
+    mean: Sequence[float] | None = None,
+    std: Sequence[float] | None = None,
+    min_value: Sequence[float] | None = None,
+    max_value: Sequence[float] | None = None,
+    inplace: bool = True,
 ):
     """Scale *data* according to the *scaler* defined.
 
@@ -131,7 +135,9 @@ def scale_data(
     elif scaler == "local_mean_std":
         if std is None:
             raise ValueError("local_mean_std scaler selected but no std provided.")
-        return TF.normalize(data, mean=torch.mean(data, dim=(-1, -2)), std=std, inplace=inplace)
+        return TF.normalize(
+            data, mean=torch.mean(data, dim=(-1, -2)), std=std, inplace=inplace
+        )
     elif scaler is None:
         return data
     else:
@@ -139,13 +145,13 @@ def scale_data(
 
 
 def unscale_data(
-        data: torch.Tensor,
-        scaler: str | None,
-        mean: Sequence[float] | None = None,
-        std: Sequence[float] | None = None,
-        min_value: Sequence[float] | None = None,
-        max_value: Sequence[float] | None = None,
-        inplace: bool = False,
+    data: torch.Tensor,
+    scaler: str | None,
+    mean: Sequence[float] | None = None,
+    std: Sequence[float] | None = None,
+    min_value: Sequence[float] | None = None,
+    max_value: Sequence[float] | None = None,
+    inplace: bool = False,
 ):
     """Revert scaling done in *data* according to the *scaler* defined.
 
@@ -162,7 +168,10 @@ def unscale_data(
         if mean is None or std is None:
             raise ValueError("Std scaler selected but no mean/std provided.")
         return TF.normalize(
-            data.clone(), mean=[-m / s for m, s in zip(mean, std)], std=[1 / s for s in std], inplace=inplace,
+            data.clone(),
+            mean=[-m / s for m, s in zip(mean, std)],
+            std=[1 / s for s in std],
+            inplace=inplace,
         )
     elif scaler == "minmax":
         if min_value is None or max_value is None:
@@ -175,10 +184,26 @@ def unscale_data(
 
 
 def domain_unscale(
-        data: torch.Tensor, domain: str, scaler_dict: dict[str, str | None] | None, stats: dict,
-    ) -> torch.Tensor:
+    data: torch.Tensor,
+    domain: str,
+    scaler_dict: dict[str, str | None] | None,
+    stats: dict,
+) -> torch.Tensor:
     """Helper to unscale domain data based on selected scalers."""
-    if domain in ["vis", "vis_604", "uv", "dtm", "slope", "aspect", "nac", "dtm_3m", "slope_3m", "aspect_3m", "psr", "wac_mosaic"]:
+    if domain in [
+        "vis",
+        "vis_604",
+        "uv",
+        "dtm",
+        "slope",
+        "aspect",
+        "nac",
+        "dtm_3m",
+        "slope_3m",
+        "aspect_3m",
+        "psr",
+        "wac_mosaic",
+    ]:
         x_unscaled = unscale_data(
             data,
             scaler=scaler_dict[domain] if scaler_dict is not None else None,
@@ -225,14 +250,16 @@ def fill_nan_nearest_neighbor(img: np.ndarray) -> np.ndarray:
         raise ValueError(f"Expected (C, H, W), got {img.shape}")
 
     # valid mask over spatial dimensions
-    valid = np.isfinite(img).all(axis=0)   # (H, W)
+    valid = np.isfinite(img).all(axis=0)  # (H, W)
 
     if valid.all():
         return img
 
     invalid_mask = ~valid
 
-    idx = ndimage.distance_transform_edt(invalid_mask, return_indices=True, return_distances=False)
+    idx = ndimage.distance_transform_edt(
+        invalid_mask, return_indices=True, return_distances=False
+    )
     rr, cc = idx
 
     filled = img.copy()
@@ -271,7 +298,9 @@ class UnifiedDataTransform(object):
             dict: Transformed dict of modalities
         """
 
-        crop_coords, flip, orig_size, target_size, rand_aug_idx = self.image_augmenter(mod_dict, crop_settings)
+        crop_coords, flip, orig_size, target_size, rand_aug_idx = self.image_augmenter(
+            mod_dict, crop_settings
+        )
 
         mod_dict = {
             k: get_transform(k, self.transforms_dict).image_augment(
@@ -302,12 +331,18 @@ class UnifiedDataTransform(object):
         """
         crop_settings = mod_dict.pop("crop_settings", None)
 
-        mod_dict = {k: get_transform(k, self.transforms_dict).preprocess(v) for k, v in mod_dict.items()}
+        mod_dict = {
+            k: get_transform(k, self.transforms_dict).preprocess(v)
+            for k, v in mod_dict.items()
+        }
 
         if self.image_augmenter is not None:
             mod_dict = self.unified_image_augment(mod_dict, crop_settings)
 
-        mod_dict = {k: get_transform(k, self.transforms_dict).postprocess(v) for k, v in mod_dict.items()}
+        mod_dict = {
+            k: get_transform(k, self.transforms_dict).postprocess(v)
+            for k, v in mod_dict.items()
+        }
 
         return mod_dict
 
@@ -317,6 +352,7 @@ class UnifiedDataTransform(object):
 
 class AbstractTransform(ABC):
     """Base Transform class."""
+
     @abstractmethod
     def load(self, path: str) -> np.ndarray | str:
         pass
@@ -345,6 +381,7 @@ class AbstractTransform(ABC):
 
 class ImageTransform(AbstractTransform):
     """Image Transform class."""
+
     @staticmethod
     def numpy_loader(path: str) -> np.ndarray:
         img = np.load(path)
@@ -374,7 +411,12 @@ class ImageTransform(AbstractTransform):
         return img
 
     @staticmethod
-    def image_crop_and_resize(img: torch.Tensor, crop_coords: tuple, target_size: tuple, resample_mode: str = "bilinear"):
+    def image_crop_and_resize(
+        img: torch.Tensor,
+        crop_coords: tuple,
+        target_size: tuple,
+        resample_mode: str = "bilinear",
+    ):
         """Crop and resize an image.
 
         Args:
@@ -395,7 +437,9 @@ class ImageTransform(AbstractTransform):
         return img
 
     @staticmethod
-    def image_resize(img: torch.Tensor, target_size: Sequence[int], resample_mode: str = "bilinear"):
+    def image_resize(
+        img: torch.Tensor, target_size: Sequence[int], resample_mode: str = "bilinear"
+    ):
         """Resize an image.
 
         Args:
@@ -430,6 +474,7 @@ class ImageTransform(AbstractTransform):
 
 class LunarTransform(ImageTransform):
     """Lunar data Transform class."""
+
     def __init__(
         self,
         mean: list,
@@ -457,10 +502,19 @@ class LunarTransform(ImageTransform):
 
     def preprocess(self, sample: np.ndarray):
         img = torch.Tensor(sample)
-        img = torch.nan_to_num(img, nan=0.0)   # safety replacement to avoid issues
+        img = torch.nan_to_num(img, nan=0.0)  # safety replacement to avoid issues
         if self.pre_resize is not None:
-            img = self.image_resize(img, [self.pre_resize] * 2, resample_mode=self.resample_mode)
-        img = scale_data(img, mean=self.mean, std=self.std, min_value=self.min, max_value=self.max, scaler=self.scaler)
+            img = self.image_resize(
+                img, [self.pre_resize] * 2, resample_mode=self.resample_mode
+            )
+        img = scale_data(
+            img,
+            mean=self.mean,
+            std=self.std,
+            min_value=self.min,
+            max_value=self.max,
+            scaler=self.scaler,
+        )
 
         return img
 
@@ -472,7 +526,9 @@ class LunarTransform(ImageTransform):
         target_size: tuple,
         **kwargs,
     ):
-        img = self.image_crop_and_resize(img, crop_coords, target_size, resample_mode=self.resample_mode)
+        img = self.image_crop_and_resize(
+            img, crop_coords, target_size, resample_mode=self.resample_mode
+        )
         img = self.image_hflip(img, flip)
         return img
 
@@ -482,6 +538,7 @@ class LunarTransform(ImageTransform):
 
 class GeomapTransform(ImageTransform):
     """Lunar Geomap data Transform class."""
+
     def __init__(
         self,
         channels: list,
@@ -511,7 +568,9 @@ class GeomapTransform(ImageTransform):
         sample = fill_nan_nearest_neighbor(img=sample)
         processed = torch.Tensor(sample)
         if self.pre_resize is not None:
-            processed = self.image_resize(processed, [self.pre_resize] * 2, resample_mode="nearest")
+            processed = self.image_resize(
+                processed, [self.pre_resize] * 2, resample_mode="nearest"
+            )
 
         # Apply class reduction if required
         if self.class_mapping is not None:
@@ -532,7 +591,9 @@ class GeomapTransform(ImageTransform):
             Tensor with shape (1, H, W) containing reduced class indices 0-15 (0-14=geological, 15=background)
         """
         if self.lookup is None:
-            raise ValueError("Class mapping lookup tensor not initialized. Provide class_mapping in __init__.")
+            raise ValueError(
+                "Class mapping lookup tensor not initialized. Provide class_mapping in __init__."
+            )
 
         lookup = self.lookup.to(sample.device)
 
@@ -541,7 +602,11 @@ class GeomapTransform(ImageTransform):
         reduced = lookup[sample_long]
 
         # Handle any unmapped classes - set to background class
-        reduced = torch.where(reduced == -1, torch.tensor(self.class_mapping[0], device=sample.device), reduced)
+        reduced = torch.where(
+            reduced == -1,
+            torch.tensor(self.class_mapping[0], device=sample.device),
+            reduced,
+        )
 
         return reduced.float()
 
@@ -553,7 +618,9 @@ class GeomapTransform(ImageTransform):
         target_size: tuple,
         **kwargs,
     ):
-        img = self.image_crop_and_resize(img, crop_coords, target_size, resample_mode="nearest")
+        img = self.image_crop_and_resize(
+            img, crop_coords, target_size, resample_mode="nearest"
+        )
         img = self.image_hflip(img, flip)
         return img
 
@@ -563,7 +630,14 @@ class GeomapTransform(ImageTransform):
 
 class CraterMasksTransform(ImageTransform):
     """Lunar Crater Masks data Transform class."""
-    def __init__(self, channels: list, one_hot_encoding: int | None, pre_resize: int | None = None, **kwargs):
+
+    def __init__(
+        self,
+        channels: list,
+        one_hot_encoding: int | None,
+        pre_resize: int | None = None,
+        **kwargs,
+    ):
         self.channels = channels
         self.one_hot_encoding = one_hot_encoding
         self.pre_resize = pre_resize
@@ -584,7 +658,9 @@ class CraterMasksTransform(ImageTransform):
         sample = fill_nan_nearest_neighbor(img=sample)
         processed = torch.Tensor(sample)
         if self.pre_resize is not None:
-            processed = self.image_resize(processed, [self.pre_resize] * 2, resample_mode="nearest")
+            processed = self.image_resize(
+                processed, [self.pre_resize] * 2, resample_mode="nearest"
+            )
 
         if self.one_hot_encoding is not None:
             processed = one_hot_encoder(processed, num_classes=self.one_hot_encoding)
@@ -599,7 +675,9 @@ class CraterMasksTransform(ImageTransform):
         target_size: tuple,
         **kwargs,
     ):
-        img = self.image_crop_and_resize(img, crop_coords, target_size, resample_mode="nearest")
+        img = self.image_crop_and_resize(
+            img, crop_coords, target_size, resample_mode="nearest"
+        )
         img = self.image_hflip(img, flip)
         return img
 
@@ -636,6 +714,7 @@ class UntokCraterMasksTransform(CraterMasksTransform):
 
 class MaskTransform(ImageTransform):
     """Mask Transform class."""
+
     def __init__(self, mask_pool_size=1):
         assert isinstance(mask_pool_size, int)
         self.mask_pool_size = mask_pool_size  # Use to expand masks
@@ -665,9 +744,13 @@ class MaskTransform(ImageTransform):
     def preprocess(self, sample):
         return sample
 
-    def image_augment(self, img, crop_coords: tuple, flip: bool, target_size: tuple, **kwargs):
+    def image_augment(
+        self, img, crop_coords: tuple, flip: bool, target_size: tuple, **kwargs
+    ):
         # Override resampling mode to 'nearest' for masks
-        img = self.image_crop_and_resize(img, crop_coords, target_size, resample_mode="nearest")
+        img = self.image_crop_and_resize(
+            img, crop_coords, target_size, resample_mode="nearest"
+        )
         img = self.image_hflip(img, flip)
         return img
 
@@ -678,6 +761,7 @@ class MaskTransform(ImageTransform):
 
 class TokTransform(AbstractTransform):
     """Tokenized base Transform class."""
+
     def __init__(self, num_codebooks: int):
         self.num_codebooks = num_codebooks
 
@@ -693,7 +777,9 @@ class TokTransform(AbstractTransform):
 
     def image_augment(self, v, rand_aug_idx: int | None, **kwargs):
         if rand_aug_idx is None:
-            raise ValueError("Crop settings/augmentation index are missing but a pre-tokenized modality is being used")
+            raise ValueError(
+                "Crop settings/augmentation index are missing but a pre-tokenized modality is being used"
+            )
         v = torch.tensor(v[rand_aug_idx])
         return v
 
@@ -744,7 +830,12 @@ class SingleValueTransform(AbstractTransform):
         return items
 
     @staticmethod
-    def _bin_value(field_name: str, value: float, bin_sizes: dict[str, float], decimals: int | None = None) -> str:
+    def _bin_value(
+        field_name: str,
+        value: float,
+        bin_sizes: dict[str, float],
+        decimals: int | None = None,
+    ) -> str:
         """Bin a value into the tokenizer's range-token format.
 
         Args:
@@ -824,7 +915,7 @@ class SingleValueTransform(AbstractTransform):
         return processed_items
 
     def _aggregate_values(self, values: list[float]) -> float | list[float]:
-        """Aggregate multiple values using the specified method. """
+        """Aggregate multiple values using the specified method."""
         if len(values) == 0:
             raise ValueError("Cannot aggregate empty list of values")
 
@@ -844,7 +935,9 @@ class SingleValueTransform(AbstractTransform):
             if value is None:
                 result.append(f"{key}=MISSING")
             elif isinstance(value, list):
-                binned = self._bin_value(key, self._aggregate_values(value), self.bin_sizes, decimals)
+                binned = self._bin_value(
+                    key, self._aggregate_values(value), self.bin_sizes, decimals
+                )
                 result.append(binned)
             else:
                 result.append(self._bin_value(key, value, self.bin_sizes, decimals))
@@ -868,7 +961,12 @@ class MetadataTransform(SingleValueTransform):
         "LR_LAT",
     )
 
-    def __init__(self, binning_config_path: str = DEFAULT_BINNING_FILE, return_raw: bool = False, shuffle: bool = True):
+    def __init__(
+        self,
+        binning_config_path: str = DEFAULT_BINNING_FILE,
+        return_raw: bool = False,
+        shuffle: bool = True,
+    ):
         """Initialize MetadataTransform.
 
         Args:
@@ -876,7 +974,9 @@ class MetadataTransform(SingleValueTransform):
             return_raw: whether to return raw list of lists or binned text strings.
             shuffle: whether to shuffle the order of metadata entries.
         """
-        super().__init__(return_raw, shuffle, aggregation_method="mean")  # aggregation method not currently used
+        super().__init__(
+            return_raw, shuffle, aggregation_method="mean"
+        )  # aggregation method not currently used
         all_bin_sizes = self._load_binning_config(binning_config_path)
         assert set(self.METADATA_VARS).issubset(set(all_bin_sizes.keys()))
 
@@ -924,10 +1024,14 @@ class StaticMapsTransform(SingleValueTransform):
 
         if selected_vars is None:
             self.selected_vars = [v for v in all_bin_sizes if v not in exclude]
-            self.bin_sizes = {v: step for v, step in all_bin_sizes.items() if v not in exclude}
+            self.bin_sizes = {
+                v: step for v, step in all_bin_sizes.items() if v not in exclude
+            }
         else:
             self.selected_vars = selected_vars
-            self.bin_sizes = {v: all_bin_sizes[v] for v in self.selected_vars if v in all_bin_sizes}
+            self.bin_sizes = {
+                v: all_bin_sizes[v] for v in self.selected_vars if v in all_bin_sizes
+            }
 
     def postprocess(self, sample: str):
 
@@ -1026,7 +1130,7 @@ class BBoxTransform(AbstractTransform):
         if len(bboxes) == 0:
             return bboxes
 
-        xmin, ymin, w, h = bboxes.T   # xywh to xyxy
+        xmin, ymin, w, h = bboxes.T  # xywh to xyxy
 
         # Compute intersections
         ix1 = np.maximum(xmin, cx)
@@ -1038,17 +1142,22 @@ class BBoxTransform(AbstractTransform):
         valid = (ix1 < ix2) & (iy1 < iy2)
 
         # back to xywh (relative to crop)
-        cropped = np.stack([
-            ix1[valid] - cx,
-            iy1[valid] - cy,
-            ix2[valid] - ix1[valid],
-            iy2[valid] - iy1[valid],
-        ], axis=1)
+        cropped = np.stack(
+            [
+                ix1[valid] - cx,
+                iy1[valid] - cy,
+                ix2[valid] - ix1[valid],
+                iy2[valid] - iy1[valid],
+            ],
+            axis=1,
+        )
 
         return cropped
 
     @staticmethod
-    def normalize_bbox_coords(coords: np.ndarray, height: int, width: int) -> np.ndarray:
+    def normalize_bbox_coords(
+        coords: np.ndarray, height: int, width: int
+    ) -> np.ndarray:
         """Convert bbox coordinates to normalized [0, 1] range.
 
         Args:
@@ -1061,7 +1170,9 @@ class BBoxTransform(AbstractTransform):
         """
         if len(coords) == 0:
             return coords
-        factors = np.asarray([width, height, width, height])   # (xmin, w) / width, (ymin, h) / height
+        factors = np.asarray(
+            [width, height, width, height]
+        )  # (xmin, w) / width, (ymin, h) / height
         normalized = coords / factors
         return np.clip(normalized, 0.0, 1.0)
 
@@ -1076,7 +1187,9 @@ class BBoxTransform(AbstractTransform):
 
         return bbox_coords
 
-    def image_augment(self, bbox_coords: np.ndarray, crop_coords: tuple, flip: bool, **kwargs):
+    def image_augment(
+        self, bbox_coords: np.ndarray, crop_coords: tuple, flip: bool, **kwargs
+    ):
         """Handle spatial augmentations for bboxes.
 
         Args:
@@ -1086,18 +1199,26 @@ class BBoxTransform(AbstractTransform):
         """
         if len(bbox_coords) > 0:
             if crop_coords is not None:
-                bbox_coords = self.crop_bboxes(bboxes=bbox_coords,
-                                               cx=crop_coords[1], cy=crop_coords[0],   # swap x,y
-                                               cw=crop_coords[3], ch=crop_coords[2])   # swap h,w
+                bbox_coords = self.crop_bboxes(
+                    bboxes=bbox_coords,
+                    cx=crop_coords[1],
+                    cy=crop_coords[0],  # swap x,y
+                    cw=crop_coords[3],
+                    ch=crop_coords[2],
+                )  # swap h,w
             if flip and len(bbox_coords) > 0:
                 crop_w = crop_coords[3]  # Width from crop_coords (top, left, h, w)
                 bbox_coords[:, 0] = crop_w - bbox_coords[:, 0] - bbox_coords[:, 2]
 
             # Normalize after cropping
             if crop_coords is not None:
-                bbox_coords = self.normalize_bbox_coords(bbox_coords, height=crop_coords[2], width=crop_coords[3])
+                bbox_coords = self.normalize_bbox_coords(
+                    bbox_coords, height=crop_coords[2], width=crop_coords[3]
+                )
             else:
-                bbox_coords = self.normalize_bbox_coords(bbox_coords, height=self.pre_resize, width=self.pre_resize)
+                bbox_coords = self.normalize_bbox_coords(
+                    bbox_coords, height=self.pre_resize, width=self.pre_resize
+                )
 
             bbox_coords = self.bbox_order(bbox_coords)
 
@@ -1128,30 +1249,36 @@ class BBoxTransform(AbstractTransform):
         for bbox in coords:
             if self.format == "xyxy":
                 # Expect (xmin, ymin, xmax, ymax)
-                tokens.extend([
-                    f"xmin={self._format_coord(bbox[0].item())}",
-                    f"ymin={self._format_coord(bbox[1].item())}",
-                    f"xmax={self._format_coord(bbox[2].item())}",
-                    f"ymax={self._format_coord(bbox[3].item())}",
-                ])
+                tokens.extend(
+                    [
+                        f"xmin={self._format_coord(bbox[0].item())}",
+                        f"ymin={self._format_coord(bbox[1].item())}",
+                        f"xmax={self._format_coord(bbox[2].item())}",
+                        f"ymax={self._format_coord(bbox[3].item())}",
+                    ]
+                )
             elif self.format == "xywh":
                 # Expect (xmin, ymin, w, h), convert to xyxy
                 xmin, ymin, w, h = bbox
                 xmax = xmin + w
                 ymax = ymin + h
-                tokens.extend([
-                    f"xmin={self._format_coord(xmin.item())}",
-                    f"ymin={self._format_coord(ymin.item())}",
-                    f"xmax={self._format_coord(xmax.item())}",
-                    f"ymax={self._format_coord(ymax.item())}",
-                ])
+                tokens.extend(
+                    [
+                        f"xmin={self._format_coord(xmin.item())}",
+                        f"ymin={self._format_coord(ymin.item())}",
+                        f"xmax={self._format_coord(xmax.item())}",
+                        f"ymax={self._format_coord(ymax.item())}",
+                    ]
+                )
             else:
                 raise ValueError(f"Unknown format: {self.format}")
 
         return separator.join(tokens)
 
     @staticmethod
-    def reverse_format_bbox_text(bbox_text: str, bbox_format: str = "xywh", separator: str = " ") -> np.ndarray:
+    def reverse_format_bbox_text(
+        bbox_text: str, bbox_format: str = "xywh", separator: str = " "
+    ) -> np.ndarray:
         """Reverse of format_bbox_text: parse text back to numpy array.
 
         Args:
@@ -1171,10 +1298,13 @@ class BBoxTransform(AbstractTransform):
         sep_pattern = re.escape(separator) + r"\s*" if separator else r"\s*"
 
         pattern = (
-            r"xmin=([\d.]+)" + sep_pattern +
-            r"ymin=([\d.]+)" + sep_pattern +
-            r"xmax=([\d.]+)" + sep_pattern +
-            r"ymax=([\d.]+)"
+            r"xmin=([\d.]+)"
+            + sep_pattern
+            + r"ymin=([\d.]+)"
+            + sep_pattern
+            + r"xmax=([\d.]+)"
+            + sep_pattern
+            + r"ymax=([\d.]+)"
         )
 
         matches = re.findall(pattern, bbox_text)
@@ -1208,6 +1338,7 @@ class BBoxTransform(AbstractTransform):
 
 class IdentityTransform(AbstractTransform):
     """Identity Transform class."""
+
     def load(self, path):
         raise NotImplementedError("IdentityTransform does not support loading")
 

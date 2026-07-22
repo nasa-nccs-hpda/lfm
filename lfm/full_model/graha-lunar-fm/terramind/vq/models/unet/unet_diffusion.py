@@ -42,7 +42,9 @@ class AttentionPool2d(nn.Module):
         output_dim: int | None = None,
     ):
         super().__init__()
-        self.positional_embedding = nn.Parameter(torch.randn(embed_dim, spacial_dim**2 + 1) / embed_dim**0.5)
+        self.positional_embedding = nn.Parameter(
+            torch.randn(embed_dim, spacial_dim**2 + 1) / embed_dim**0.5
+        )
         self.qkv_proj = u.conv_nd(1, embed_dim, 3 * embed_dim, 1)
         self.c_proj = u.conv_nd(1, embed_dim, output_dim or embed_dim, 1)
         self.num_heads = embed_dim // num_heads_channels
@@ -51,7 +53,7 @@ class AttentionPool2d(nn.Module):
     def forward(self, x):
         b, c, *_spatial = x.shape
         x = x.reshape(b, c, -1)  # NC(HW)
-        x = torch.cat([x.mean(dim=-1, keepdim=True), x], dim=-1)   # NC(HW+1)
+        x = torch.cat([x.mean(dim=-1, keepdim=True), x], dim=-1)  # NC(HW+1)
         x = x + self.positional_embedding[None, :, :].to(x.dtype)  # NC(HW+1)
         x = self.qkv_proj(x)
         x = self.attention(x)
@@ -102,7 +104,9 @@ class Upsample(nn.Module):
     def forward(self, x):
         assert x.shape[1] == self.channels
         if self.dims == 3:
-            x = F.interpolate(x, (x.shape[2], x.shape[3] * 2, x.shape[4] * 2), mode="nearest")
+            x = F.interpolate(
+                x, (x.shape[2], x.shape[3] * 2, x.shape[4] * 2), mode="nearest"
+            )
         else:
             x = F.interpolate(x, scale_factor=2, mode="nearest")
         if self.use_conv:
@@ -127,7 +131,9 @@ class Downsample(nn.Module):
         self.dims = dims
         stride = 2 if dims != 3 else (1, 2, 2)
         if use_conv:
-            self.op = u.conv_nd(dims, self.channels, self.out_channels, 3, stride=stride, padding=1)
+            self.op = u.conv_nd(
+                dims, self.channels, self.out_channels, 3, stride=stride, padding=1
+            )
         else:
             assert self.channels == self.out_channels
             self.op = u.avg_pool_nd(dims, kernel_size=stride, stride=stride)
@@ -195,19 +201,26 @@ class ResBlock(TimestepBlock):
 
         self.emb_layers = nn.Sequential(
             nn.SiLU(),
-            u.linear(emb_channels, 2 * self.out_channels if use_scale_shift_norm else self.out_channels),
+            u.linear(
+                emb_channels,
+                2 * self.out_channels if use_scale_shift_norm else self.out_channels,
+            ),
         )
         self.out_layers = nn.Sequential(
             u.normalization(self.out_channels),
             nn.SiLU(),
             nn.Dropout(p=dropout),
-            u.zero_module(u.conv_nd(dims, self.out_channels, self.out_channels, 3, padding=1)),
+            u.zero_module(
+                u.conv_nd(dims, self.out_channels, self.out_channels, 3, padding=1)
+            ),
         )
 
         if self.out_channels == channels:
             self.skip_connection = nn.Identity()
         elif use_conv:
-            self.skip_connection = u.conv_nd(dims, channels, self.out_channels, 3, padding=1)
+            self.skip_connection = u.conv_nd(
+                dims, channels, self.out_channels, 3, padding=1
+            )
         else:
             self.skip_connection = u.conv_nd(dims, channels, self.out_channels, 1)
 
@@ -221,7 +234,9 @@ class ResBlock(TimestepBlock):
         Returns:
             an [N x C x ...] Tensor of outputs.
         """
-        return u.checkpoint(self._forward, (x, emb), self.parameters(), self.use_checkpoint)
+        return u.checkpoint(
+            self._forward, (x, emb), self.parameters(), self.use_checkpoint
+        )
 
     def _forward(self, x, emb):
         if self.updown:
@@ -333,7 +348,9 @@ class QKVAttentionLegacy(nn.Module):
         ch = width // (3 * self.n_heads)
         q, k, v = qkv.reshape(bs * self.n_heads, ch * 3, length).split(ch, dim=1)
         scale = 1 / math.sqrt(math.sqrt(ch))
-        weight = torch.einsum("bct,bcs->bts", q * scale, k * scale)  # More stable with f16 than dividing afterwards
+        weight = torch.einsum(
+            "bct,bcs->bts", q * scale, k * scale
+        )  # More stable with f16 than dividing afterwards
         weight = torch.softmax(weight.float(), dim=-1).type(weight.dtype)
         a = torch.einsum("bts,bcs->bct", weight, v)
         return a.reshape(bs, -1, length)
@@ -370,7 +387,9 @@ class QKVAttention(nn.Module):
             (k * scale).view(bs * self.n_heads, ch, length),
         )  # More stable with f16 than dividing afterwards
         weight = torch.softmax(weight.float(), dim=-1).type(weight.dtype)
-        a = torch.einsum("bts,bcs->bct", weight, v.reshape(bs * self.n_heads, ch, length))
+        a = torch.einsum(
+            "bts,bcs->bct", weight, v.reshape(bs * self.n_heads, ch, length)
+        )
         return a.reshape(bs, -1, length)
 
     @staticmethod
@@ -460,7 +479,9 @@ class UNetModelDiffusion(ModelMixin, ConfigMixin):
         print("dims", dims)
         print("in_channels", in_channels)
 
-        self.input_blocks = nn.ModuleList([TimestepEmbedSequential(u.conv_nd(dims, in_channels, ch, 3, padding=1))])
+        self.input_blocks = nn.ModuleList(
+            [TimestepEmbedSequential(u.conv_nd(dims, in_channels, ch, 3, padding=1))]
+        )
         self._feature_size = ch
         input_block_chans = [ch]
         ds = 1
@@ -506,7 +527,9 @@ class UNetModelDiffusion(ModelMixin, ConfigMixin):
                             down=True,
                         )
                         if resblock_updown
-                        else Downsample(ch, conv_resample, dims=dims, out_channels=out_ch)
+                        else Downsample(
+                            ch, conv_resample, dims=dims, out_channels=out_ch
+                        )
                     )
                 )
                 ch = out_ch
@@ -671,7 +694,9 @@ class PatchedUNetCondCat(UNetModelDiffusion):
     ):
         in_channels_p = in_channels * patch_size * patch_size + cond_channels
         out_channels_p = out_channels * patch_size * patch_size
-        super().__init__(in_channels=in_channels_p, out_channels=out_channels_p, *args, **kwargs)
+        super().__init__(
+            in_channels=in_channels_p, out_channels=out_channels_p, *args, **kwargs
+        )
         self.P_H, self.P_W = pair(patch_size)
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -681,7 +706,9 @@ class PatchedUNetCondCat(UNetModelDiffusion):
         sample: torch.FloatTensor,  # Shape (B, C, H, W)
         timestep: torch.Tensor | float | int,
         encoder_hidden_states: torch.Tensor = None,  # Shape (B, D_C, H_C, W_C)
-        cond_mask: torch.BoolTensor | None = None,  # Boolen tensor of shape (B, H_C, W_C). True for masked out pixels
+        cond_mask: (
+            torch.BoolTensor | None
+        ) = None,  # Boolen tensor of shape (B, H_C, W_C). True for masked out pixels
         **kwargs,
     ):
         B, C, H, W = sample.shape
@@ -692,21 +719,39 @@ class PatchedUNetCondCat(UNetModelDiffusion):
         N_H, N_W = H // self.P_H, W // self.P_W  # Number of patches in height and width
 
         # Patchify input from B C H W -> B (C * P_H * P_W) N_H N_W
-        x = rearrange(sample, "b c (nh ph) (nw pw) -> b (c ph pw) nh nw", ph=self.P_H, pw=self.P_W, nh=N_H, nw=N_W)
+        x = rearrange(
+            sample,
+            "b c (nh ph) (nw pw) -> b (c ph pw) nh nw",
+            ph=self.P_H,
+            pw=self.P_W,
+            nh=N_H,
+            nw=N_W,
+        )
 
         # Optionally mask out conditioning
         if cond_mask is not None:
-            encoder_hidden_states = torch.where(cond_mask[:, None, :, :], 0.0, encoder_hidden_states)
+            encoder_hidden_states = torch.where(
+                cond_mask[:, None, :, :], 0.0, encoder_hidden_states
+            )
 
         # Concat input with upsampled conditioning
-        cond_upsampled = F.interpolate(encoder_hidden_states, (N_H, N_W), mode="nearest")
+        cond_upsampled = F.interpolate(
+            encoder_hidden_states, (N_H, N_W), mode="nearest"
+        )
         x = torch.cat([x, cond_upsampled], dim=1)
 
         # UNet forward pass in subspace
         x = super().forward(x, timestep, **kwargs)
 
         # Depatchify output from B (C * P_H * P_W) N_H N_W -> B C H W
-        x = rearrange(x, "b (c ph pw) nh nw -> b c (nh ph) (nw pw)", ph=self.P_H, pw=self.P_W, nh=N_H, nw=N_W)
+        x = rearrange(
+            x,
+            "b (c ph pw) nh nw -> b c (nh ph) (nw pw)",
+            ph=self.P_H,
+            pw=self.P_W,
+            nh=N_H,
+            nw=N_W,
+        )
 
         return x
 

@@ -21,6 +21,7 @@ import torch.nn as nn
 
 class GroupNorm32(nn.GroupNorm):
     """Wrapper for GroupNorm with fp32."""
+
     def forward(self, x):
         return super().forward(x.float()).type(x.dtype)
 
@@ -81,7 +82,9 @@ def timestep_embedding(timesteps, dim, max_period=10000):
     """
     half = dim // 2
     freqs = torch.exp(
-        -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half
+        -math.log(max_period)
+        * torch.arange(start=0, end=half, dtype=torch.float32)
+        / half
     ).to(device=timesteps.device)
     args = timesteps[:, None].float() * freqs[None]
     embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
@@ -109,6 +112,7 @@ def checkpoint(func, inputs, params, flag):
 
 class CheckpointFunction(torch.autograd.Function):
     """Checkpoint functionality class."""
+
     @staticmethod
     def forward(ctx, run_function, length, *args):
         ctx.run_function = run_function

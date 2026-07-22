@@ -3,6 +3,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
+
 def prepare_output_dir(output_dir, del_previous=False):
     """
     Check if output directory exists and prompt user to clear it.
@@ -19,14 +20,14 @@ def prepare_output_dir(output_dir, del_previous=False):
         contents = os.listdir(output_dir)
         if len(contents) > 0 and del_previous:
             print(f"\n{'='*60}")
-            print(f"⚠️  Output directory exists and is not empty:")
+            print("⚠️  Output directory exists and is not empty:")
             print(f"    {output_dir}")
             print(f"    Contents: {len(contents)} items")
             print(f"{'='*60}")
             print(f"Clearing {output_dir}...")
             shutil.rmtree(output_dir)
             os.makedirs(output_dir)
-            print(f"✅ Directory cleared and recreated")
+            print("✅ Directory cleared and recreated")
             return True
         else:
             print(f"✅ Using existing output_dir with current contents: {output_dir}")
@@ -35,6 +36,7 @@ def prepare_output_dir(output_dir, del_previous=False):
         print(f"✅ Creating new output directory: {output_dir}")
         os.makedirs(output_dir)
         return True
+
 
 def create_timestamped_output_dir(base_dir):
     """

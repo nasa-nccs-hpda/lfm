@@ -12,12 +12,15 @@ import sys
 import os
 import subprocess
 
+
 def install_termcolor_locally():
     # First, try standard pip install
     try:
-        subprocess.check_call([
-            sys.executable, "-m", "pip", "install", "termcolor"
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "termcolor"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         print("Termcolor installed successfully using standard pip install")
         return
     except subprocess.CalledProcessError:
@@ -26,12 +29,21 @@ def install_termcolor_locally():
         # If standard install fails, fall back to local installation
         home_dir = os.path.expanduser("~")
         python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-        target_path = os.path.join(home_dir, ".local", "lib", f"python{python_version}", "site-packages")
-        subprocess.check_call([
-            sys.executable, "-m", "pip", "install",
-            f"--target={target_path}",
-            "termcolor", "--force-reinstall", "--no-deps"
-        ])
+        target_path = os.path.join(
+            home_dir, ".local", "lib", f"python{python_version}", "site-packages"
+        )
+        subprocess.check_call(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                f"--target={target_path}",
+                "termcolor",
+                "--force-reinstall",
+                "--no-deps",
+            ]
+        )
 
         print(f"Termcolor installed to: {target_path}")
 
@@ -260,12 +272,7 @@ class FocalDiceLoss(nn.Module):
     """
 
     def __init__(
-        self,
-        focal_weight=0.3,
-        dice_weight=0.7,
-        alpha=0.25,
-        gamma=2.0,
-        smooth=1.0
+        self, focal_weight=0.3, dice_weight=0.7, alpha=0.25, gamma=2.0, smooth=1.0
     ):
         super().__init__()
         self.focal_weight = focal_weight
@@ -287,8 +294,10 @@ class FocalDiceLoss(nn.Module):
         return total_loss
 
     def __repr__(self):
-        return (f"FocalDiceLoss(focal_weight={self.focal_weight}, "
-                f"dice_weight={self.dice_weight})")
+        return (
+            f"FocalDiceLoss(focal_weight={self.focal_weight}, "
+            f"dice_weight={self.dice_weight})"
+        )
 
 
 def get_loss_function(loss_type="cross_entropy"):

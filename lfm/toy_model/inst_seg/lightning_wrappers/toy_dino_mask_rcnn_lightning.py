@@ -34,7 +34,9 @@ class ToyDinoMaskRCNNLightningModule(LightningModule):
     def _images_and_targets(self, batch: dict[str, Any]):
         images = [image.to(self.device) for image in batch["image"]]
         targets = []
-        for boxes, labels, masks in zip(batch["boxes"], batch["labels"], batch["masks"]):
+        for boxes, labels, masks in zip(
+            batch["boxes"], batch["labels"], batch["masks"]
+        ):
             targets.append(
                 {
                     "boxes": boxes.to(self.device, dtype=torch.float32),
@@ -86,7 +88,9 @@ class ToyDinoMaskRCNNLightningModule(LightningModule):
     def test_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
         return self._loss_step(batch, "test")
 
-    def predict_step(self, batch: dict[str, Any], batch_idx: int, dataloader_idx: int = 0):
+    def predict_step(
+        self, batch: dict[str, Any], batch_idx: int, dataloader_idx: int = 0
+    ):
         images = [image.to(self.device) for image in batch["image"]]
         was_training = self.model.training
         self.model.eval()
@@ -107,7 +111,9 @@ class ToyDinoMaskRCNNLightningModule(LightningModule):
                 eta_min=1e-7,
             )
         else:
-            warmup_epochs = max(1, min(10, math.ceil(0.1 * self.max_epochs_for_scheduler)))
+            warmup_epochs = max(
+                1, min(10, math.ceil(0.1 * self.max_epochs_for_scheduler))
+            )
             warmup_epochs = min(warmup_epochs, self.max_epochs_for_scheduler - 1)
             scheduler = SequentialLR(
                 optimizer,

@@ -1240,3 +1240,70 @@ The entries below continue from the 10th commit and use more explicit per-file o
 - Per-file changes:
   - `AGENTS.md`: Added repo-level agent instructions describing the `lfm` repo purpose, local micromamba environment, current package/script/notebook layout, important semantic and instance workflows, HPC notes, experiment defaults, docs to read, and working rules.
 - Technical note: This creates the working context document for future Codex/changelog agents. It also clarifies that the active repository root is the `lfm` directory and documents the current full-model/toy-model workflow expectations.
+
+## Commit 108: 0a0a316a9bb0545c3a55aaf3d5bebc6f57f5e4b9
+
+- Date: 2026-07-22
+- Subject: Update agent working rules
+- Size: `[tiny]`
+- Per-file changes:
+  - `AGENTS.md`: Added a working rule that agents should not generate code unless explicitly prompted with wording such as "start the refactor" or "generate code for x".
+- Technical note: This tightens the agent operating contract so future agents can still inspect, review, document, and plan by default while avoiding unrequested code generation.
+
+## Commit 109: cbdb54aad4da5d4cfa661e8647799768daafe274
+
+- Date: 2026-07-22
+- Subject: Update IBM model commit changelog
+- Size: `[small]`
+- Per-file changes:
+  - `docs/ibm_model_commit_change_log.md`: Added changelog entries for commits 102 through 107, covering the prior changelog update, checkpointing/storage fixes, the smaller semantic experiment launcher, metrics notebook updates, faster stats calculation, and the initial `AGENTS.md` document.
+- Technical note: This is documentation-only history maintenance and does not affect runtime code.
+
+## Commit 110: b6e75cf58e888e5631f70d85fe9a23bdf7cd21f0
+
+- Date: 2026-07-22
+- Subject: plotting reorganization init commit
+- Size: `[large]`
+- Per-file changes:
+  - `docs/sem_inst_refactor_opportunities.md`: Added a refactor/opportunity note for semantic and instance segmentation organization.
+  - `lfm/full_model/all_tasks/utils/_plot_utils_impl.py`: Added the extracted plotting implementation while preserving existing plotting behavior during the initial split.
+  - `lfm/full_model/all_tasks/utils/plot_utils.py`: Reduced the older monolithic plotting module substantially, shifting implementation into the new helper module.
+  - `lfm/full_model/all_tasks/utils/callbacks.py`: Added shared callback-related utility exports/code for plotting workflows.
+  - `lfm/full_model/all_tasks/utils/display.py`: Added shared display helpers for full-model result visualization.
+  - `lfm/full_model/all_tasks/utils/metrics.py`: Added shared metric helper structure for plot/analysis code.
+  - `lfm/full_model/all_tasks/utils/prediction_cache.py`: Added shared prediction-cache helper structure.
+  - `lfm/full_model/all_tasks/utils/__init__.py`: Updated shared utility package exports for the reorganized plotting modules.
+  - `lfm/full_model/inst_seg/__init__.py`: Updated instance package exports.
+  - `lfm/full_model/inst_seg/plotting.py`: Added an instance-specific plotting wrapper/module.
+  - `lfm/full_model/sem_seg/__init__.py`: Updated semantic package exports.
+  - `lfm/full_model/sem_seg/plotting.py`: Added a semantic-specific plotting wrapper/module.
+- Technical note: This is the first major step in breaking up plotting utilities into shared all-task helpers plus task-specific semantic and instance plotting entry points.
+
+## Commit 111: eb6aa14cc6a49cd29f088a97368649bb14161e9e
+
+- Date: 2026-07-22
+- Subject: plotting restructure cleanup
+- Size: `[large]`
+- Per-file changes:
+  - `lfm/full_model/all_tasks/utils/_plot_utils_impl.py`: Removed the temporary extracted plotting implementation from the initial split.
+  - `lfm/full_model/all_tasks/utils/plot_utils.py`: Removed the old shared plotting module after moving plotting responsibilities into clearer shared and task-specific modules.
+  - `lfm/full_model/all_tasks/utils/common.py`: Added shared common helpers used by the reorganized plotting/cache/metrics utilities.
+  - `lfm/full_model/all_tasks/utils/callbacks.py`: Expanded and cleaned up shared callback utilities.
+  - `lfm/full_model/all_tasks/utils/display.py`: Expanded display helpers after separating them from the old plotting module.
+  - `lfm/full_model/all_tasks/utils/metrics.py`: Expanded metrics helpers for the reorganized result-analysis workflow.
+  - `lfm/full_model/all_tasks/utils/prediction_cache.py`: Expanded shared prediction-cache support.
+  - `lfm/full_model/all_tasks/utils/utils.py`: Updated imports or shared utility references for the new helper layout.
+  - `lfm/full_model/all_tasks/utils/__init__.py`: Updated utility exports after removing old plotting modules and adding the new common/display/metrics/cache structure.
+  - `lfm/full_model/inst_seg/plotting.py`: Removed the temporary instance plotting wrapper.
+  - `lfm/full_model/inst_seg/instance_plotting.py`: Added the main instance-specific plotting implementation.
+  - `lfm/full_model/inst_seg/instance_prediction_cache.py`: Added instance-specific prediction-cache support.
+  - `lfm/full_model/inst_seg/instance_mask_datamodule.py`: Updated instance datamodule references for the reorganized helpers.
+  - `lfm/full_model/inst_seg/instance_seg_finetuning.py`: Updated instance fine-tuning code to use the new plotting/cache organization.
+  - `lfm/full_model/inst_seg/__init__.py`: Updated instance exports for the renamed task-specific modules.
+  - `lfm/full_model/sem_seg/plotting.py`: Removed the temporary semantic plotting wrapper.
+  - `lfm/full_model/sem_seg/semantic_plotting.py`: Added the main semantic-specific plotting implementation.
+  - `lfm/full_model/sem_seg/semantic_prediction_cache.py`: Added semantic-specific prediction-cache support.
+  - `lfm/full_model/sem_seg/semantic_seg_finetuning.py`: Updated semantic fine-tuning code to use the new plotting/cache organization.
+  - `lfm/full_model/sem_seg/__init__.py`: Updated semantic exports for the renamed task-specific modules.
+  - `scripts/python/instance_seg/instance_checkpoint_sweep.py`: Updated instance checkpoint sweep plotting/cache behavior for the reorganized modules.
+- Technical note: This completes the plotting refactor direction started in commit 110 by replacing the temporary generic plotting split with explicit shared helpers plus task-specific `semantic_*` and `instance_*` modules.

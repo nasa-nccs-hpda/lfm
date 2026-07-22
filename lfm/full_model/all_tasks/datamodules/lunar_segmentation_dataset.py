@@ -82,7 +82,9 @@ class LunarSegmentationDataset(Dataset):
         if self.no_data_replace is not None:
             image = torch.nan_to_num(image, nan=float(self.no_data_replace))
         if self.no_label_replace is not None:
-            mask = torch.nan_to_num(mask.float(), nan=float(self.no_label_replace)).long()
+            mask = torch.nan_to_num(
+                mask.float(), nan=float(self.no_label_replace)
+            ).long()
         mask = shift_mask(mask, self.mask_shift)
         if self.binarize_mask:
             mask = (mask > 0).long()

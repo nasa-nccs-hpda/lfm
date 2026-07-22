@@ -46,7 +46,9 @@ class Memcodes(torch.nn.Module):
         num_codebooks = heads
         codebook_dim = dim // heads
 
-        self.codes = torch.nn.Parameter(torch.randn(num_codebooks, codebook_size, codebook_dim))
+        self.codes = torch.nn.Parameter(
+            torch.randn(num_codebooks, codebook_size, codebook_dim)
+        )
         self.to_k = Mix(
             "h n d -> h n c",
             weight_shape="h d c",
@@ -125,9 +127,13 @@ class Memcodes(torch.nn.Module):
         if self.accept_image_fmap:
             out = rearrange(out, "b (h w) c -> b c h w", h=height, w=width)
             if self.heads == 1:
-                codebook_indices = rearrange(codebook_indices, "b (h w) -> b h w", h=height, w=width)
+                codebook_indices = rearrange(
+                    codebook_indices, "b (h w) -> b h w", h=height, w=width
+                )
             else:
-                codebook_indices = rearrange(codebook_indices, "b n (h w) -> b n h w", h=height, w=width)
+                codebook_indices = rearrange(
+                    codebook_indices, "b n (h w) -> b n h w", h=height, w=width
+                )
 
         # Dummy codebook loss for compatibility with other types of quantizers
         codebook_loss = torch.tensor([0.0], device=x.device)

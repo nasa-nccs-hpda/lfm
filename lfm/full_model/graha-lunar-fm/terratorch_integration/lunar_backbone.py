@@ -190,7 +190,9 @@ class LunarBackbone(nn.Module):
         new_modalities: dict | None = None,
         num_register_tokens: int | None = None,
         patch_size: int | None = None,
-        modality_info: dict | None = None,  # ignored — built internally from `modalities`
+        modality_info: (
+            dict | None
+        ) = None,  # ignored — built internally from `modalities`
         modality_info_path: str | Path | None = None,
         **kwargs,
     ):
@@ -213,9 +215,7 @@ class LunarBackbone(nn.Module):
         if modality_info_path is not None:
             mi_path = Path(modality_info_path)
             if not mi_path.exists():
-                raise FileNotFoundError(
-                    f"modality_info_path does not exist: {mi_path}"
-                )
+                raise FileNotFoundError(f"modality_info_path does not exist: {mi_path}")
             loaded = OmegaConf.to_container(OmegaConf.load(str(mi_path)), resolve=True)
             if not isinstance(loaded, dict):
                 raise ValueError(
@@ -238,7 +238,8 @@ class LunarBackbone(nn.Module):
                                 f"dotted path"
                             )
                         info[key] = getattr(
-                            importlib.import_module(module_name), cls_name,
+                            importlib.import_module(module_name),
+                            cls_name,
                         )
             pretrained_modality_info = loaded
         self._pretrained_modality_info = pretrained_modality_info
@@ -246,7 +247,9 @@ class LunarBackbone(nn.Module):
         # Auto-detect num_register_tokens from checkpoint if not specified
         if num_register_tokens is None and checkpoint_path is not None:
             num_register_tokens = self._detect_num_register_tokens(checkpoint_path)
-            print(f"Auto-detected num_register_tokens={num_register_tokens} from checkpoint")
+            print(
+                f"Auto-detected num_register_tokens={num_register_tokens} from checkpoint"
+            )
         elif num_register_tokens is None:
             num_register_tokens = 0  # Default to no register tokens
 
@@ -262,7 +265,9 @@ class LunarBackbone(nn.Module):
         # Validate merge_method
         valid_merge_methods = [None, "mean", "max", "concat", "dict"]
         if merge_method not in valid_merge_methods:
-            raise ValueError(f"Invalid merge_method: {merge_method}. Must be one of: {valid_merge_methods}")
+            raise ValueError(
+                f"Invalid merge_method: {merge_method}. Must be one of: {valid_merge_methods}"
+            )
 
         # Per-forward tracking of the modalities actually seen in the input dict
         # and their runtime token counts, both in canonical `self.modalities`
@@ -273,7 +278,9 @@ class LunarBackbone(nn.Module):
 
         # Get base model config for this variant
         if variant not in MODEL_CONFIGS:
-            raise ValueError(f"Unknown variant: {variant}. Available variants: {list(MODEL_CONFIGS.keys())}")
+            raise ValueError(
+                f"Unknown variant: {variant}. Available variants: {list(MODEL_CONFIGS.keys())}"
+            )
 
         model_config = MODEL_CONFIGS[variant].copy()
 
@@ -287,7 +294,9 @@ class LunarBackbone(nn.Module):
         if new_modalities:
             for mod_name, mod_config in new_modalities.items():
                 if mod_name in MODALITY_INFO:
-                    print(f"Warning: Modality '{mod_name}' already exists in MODALITY_INFO, skipping")
+                    print(
+                        f"Warning: Modality '{mod_name}' already exists in MODALITY_INFO, skipping"
+                    )
                     continue
 
                 # Get modality type
@@ -329,7 +338,10 @@ class LunarBackbone(nn.Module):
             if mod in self._pretrained_modality_info:
                 info_dict = dict(self._pretrained_modality_info[mod])
                 # Allow per-run patch_size override to still take effect.
-                if self._patch_size_override is not None and info_dict.get("type") == "img":
+                if (
+                    self._patch_size_override is not None
+                    and info_dict.get("type") == "img"
+                ):
                     info_dict["patch_size"] = self._patch_size_override
                 modality_info[mod] = info_dict
                 continue
@@ -345,7 +357,8 @@ class LunarBackbone(nn.Module):
             mod_info = MODALITY_INFO[mod]
             to_dict_fn = getattr(mod_info, "to_dict", None)
             info_dict: dict = cast(
-                dict, to_dict_fn() if callable(to_dict_fn) else dict(mod_info),
+                dict,
+                to_dict_fn() if callable(to_dict_fn) else dict(mod_info),
             )
 
             # Runtime fallbacks - only used when no pretrained yaml entry exists.
@@ -412,7 +425,9 @@ class LunarBackbone(nn.Module):
         if checkpoint_path is not None:
             self.load_checkpoint(checkpoint_path)
 
-    def forward(self, x: dict[str, torch.Tensor] | torch.Tensor) -> list[torch.Tensor] | list[dict[str, torch.Tensor]]:
+    def forward(
+        self, x: dict[str, torch.Tensor] | torch.Tensor
+    ) -> list[torch.Tensor] | list[dict[str, torch.Tensor]]:
         """Forward pass through encoder only.
 
         This method runs the encoder portion of the TerraMind model and returns
@@ -447,14 +462,18 @@ class LunarBackbone(nn.Module):
         # spatial dim holds its token IDs in positions [0:max_tokens]
         # (positions >= max_tokens are padded with the sentinel -1 and
         # ignored by the embedding because we cast back to long).
-        if isinstance(x, torch.Tensor) or (isinstance(x, dict) and set(x.keys()) == {"image"}):
+        if isinstance(x, torch.Tensor) or (
+            isinstance(x, dict) and set(x.keys()) == {"image"}
+        ):
             packed = x if isinstance(x, torch.Tensor) else x["image"]
             x = self._unpack_modalities(packed)
 
         # Validate input modalities
         for mod in x.keys():
             if mod not in self.modalities:
-                raise ValueError(f"Unexpected modality: {mod}. Expected one of: {self.modalities}")
+                raise ValueError(
+                    f"Unexpected modality: {mod}. Expected one of: {self.modalities}"
+                )
 
         # Prepare modality dict in canonical `self.modalities` order so that
         # downstream splits (which zip against _present_modalities) do not
@@ -465,18 +484,24 @@ class LunarBackbone(nn.Module):
         for mod in self._present_modalities:
             emb_dict = self.model.encoder_embeddings[mod](x[mod])
             B, N = emb_dict["x"].shape[0], emb_dict["x"].shape[1]
-            emb_dict["input_mask"] = torch.zeros(B, N, dtype=torch.bool, device=emb_dict["x"].device)
+            emb_dict["input_mask"] = torch.zeros(
+                B, N, dtype=torch.bool, device=emb_dict["x"].device
+            )
             mod_dict[mod] = emb_dict
 
         # `mod_mask` is the (B, N_total) int16 tensor pretraining uses to mark
         # each token's modality id. We derive per-mod token counts from it
         # rather than reading emb_dict shapes ourselves, so our bookkeeping is
         # sourced from the same tensor the FM code path uses.
-        encoder_tokens, emb_all, encoder_mask, mod_mask = self.model.cat_encoder_tensors(mod_dict)
+        encoder_tokens, emb_all, encoder_mask, mod_mask = (
+            self.model.cat_encoder_tensors(mod_dict)
+        )
         self._num_tokens_per_mod = self._counts_from_mod_mask(mod_mask)
 
         # Add register tokens if present
-        if self.model.num_register_tokens > 0 and hasattr(self.model, "register_tokens"):
+        if self.model.num_register_tokens > 0 and hasattr(
+            self.model, "register_tokens"
+        ):
             B = encoder_tokens.shape[0]
             register_tokens = self.model.register_tokens.expand(B, -1, -1)
             encoder_tokens = torch.cat([register_tokens, encoder_tokens], dim=1)
@@ -484,8 +509,10 @@ class LunarBackbone(nn.Module):
             emb_all = torch.cat([torch.zeros_like(register_tokens), emb_all], dim=1)
             # Register tokens are never masked
             register_mask = torch.zeros(
-                B, self.model.num_register_tokens,
-                dtype=torch.bool, device=encoder_tokens.device,
+                B,
+                self.model.num_register_tokens,
+                dtype=torch.bool,
+                device=encoder_tokens.device,
             )
             encoder_mask = torch.cat([register_mask, encoder_mask], dim=1)
 
@@ -503,7 +530,7 @@ class LunarBackbone(nn.Module):
 
         # Remove register tokens if requested (for TerraTorch necks that expect only patch tokens)
         if self.remove_register_tokens and self.model.num_register_tokens > 0:
-            out = [x[:, self.model.num_register_tokens:].contiguous() for x in out]
+            out = [x[:, self.model.num_register_tokens :].contiguous() for x in out]
 
         # Apply merge method if specified
         if self.merge_method is not None:
@@ -612,7 +639,9 @@ class LunarBackbone(nn.Module):
         is_img = [mi[mod].get("type") == "img" for mod in self._present_modalities]
 
         # Validate all image modalities have same token count BEFORE splitting
-        image_token_counts = [n for n, img in zip(self._num_tokens_per_mod, is_img) if img]
+        image_token_counts = [
+            n for n, img in zip(self._num_tokens_per_mod, is_img) if img
+        ]
 
         if len(image_token_counts) == 0:
             raise ValueError("No image modalities found for aggregation")
@@ -626,7 +655,7 @@ class LunarBackbone(nn.Module):
 
         # Remove register tokens if present
         if self.model.num_register_tokens > 0:
-            x = x[:, self.model.num_register_tokens:]
+            x = x[:, self.model.num_register_tokens :]
 
         # Split by modality token counts, then keep image modalities only.
         x_split = torch.split(x, self._num_tokens_per_mod, dim=1)
@@ -635,7 +664,9 @@ class LunarBackbone(nn.Module):
         # Stack: (B, M, N, D)
         return torch.stack(x_image, dim=1)
 
-    def _apply_merge_method(self, out: list[torch.Tensor]) -> list[torch.Tensor] | list[dict[str, torch.Tensor]]:
+    def _apply_merge_method(
+        self, out: list[torch.Tensor]
+    ) -> list[torch.Tensor] | list[dict[str, torch.Tensor]]:
         """Apply merge method to aggregate multi-modal features.
 
         Args:
@@ -669,7 +700,7 @@ class LunarBackbone(nn.Module):
             out_dicts = []
             for x in out:
                 if self.model.num_register_tokens > 0:
-                    x = x[:, self.model.num_register_tokens:]
+                    x = x[:, self.model.num_register_tokens :]
                 x_split = torch.split(x, self._num_tokens_per_mod, dim=1)
                 out_dicts.append(dict(zip(self._present_modalities, x_split)))
 
@@ -711,7 +742,11 @@ class LunarBackbone(nn.Module):
 
             if "register_tokens" in state_dict_keys:
                 # Get the shape to determine number of tokens
-                register_tokens_key = [k for k in state_dict.keys() if k.replace("module.", "") == "register_tokens"][0]
+                register_tokens_key = [
+                    k
+                    for k in state_dict.keys()
+                    if k.replace("module.", "") == "register_tokens"
+                ][0]
                 register_tokens_shape = state_dict[register_tokens_key].shape
                 # Shape is (1, num_register_tokens, dim)
                 return register_tokens_shape[1]
@@ -773,12 +808,16 @@ class LunarBackbone(nn.Module):
             new_mod_keys = []
             if self._new_modalities:
                 for mod_name in self._new_modalities.keys():
-                    new_mod_keys.extend([k for k in result.missing_keys if mod_name in k])
+                    new_mod_keys.extend(
+                        [k for k in result.missing_keys if mod_name in k]
+                    )
 
             other_missing = [k for k in result.missing_keys if k not in new_mod_keys]
 
             if new_mod_keys:
-                print(f"New modality embeddings (randomly initialized): {len(new_mod_keys)} keys")
+                print(
+                    f"New modality embeddings (randomly initialized): {len(new_mod_keys)} keys"
+                )
             if other_missing:
                 print(f"Warning: Missing keys in checkpoint: {other_missing[:5]}")
                 for o in other_missing:
@@ -787,7 +826,9 @@ class LunarBackbone(nn.Module):
                 #     print(f"  ... and {len(other_missing) - 5} more")
 
         if result.unexpected_keys:
-            print(f"Warning: Unexpected keys in checkpoint N = {len(result.unexpected_keys)}")
+            print(
+                f"Warning: Unexpected keys in checkpoint N = {len(result.unexpected_keys)}"
+            )
             for r in result.unexpected_keys:
                 print(r)
             # if len(result.unexpected_keys) > 5:

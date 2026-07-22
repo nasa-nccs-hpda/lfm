@@ -102,7 +102,10 @@ def image_to_chw_float(arr: np.ndarray) -> torch.Tensor:
         arr = arr[None, :, :]
     elif arr.ndim == 3:
         # rasterio returns CHW; tifffile commonly returns HWC.
-        if arr.shape[0] not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) and arr.shape[-1] <= 32:
+        if (
+            arr.shape[0] not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+            and arr.shape[-1] <= 32
+        ):
             arr = np.moveaxis(arr, -1, 0)
     else:
         raise ValueError(f"Expected 2D or 3D image array, got shape {arr.shape}")
@@ -160,7 +163,9 @@ def boxes_to_tensor(arr: np.ndarray | None) -> torch.Tensor:
         return torch.zeros((0, 4), dtype=torch.float32)
     arr = arr.reshape(-1, arr.shape[-1])
     if arr.shape[-1] < 4:
-        raise ValueError(f"Expected bbox array with at least 4 columns, got {arr.shape}")
+        raise ValueError(
+            f"Expected bbox array with at least 4 columns, got {arr.shape}"
+        )
     return torch.as_tensor(arr[:, :4], dtype=torch.float32)
 
 
@@ -192,9 +197,8 @@ def crop_boxes_xywh_to_xyxy(
         ],
         dim=1,
     )
-    keep = (
-        (cropped[:, 2] - cropped[:, 0] >= float(min_size))
-        & (cropped[:, 3] - cropped[:, 1] >= float(min_size))
+    keep = (cropped[:, 2] - cropped[:, 0] >= float(min_size)) & (
+        cropped[:, 3] - cropped[:, 1] >= float(min_size)
     )
     return cropped[keep]
 
@@ -217,9 +221,8 @@ def crop_boxes_xyxy(
     cropped[:, [1, 3]] -= float(top)
     cropped[:, [0, 2]] = cropped[:, [0, 2]].clamp(0, crop_w)
     cropped[:, [1, 3]] = cropped[:, [1, 3]].clamp(0, crop_h)
-    keep = (
-        (cropped[:, 2] - cropped[:, 0] >= float(min_size))
-        & (cropped[:, 3] - cropped[:, 1] >= float(min_size))
+    keep = (cropped[:, 2] - cropped[:, 0] >= float(min_size)) & (
+        cropped[:, 3] - cropped[:, 1] >= float(min_size)
     )
     return cropped[keep]
 
@@ -352,7 +355,9 @@ def normalize_image(
     if means is None or stds is None:
         return image
     if len(means) != len(stds):
-        raise ValueError(f"means and stds must have the same length: {len(means)} != {len(stds)}")
+        raise ValueError(
+            f"means and stds must have the same length: {len(means)} != {len(stds)}"
+        )
     mean = torch.tensor(means, dtype=image.dtype).view(-1, 1, 1)
     std = torch.tensor(stds, dtype=image.dtype).view(-1, 1, 1)
     if torch.any(std <= 0):

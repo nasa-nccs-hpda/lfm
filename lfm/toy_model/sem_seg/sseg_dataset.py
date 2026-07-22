@@ -5,10 +5,12 @@ Supports images with any number of channels (grayscale, RGB, multispectral, etc.
 """
 
 import os
-os.environ['HF_HUB_DISABLE_PROGRESS_BARS'] = '1'
-os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = '1'
+
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
 
 import warnings
+
 warnings.filterwarnings("ignore", message=".*HF Hub.*")
 warnings.filterwarnings("ignore", message=".*unauthenticated.*")
 
@@ -22,6 +24,7 @@ from torch.utils.data import Dataset, random_split, DataLoader
 import torch.nn.functional as F
 from tqdm import tqdm
 import rasterio
+
 
 class LunarCraterDataset(Dataset):
     """
@@ -117,10 +120,14 @@ class LunarCraterDataset(Dataset):
                     f"Band filter: {band_filter}, "
                     f"len={len(band_filter)}"
                 )
-            print(f"{self.log_prefix}Filtered inputs and mean/std to channels: {band_filter}")
+            print(
+                f"{self.log_prefix}Filtered inputs and mean/std to channels: {band_filter}"
+            )
             self.band_filter = band_filter
         else:
-            print(f"{self.log_prefix}No band filter, using all {example_band_number} bands.")
+            print(
+                f"{self.log_prefix}No band filter, using all {example_band_number} bands."
+            )
             self.band_filter = list(range(example_band_number))
 
         # Extract basenames for matching
@@ -129,14 +136,12 @@ class LunarCraterDataset(Dataset):
             for filename in self.image_paths
         ]
         label_basenames = [
-            "_".join(Path(filename).stem.split("_")[:3])
-            for filename in label_paths
+            "_".join(Path(filename).stem.split("_")[:3]) for filename in label_paths
         ]
 
         # Create lookup dictionary for labels
         self.label_lookup = {
-            basename: path
-            for basename, path in zip(label_basenames, label_paths)
+            basename: path for basename, path in zip(label_basenames, label_paths)
         }
 
         # Filter to only images that have matching labels
@@ -149,15 +154,17 @@ class LunarCraterDataset(Dataset):
                 self.valid_label_paths.append(self.label_lookup[basename])
 
         # Limit to max_samples if specified
-        if max_samples is not None and max_samples < len(
-            self.valid_image_paths
-        ):
+        if max_samples is not None and max_samples < len(self.valid_image_paths):
             self.valid_image_paths = self.valid_image_paths[:max_samples]
             self.valid_label_paths = self.valid_label_paths[:max_samples]
             print(f"{self.log_prefix}Limited to {max_samples} samples")
 
-        print(f"{self.log_prefix}Found {len(self.valid_image_paths)} matched image-label pairs")
-        print(f"{self.log_prefix}Dataset configured for {len(self.band_filter)} channel(s)")
+        print(
+            f"{self.log_prefix}Found {len(self.valid_image_paths)} matched image-label pairs"
+        )
+        print(
+            f"{self.log_prefix}Dataset configured for {len(self.band_filter)} channel(s)"
+        )
 
         if len(self.valid_image_paths) == 0:
             raise ValueError(
@@ -341,8 +348,7 @@ def calculate_dataset_statistics(
     """
     if input_file_type not in [".npy", ".npz", ".tif"]:
         raise ValueError(
-            "Calculating dataset statistics expects .npy, .npz, or .tif "
-            "filetypes."
+            "Calculating dataset statistics expects .npy, .npz, or .tif " "filetypes."
         )
 
     input_paths = glob(os.path.join(image_dir, f"*{input_file_type}"))
@@ -378,7 +384,9 @@ def calculate_dataset_statistics(
             elif img.ndim == 2:
                 img = img[:, :, np.newaxis]
             else:
-                tqdm.write(f"Warning: Image has {img.ndim} dimensions, skipping {image_path}")
+                tqdm.write(
+                    f"Warning: Image has {img.ndim} dimensions, skipping {image_path}"
+                )
                 problematic_files.append((image_path, f"invalid_dimensions_{img.ndim}"))
                 continue
 
@@ -415,14 +423,20 @@ def calculate_dataset_statistics(
                 if band_max == band_min:
                     has_issues = True
                     issue_reasons.append(f"constant_band_{band_idx}_value_{band_min}")
-                    tqdm.write(f"⚠️ Constant band {band_idx} in {image_path}: value={band_min}")
+                    tqdm.write(
+                        f"⚠️ Constant band {band_idx} in {image_path}: value={band_min}"
+                    )
 
             # Check 3: Extremely large or small values
             img_min, img_max = img.min(), img.max()
             if abs(img_min) > 1e10 or abs(img_max) > 1e10:
                 has_issues = True
-                issue_reasons.append(f"extreme_values_min_{img_min:.2e}_max_{img_max:.2e}")
-                tqdm.write(f"⚠️ Extreme values in {image_path}: min={img_min:.6e}, max={img_max:.6e}")
+                issue_reasons.append(
+                    f"extreme_values_min_{img_min:.2e}_max_{img_max:.2e}"
+                )
+                tqdm.write(
+                    f"⚠️ Extreme values in {image_path}: min={img_min:.6e}, max={img_max:.6e}"
+                )
 
             # Check 4: Very large range (potential scaling issues)
             for band_idx in range(img.shape[2]):
@@ -430,8 +444,12 @@ def calculate_dataset_statistics(
                 band_range = band.max() - band.min()
                 if band_range > 1e10:
                     has_issues = True
-                    issue_reasons.append(f"huge_range_band_{band_idx}_range_{band_range:.2e}")
-                    tqdm.write(f"⚠️ Huge range in band {band_idx} of {image_path}: {band_range:.6e}")
+                    issue_reasons.append(
+                        f"huge_range_band_{band_idx}_range_{band_range:.2e}"
+                    )
+                    tqdm.write(
+                        f"⚠️ Huge range in band {band_idx} of {image_path}: {band_range:.6e}"
+                    )
 
             # Check 5: All zeros or near-zero variance
             if np.allclose(img, 0, atol=1e-10):
@@ -458,9 +476,13 @@ def calculate_dataset_statistics(
 
             # Verify consistent number of channels
             if img.shape[2] != num_channels:
-                tqdm.write(f"Warning: Inconsistent channels. Expected {num_channels}, "
-                    f"got {img.shape[2]} for {image_path}. Skipping.")
-                problematic_files.append((image_path, f"channel_mismatch_{img.shape[2]}_vs_{num_channels}"))
+                tqdm.write(
+                    f"Warning: Inconsistent channels. Expected {num_channels}, "
+                    f"got {img.shape[2]} for {image_path}. Skipping."
+                )
+                problematic_files.append(
+                    (image_path, f"channel_mismatch_{img.shape[2]}_vs_{num_channels}")
+                )
                 continue
 
             # Track min/max per band across all images
@@ -488,7 +510,7 @@ def calculate_dataset_statistics(
 
             # Accumulate statistics
             pixel_sum += img.sum(axis=(0, 1))
-            pixel_sq_sum += (img.astype(np.float64)**2).sum(axis=(0, 1))
+            pixel_sq_sum += (img.astype(np.float64) ** 2).sum(axis=(0, 1))
             pixel_count += img.shape[0] * img.shape[1]
             valid_images += 1
 
@@ -497,6 +519,7 @@ def calculate_dataset_statistics(
             problematic_files.append((image_path, f"exception_{str(e)[:50]}"))
             if debug:
                 import traceback
+
                 traceback.print_exc()
             continue
 
@@ -508,7 +531,7 @@ def calculate_dataset_statistics(
     # Save to file for review/deletion
     if problematic_files:
         output_file = "problematic_files.txt"
-        with open(output_file, 'w') as f:
+        with open(output_file, "w") as f:
             f.write("# Problematic files found during statistics computation\n")
             f.write("# Format: filepath | reason\n\n")
             for filepath, reason in problematic_files:
@@ -523,9 +546,7 @@ def calculate_dataset_statistics(
     mean = pixel_sum / pixel_count
     std = np.sqrt((pixel_sq_sum / pixel_count) - (mean**2))
 
-    print(
-        f"\nProcessed {valid_images} valid images out of {len(input_paths)} total"
-    )
+    print(f"\nProcessed {valid_images} valid images out of {len(input_paths)} total")
     print(f"Mean per channel: {mean}")
     print(f"Std per channel: {std}")
 
@@ -546,7 +567,9 @@ def calculate_dataset_statistics(
 
     print("\nGlobal value ranges per band (before scaling):")
     for band_idx in range(num_channels):
-        print(f"  Band {band_idx}: min={band_min_vals[band_idx]:.6e}, max={band_max_vals[band_idx]:.6e}")
+        print(
+            f"  Band {band_idx}: min={band_min_vals[band_idx]:.6e}, max={band_max_vals[band_idx]:.6e}"
+        )
 
     return mean, std
 
@@ -574,11 +597,11 @@ def save_val_paths(val_dataset, output_dir, filename="val_paths.txt"):
     paths = []
     for idx in val_indices:
         # Try common dataset attributes
-        if hasattr(original_dataset, 'image_paths'):
+        if hasattr(original_dataset, "image_paths"):
             path = original_dataset.image_paths[idx]
-        elif hasattr(original_dataset, 'samples'):
+        elif hasattr(original_dataset, "samples"):
             path = original_dataset.samples[idx][0]  # ImageFolder format
-        elif hasattr(original_dataset, 'imgs'):
+        elif hasattr(original_dataset, "imgs"):
             path = original_dataset.imgs[idx][0]
         else:
             raise AttributeError(
@@ -589,7 +612,7 @@ def save_val_paths(val_dataset, output_dir, filename="val_paths.txt"):
 
     # Write to file
     output_path = os.path.join(output_dir, filename)
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         for path in paths:
             f.write(f"{path}\n")
 
@@ -598,7 +621,9 @@ def save_val_paths(val_dataset, output_dir, filename="val_paths.txt"):
     return output_path
 
 
-def get_input_metadata(base_dir: str, band_filter: Optional[List[int]] = None) -> List[str]:
+def get_input_metadata(
+    base_dir: str, band_filter: Optional[List[int]] = None
+) -> List[str]:
     """
     Extract band metadata and return RGB weight assignments for each band.
 
@@ -654,8 +679,7 @@ def get_input_metadata(base_dir: str, band_filter: Optional[List[int]] = None) -
 
     # Get weight assignments for filtered bands
     weight_assignments = [
-        _get_weight_assignment(descriptions[idx], idx)
-        for idx in band_filter
+        _get_weight_assignment(descriptions[idx], idx) for idx in band_filter
     ]
 
     return weight_assignments
@@ -718,9 +742,7 @@ def get_dataloaders(
     # Calculate statistics if not loaded, or if we are doing a new filtering
     if (mean is None or std is None) and normalize_inputs:
         print("Computing dataset statistics...")
-        mean, std = calculate_dataset_statistics(
-            image_dir, input_file_type, debug
-        )
+        mean, std = calculate_dataset_statistics(image_dir, input_file_type, debug)
 
         # Save statistics if directory provided
         if stats_save_dir is not None:

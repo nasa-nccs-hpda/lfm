@@ -13,7 +13,9 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from lfm.toy_model.sem_seg.sseg_utils import get_loss_function
 
 
-def binary_segmentation_stats(logits: torch.Tensor, targets: torch.Tensor) -> dict[str, torch.Tensor]:
+def binary_segmentation_stats(
+    logits: torch.Tensor, targets: torch.Tensor
+) -> dict[str, torch.Tensor]:
     """Compute simple foreground metrics for binary segmentation logits."""
     if logits.shape[1] == 2:
         probs = torch.softmax(logits, dim=1)[:, 1]
@@ -77,7 +79,14 @@ class ToySemSegLightningModule(LightningModule):
         batch_size = images.shape[0]
         logits = self(images)
         loss = self.criterion(logits, labels)
-        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=batch_size)
+        self.log(
+            "train/loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            batch_size=batch_size,
+        )
         return loss
 
     def validation_step(self, batch: tuple[Any, ...], batch_idx: int) -> torch.Tensor:
@@ -85,8 +94,22 @@ class ToySemSegLightningModule(LightningModule):
         batch_size = images.shape[0]
         logits = self(images)
         loss = self.criterion(logits, labels)
-        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=batch_size)
-        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=False, batch_size=batch_size)
+        self.log(
+            "val/loss",
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            batch_size=batch_size,
+        )
+        self.log(
+            "val_loss",
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+            batch_size=batch_size,
+        )
         for name, value in binary_segmentation_stats(logits, labels).items():
             self.log(
                 f"val/{name}",
@@ -105,7 +128,13 @@ class ToySemSegLightningModule(LightningModule):
         loss = self.criterion(logits, labels)
         self.log("test/loss", loss, on_step=False, on_epoch=True, batch_size=batch_size)
         for name, value in binary_segmentation_stats(logits, labels).items():
-            self.log(f"test/{name}", value, on_step=False, on_epoch=True, batch_size=batch_size)
+            self.log(
+                f"test/{name}",
+                value,
+                on_step=False,
+                on_epoch=True,
+                batch_size=batch_size,
+            )
         return loss
 
     def configure_optimizers(self):
@@ -122,7 +151,9 @@ class ToySemSegLightningModule(LightningModule):
                 eta_min=1e-7,
             )
         else:
-            warmup_epochs = max(1, min(10, math.ceil(0.1 * self.max_epochs_for_scheduler)))
+            warmup_epochs = max(
+                1, min(10, math.ceil(0.1 * self.max_epochs_for_scheduler))
+            )
             warmup_epochs = min(warmup_epochs, self.max_epochs_for_scheduler - 1)
             warmup_scheduler = LinearLR(
                 optimizer,
