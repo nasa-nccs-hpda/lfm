@@ -1,10 +1,8 @@
 """Shared utility helpers for full-model experiments."""
 
-from .plot_utils import (
-    ValidationPlotCallback,
-    calculate_f1_score,
-    create_overlay_image,
-    evaluate_prediction_caches,
+from .callbacks import ValidationPlotCallback
+from .display import create_overlay_image, prepare_image_for_display
+from ._plot_utils_impl import (
     plot_instance_batch_sanity,
     plot_instance_cache_comparison,
     plot_instance_cache_predictions,
@@ -12,7 +10,9 @@ from .plot_utils import (
     plot_instance_predictions,
     plot_prediction_cache_comparison,
     plot_validation_predictions,
-    prepare_image_for_display,
+)
+from .metrics import calculate_f1_score, evaluate_prediction_caches
+from .prediction_cache import (
     save_graha_instance_prediction_cache,
     save_prediction_cache,
     save_toy_instance_prediction_cache,
