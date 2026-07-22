@@ -12,6 +12,8 @@ from torchvision.models.detection import MaskRCNN
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.ops import MultiScaleRoIAlign
 
+from lfm.toy_model.all_tasks.dino_patch_embed import flexible_dino_patch_weights
+
 
 def apply_flexible_patch_weights(
     encoder: nn.Module, weight_assignments: Sequence[str]
@@ -20,34 +22,10 @@ def apply_flexible_patch_weights(
     patch_embed = encoder.patch_embed.proj
     with torch.no_grad():
         original_weights = patch_embed.weight.data.clone()
-        red_weights = original_weights[:, 0, :, :]
-        green_weights = original_weights[:, 1, :, :]
-        blue_weights = original_weights[:, 2, :, :]
-        new_weights = torch.zeros(
-            original_weights.shape[0],
-            len(weight_assignments),
-            original_weights.shape[2],
-            original_weights.shape[3],
-            device=original_weights.device,
-            dtype=original_weights.dtype,
+        new_weights = flexible_dino_patch_weights(
+            original_weights,
+            weight_assignments,
         )
-        for i, assignment in enumerate(weight_assignments):
-            if assignment == "blue":
-                new_weights[:, i, :, :] = blue_weights
-            elif assignment == "green":
-                new_weights[:, i, :, :] = green_weights
-            elif assignment == "red":
-                new_weights[:, i, :, :] = red_weights
-            elif assignment == "0.95*red":
-                new_weights[:, i, :, :] = red_weights
-            elif assignment == "0.7*red+0.3*green":
-                new_weights[:, i, :, :] = 0.7 * red_weights + 0.3 * green_weights
-            else:
-                print(
-                    f"Warning: Unknown weight assignment '{assignment}' for band {i}; using red weights.",
-                    flush=True,
-                )
-                new_weights[:, i, :, :] = red_weights
         patch_embed.weight.data = new_weights
     print(
         f"Applied flexible DINO patch embedding: {list(weight_assignments)}", flush=True
@@ -80,7 +58,7 @@ class DinoMaskRCNNBackbone(nn.Module):
         )
         self.out_channels = out_channels
 
-        if weight_assignments is not None and len(weight_assignments) > 3:
+        if weight_assignments is not None and len(weight_assignments) != 3:
             apply_flexible_patch_weights(self.encoder, weight_assignments)
 
         if freeze_encoder:

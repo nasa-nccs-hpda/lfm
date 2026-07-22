@@ -15,6 +15,8 @@ import os
 
 import warnings
 
+from lfm.toy_model.all_tasks.dino_patch_embed import flexible_dino_patch_weights
+
 warnings.filterwarnings("ignore", message=".*HF Hub.*")
 
 logger = logging.getLogger(__name__)
@@ -104,7 +106,7 @@ class DinoV3WithAdapterBackbone(nn.Module):
             self.weight_assignments = weight_assignments
             self.num_bands = len(weight_assignments)
 
-        if self.num_bands > 3:
+        if self.num_bands != 3:
             self._apply_flexible_weights()
 
     def _get_hidden_size(self) -> int:
@@ -169,38 +171,10 @@ class DinoV3WithAdapterBackbone(nn.Module):
             original_weights = (
                 patch_embed.weight.data.clone()
             )  # Shape: (out_channels, 3, H, W)
-            # original_weights channels: [0]=Red, [1]=Green, [2]=Blue
-
-            # Create new weights for multi-band input
-            new_weights = torch.zeros(
-                original_weights.shape[0],
-                self.num_bands,
-                original_weights.shape[2],
-                original_weights.shape[3],
-            ).to(original_weights.device)
-
-            red_weights = original_weights[:, 0, :, :]
-            green_weights = original_weights[:, 1, :, :]
-            blue_weights = original_weights[:, 2, :, :]
-
-            # Dynamically assign weights based on weight_assignments
-            for i, assignment in enumerate(self.weight_assignments):
-                if assignment == "blue":
-                    new_weights[:, i, :, :] = blue_weights
-                elif assignment == "green":
-                    new_weights[:, i, :, :] = green_weights
-                elif assignment == "red":
-                    new_weights[:, i, :, :] = red_weights
-                elif assignment == "0.95*red":
-                    new_weights[:, i, :, :] = red_weights
-                elif assignment == "0.7*red+0.3*green":
-                    new_weights[:, i, :, :] = 0.7 * red_weights + 0.3 * green_weights
-                else:
-                    # Default fallback to red weights
-                    print(
-                        f"Warning: Unknown weight assignment '{assignment}' for band {i}, using red weights"
-                    )
-                    new_weights[:, i, :, :] = red_weights
+            new_weights = flexible_dino_patch_weights(
+                original_weights,
+                self.weight_assignments,
+            )
 
             # Replace patch embedding weights
             patch_embed.weight.data = new_weights
