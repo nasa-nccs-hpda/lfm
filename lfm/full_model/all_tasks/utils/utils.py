@@ -148,48 +148,46 @@ def load_terramind_wac_pretraining_stats(
     return [float(value) for value in means], [float(value) for value in stds]
 
 
-def default_nac_pretraining_config_path() -> Path:
-    """Return the checked-in TerraTorch NAC config used for normalization stats."""
-    full_model_dir = Path(__file__).resolve().parents[2]
-    return (
-        full_model_dir
-        / "graha-lunar-fm"
-        / "terratorch_integration"
-        / "configs"
-        / "crater_segmentation_nac_dtm.yaml"
-    )
+def _load_modality_stat(
+    modality_info: dict,
+    modality_name: str,
+) -> tuple[float, float]:
+    stats = modality_info[modality_name]["stats"][modality_name]
+    mean = stats["mean"]
+    std = stats["std"]
+    if len(mean) != 1 or len(std) != 1:
+        raise ValueError(
+            f"Expected one mean/std value for modality '{modality_name}', "
+            f"got {len(mean)} means and {len(std)} stds."
+        )
+    return float(mean[0]), float(std[0])
 
 
 def load_terramind_nac_pretraining_stats(
-    nac_config_path: str | Path,
+    modality_info_path: str | Path,
     *,
     band_filter: list[int] | None = None,
 ) -> tuple[list[float], list[float]]:
-    """Load NAC/DTM normalization constants from TerraTorch NAC configs.
+    """Load NAC/DTM normalization stats from TerraMind modality metadata.
 
     The supported chip layouts are:
 
     * ``[0]``: PHO/NAC only.
-    * ``[0, 1]``: PHO/NAC plus DTM. The DTM branch uses a zero mean with the
-      global DTM std from the NAC+DTM configs because the generic split
-      datamodules do fixed per-channel z-score rather than per-image DTM mean
-      subtraction.
+    * ``[0, 1]``: PHO/NAC plus DTM.
     """
-    nac_config_path = Path(nac_config_path)
-    with nac_config_path.open("r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
+    modality_info_path = Path(modality_info_path)
+    with modality_info_path.open("r", encoding="utf-8") as f:
+        modality_info = yaml.safe_load(f)
 
     try:
-        init_args = config["data"]["init_args"]
-        nac_mean = float(init_args["nac_norm_mean"])
-        nac_std = float(init_args["nac_norm_std"])
-        dtm_std = float(init_args["dtm_global_std"])
+        nac_mean, nac_std = _load_modality_stat(modality_info, "nac")
+        dtm_mean, dtm_std = _load_modality_stat(modality_info, "dtm")
     except KeyError as exc:
         raise KeyError(
-            f"Couldn't load NAC/DTM pretraining stats from {nac_config_path}"
+            f"Couldn't load nac/dtm pretraining stats from {modality_info_path}"
         ) from exc
 
-    means = [nac_mean, 0.0]
+    means = [nac_mean, dtm_mean]
     stds = [nac_std, dtm_std]
 
     if band_filter is None:
@@ -204,7 +202,7 @@ def load_terramind_nac_pretraining_stats(
     means = [means[index] for index in band_filter]
     stds = [stds[index] for index in band_filter]
 
-    print("TerraMind NAC pretraining config:", nac_config_path)
+    print("TerraMind NAC pretraining modality info:", modality_info_path)
     print("TerraMind NAC pretraining mean:", means)
     print("TerraMind NAC pretraining std:", stds)
     return [float(value) for value in means], [float(value) for value in stds]
@@ -215,7 +213,6 @@ def load_terramind_pretraining_stats(
     *,
     normalization_modality: str = "vis_uv",
     band_filter: list[int] | None = None,
-    nac_config_path: str | Path | None = None,
 ) -> tuple[list[float], list[float]]:
     """Load pretraining normalization stats for a requested input modality."""
     if normalization_modality == "vis_uv":
@@ -224,10 +221,8 @@ def load_terramind_pretraining_stats(
             band_filter=band_filter,
         )
     if normalization_modality == "nac":
-        if nac_config_path is None:
-            nac_config_path = default_nac_pretraining_config_path()
         return load_terramind_nac_pretraining_stats(
-            nac_config_path,
+            modality_info_path,
             band_filter=band_filter,
         )
     raise ValueError(
