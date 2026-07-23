@@ -90,6 +90,7 @@ class InstanceFineTuningConfig:
     graha_vis_uv_merge_method: str
     normalization_source: str
     normalization_modality: str
+    band_filter: list[int] | None
     image_glob: str
     label_glob: str
     image_suffix: str
@@ -180,6 +181,7 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=getattr(args, "normalization_source", "pretrain"),
         normalization_modality=getattr(args, "normalization_modality", "vis_uv"),
+        band_filter=getattr(args, "band_filter", None),
         image_glob=args.image_glob,
         label_glob=args.label_glob,
         image_suffix=args.image_suffix,
@@ -265,10 +267,10 @@ def import_project_dependencies() -> dict[str, Any]:
     }
 
 
-def make_notebook_object_detection_task_class(lunar_object_detection_task_cls):
+def make_downstream_object_detection_task_class(lunar_object_detection_task_cls):
     """Create a task subclass that handles zero-instance Mask R-CNN targets."""
 
-    class NotebookLunarObjectDetectionTask(lunar_object_detection_task_cls):
+    class LunarDownstreamObjectDetectionTask(lunar_object_detection_task_cls):
         def reformat_batch(self, batch: Any, batch_size: int):
             y = []
             has_masks = "masks" in batch or "mask" in batch or self.masks_field in batch
@@ -289,7 +291,7 @@ def make_notebook_object_detection_task_class(lunar_object_detection_task_cls):
                 y.append(target)
             return y
 
-    return NotebookLunarObjectDetectionTask
+    return LunarDownstreamObjectDetectionTask
 
 
 def common_datamodule_args(config: InstanceFineTuningConfig) -> dict[str, Any]:
@@ -369,9 +371,11 @@ def get_normalization_stats(
     datamodule_cls,
 ) -> tuple[list[float], list[float]]:
     if config.normalization_source == "pretrain":
-        band_filter = None
-        if config.normalization_modality == "nac":
-            band_filter = list(range(infer_train_num_channels(config, datamodule_cls)))
+        band_filter = config.band_filter
+        if band_filter is None and config.normalization_modality == "nac":
+            band_filter = list(
+                range(infer_train_num_channels(config, datamodule_cls))
+            )
         return load_terramind_pretraining_stats(
             config.modality_info,
             normalization_modality=config.normalization_modality,
@@ -617,6 +621,7 @@ def parse_args() -> argparse.Namespace:
         default="vis_uv",
         help="Which modality family to use when --normalization-source=pretrain.",
     )
+    parser.add_argument("--band-filter", type=int, nargs="+", default=None)
     parser.add_argument(
         "--image-glob",
         default="*.tif",
@@ -706,7 +711,7 @@ def main() -> None:
 
     deps = import_project_dependencies()
     datamodule_cls = deps["LunarObjectDetectionInstanceMaskDatamodule"]
-    task_cls = make_notebook_object_detection_task_class(
+    task_cls = make_downstream_object_detection_task_class(
         deps["LunarObjectDetectionTask"]
     )
 

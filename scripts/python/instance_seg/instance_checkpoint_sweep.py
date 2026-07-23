@@ -657,7 +657,7 @@ def _setup_graha(config: InstanceSweepConfig):
         graha_workflow.validate_required_paths(graha_config)
         deps = graha_workflow.import_project_dependencies()
         datamodule_cls = deps["LunarObjectDetectionInstanceMaskDatamodule"]
-        task_cls = graha_workflow.make_notebook_object_detection_task_class(
+        task_cls = graha_workflow.make_downstream_object_detection_task_class(
             deps["LunarObjectDetectionTask"]
         )
         means, stds = graha_workflow.get_normalization_stats(

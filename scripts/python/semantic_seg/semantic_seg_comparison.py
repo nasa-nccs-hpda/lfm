@@ -628,6 +628,7 @@ def create_datamodule(
                 graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
                 normalization_source=config.normalization_source,
                 normalization_modality=config.normalization_modality,
+                band_filter=config.band_filter,
                 image_glob=config.image_glob,
                 label_glob=config.label_glob,
                 image_suffix=config.image_suffix,
@@ -807,6 +808,7 @@ def run_graha_workflow(
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         normalization_source=config.normalization_source,
         normalization_modality=config.normalization_modality,
+        band_filter=config.band_filter,
         semantic_label_source=config.semantic_label_source,
         image_glob=config.image_glob,
         label_glob=config.label_glob,
@@ -839,7 +841,7 @@ def run_graha_workflow(
             else "LunarSemanticMaskSegmentationDatamodule"
         )
     ]
-    task_cls = graha_workflow.make_notebook_task_class(
+    task_cls = graha_workflow.make_downstream_shape_segmentation_task_class(
         deps["LunarShapeSegmentationTask"]
     )
 

@@ -41,6 +41,7 @@ class FineTuningConfig:
     graha_vis_uv_merge_method: str
     normalization_source: str
     normalization_modality: str
+    band_filter: list[int] | None
     semantic_label_source: str
     image_glob: str
     label_glob: str
@@ -172,6 +173,7 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=getattr(args, "normalization_source", "pretrain"),
         normalization_modality=getattr(args, "normalization_modality", "vis_uv"),
+        band_filter=getattr(args, "band_filter", None),
         semantic_label_source=getattr(args, "semantic_label_source", "semantic"),
         image_glob=args.image_glob,
         label_glob=args.label_glob,
@@ -257,10 +259,10 @@ def import_project_dependencies() -> dict[str, Any]:
     }
 
 
-def make_notebook_task_class(lunar_shape_segmentation_task_cls):
+def make_downstream_shape_segmentation_task_class(lunar_shape_segmentation_task_cls):
     """Create the task subclass that strips datamodule-only metadata."""
 
-    class NotebookLunarShapeSegmentationTask(lunar_shape_segmentation_task_cls):
+    class LunarDownstreamShapeSegmentationTask(lunar_shape_segmentation_task_cls):
         """Drop datamodule metadata that should not be forwarded to the model."""
 
         def _drop_extra_batch_metadata(self, batch):
@@ -288,7 +290,7 @@ def make_notebook_task_class(lunar_shape_segmentation_task_cls):
                 self._drop_extra_batch_metadata(batch), *args, **kwargs
             )
 
-    return NotebookLunarShapeSegmentationTask
+    return LunarDownstreamShapeSegmentationTask
 
 
 def create_output_dirs(
@@ -382,9 +384,11 @@ def get_normalization_stats(
     datamodule_cls,
 ) -> tuple[list[float], list[float]]:
     if config.normalization_source == "pretrain":
-        band_filter = None
-        if config.normalization_modality == "nac":
-            band_filter = list(range(infer_train_num_channels(config, datamodule_cls)))
+        band_filter = config.band_filter
+        if band_filter is None and config.normalization_modality == "nac":
+            band_filter = list(
+                range(infer_train_num_channels(config, datamodule_cls))
+            )
         return load_terramind_pretraining_stats(
             config.modality_info,
             normalization_modality=config.normalization_modality,
@@ -603,6 +607,7 @@ def parse_args() -> argparse.Namespace:
         default="vis_uv",
         help="Which modality family to use when --normalization-source=pretrain.",
     )
+    parser.add_argument("--band-filter", type=int, nargs="+", default=None)
     parser.add_argument(
         "--semantic-label-source",
         choices=["semantic", "instance"],
@@ -670,7 +675,9 @@ def main() -> None:
             else "LunarSemanticMaskSegmentationDatamodule"
         )
     ]
-    task_cls = make_notebook_task_class(deps["LunarShapeSegmentationTask"])
+    task_cls = make_downstream_shape_segmentation_task_class(
+        deps["LunarShapeSegmentationTask"]
+    )
 
     output_dir = create_output_dirs(config, deps["create_timestamped_output_dir"])
     seed_everything(config.seed)

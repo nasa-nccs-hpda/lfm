@@ -701,6 +701,7 @@ def build_graha_config(config: InstanceComparisonConfig, output_dir: Path):
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         normalization_source=config.normalization_source,
         normalization_modality=config.normalization_modality,
+        band_filter=config.band_filter,
         image_glob=config.image_glob,
         label_glob=config.label_glob,
         image_suffix=config.image_suffix,
@@ -742,7 +743,7 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None
 
     deps = graha_workflow.import_project_dependencies()
     datamodule_cls = deps["LunarObjectDetectionInstanceMaskDatamodule"]
-    task_cls = graha_workflow.make_notebook_object_detection_task_class(
+    task_cls = graha_workflow.make_downstream_object_detection_task_class(
         deps["LunarObjectDetectionTask"]
     )
 
