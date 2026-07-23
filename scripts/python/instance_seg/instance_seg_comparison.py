@@ -339,7 +339,7 @@ def get_toy_normalization_modality_info(
     return normalization_config.modality_info
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--simlink-dest", "--symlink-dest", dest="simlink_dest", type=str, default=None
@@ -460,7 +460,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epoch-test-n-samples", type=int, default=100)
     parser.add_argument("--epoch-test-every-n-epochs", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main() -> None:
