@@ -9,9 +9,11 @@ without using the TerraTorch CLI.
 from __future__ import annotations
 
 import argparse
+import gc
 import os
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,7 +22,10 @@ import torch
 from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 
-from lfm.full_model.all_tasks.utils import load_terramind_pretraining_stats
+from lfm.full_model.all_tasks.utils import (
+    load_terramind_pretraining_stats,
+    save_prediction_cache,
+)
 
 
 @dataclass(frozen=True)
@@ -259,14 +264,10 @@ def import_project_dependencies() -> dict[str, Any]:
     }
 
 
-def make_downstream_shape_segmentation_task_class(
-        lunar_shape_segmentation_task_cls
-):
+def make_downstream_shape_segmentation_task_class(lunar_shape_segmentation_task_cls):
     """Create the task subclass that strips datamodule-only metadata."""
 
-    class LunarDownstreamShapeSegmentationTask(
-        lunar_shape_segmentation_task_cls
-    ):
+    class LunarDownstreamShapeSegmentationTask(lunar_shape_segmentation_task_cls):
         """Drop datamodule metadata that should not be forwarded to the model."""
 
         def _drop_extra_batch_metadata(self, batch):
@@ -390,9 +391,7 @@ def get_normalization_stats(
     if config.normalization_source == "pretrain":
         band_filter = config.band_filter
         if band_filter is None and config.normalization_modality == "nac":
-            band_filter = list(
-                range(infer_train_num_channels(config, datamodule_cls))
-            )
+            band_filter = list(range(infer_train_num_channels(config, datamodule_cls)))
         return load_terramind_pretraining_stats(
             config.modality_info,
             normalization_modality=config.normalization_modality,
@@ -580,6 +579,187 @@ def create_trainer(
             ),
         ],
     )
+
+
+def build_comparison_config(config: Any, output_dir: Path) -> FineTuningConfig:
+    args = argparse.Namespace(
+        data_root=str(config.data_root),
+        base_output_dir=str(output_dir),
+        pretrain_dir=(
+            str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None
+        ),
+        lightning_checkpoint=(
+            str(config.graha_lightning_checkpoint)
+            if config.graha_lightning_checkpoint
+            else None
+        ),
+        graha_wac_mode=config.graha_wac_mode,
+        graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
+        normalization_source=config.normalization_source,
+        normalization_modality=config.normalization_modality,
+        band_filter=config.band_filter,
+        semantic_label_source=config.semantic_label_source,
+        image_glob=config.image_glob,
+        label_glob=config.label_glob,
+        image_suffix=config.image_suffix,
+        label_suffix=config.label_suffix,
+        shape_loss_weight=config.graha_shape_loss_weight,
+        shape_loss_pad_frac=config.graha_shape_loss_pad_frac,
+        crop_size=config.target_size[0],
+        stats_batch_size=config.graha_stats_batch_size,
+        batch_size=config.graha_batch_size,
+        num_workers=config.graha_num_workers,
+        max_epochs=config.max_epochs,
+        cache_predictions=config.cache_predictions,
+        prediction_split=config.prediction_split,
+        prediction_n_samples=config.prediction_n_samples,
+        progress_log_every_n_batches=config.progress_log_every_n_batches,
+        seed=config.seed,
+        no_fit=True,
+    )
+    return build_config(args)
+
+
+def _record_timing(
+    record_timing: Callable[..., None] | None,
+    timing_rows: list[dict[str, Any]] | None,
+    *,
+    stage: str,
+    started_at: float,
+) -> None:
+    if record_timing is None or timing_rows is None:
+        return
+    record_timing(timing_rows, model="Graha", stage=stage, started_at=started_at)
+
+
+def run_graha_workflow(
+    config: Any,
+    *,
+    no_fit: bool,
+    comparison_output_dir: Path,
+    epoch_test_suite_callback_cls: type[Callback] | None = None,
+    timing_rows: list[dict[str, Any]] | None = None,
+    record_timing: Callable[..., None] | None = None,
+) -> tuple[Path, Path | None]:
+    """Run the Graha/Lunar-FM semantic segmentation path for comparison."""
+    graha_total_started_at = time.perf_counter()
+    configure_proj_environment()
+    graha_config = build_comparison_config(config, comparison_output_dir)
+    configure_python_paths(graha_config)
+    print_config(graha_config)
+    validate_required_paths(graha_config)
+
+    deps = import_project_dependencies()
+    datamodule_cls = deps[
+        (
+            "LunarSemanticFromInstanceDatamodule"
+            if config.semantic_label_source == "instance"
+            else "LunarSemanticMaskSegmentationDatamodule"
+        )
+    ]
+    task_cls = make_downstream_shape_segmentation_task_class(
+        deps["LunarShapeSegmentationTask"]
+    )
+
+    output_dir = create_output_dirs(
+        graha_config,
+        deps["create_timestamped_output_dir"],
+        use_timestamp=False,
+    )
+    seed_everything(graha_config.seed)
+    stats_started_at = time.perf_counter()
+    means, stds = get_normalization_stats(graha_config, datamodule_cls)
+    _record_timing(
+        record_timing,
+        timing_rows,
+        stage="stats",
+        started_at=stats_started_at,
+    )
+    datamodule = create_datamodule(
+        graha_config,
+        datamodule_cls,
+        means,
+        stds,
+    )
+    sample_batch = inspect_batch(datamodule)
+    task = create_task(graha_config, task_cls, sample_batch)
+    inspect_backbone(task)
+    trainer = create_trainer(
+        graha_config,
+        output_dir,
+        deps["ValidationPlotCallback"],
+        plot_output_dir=comparison_output_dir,
+        plots_subdir=Path("plots") / "single_model" / "full_model",
+        checkpoint_subdir=Path("checkpoints") / "full_model",
+    )
+    if config.run_epoch_test_suite:
+        if epoch_test_suite_callback_cls is None:
+            raise ValueError("epoch_test_suite_callback_cls is required.")
+        trainer.callbacks.append(
+            epoch_test_suite_callback_cls(
+                output_dir=comparison_output_dir,
+                model_name="full_model",
+                split=config.epoch_test_split,
+                n_samples=config.epoch_test_n_samples,
+                every_n_epochs=config.epoch_test_every_n_epochs,
+            )
+        )
+
+    if no_fit:
+        print("Skipping Graha trainer.fit() because --no-fit was set.")
+        if config.graha_lightning_checkpoint is not None:
+            load_lightning_checkpoint_state(
+                task,
+                config.graha_lightning_checkpoint,
+                "Graha",
+            )
+    else:
+        fit_started_at = time.perf_counter()
+        ckpt_path = (
+            str(config.graha_lightning_checkpoint)
+            if config.graha_lightning_checkpoint is not None
+            else None
+        )
+        if ckpt_path is not None:
+            print(f"Resuming Graha trainer.fit() from {ckpt_path}", flush=True)
+        trainer.fit(task, datamodule=datamodule, ckpt_path=ckpt_path)
+        _record_timing(
+            record_timing,
+            timing_rows,
+            stage="fit",
+            started_at=fit_started_at,
+        )
+
+    prediction_cache = None
+    if config.cache_predictions:
+        cache_started_at = time.perf_counter()
+        prediction_cache = save_prediction_cache(
+            task=task,
+            datamodule=datamodule,
+            output_dir=output_dir,
+            model_name="graha",
+            split=config.prediction_split,
+            n_samples=config.prediction_n_samples,
+        )
+        _record_timing(
+            record_timing,
+            timing_rows,
+            stage="prediction_cache",
+            started_at=cache_started_at,
+        )
+
+    del trainer, task, datamodule, sample_batch
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    print("Released Graha model objects and cleared CUDA cache.", flush=True)
+    _record_timing(
+        record_timing,
+        timing_rows,
+        stage="total",
+        started_at=graha_total_started_at,
+    )
+    return output_dir, prediction_cache
 
 
 def parse_args() -> argparse.Namespace:

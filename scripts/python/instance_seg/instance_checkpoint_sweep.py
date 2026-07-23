@@ -37,6 +37,7 @@ from tqdm.auto import tqdm
 
 import instance_seg_comparison as comparison_workflow
 from lfm.full_model.inst_seg import instance_seg_finetuning as graha_workflow
+from lfm.toy_model.inst_seg import instance_seg_finetuning as toy_workflow
 from lfm.full_model.all_tasks.utils.metrics import _instance_metrics
 from lfm.full_model.inst_seg.instance_prediction_cache import (
     _load_instance_prediction_cache,
@@ -632,22 +633,27 @@ def _make_comparison_args(config: InstanceSweepConfig) -> argparse.Namespace:
 def _setup_toy(config: InstanceSweepConfig):
     comparison_config = comparison_workflow.build_config(_make_comparison_args(config))
     with _quiet(not config.verbose):
-        datamodule = comparison_workflow.create_toy_datamodule(comparison_config)
+        datamodule = toy_workflow.create_datamodule(
+            comparison_config,
+            normalization_modality_info=(
+                comparison_workflow.get_toy_normalization_modality_info(
+                    comparison_config
+                )
+            ),
+        )
         datamodule.setup(config.prediction_split)
-        task = comparison_workflow.create_toy_task(
+        task = toy_workflow.create_task(
             comparison_config,
             datamodule.weight_assignments or [],
         )
-        image_processor = comparison_workflow.create_toy_image_processor(
-            comparison_config
-        )
+        image_processor = toy_workflow.create_image_processor(comparison_config)
     task.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
     return comparison_config, datamodule, task, image_processor
 
 
 def _setup_graha(config: InstanceSweepConfig):
     comparison_config = comparison_workflow.build_config(_make_comparison_args(config))
-    graha_config = comparison_workflow.build_graha_config(
+    graha_config = graha_workflow.build_comparison_config(
         comparison_config,
         config.output_root / "_graha_setup",
     )

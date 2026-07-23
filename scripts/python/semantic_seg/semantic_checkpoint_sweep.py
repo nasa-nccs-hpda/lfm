@@ -35,12 +35,11 @@ from tqdm.auto import tqdm
 from torch.utils.data import Subset
 
 from lfm.full_model.sem_seg import semantic_seg_finetuning as graha_workflow
+from lfm.toy_model.sem_seg import semantic_seg_finetuning as toy_workflow
 from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
 from semantic_seg_comparison import (
     build_config as build_toy_config,
-    create_datamodule as create_toy_datamodule,
-    create_lightning_module as create_toy_lightning_module,
-    create_model as create_toy_model,
+    get_toy_normalization_modality_info,
 )
 
 METRIC_NAMES = [
@@ -698,13 +697,17 @@ def run_toy_sweep(config: SweepConfig) -> list[dict[str, Any]]:
     toy_config = build_toy_config(_make_toy_args(config))
     setup_dir = config.output_root / "_toy_setup"
     with _quiet(not config.verbose):
-        datamodule = create_toy_datamodule(toy_config, setup_dir)
+        datamodule = toy_workflow.create_datamodule(
+            toy_config,
+            setup_dir,
+            normalization_modality_info=get_toy_normalization_modality_info(toy_config),
+        )
         datamodule.setup("test")
         if datamodule.weight_assignments is None:
             raise RuntimeError("Toy datamodule did not create weight assignments.")
 
-        model = create_toy_model(toy_config, datamodule.weight_assignments)
-        task = create_toy_lightning_module(toy_config, model)
+        model = toy_workflow.create_model(toy_config, datamodule.weight_assignments)
+        task = toy_workflow.create_lightning_module(toy_config, model)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     task.to(device)
 

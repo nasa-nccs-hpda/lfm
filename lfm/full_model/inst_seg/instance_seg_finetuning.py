@@ -7,6 +7,7 @@ This is the reusable implementation behind ``instance_seg_finetuning.py`` and
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import os
 import sys
@@ -21,7 +22,9 @@ from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 
 from lfm.full_model.all_tasks.utils import (
     create_timestamped_output_dir,
+    plot_instance_cache_predictions,
     plot_instance_predictions,
+    save_graha_instance_prediction_cache,
 )
 from lfm.full_model.all_tasks.utils import load_terramind_pretraining_stats
 from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
@@ -373,9 +376,7 @@ def get_normalization_stats(
     if config.normalization_source == "pretrain":
         band_filter = config.band_filter
         if band_filter is None and config.normalization_modality == "nac":
-            band_filter = list(
-                range(infer_train_num_channels(config, datamodule_cls))
-            )
+            band_filter = list(range(infer_train_num_channels(config, datamodule_cls)))
         return load_terramind_pretraining_stats(
             config.modality_info,
             normalization_modality=config.normalization_modality,
@@ -587,6 +588,169 @@ def save_instance_prediction_plots(
         display_method="minmax",
         dpi=200,
     )
+
+
+def build_comparison_config(
+    config: Any,
+    output_dir: Path,
+) -> InstanceFineTuningConfig:
+    args = argparse.Namespace(
+        simlink_dest=None,
+        data_root=str(config.data_root),
+        base_output_dir=str(output_dir),
+        pretrain_dir=(
+            str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None
+        ),
+        lightning_checkpoint=(
+            str(config.graha_lightning_checkpoint)
+            if config.graha_lightning_checkpoint
+            else None
+        ),
+        graha_wac_mode=config.graha_wac_mode,
+        graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
+        normalization_source=config.normalization_source,
+        normalization_modality=config.normalization_modality,
+        band_filter=config.band_filter,
+        image_glob=config.image_glob,
+        label_glob=config.label_glob,
+        image_suffix=config.image_suffix,
+        label_suffix=config.label_suffix,
+        crop_size=config.target_size,
+        stats_batch_size=config.graha_stats_batch_size,
+        batch_size=config.graha_batch_size,
+        num_workers=config.graha_num_workers,
+        max_epochs=config.max_epochs,
+        backbone_lr=config.graha_backbone_lr,
+        head_lr=config.graha_head_lr,
+        layer_decay=config.graha_layer_decay,
+        weight_decay=config.graha_weight_decay,
+        warmup_steps=config.graha_warmup_steps,
+        anchor_sizes=config.graha_anchor_sizes,
+        anchor_aspect_ratios=config.graha_anchor_aspect_ratios,
+        score_threshold=config.graha_score_threshold,
+        plot_predictions=True,
+        prediction_split=config.prediction_split,
+        prediction_n_samples=config.prediction_n_samples,
+        prediction_score_threshold=config.prediction_score_threshold,
+        progress_log_every_n_batches=config.progress_log_every_n_batches,
+        mask_shift=config.mask_shift,
+        seed=config.seed,
+        no_fit=config.skip_graha_fit,
+        loss_smoke_only=False,
+    )
+    return build_config(args)
+
+
+def run_graha_workflow(
+    config: Any,
+    output_dir: Path,
+    *,
+    validation_plot_callback_cls: type[Callback] | None = None,
+    epoch_test_suite_callback_cls: type[Callback] | None = None,
+) -> Path | None:
+    print("\n=== Graha/Lunar-FM Mask R-CNN instance segmentation ===", flush=True)
+    started = time.perf_counter()
+    configure_proj_environment()
+    graha_config = build_comparison_config(config, output_dir)
+    configure_python_paths(graha_config)
+    print_config(graha_config)
+    validate_required_paths(graha_config)
+
+    deps = import_project_dependencies()
+    datamodule_cls = deps["LunarObjectDetectionInstanceMaskDatamodule"]
+    task_cls = make_downstream_object_detection_task_class(
+        deps["LunarObjectDetectionTask"]
+    )
+
+    seed_everything(graha_config.seed)
+    means, stds = get_normalization_stats(graha_config, datamodule_cls)
+    graha_datamodule = create_datamodule(graha_config, datamodule_cls, means, stds)
+    graha_sample_batch = inspect_batch(graha_datamodule)
+    graha_task = create_task(
+        graha_config,
+        task_cls,
+        graha_sample_batch,
+    )
+    run_loss_smoke(graha_task, graha_sample_batch)
+    graha_trainer = create_trainer(graha_config, output_dir)
+    if validation_plot_callback_cls is not None:
+        graha_trainer.callbacks.append(
+            validation_plot_callback_cls(
+                output_dir,
+                n_samples=config.plot_n_samples,
+                every_n_epochs=config.plot_every_n_epochs,
+                score_threshold=config.prediction_score_threshold,
+            )
+        )
+    if config.run_epoch_test_suite:
+        if epoch_test_suite_callback_cls is None:
+            raise ValueError("epoch_test_suite_callback_cls is required.")
+        graha_trainer.callbacks.append(
+            epoch_test_suite_callback_cls(
+                output_dir=output_dir,
+                model_name="full_model",
+                split=config.epoch_test_split,
+                n_samples=config.epoch_test_n_samples,
+                every_n_epochs=config.epoch_test_every_n_epochs,
+                score_threshold=config.prediction_score_threshold,
+                image_processor=None,
+            )
+        )
+    graha_prediction_cache = None
+
+    if config.skip_graha_fit:
+        print("Skipping Graha trainer.fit().", flush=True)
+        if config.graha_lightning_checkpoint is not None:
+            load_lightning_checkpoint_state(
+                graha_task,
+                config.graha_lightning_checkpoint,
+            )
+    else:
+        graha_ckpt_path = (
+            str(config.graha_lightning_checkpoint)
+            if config.graha_lightning_checkpoint is not None
+            else None
+        )
+        if graha_ckpt_path is not None:
+            print(f"Resuming Graha trainer.fit() from {graha_ckpt_path}", flush=True)
+        print("Starting Graha trainer.fit()...", flush=True)
+        graha_trainer.fit(
+            graha_task,
+            datamodule=graha_datamodule,
+            ckpt_path=graha_ckpt_path,
+        )
+        print("Finished Graha trainer.fit().", flush=True)
+        graha_checkpoints = sorted(
+            (output_dir / "checkpoints" / "full_model").glob("*.ckpt")
+        )
+        print(f"[Graha] saved {len(graha_checkpoints)} checkpoint file(s).", flush=True)
+
+    if graha_config.plot_predictions:
+        graha_prediction_cache = save_graha_instance_prediction_cache(
+            task=graha_task,
+            datamodule=graha_datamodule,
+            output_dir=output_dir,
+            model_name="graha",
+            split=config.prediction_split,
+            n_samples=config.prediction_n_samples,
+            score_threshold=config.prediction_score_threshold,
+        )
+        plot_path = plot_instance_cache_predictions(
+            graha_prediction_cache,
+            output_dir / "plots" / "single_model" / "full_model",
+            model_name="graha",
+            n_samples=config.prediction_n_samples,
+            filename=f"{config.prediction_split}_instance_predictions.png",
+        )
+        print(f"[Graha] saved validation prediction plot: {plot_path}", flush=True)
+
+    elapsed = time.perf_counter() - started
+    print(f"Graha elapsed seconds: {elapsed:.3f}", flush=True)
+    del graha_trainer, graha_task, graha_datamodule, graha_sample_batch
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    return graha_prediction_cache
 
 
 def parse_args() -> argparse.Namespace:
