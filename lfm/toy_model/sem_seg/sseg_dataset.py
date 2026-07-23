@@ -1,6 +1,6 @@
 """
 dataset.py
-Dataset class for DINO LoRA fine-tuning on lunar crater detection.
+Dataset class for Toy semantic segmentation on lunar crater detection.
 Supports images with any number of channels (grayscale, RGB, multispectral, etc.).
 """
 
@@ -142,8 +142,7 @@ class LunarCraterDataset(Dataset):
 
         # Extract basenames for matching
         self.image_basenames = [
-            path_key(Path(filename), self.image_suffix)
-            for filename in self.image_paths
+            path_key(Path(filename), self.image_suffix) for filename in self.image_paths
         ]
         label_basenames = [
             path_key(Path(filename), self.label_suffix) for filename in label_paths
@@ -187,7 +186,9 @@ class LunarCraterDataset(Dataset):
         image = read_image_file(Path(img_path))
 
         if image.ndim == 3:
-            return image.shape[0] if image.shape[0] <= image.shape[-1] else image.shape[-1]
+            return (
+                image.shape[0] if image.shape[0] <= image.shape[-1] else image.shape[-1]
+            )
         elif image.ndim == 2:
             return 1
         else:

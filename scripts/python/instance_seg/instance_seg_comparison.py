@@ -1,8 +1,8 @@
-"""Run a true instance segmentation comparison between Toy DINO and Graha.
+"""Run a true instance segmentation comparison between Toy and Graha.
 
 Both models use the same split instance dataset rooted at
-``train/val/test/{chips,labels}``. Toy uses DINOv3 + Mask2Former; Graha uses
-Lunar-FM + TerraTorch Mask R-CNN.
+``train/val/test/{chips,labels}``. Toy uses a DINOv3 backbone with Mask2Former
+or Mask R-CNN; Graha uses Lunar-FM + TerraTorch Mask R-CNN.
 """
 
 from __future__ import annotations
@@ -269,7 +269,7 @@ class InstanceComparisonConfig:
     data_root: Path
     base_output_dir: Path
     dino_checkpoint: Path | None
-    dino_lightning_checkpoint: Path | None
+    toy_lightning_checkpoint: Path | None
     graha_pretrain_dir: Path | None
     graha_lightning_checkpoint: Path | None
     graha_wac_mode: str
@@ -321,6 +321,14 @@ class InstanceComparisonConfig:
     seed: int
 
 
+def _resolve_toy_lightning_checkpoint(args: argparse.Namespace) -> Path | None:
+    return (
+        Path(args.toy_lightning_checkpoint).resolve()
+        if args.toy_lightning_checkpoint
+        else None
+    )
+
+
 def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
     script_dir = Path(__file__).resolve().parent
     lfm_root = script_dir.parents[2]
@@ -340,11 +348,7 @@ def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
         dino_checkpoint=(
             Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None
         ),
-        dino_lightning_checkpoint=(
-            Path(args.dino_lightning_checkpoint).resolve()
-            if args.dino_lightning_checkpoint
-            else None
-        ),
+        toy_lightning_checkpoint=_resolve_toy_lightning_checkpoint(args),
         graha_pretrain_dir=(
             Path(args.graha_pretrain_dir).resolve() if args.graha_pretrain_dir else None
         ),
@@ -416,7 +420,7 @@ def validate_paths(config: InstanceComparisonConfig) -> None:
         )
     for path in [
         config.dino_checkpoint,
-        config.dino_lightning_checkpoint,
+        config.toy_lightning_checkpoint,
         config.graha_pretrain_dir,
         config.graha_lightning_checkpoint,
     ]:
@@ -459,9 +463,9 @@ def create_toy_datamodule(config: InstanceComparisonConfig):
     means = None
     stds = None
     if config.toy_normalize_inputs and config.normalization_source == "pretrain":
-        graha_config = build_graha_config(config, config.base_output_dir)
+        normalization_config = build_graha_config(config, config.base_output_dir)
         means, stds = load_terramind_pretraining_stats(
-            graha_config.modality_info,
+            normalization_config.modality_info,
             normalization_modality=config.normalization_modality,
             band_filter=config.band_filter,
         )
@@ -608,47 +612,56 @@ def create_toy_trainer(
     )
 
 
-def run_toy(config: InstanceComparisonConfig, output_dir: Path) -> Path | None:
+def run_toy_workflow(
+    config: InstanceComparisonConfig,
+    output_dir: Path,
+) -> Path | None:
     title = (
-        "Toy DINO Mask R-CNN"
+        "Toy Mask R-CNN (DINOv3 backbone)"
         if config.toy_architecture == "dino-mask-rcnn"
-        else "Toy DINO Mask2Former"
+        else "Toy Mask2Former (DINOv3 backbone)"
     )
     print(f"\n=== {title} instance segmentation ===", flush=True)
     started = time.perf_counter()
     seed_everything(config.seed)
-    datamodule = create_toy_datamodule(config)
-    task = create_toy_task(config, datamodule.weight_assignments or [])
-    image_processor = create_toy_image_processor(config)
-    trainer = create_toy_trainer(config, output_dir, image_processor)
-    prediction_cache = None
+    toy_datamodule = create_toy_datamodule(config)
+    toy_task = create_toy_task(config, toy_datamodule.weight_assignments or [])
+    toy_image_processor = create_toy_image_processor(config)
+    toy_trainer = create_toy_trainer(config, output_dir, toy_image_processor)
+    toy_prediction_cache = None
 
     if config.skip_toy_fit:
         print("Skipping Toy trainer.fit().", flush=True)
-        if config.dino_lightning_checkpoint is not None:
+        if config.toy_lightning_checkpoint is not None:
             load_lightning_checkpoint_state(
-                task, config.dino_lightning_checkpoint, "Toy"
+                toy_task,
+                config.toy_lightning_checkpoint,
+                "Toy",
             )
     else:
-        ckpt_path = (
-            str(config.dino_lightning_checkpoint)
-            if config.dino_lightning_checkpoint is not None
+        toy_ckpt_path = (
+            str(config.toy_lightning_checkpoint)
+            if config.toy_lightning_checkpoint is not None
             else None
         )
-        if ckpt_path is not None:
-            print(f"Resuming Toy trainer.fit() from {ckpt_path}", flush=True)
+        if toy_ckpt_path is not None:
+            print(f"Resuming Toy trainer.fit() from {toy_ckpt_path}", flush=True)
         print("Starting Toy trainer.fit()...", flush=True)
-        trainer.fit(task, datamodule=datamodule, ckpt_path=ckpt_path)
+        toy_trainer.fit(
+            toy_task,
+            datamodule=toy_datamodule,
+            ckpt_path=toy_ckpt_path,
+        )
         print("Finished Toy trainer.fit().", flush=True)
         toy_checkpoints = sorted(
             (output_dir / "checkpoints" / "toy_model").glob("*.ckpt")
         )
         print(f"[Toy] saved {len(toy_checkpoints)} checkpoint file(s).", flush=True)
 
-    if image_processor is None:
-        prediction_cache = save_graha_instance_prediction_cache(
-            task=task,
-            datamodule=datamodule,
+    if toy_image_processor is None:
+        toy_prediction_cache = save_graha_instance_prediction_cache(
+            task=toy_task,
+            datamodule=toy_datamodule,
             output_dir=output_dir,
             model_name="toy",
             split=config.prediction_split,
@@ -656,18 +669,18 @@ def run_toy(config: InstanceComparisonConfig, output_dir: Path) -> Path | None:
             score_threshold=config.prediction_score_threshold,
         )
     else:
-        prediction_cache = save_toy_instance_prediction_cache(
-            task=task,
-            datamodule=datamodule,
+        toy_prediction_cache = save_toy_instance_prediction_cache(
+            task=toy_task,
+            datamodule=toy_datamodule,
             output_dir=output_dir,
-            image_processor=image_processor,
+            image_processor=toy_image_processor,
             model_name="toy",
             split=config.prediction_split,
             n_samples=config.prediction_n_samples,
             score_threshold=config.prediction_score_threshold,
         )
     plot_path = plot_instance_cache_predictions(
-        prediction_cache,
+        toy_prediction_cache,
         output_dir / "plots" / "single_model" / "toy_model",
         model_name="toy",
         n_samples=config.prediction_n_samples,
@@ -677,11 +690,11 @@ def run_toy(config: InstanceComparisonConfig, output_dir: Path) -> Path | None:
 
     elapsed = time.perf_counter() - started
     print(f"Toy elapsed seconds: {elapsed:.3f}", flush=True)
-    del trainer, task, datamodule
+    del toy_trainer, toy_task, toy_datamodule
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-    return prediction_cache
+    return toy_prediction_cache
 
 
 def build_graha_config(config: InstanceComparisonConfig, output_dir: Path):
@@ -732,7 +745,10 @@ def build_graha_config(config: InstanceComparisonConfig, output_dir: Path):
     return graha_workflow.build_config(args)
 
 
-def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None:
+def run_graha_workflow(
+    config: InstanceComparisonConfig,
+    output_dir: Path,
+) -> Path | None:
     print("\n=== Graha/Lunar-FM Mask R-CNN instance segmentation ===", flush=True)
     started = time.perf_counter()
     graha_workflow.configure_proj_environment()
@@ -749,14 +765,18 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None
 
     seed_everything(graha_config.seed)
     means, stds = graha_workflow.get_normalization_stats(graha_config, datamodule_cls)
-    datamodule = graha_workflow.create_datamodule(
+    graha_datamodule = graha_workflow.create_datamodule(
         graha_config, datamodule_cls, means, stds
     )
-    sample_batch = graha_workflow.inspect_batch(datamodule)
-    task = graha_workflow.create_task(graha_config, task_cls, sample_batch)
-    graha_workflow.run_loss_smoke(task, sample_batch)
-    trainer = graha_workflow.create_trainer(graha_config, output_dir)
-    trainer.callbacks.append(
+    graha_sample_batch = graha_workflow.inspect_batch(graha_datamodule)
+    graha_task = graha_workflow.create_task(
+        graha_config,
+        task_cls,
+        graha_sample_batch,
+    )
+    graha_workflow.run_loss_smoke(graha_task, graha_sample_batch)
+    graha_trainer = graha_workflow.create_trainer(graha_config, output_dir)
+    graha_trainer.callbacks.append(
         GrahaInstancePlotCallback(
             output_dir,
             n_samples=config.plot_n_samples,
@@ -765,7 +785,7 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None
         )
     )
     if config.run_epoch_test_suite:
-        trainer.callbacks.append(
+        graha_trainer.callbacks.append(
             InstanceEpochTestSuiteCallback(
                 output_dir=output_dir,
                 model_name="full_model",
@@ -776,25 +796,29 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None
                 image_processor=None,
             )
         )
-    prediction_cache = None
+    graha_prediction_cache = None
 
     if config.skip_graha_fit:
         print("Skipping Graha trainer.fit().", flush=True)
         if config.graha_lightning_checkpoint is not None:
             graha_workflow.load_lightning_checkpoint_state(
-                task,
+                graha_task,
                 config.graha_lightning_checkpoint,
             )
     else:
-        ckpt_path = (
+        graha_ckpt_path = (
             str(config.graha_lightning_checkpoint)
             if config.graha_lightning_checkpoint is not None
             else None
         )
-        if ckpt_path is not None:
-            print(f"Resuming Graha trainer.fit() from {ckpt_path}", flush=True)
+        if graha_ckpt_path is not None:
+            print(f"Resuming Graha trainer.fit() from {graha_ckpt_path}", flush=True)
         print("Starting Graha trainer.fit()...", flush=True)
-        trainer.fit(task, datamodule=datamodule, ckpt_path=ckpt_path)
+        graha_trainer.fit(
+            graha_task,
+            datamodule=graha_datamodule,
+            ckpt_path=graha_ckpt_path,
+        )
         print("Finished Graha trainer.fit().", flush=True)
         graha_checkpoints = sorted(
             (output_dir / "checkpoints" / "full_model").glob("*.ckpt")
@@ -802,9 +826,9 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None
         print(f"[Graha] saved {len(graha_checkpoints)} checkpoint file(s).", flush=True)
 
     if graha_config.plot_predictions:
-        prediction_cache = save_graha_instance_prediction_cache(
-            task=task,
-            datamodule=datamodule,
+        graha_prediction_cache = save_graha_instance_prediction_cache(
+            task=graha_task,
+            datamodule=graha_datamodule,
             output_dir=output_dir,
             model_name="graha",
             split=config.prediction_split,
@@ -812,7 +836,7 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None
             score_threshold=config.prediction_score_threshold,
         )
         plot_path = plot_instance_cache_predictions(
-            prediction_cache,
+            graha_prediction_cache,
             output_dir / "plots" / "single_model" / "full_model",
             model_name="graha",
             n_samples=config.prediction_n_samples,
@@ -822,11 +846,11 @@ def run_graha(config: InstanceComparisonConfig, output_dir: Path) -> Path | None
 
     elapsed = time.perf_counter() - started
     print(f"Graha elapsed seconds: {elapsed:.3f}", flush=True)
-    del trainer, task, datamodule, sample_batch
+    del graha_trainer, graha_task, graha_datamodule, graha_sample_batch
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-    return prediction_cache
+    return graha_prediction_cache
 
 
 def parse_args() -> argparse.Namespace:
@@ -837,7 +861,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-root", type=str, default=None)
     parser.add_argument("--base-output-dir", type=str, default=None)
     parser.add_argument("--dino-checkpoint", type=str, default=None)
-    parser.add_argument("--dino-lightning-checkpoint", type=str, default=None)
+    parser.add_argument(
+        "--toy-lightning-checkpoint",
+        type=str,
+        default=None,
+        help="Optional Toy Lightning .ckpt. Resumes fit, or loads weights when Toy fit is skipped.",
+    )
     parser.add_argument("--graha-pretrain-dir", type=str, default=None)
     parser.add_argument("--graha-lightning-checkpoint", type=str, default=None)
     parser.add_argument(
@@ -933,7 +962,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prediction-n-samples", type=int, default=5)
     parser.add_argument("--prediction-score-threshold", type=float, default=0.5)
     parser.add_argument("--mask-shift", type=int, nargs=2, default=(0, 0))
-    parser.add_argument("--skip-toy-fit", action="store_true")
+    parser.add_argument(
+        "--skip-toy-fit", action="store_true", help="Skip only Toy fitting."
+    )
     parser.add_argument("--skip-graha-fit", action="store_true")
     parser.add_argument("--no-fit", action="store_true")
     parser.add_argument("--run-epoch-test-suite", action="store_true")
@@ -958,8 +989,8 @@ def main() -> None:
     (output_dir / "checkpoints" / "full_model").mkdir(parents=True, exist_ok=True)
     save_config(config, output_dir)
 
-    toy_prediction_cache = run_toy(config, output_dir)
-    graha_prediction_cache = run_graha(config, output_dir)
+    toy_prediction_cache = run_toy_workflow(config, output_dir)
+    graha_prediction_cache = run_graha_workflow(config, output_dir)
 
     if toy_prediction_cache is not None and graha_prediction_cache is not None:
         plot_instance_cache_comparison(

@@ -4,8 +4,8 @@ Model Comparison Refactor Plan
 Purpose
 -------
 This document tracks the refactor work needed to compare the Graha/Lunar-FM
-semantic segmentation model against the existing LFM toy DINO semantic
-segmentation model using as similar an experiment as possible.
+semantic segmentation model against the existing LFM Toy semantic segmentation
+model using as similar an experiment as possible.
 
 Use this plan when making structural changes to the comparison workflow,
 including notebook/script parity, split-folder data handling, shared metrics,
@@ -18,7 +18,7 @@ Related artifacts:
 - scripts/python/semantic_seg/semantic_seg_comparison.py: sbatch-compatible comparison script.
 - scripts/shell/semantic_seg/sbatch_semantic_seg_comparison.sh: Slurm wrapper.
 - lfm/full_model: reusable Graha/full-model datamodules, utilities, and vendor integration.
-- lfm/toy_model/sem_seg/lightning_wrappers: Lightning wrappers around the toy DINO model.
+- lfm/toy_model/sem_seg/lightning_wrappers: Lightning wrappers around the Toy semantic model.
 
 Core Principles
 ---------------

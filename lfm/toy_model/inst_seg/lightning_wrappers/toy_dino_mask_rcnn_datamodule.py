@@ -1,4 +1,4 @@
-"""Split datamodule for Toy DINO Mask R-CNN instance segmentation."""
+"""Split datamodule for Toy Mask R-CNN instance segmentation."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ class ToyDinoMaskRCNNSplitDataset(ToyInstanceSegSplitDataset):
 
 
 class ToyDinoMaskRCNNSplitDataModule(LightningDataModule):
-    """Lightning datamodule for Toy DINO Mask R-CNN experiments."""
+    """Lightning datamodule for Toy Mask R-CNN experiments."""
 
     def __init__(
         self,
@@ -146,14 +146,14 @@ class ToyDinoMaskRCNNSplitDataModule(LightningDataModule):
             n_pixels += pixels
         if sum_x is None or sum_x2 is None or n_pixels == 0:
             raise RuntimeError(
-                "No train pixels available for Toy DINO Mask R-CNN statistics."
+                "No train pixels available for Toy Mask R-CNN statistics."
             )
         means = (sum_x / n_pixels).tolist()
         stds = torch.sqrt(
             torch.clamp(sum_x2 / n_pixels - (sum_x / n_pixels) ** 2, min=1e-12)
         ).tolist()
-        print("[train] Toy DINO Mask R-CNN z-score mean:", means)
-        print("[train] Toy DINO Mask R-CNN z-score std:", stds)
+        print("[train] Toy Mask R-CNN z-score mean:", means)
+        print("[train] Toy Mask R-CNN z-score std:", stds)
         return means, stds
 
     def train_dataloader(self) -> DataLoader:

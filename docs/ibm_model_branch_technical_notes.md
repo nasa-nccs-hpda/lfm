@@ -101,7 +101,7 @@ Important future lesson:
 
 Added or updated:
 
-- Toy DINO semantic comparison workflow.
+- Toy semantic comparison workflow.
 - Graha semantic finetuning workflow.
 - Shared comparison script and notebook.
 - Semantic checkpoint sweep script and sbatch wrapper.
@@ -134,7 +134,7 @@ Added or updated:
 - Object-detection-style instance datamodule.
 - Graha/Lunar-FM Mask R-CNN instance finetuning workflow.
 - Toy instance comparison workflow.
-- DINO Mask R-CNN toy path for a closer decoder/head comparison than Mask2Former.
+- Toy Mask R-CNN path with a DINOv3 backbone for a closer decoder/head comparison than Mask2Former.
 - Instance checkpoint sweep script and sbatch wrapper.
 - Train-then-checkpoint-sweep pipeline.
 
@@ -220,11 +220,11 @@ Potential future refactor:
 Example:
 
 ```text
-[DINO] train epoch 1/100 started
-[DINO] epoch 1 train batch 20/62
-[DINO] validation started
-[DINO] validation finished
-[DINO] train epoch 1 finished in 123.4s
+[Toy] train epoch 1/100 started
+[Toy] epoch 1 train batch 20/62
+[Toy] validation started
+[Toy] validation finished
+[Toy] train epoch 1 finished in 123.4s
 ```
 
 ## HPC And Runtime Notes

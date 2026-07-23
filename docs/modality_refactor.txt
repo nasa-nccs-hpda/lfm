@@ -78,7 +78,7 @@ Near-Term Checks For Current NAC Run
 ------------------------------------
 
 - Confirm logs print `TerraMind NAC pretraining mean` and `TerraMind NAC pretraining std`.
-- Confirm DINO and Graha both receive image tensors shaped `(B, 1, 256, 256)` for the non-DTM run.
+- Confirm Toy and Graha both receive image tensors shaped `(B, 1, 256, 256)` for the non-DTM run.
 - Confirm checkpoints are saved under both model checkpoint directories.
 - Confirm the epoch test suite creates per-epoch outputs.
 - Confirm validation plots are nonblank and labels align with NAC inputs.

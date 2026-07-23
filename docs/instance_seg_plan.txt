@@ -43,7 +43,7 @@ Current state:
 - A lightweight instance sanity plotting helper exists and has been run on real
   data in the HPC environment.
 - The split-folder instance dataset has passed a one-epoch smoke test through
-  the Toy DINO and Graha binary semantic-plus-shape comparison workflow.
+  the Toy and Graha binary semantic-plus-shape comparison workflow.
 
 Current model target:
 - True instance segmentation. The model should predict separate crater
@@ -185,7 +185,7 @@ Decision:
 - The final target is true instance segmentation.
 - The completed Option A path is retained as a compatibility smoke test and
   baseline, not as the main training direction.
-- Toy DINO and Graha can consume instance labels as binary masks, but this does
+- Toy and Graha can consume instance labels as binary masks, but this does
   not replace the need for per-instance model outputs.
 
 Step 4: Select True Instance Model Path [In-Progress]
@@ -273,7 +273,7 @@ Compatibility checkpoint status:
     num_craters
 - For the comparison workflow, Graha binarizes mask for the semantic target
   while retaining crater_boxes.
-- The Toy DINO semantic dataset/datamodule can now read .npz labels by key and
+- The Toy semantic dataset/datamodule can now read .npz labels by key and
   binarize labels with mask > 0 for this comparison.
 
 Remaining true-instance work:
@@ -380,7 +380,7 @@ Compatibility checkpoint status:
 - Added plot_instance_batch_sanity() to save image, instance mask, and cropped
   xyxy box overlays for the first samples in a requested split.
 - Current prediction plotting uses the existing binary segmentation comparison
-  plots for Toy DINO and Graha.
+  plots for Toy and Graha.
 - Added plot_instance_predictions() to save true-instance prediction plots with
   image, ground-truth masks/boxes, predicted masks/boxes/scores, and combined
   overlays.

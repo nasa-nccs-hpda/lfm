@@ -98,7 +98,7 @@ submit_experiment() {
 }
 
 # submit_experiment \
-#   "exp01_semseg_from-instlabels_7band-wac_crop256_dino-finetune-norm_dice_train-sweep" \
+#   "exp01_semseg_from-instlabels_7band-wac_crop256_toy-finetune-norm_dice_train-sweep" \
 #   "finetune" \
 #   "false" \
 #   "$@"
@@ -110,7 +110,7 @@ submit_experiment() {
 #   "$@"
 
 # submit_experiment \
-#   "exp03_semseg_from-instlabels_7band-wac_crop256_dino-finetune-norm_dice-plus-spatial-w0p05_train-sweep" \
+#   "exp03_semseg_from-instlabels_7band-wac_crop256_toy-finetune-norm_dice-plus-spatial-w0p05_train-sweep" \
 #   "finetune" \
 #   "true" \
 #   "$@"

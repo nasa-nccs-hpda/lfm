@@ -1,4 +1,4 @@
-"""Train the toy DINO semantic segmentation model on split full-model data."""
+"""Train Toy and Graha semantic segmentation models on split full-model data."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ class ToyComparisonConfig:
     data_root: Path
     base_output_dir: Path
     dino_checkpoint: Path | None
-    dino_lightning_checkpoint: Path | None
+    toy_lightning_checkpoint: Path | None
     band_filter: list[int]
     target_size: tuple[int, int]
     spatial_transform: str
@@ -92,7 +92,7 @@ class ToyComparisonConfig:
     graha_batch_size: int
     graha_num_workers: int
     progress_log_every_n_batches: int
-    skip_dino_fit: bool
+    skip_toy_fit: bool
     skip_graha_fit: bool
     run_epoch_test_suite: bool
     epoch_test_split: str
@@ -422,9 +422,10 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
     dino_checkpoint = (
         Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None
     )
-    dino_lightning_checkpoint = (
-        Path(args.dino_lightning_checkpoint).resolve()
-        if args.dino_lightning_checkpoint
+    toy_lightning_checkpoint_arg = args.toy_lightning_checkpoint
+    toy_lightning_checkpoint = (
+        Path(toy_lightning_checkpoint_arg).resolve()
+        if toy_lightning_checkpoint_arg
         else None
     )
     graha_base_output_dir = (
@@ -447,7 +448,7 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         data_root=data_root,
         base_output_dir=base_output_dir,
         dino_checkpoint=dino_checkpoint,
-        dino_lightning_checkpoint=dino_lightning_checkpoint,
+        toy_lightning_checkpoint=toy_lightning_checkpoint,
         band_filter=args.band_filter,
         target_size=(args.target_size, args.target_size),
         spatial_transform=args.spatial_transform,
@@ -492,7 +493,7 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         graha_batch_size=args.graha_batch_size,
         graha_num_workers=args.graha_num_workers,
         progress_log_every_n_batches=getattr(args, "progress_log_every_n_batches", 25),
-        skip_dino_fit=args.no_fit or args.skip_dino_fit,
+        skip_toy_fit=args.no_fit or args.skip_toy_fit,
         skip_graha_fit=args.no_fit or args.skip_graha_fit,
         run_epoch_test_suite=args.run_epoch_test_suite,
         epoch_test_split=args.epoch_test_split,
@@ -513,7 +514,7 @@ def validate_data_paths(config: ToyComparisonConfig) -> None:
         )
     for checkpoint_path in [
         config.dino_checkpoint,
-        config.dino_lightning_checkpoint,
+        config.toy_lightning_checkpoint,
         config.graha_pretrain_dir,
         config.graha_lightning_checkpoint,
     ]:
@@ -789,7 +790,7 @@ def run_toy_workflow(
     output_dir: Path,
     timing_rows: list[dict[str, Any]] | None = None,
 ) -> Path | None:
-    """Run the Toy/DINO semantic segmentation path."""
+    """Run the Toy semantic segmentation path."""
     toy_total_started_at = time.perf_counter()
     seed_everything(config.seed)
 
@@ -806,20 +807,20 @@ def run_toy_workflow(
     )
     print("Toy Lightning trainer created.", flush=True)
 
-    if config.skip_dino_fit:
+    if config.skip_toy_fit:
         print("Skipping Toy trainer.fit().")
-        if config.dino_lightning_checkpoint is not None:
+        if config.toy_lightning_checkpoint is not None:
             load_lightning_checkpoint_state(
                 toy_task,
-                config.dino_lightning_checkpoint,
+                config.toy_lightning_checkpoint,
                 "Toy",
             )
     else:
         print("Starting Toy trainer.fit()...", flush=True)
         fit_started_at = time.perf_counter()
         toy_ckpt_path = (
-            str(config.dino_lightning_checkpoint)
-            if config.dino_lightning_checkpoint is not None
+            str(config.toy_lightning_checkpoint)
+            if config.toy_lightning_checkpoint is not None
             else None
         )
         if toy_ckpt_path is not None:
@@ -857,7 +858,7 @@ def run_toy_workflow(
                 started_at=cache_started_at,
             )
 
-    if not config.skip_dino_fit:
+    if not config.skip_toy_fit:
         print("Starting Toy trainer.test() on final weights...", flush=True)
         test_started_at = time.perf_counter()
         toy_trainer.test(toy_task, datamodule=toy_datamodule, ckpt_path=None)
@@ -1067,10 +1068,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-output-dir", type=str, default=None)
     parser.add_argument("--dino-checkpoint", type=str, default=None)
     parser.add_argument(
-        "--dino-lightning-checkpoint",
+        "--toy-lightning-checkpoint",
         type=str,
         default=None,
-        help="Optional DINO Lightning .ckpt. Resumes fit, or loads weights when DINO fit is skipped.",
+        help="Optional Toy Lightning .ckpt. Resumes fit, or loads weights when Toy fit is skipped.",
     )
     parser.add_argument(
         "--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6]
@@ -1121,7 +1122,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--normalize-inputs",
         action="store_true",
-        help="Enable toy DINO z-score normalization.",
+        help="Enable Toy z-score normalization.",
     )
     parser.add_argument(
         "--normalization-source",
@@ -1139,7 +1140,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--disable-toy-gradient-clipping",
         action="store_true",
-        help="Disable toy DINO gradient clipping to match Graha's current trainer path.",
+        help="Disable Toy gradient clipping to match Graha's current trainer path.",
     )
     parser.add_argument("--plot-every-n-epochs", type=int, default=1)
     parser.add_argument("--plot-n-samples", type=int, default=5)
@@ -1178,7 +1179,7 @@ def parse_args() -> argparse.Namespace:
         "--no-fit", action="store_true", help="Build data/model/trainer but skip fit."
     )
     parser.add_argument(
-        "--skip-dino-fit", action="store_true", help="Skip only DINO fitting."
+        "--skip-toy-fit", action="store_true", help="Skip only Toy fitting."
     )
     parser.add_argument(
         "--skip-graha-fit", action="store_true", help="Skip only Graha fitting."

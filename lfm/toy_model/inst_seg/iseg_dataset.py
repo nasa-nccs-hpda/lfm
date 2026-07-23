@@ -1,6 +1,6 @@
 """
 dataset.py
-Dataset class for DINO LoRA fine-tuning on lunar crater detection.
+Dataset class for Toy instance segmentation on lunar crater detection.
 Supports images with any number of channels (grayscale, RGB, multispectral, etc.).
 """
 
@@ -627,7 +627,9 @@ def get_input_metadata(
         if image.ndim == 2:
             num_bands = 1
         elif image.ndim == 3:
-            num_bands = image.shape[0] if image.shape[0] <= image.shape[-1] else image.shape[-1]
+            num_bands = (
+                image.shape[0] if image.shape[0] <= image.shape[-1] else image.shape[-1]
+            )
         else:
             raise ValueError(f"Expected 2D or 3D image array, got {image.shape}")
         descriptions = [f"Band {i + 1}" for i in range(num_bands)]

@@ -572,7 +572,7 @@ def _make_comparison_args(config: InstanceSweepConfig) -> argparse.Namespace:
         data_root=str(config.data_root),
         base_output_dir=str(config.output_root / "_setup"),
         dino_checkpoint=str(config.dino_checkpoint) if config.dino_checkpoint else None,
-        dino_lightning_checkpoint=None,
+        toy_lightning_checkpoint=None,
         graha_pretrain_dir=(
             str(config.graha_pretrain_dir) if config.graha_pretrain_dir else None
         ),

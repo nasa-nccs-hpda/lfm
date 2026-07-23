@@ -1,4 +1,4 @@
-"""Lightning wrapper for the toy DINO semantic segmentation model."""
+"""Lightning wrapper for the Toy semantic segmentation model."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def binary_segmentation_stats(
 
 
 class ToySemSegLightningModule(LightningModule):
-    """Lightning training wrapper for the old toy semantic segmentation model."""
+    """Lightning training wrapper for the Toy semantic segmentation model."""
 
     def __init__(
         self,

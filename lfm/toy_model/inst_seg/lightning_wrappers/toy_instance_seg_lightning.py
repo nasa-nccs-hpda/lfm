@@ -1,4 +1,4 @@
-"""Lightning wrapper for toy DINO Mask2Former instance segmentation."""
+"""Lightning wrapper for Toy Mask2Former instance segmentation."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
 
 class ToyInstanceSegLightningModule(LightningModule):
-    """Lightning wrapper around the toy DINO Mask2Former instance model."""
+    """Lightning wrapper around the Toy Mask2Former instance model."""
 
     def __init__(
         self,

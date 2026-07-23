@@ -1,6 +1,6 @@
 """
 driver.py
-Training driver for DINO segmentation with configurable loss functions.
+Training driver for Toy semantic segmentation with configurable loss functions.
 Supports training, evaluation, and checkpoint resumption.
 Handles images with any number of channels (grayscale, RGB, multispectral, etc.).
 """
@@ -660,7 +660,7 @@ def train_model(
     early_stopping_patience=None,
 ):
     """
-    Main training/evaluation loop for DINO segmentation.
+    Main training/evaluation loop for Toy semantic segmentation.
     Supports images with any number of channels.
 
     Args:

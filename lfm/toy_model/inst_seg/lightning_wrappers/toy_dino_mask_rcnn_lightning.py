@@ -1,4 +1,4 @@
-"""Lightning wrapper for Toy DINO Mask R-CNN instance segmentation."""
+"""Lightning wrapper for Toy Mask R-CNN instance segmentation."""
 
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 """
 driver.py
-Training driver for DINO instance segmentation.
+Training driver for Toy instance segmentation.
 Supports training, evaluation, and checkpoint resumption.
 Handles images with any number of channels and instance-level predictions.
 """
