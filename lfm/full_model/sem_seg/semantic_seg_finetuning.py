@@ -259,10 +259,14 @@ def import_project_dependencies() -> dict[str, Any]:
     }
 
 
-def make_downstream_shape_segmentation_task_class(lunar_shape_segmentation_task_cls):
+def make_downstream_shape_segmentation_task_class(
+        lunar_shape_segmentation_task_cls
+):
     """Create the task subclass that strips datamodule-only metadata."""
 
-    class LunarDownstreamShapeSegmentationTask(lunar_shape_segmentation_task_cls):
+    class LunarDownstreamShapeSegmentationTask(
+        lunar_shape_segmentation_task_cls
+    ):
         """Drop datamodule metadata that should not be forwarded to the model."""
 
         def _drop_extra_batch_metadata(self, batch):

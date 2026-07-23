@@ -1,4 +1,4 @@
-"""Split-folder datamodule for the toy semantic segmentation baseline."""
+"""Split-folder datamodule for lunar semantic segmentation workflows."""
 
 from __future__ import annotations
 
@@ -16,14 +16,14 @@ from lfm.toy_model.sem_seg.sseg_dataset import (
 )
 
 
-class ToySemSegSplitDataModule(LightningDataModule):
+class LunarSemanticSegmentationSplitDataModule(LightningDataModule):
     """Use the old toy semantic-seg dataset with explicit train/val/test splits.
 
-    This wrapper intentionally preserves the old model data behavior for the
-    comparison baseline: .npy labels and per-sample band min-max scaling inside
-    ``LunarCraterDataset``. If ``normalize_inputs=True``, per-band z-score
-    statistics are computed from the training split after the same crop/min-max
-    preprocessing used by the model.
+    This wrapper intentionally preserves the legacy semantic data behavior used
+    by the comparison workflow: .npy labels and per-sample band min-max scaling
+    inside ``LunarCraterDataset``. If ``normalize_inputs=True``, per-band
+    z-score statistics are computed from the training split after the same
+    crop/min-max preprocessing used by the model.
     """
 
     def __init__(

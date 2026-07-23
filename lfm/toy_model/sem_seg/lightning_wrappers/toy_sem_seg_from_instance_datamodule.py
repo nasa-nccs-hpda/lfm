@@ -13,7 +13,7 @@ from lfm.full_model.all_tasks.datamodules.datamodule_utils import (
     crop_boxes_xywh_to_xyxy,
 )
 from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_datamodule import (
-    ToySemSegSplitDataModule,
+    LunarSemanticSegmentationSplitDataModule,
 )
 from lfm.toy_model.sem_seg.sseg_dataset import LunarCraterDataset
 
@@ -85,7 +85,7 @@ def collate_toy_semantic_from_instance(
     )
 
 
-class ToySemSegFromInstanceDataModule(ToySemSegSplitDataModule):
+class ToySemSegFromInstanceDataModule(LunarSemanticSegmentationSplitDataModule):
     """Toy semantic datamodule for instance-label data roots."""
 
     def _make_dataset(self, split: str) -> ToySemSegFromInstanceDataset:

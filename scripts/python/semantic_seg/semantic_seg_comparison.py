@@ -19,7 +19,7 @@ from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 
 from lfm.full_model.sem_seg import semantic_seg_finetuning as graha_workflow
 from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_datamodule import (
-    ToySemSegSplitDataModule,
+    LunarSemanticSegmentationSplitDataModule,
 )
 from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_from_instance_datamodule import (
     ToySemSegFromInstanceDataModule,
@@ -605,16 +605,16 @@ def record_timing(
 
 def create_datamodule(
     config: ToyComparisonConfig, output_dir: Path
-) -> ToySemSegSplitDataModule:
+) -> LunarSemanticSegmentationSplitDataModule:
     datamodule_cls = (
         ToySemSegFromInstanceDataModule
         if config.semantic_label_source == "instance"
-        else ToySemSegSplitDataModule
+        else LunarSemanticSegmentationSplitDataModule
     )
     means = None
     stds = None
     if config.normalize_inputs and config.normalization_source == "pretrain":
-        graha_config = graha_workflow.build_config(
+        normalization_config = graha_workflow.build_config(
             Namespace(
                 data_root=str(config.data_root),
                 base_output_dir=str(config.graha_base_output_dir),
@@ -647,7 +647,7 @@ def create_datamodule(
             )
         )
         means, stds = load_terramind_pretraining_stats(
-            graha_config.modality_info,
+            normalization_config.modality_info,
             normalization_modality=config.normalization_modality,
             band_filter=config.band_filter,
         )
@@ -738,7 +738,7 @@ def create_trainer(
     print("Creating Lightning trainer...", flush=True)
     callbacks = [
         FitProgressLogger(
-            "DINO",
+            "Toy",
             log_every_n_batches=config.progress_log_every_n_batches,
         ),
         ModelCheckpoint(
@@ -781,6 +781,108 @@ def create_trainer(
         logger=False,
         callbacks=callbacks,
     )
+
+
+def run_toy_workflow(
+    config: ToyComparisonConfig,
+    *,
+    output_dir: Path,
+    timing_rows: list[dict[str, Any]] | None = None,
+) -> Path | None:
+    """Run the Toy/DINO semantic segmentation path."""
+    toy_total_started_at = time.perf_counter()
+    seed_everything(config.seed)
+
+    toy_datamodule = create_datamodule(config, output_dir)
+    if toy_datamodule.weight_assignments is None:
+        raise RuntimeError("Toy DataModule did not create weight assignments.")
+
+    toy_model = create_model(config, toy_datamodule.weight_assignments)
+    toy_task = create_lightning_module(config, toy_model)
+    toy_trainer = create_trainer(
+        config,
+        output_dir,
+        plots_subdir=Path("plots") / "single_model" / "toy_model",
+    )
+    print("Toy Lightning trainer created.", flush=True)
+
+    if config.skip_dino_fit:
+        print("Skipping Toy trainer.fit().")
+        if config.dino_lightning_checkpoint is not None:
+            load_lightning_checkpoint_state(
+                toy_task,
+                config.dino_lightning_checkpoint,
+                "Toy",
+            )
+    else:
+        print("Starting Toy trainer.fit()...", flush=True)
+        fit_started_at = time.perf_counter()
+        toy_ckpt_path = (
+            str(config.dino_lightning_checkpoint)
+            if config.dino_lightning_checkpoint is not None
+            else None
+        )
+        if toy_ckpt_path is not None:
+            print(f"Resuming Toy trainer.fit() from {toy_ckpt_path}", flush=True)
+        toy_trainer.fit(
+            toy_task,
+            datamodule=toy_datamodule,
+            ckpt_path=toy_ckpt_path,
+        )
+        if timing_rows is not None:
+            record_timing(
+                timing_rows,
+                model="Toy",
+                stage="fit",
+                started_at=fit_started_at,
+            )
+        print("Toy trainer.fit() complete.", flush=True)
+
+    toy_prediction_cache = None
+    if config.cache_predictions:
+        cache_started_at = time.perf_counter()
+        toy_prediction_cache = save_prediction_cache(
+            task=toy_task,
+            datamodule=toy_datamodule,
+            output_dir=output_dir,
+            model_name="toy",
+            split=config.prediction_split,
+            n_samples=config.prediction_n_samples,
+        )
+        if timing_rows is not None:
+            record_timing(
+                timing_rows,
+                model="Toy",
+                stage="prediction_cache",
+                started_at=cache_started_at,
+            )
+
+    if not config.skip_dino_fit:
+        print("Starting Toy trainer.test() on final weights...", flush=True)
+        test_started_at = time.perf_counter()
+        toy_trainer.test(toy_task, datamodule=toy_datamodule, ckpt_path=None)
+        if timing_rows is not None:
+            record_timing(
+                timing_rows,
+                model="Toy",
+                stage="test_final",
+                started_at=test_started_at,
+            )
+        print("Toy trainer.test() complete.", flush=True)
+
+    del toy_trainer, toy_task, toy_model, toy_datamodule
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    print("Released Toy model objects and cleared CUDA cache.", flush=True)
+    if timing_rows is not None:
+        record_timing(
+            timing_rows,
+            model="Toy",
+            stage="total",
+            started_at=toy_total_started_at,
+        )
+    return toy_prediction_cache
 
 
 def run_graha_workflow(
@@ -1100,86 +1202,10 @@ def main() -> None:
     save_config(config, output_dir)
     timing_rows: list[dict[str, Any]] = []
 
-    seed_everything(config.seed)
-    dino_total_started_at = time.perf_counter()
-    datamodule = create_datamodule(config, output_dir)
-    if datamodule.weight_assignments is None:
-        raise RuntimeError("DataModule did not create weight assignments.")
-
-    model = create_model(config, datamodule.weight_assignments)
-    task = create_lightning_module(config, model)
-    trainer = create_trainer(
+    toy_prediction_cache = run_toy_workflow(
         config,
-        output_dir,
-        plots_subdir=Path("plots") / "single_model" / "toy_model",
-    )
-    print("Lightning trainer created.", flush=True)
-
-    if config.skip_dino_fit:
-        print("Skipping DINO trainer.fit().")
-        if config.dino_lightning_checkpoint is not None:
-            load_lightning_checkpoint_state(
-                task, config.dino_lightning_checkpoint, "DINO"
-            )
-    else:
-        print("Starting DINO trainer.fit()...", flush=True)
-        fit_started_at = time.perf_counter()
-        ckpt_path = (
-            str(config.dino_lightning_checkpoint)
-            if config.dino_lightning_checkpoint is not None
-            else None
-        )
-        if ckpt_path is not None:
-            print(f"Resuming DINO trainer.fit() from {ckpt_path}", flush=True)
-        trainer.fit(task, datamodule=datamodule, ckpt_path=ckpt_path)
-        record_timing(
-            timing_rows,
-            model="DINO",
-            stage="fit",
-            started_at=fit_started_at,
-        )
-        print("DINO trainer.fit() complete.", flush=True)
-
-    toy_prediction_cache = None
-    if config.cache_predictions:
-        cache_started_at = time.perf_counter()
-        toy_prediction_cache = save_prediction_cache(
-            task=task,
-            datamodule=datamodule,
-            output_dir=output_dir,
-            model_name="toy",
-            split=config.prediction_split,
-            n_samples=config.prediction_n_samples,
-        )
-        record_timing(
-            timing_rows,
-            model="DINO",
-            stage="prediction_cache",
-            started_at=cache_started_at,
-        )
-
-    if not config.skip_dino_fit:
-        print("Starting DINO trainer.test() on final weights...", flush=True)
-        test_started_at = time.perf_counter()
-        trainer.test(task, datamodule=datamodule, ckpt_path=None)
-        record_timing(
-            timing_rows,
-            model="DINO",
-            stage="test_final",
-            started_at=test_started_at,
-        )
-        print("DINO trainer.test() complete.", flush=True)
-
-    del trainer, task, model, datamodule
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    print("Released DINO model objects and cleared CUDA cache.", flush=True)
-    record_timing(
-        timing_rows,
-        model="DINO",
-        stage="total",
-        started_at=dino_total_started_at,
+        output_dir=output_dir,
+        timing_rows=timing_rows,
     )
 
     _, graha_prediction_cache = run_graha_workflow(
