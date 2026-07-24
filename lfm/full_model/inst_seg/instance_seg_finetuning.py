@@ -98,6 +98,9 @@ class InstanceFineTuningConfig:
     label_glob: str
     image_suffix: str
     label_suffix: str
+    max_train_samples: int | None
+    max_val_samples: int | None
+    max_test_samples: int | None
     crop_size: int
     stats_batch_size: int
     batch_size: int
@@ -189,6 +192,9 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         label_glob=args.label_glob,
         image_suffix=args.image_suffix,
         label_suffix=args.label_suffix,
+        max_train_samples=getattr(args, "max_train_samples", None),
+        max_val_samples=getattr(args, "max_val_samples", None),
+        max_test_samples=getattr(args, "max_test_samples", None),
         crop_size=args.crop_size,
         stats_batch_size=args.stats_batch_size,
         batch_size=args.batch_size,
@@ -305,6 +311,9 @@ def common_datamodule_args(config: InstanceFineTuningConfig) -> dict[str, Any]:
         "label_glob": config.label_glob,
         "image_suffix": config.image_suffix,
         "label_suffix": config.label_suffix,
+        "max_train_samples": config.max_train_samples,
+        "max_val_samples": config.max_val_samples,
+        "max_test_samples": config.max_test_samples,
         "target_box_format": "xyxy",
         "no_data_replace": 0.0,
         "no_label_replace": None,
@@ -615,6 +624,9 @@ def build_comparison_config(
         label_glob=config.label_glob,
         image_suffix=config.image_suffix,
         label_suffix=config.label_suffix,
+        max_train_samples=config.max_train_samples,
+        max_val_samples=config.max_val_samples,
+        max_test_samples=config.max_test_samples,
         crop_size=config.target_size,
         stats_batch_size=config.graha_stats_batch_size,
         batch_size=config.graha_batch_size,
@@ -806,6 +818,9 @@ def parse_args() -> argparse.Namespace:
         default="_label",
         help="Suffix stripped from label stems before matching chips.",
     )
+    parser.add_argument("--max-train-samples", type=int, default=None)
+    parser.add_argument("--max-val-samples", type=int, default=None)
+    parser.add_argument("--max-test-samples", type=int, default=None)
     parser.add_argument("--crop-size", type=int, default=256)
     parser.add_argument("--stats-batch-size", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=2)

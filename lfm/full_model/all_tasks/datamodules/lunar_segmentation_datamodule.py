@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 from lightning.pytorch import LightningDataModule
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset, Subset, random_split
 
 from .datamodule_utils import collate_semantic_segmentation
 from .lunar_segmentation_dataset import LunarSegmentationDataset
@@ -41,6 +41,9 @@ class LunarSegmentationDatamodule(LightningDataModule):
         val_fraction: float = 0.15,
         test_fraction: float = 0.0,
         split_seed: int = 42,
+        max_train_samples: int | None = None,
+        max_val_samples: int | None = None,
+        max_test_samples: int | None = None,
         no_data_replace: float | None = None,
         no_label_replace: int | None = None,
         mask_shift: tuple[int, int] | None = None,
@@ -63,6 +66,11 @@ class LunarSegmentationDatamodule(LightningDataModule):
         self.val_fraction = val_fraction
         self.test_fraction = test_fraction
         self.split_seed = split_seed
+        self.max_samples_by_split = {
+            "train": max_train_samples,
+            "val": max_val_samples,
+            "test": max_test_samples,
+        }
         self.no_data_replace = no_data_replace
         self.no_label_replace = no_label_replace
         self.mask_shift = mask_shift
@@ -114,17 +122,40 @@ class LunarSegmentationDatamodule(LightningDataModule):
             split_name="full",
         )
 
+    def _limit_dataset(self, dataset: Dataset, split: str) -> Dataset:
+        max_samples = self.max_samples_by_split.get(split)
+        if max_samples is None:
+            return dataset
+        if max_samples < 0:
+            raise ValueError(
+                f"max_{split}_samples must be non-negative, got {max_samples}."
+            )
+
+        limited_count = min(max_samples, len(dataset))
+        if limited_count < len(dataset):
+            print(
+                f"[{split}] Limited to {limited_count} of {len(dataset)} sample(s)",
+                flush=True,
+            )
+        return Subset(dataset, range(limited_count))
+
     def setup(self, stage: str | None = None) -> None:
         split_layout = (self.data_root / "train" / self.chips_subdir).exists()
 
         if split_layout:
             if stage in (None, "fit"):
-                self.train_dataset = self._dataset_for_split("train")
-                self.val_dataset = self._dataset_for_split("val")
+                self.train_dataset = self._limit_dataset(
+                    self._dataset_for_split("train"), "train"
+                )
+                self.val_dataset = self._limit_dataset(
+                    self._dataset_for_split("val"), "val"
+                )
             if stage in (None, "test"):
                 test_chips = self.data_root / "test" / self.chips_subdir
                 if test_chips.exists():
-                    self.test_dataset = self._dataset_for_split("test")
+                    self.test_dataset = self._limit_dataset(
+                        self._dataset_for_split("test"), "test"
+                    )
             return
 
         full = self._flat_dataset()
@@ -140,9 +171,9 @@ class LunarSegmentationDatamodule(LightningDataModule):
 
         generator = torch.Generator().manual_seed(self.split_seed)
         splits = random_split(full, [n_train, n_val, n_test], generator=generator)
-        self.train_dataset = splits[0]
-        self.val_dataset = splits[1] if n_val else splits[0]
-        self.test_dataset = splits[2] if n_test else None
+        self.train_dataset = self._limit_dataset(splits[0], "train")
+        self.val_dataset = self._limit_dataset(splits[1] if n_val else splits[0], "val")
+        self.test_dataset = self._limit_dataset(splits[2], "test") if n_test else None
 
     def train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
