@@ -402,6 +402,14 @@ def normalize_image(
     if torch.any(std <= 0):
         raise ValueError("All normalization stds must be positive.")
     if mean.shape[0] == 1 and image.shape[0] != 1:
+        warnings.warn(
+            "Expanding single-channel norm stats to "
+            f"{image.shape[0]} image channels. "
+            "This is only appropriate when all channels share the same "
+            "physical modality/range.",
+            UserWarning,
+            stacklevel=2,
+        )
         mean = mean.expand(image.shape[0], -1, -1)
         std = std.expand(image.shape[0], -1, -1)
     elif mean.shape[0] != image.shape[0]:
