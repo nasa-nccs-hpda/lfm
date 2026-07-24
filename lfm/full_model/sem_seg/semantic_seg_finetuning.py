@@ -55,6 +55,8 @@ class FineTuningConfig:
     max_train_samples: int | None
     max_val_samples: int | None
     max_test_samples: int | None
+    ignore_nodata_in_loss: bool
+    nodata_ignore_index: int
     shape_loss_weight: float
     shape_loss_pad_frac: float
     crop_size: int
@@ -190,6 +192,8 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         max_train_samples=getattr(args, "max_train_samples", None),
         max_val_samples=getattr(args, "max_val_samples", None),
         max_test_samples=getattr(args, "max_test_samples", None),
+        ignore_nodata_in_loss=getattr(args, "ignore_nodata_in_loss", False),
+        nodata_ignore_index=getattr(args, "nodata_ignore_index", -1),
         shape_loss_weight=getattr(args, "shape_loss_weight", 0.05),
         shape_loss_pad_frac=getattr(args, "shape_loss_pad_frac", 0.3),
         crop_size=args.crop_size,
@@ -336,6 +340,8 @@ def common_datamodule_args(config: FineTuningConfig) -> dict[str, Any]:
         "max_test_samples": config.max_test_samples,
         "no_data_replace": 0.0,
         "no_label_replace": None,
+        "ignore_nodata_in_loss": config.ignore_nodata_in_loss,
+        "nodata_ignore_index": config.nodata_ignore_index,
     }
 
 
@@ -488,6 +494,9 @@ def create_task(config: FineTuningConfig, task_cls, sample_batch: dict[str, Any]
             "head_dropout": 0.1,
         },
         loss="dice",
+        ignore_index=(
+            config.nodata_ignore_index if config.ignore_nodata_in_loss else None
+        ),
         class_names=["Background", "Crater"],
         freeze_backbone=False,
         freeze_decoder=False,
@@ -615,6 +624,8 @@ def build_comparison_config(config: Any, output_dir: Path) -> FineTuningConfig:
         max_train_samples=config.max_train_samples,
         max_val_samples=config.max_val_samples,
         max_test_samples=config.max_test_samples,
+        ignore_nodata_in_loss=config.ignore_nodata_in_loss,
+        nodata_ignore_index=config.nodata_ignore_index,
         shape_loss_weight=config.graha_shape_loss_weight,
         shape_loss_pad_frac=config.graha_shape_loss_pad_frac,
         crop_size=config.target_size[0],
@@ -714,6 +725,11 @@ def run_graha_workflow(
                 split=config.epoch_test_split,
                 n_samples=config.epoch_test_n_samples,
                 every_n_epochs=config.epoch_test_every_n_epochs,
+                ignore_index=(
+                    config.nodata_ignore_index
+                    if config.ignore_nodata_in_loss
+                    else None
+                ),
             )
         )
 
@@ -833,6 +849,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--max-val-samples", type=int, default=None)
     parser.add_argument("--max-test-samples", type=int, default=None)
+    parser.add_argument(
+        "--ignore-nodata-in-loss",
+        action="store_true",
+        help="Ignore TIFF nodata pixels in semantic segmentation loss and metrics.",
+    )
+    parser.add_argument(
+        "--nodata-ignore-index",
+        type=int,
+        default=-1,
+        help="Target label value used for ignored nodata pixels.",
+    )
     parser.add_argument("--shape-loss-weight", type=float, default=0.05)
     parser.add_argument("--shape-loss-pad-frac", type=float, default=0.3)
     parser.add_argument("--crop-size", type=int, default=256)

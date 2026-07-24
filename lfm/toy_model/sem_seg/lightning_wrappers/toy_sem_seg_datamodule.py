@@ -50,6 +50,8 @@ class LunarSemanticSegmentationSplitDataModule(LightningDataModule):
         means: list[float] | np.ndarray | None = None,
         stds: list[float] | np.ndarray | None = None,
         scale_inputs: bool = True,
+        ignore_nodata_in_loss: bool = False,
+        nodata_ignore_index: int = -1,
     ) -> None:
         super().__init__()
         self.data_root = Path(data_root)
@@ -73,6 +75,8 @@ class LunarSemanticSegmentationSplitDataModule(LightningDataModule):
         self.label_npz_key = label_npz_key
         self.binarize_label = binarize_label
         self.scale_inputs = scale_inputs
+        self.ignore_nodata_in_loss = ignore_nodata_in_loss
+        self.nodata_ignore_index = int(nodata_ignore_index)
 
         self.weight_assignments: list[str] | None = None
         self.mean: np.ndarray | None = (
@@ -143,6 +147,8 @@ class LunarSemanticSegmentationSplitDataModule(LightningDataModule):
             label_npz_key=self.label_npz_key,
             binarize_label=self.binarize_label,
             scale_inputs=self.scale_inputs,
+            ignore_nodata_in_loss=self.ignore_nodata_in_loss,
+            nodata_ignore_index=self.nodata_ignore_index,
         )
 
     def _calculate_train_stats(self) -> None:
@@ -163,6 +169,8 @@ class LunarSemanticSegmentationSplitDataModule(LightningDataModule):
             label_npz_key=self.label_npz_key,
             binarize_label=self.binarize_label,
             scale_inputs=self.scale_inputs,
+            ignore_nodata_in_loss=self.ignore_nodata_in_loss,
+            nodata_ignore_index=self.nodata_ignore_index,
         )
         pixel_sum = None
         pixel_sq_sum = None
@@ -282,4 +290,6 @@ class LunarSemanticSegmentationSplitDataModule(LightningDataModule):
             "sample_foreground_fraction": foreground_fraction,
             "sample_image_path": image_path,
             "sample_label_path": label_path,
+            "ignore_nodata_in_loss": self.ignore_nodata_in_loss,
+            "nodata_ignore_index": self.nodata_ignore_index,
         }

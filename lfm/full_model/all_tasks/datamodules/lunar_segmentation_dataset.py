@@ -14,7 +14,7 @@ from .datamodule_utils import (
     image_to_chw_float,
     mask_to_hw_long,
     normalize_image,
-    read_image_file,
+    read_image_file_with_nodata_mask,
     read_label_file,
     shift_mask,
 )
@@ -43,6 +43,8 @@ class LunarSegmentationDataset(Dataset):
         binarize_mask: bool = True,
         no_data_replace: float | None = None,
         no_label_replace: int | None = None,
+        ignore_nodata_in_loss: bool = False,
+        nodata_ignore_index: int = -1,
         mask_shift: tuple[int, int] | None = None,
         transform: Callable[[dict], dict] | None = None,
         split_name: str | None = None,
@@ -54,6 +56,8 @@ class LunarSegmentationDataset(Dataset):
         self.binarize_mask = binarize_mask
         self.no_data_replace = no_data_replace
         self.no_label_replace = no_label_replace
+        self.ignore_nodata_in_loss = ignore_nodata_in_loss
+        self.nodata_ignore_index = int(nodata_ignore_index)
         self.mask_shift = mask_shift
         self.transform = transform
         self.records = find_pair_records(
@@ -74,13 +78,20 @@ class LunarSegmentationDataset(Dataset):
 
     def _load_common(self, index: int) -> tuple[dict, object]:
         record = self.records[index]
-        image = image_to_chw_float(read_image_file(record.image_path))
+        image_array, nodata_mask_array = read_image_file_with_nodata_mask(
+            record.image_path
+        )
+        image = image_to_chw_float(image_array)
+        nodata_mask = torch.as_tensor(nodata_mask_array, dtype=torch.bool)
         label = read_label_file(record.label_path)
         label_mask = label["mask"] if isinstance(label, dict) else label
         mask = mask_to_hw_long(label_mask)
 
         if self.no_data_replace is not None:
             image = torch.nan_to_num(image, nan=float(self.no_data_replace))
+            if nodata_mask.any():
+                image = image.clone()
+                image[:, nodata_mask] = float(self.no_data_replace)
         if self.no_label_replace is not None:
             mask = torch.nan_to_num(
                 mask.float(), nan=float(self.no_label_replace)
@@ -88,6 +99,15 @@ class LunarSegmentationDataset(Dataset):
         mask = shift_mask(mask, self.mask_shift)
         if self.binarize_mask:
             mask = (mask > 0).long()
+        if self.ignore_nodata_in_loss and nodata_mask.any():
+            if tuple(nodata_mask.shape) != tuple(mask.shape):
+                raise ValueError(
+                    "Nodata mask and label shapes differ for "
+                    f"{record.image_path.name}: "
+                    f"nodata={tuple(nodata_mask.shape)}, mask={tuple(mask.shape)}"
+                )
+            mask = mask.clone()
+            mask[nodata_mask] = self.nodata_ignore_index
 
         sample = {
             "image": image,

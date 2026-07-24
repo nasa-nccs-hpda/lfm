@@ -5,33 +5,33 @@ Supports images with any number of channels (grayscale, RGB, multispectral, etc.
 """
 
 import os
-
-os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
-os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
-
 import warnings
-
-warnings.filterwarnings("ignore", message=".*HF Hub.*")
-warnings.filterwarnings("ignore", message=".*unauthenticated.*")
-
-from pathlib import Path
 from glob import glob
+from pathlib import Path
 from typing import Tuple, Optional, List
 
 import numpy as np
 import torch
-from torch.utils.data import Dataset, random_split, DataLoader
-import torch.nn.functional as F
+from torch.utils.data import random_split, DataLoader
 from tqdm import tqdm
 import rasterio
 
-from lfm.full_model.all_tasks.datamodules.datamodule_utils import (
-    path_key,
+from lfm.full_model.all_tasks.data import (
+    FinetuneStatsNormalization,
+    LunarSegmentationDataset,
+    NoDataPolicy,
+    NoNormalization,
     read_image_file,
 )
 
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
 
-class LunarCraterDataset(Dataset):
+warnings.filterwarnings("ignore", message=".*HF Hub.*")
+warnings.filterwarnings("ignore", message=".*unauthenticated.*")
+
+
+class LunarCraterDataset(LunarSegmentationDataset):
     """
     Dataset for multi-channel images and segmentation masks.
     Images are expected to be .tif files in <base_dir>/chips/
@@ -68,186 +68,42 @@ class LunarCraterDataset(Dataset):
         label_suffix: str = "_label",
         label_npz_key: str = "mask",
         binarize_label: bool = False,
+        ignore_nodata_in_loss: bool = False,
+        nodata_ignore_index: int = -1,
     ):
-        # Hardcoded directory structure and file types
-        self.image_dir = f"{base_dir}/chips"
-        self.label_dir = f"{base_dir}/labels"
-        self.image_file_type = image_file_type
-        self.label_file_type = label_file_type
-        self.image_suffix = image_suffix
-        self.label_suffix = label_suffix
-        self.label_npz_key = label_npz_key
-        self.binarize_label = binarize_label
-        self.split_name = split_name or Path(base_dir).name
-        self.log_prefix = f"[{self.split_name}] "
-
-        self.target_size = target_size
-        self.normalize_inputs = normalize_inputs
-        self.scale_inputs = scale_inputs
-        if spatial_transform not in {"resize", "crop"}:
-            raise ValueError(
-                f"spatial_transform must be 'resize' or 'crop', got {spatial_transform}"
-            )
-        self.spatial_transform = spatial_transform
-
-        # Validate directories exist
-        if not os.path.exists(self.image_dir):
-            raise ValueError(f"Image directory not found: {self.image_dir}")
-        if not os.path.exists(self.label_dir):
-            raise ValueError(f"Label directory not found: {self.label_dir}")
-
-        # Store mean and std as float32 for consistency
         self.mean = mean.astype(np.float32) if mean is not None else None
         self.std = std.astype(np.float32) if std is not None else None
-
-        # Glob all images and labels with expected file types
-        self.image_paths = sorted(
-            glob(os.path.join(self.image_dir, f"*{self.image_file_type}"))
+        self.normalize_inputs = normalize_inputs
+        self.image_file_type = image_file_type
+        self.label_file_type = label_file_type
+        self.ignore_nodata_in_loss = ignore_nodata_in_loss
+        self.nodata_ignore_index = int(nodata_ignore_index)
+        normalization = (
+            FinetuneStatsNormalization(self.mean, self.std)
+            if normalize_inputs and self.mean is not None and self.std is not None
+            else NoNormalization()
         )
-        label_paths = sorted(
-            glob(os.path.join(self.label_dir, f"*{self.label_file_type}"))
+        super().__init__(
+            base_dir,
+            target_size=target_size,
+            max_samples=max_samples,
+            band_filter=band_filter,
+            spatial_transform=spatial_transform,
+            split_name=split_name,
+            image_glob=f"*{image_file_type}",
+            label_glob=f"*{label_file_type}",
+            image_suffix=image_suffix,
+            label_suffix=label_suffix,
+            label_npz_key=label_npz_key,
+            binarize_label=binarize_label,
+            scale_inputs=scale_inputs,
+            normalization=normalization,
+            nodata_policy=NoDataPolicy(
+                ignore_in_loss=ignore_nodata_in_loss,
+                ignore_index=nodata_ignore_index,
+                image_fill_value=0.0,
+            ),
         )
-
-        # Validate that files were found
-        if len(self.image_paths) == 0:
-            raise ValueError(
-                f"No {self.image_file_type} files found in {self.image_dir}"
-            )
-        if len(label_paths) == 0:
-            raise ValueError(
-                f"No {self.label_file_type} files found in {self.label_dir}"
-            )
-
-        # Load example to validate input band number
-        example_band_number = self._load_example_input(self.image_paths[0])
-        self.num_channels = example_band_number
-
-        if band_filter is not None:
-            if example_band_number < len(band_filter):
-                raise ValueError(
-                    f"Incompatible input band filter specified.\n"
-                    f"Number of bands found: {example_band_number}\n"
-                    f"Band filter: {band_filter}, "
-                    f"len={len(band_filter)}"
-                )
-            print(
-                f"{self.log_prefix}Filtered inputs and mean/std to channels: {band_filter}"
-            )
-            self.band_filter = band_filter
-        else:
-            print(
-                f"{self.log_prefix}No band filter, using all {example_band_number} bands."
-            )
-            self.band_filter = list(range(example_band_number))
-
-        # Extract basenames for matching
-        self.image_basenames = [
-            path_key(Path(filename), self.image_suffix) for filename in self.image_paths
-        ]
-        label_basenames = [
-            path_key(Path(filename), self.label_suffix) for filename in label_paths
-        ]
-
-        # Create lookup dictionary for labels
-        self.label_lookup = {
-            basename: path for basename, path in zip(label_basenames, label_paths)
-        }
-
-        # Filter to only images that have matching labels
-        self.valid_image_paths = []
-        self.valid_label_paths = []
-
-        for img_path, basename in zip(self.image_paths, self.image_basenames):
-            if basename in self.label_lookup:
-                self.valid_image_paths.append(img_path)
-                self.valid_label_paths.append(self.label_lookup[basename])
-
-        # Limit to max_samples if specified
-        if max_samples is not None and max_samples < len(self.valid_image_paths):
-            self.valid_image_paths = self.valid_image_paths[:max_samples]
-            self.valid_label_paths = self.valid_label_paths[:max_samples]
-            print(f"{self.log_prefix}Limited to {max_samples} samples")
-
-        print(
-            f"{self.log_prefix}Found {len(self.valid_image_paths)} matched image-label pairs"
-        )
-        print(
-            f"{self.log_prefix}Dataset configured for {len(self.band_filter)} channel(s)"
-        )
-
-        if len(self.valid_image_paths) == 0:
-            raise ValueError(
-                "No matching image-label pairs found! "
-                "Check that basenames match between image_dir and label_dir"
-            )
-
-    def _load_example_input(self, img_path: str) -> int:
-        """Load an example image to determine number of bands."""
-        image = read_image_file(Path(img_path))
-
-        if image.ndim == 3:
-            return (
-                image.shape[0] if image.shape[0] <= image.shape[-1] else image.shape[-1]
-            )
-        elif image.ndim == 2:
-            return 1
-        else:
-            raise ValueError(
-                f"Unexpected image dimensions: {image.shape} for {img_path}"
-            )
-
-    @staticmethod
-    def _min_max_scale_bands(img: np.ndarray) -> np.ndarray:
-        """
-        Min-max scale each band to [0, 1]
-
-        Args:
-            img: Image array with shape (H, W, C)
-
-        Returns:
-            scaled: Scaled image with same shape
-        """
-        scaled = np.zeros_like(img, dtype=np.float32)
-
-        for i in range(img.shape[2]):
-            band = img[:, :, i]
-            band_min, band_max = band.min(), band.max()
-            if band_max > band_min:
-                scaled[:, :, i] = (band - band_min) / (band_max - band_min)
-            else:
-                scaled[:, :, i] = band
-
-        return scaled
-
-    @staticmethod
-    def _center_crop(
-        image: np.ndarray,
-        label: np.ndarray,
-        target_size: Tuple[int, int],
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        target_h, target_w = target_size
-        image_h, image_w = image.shape[:2]
-        label_h, label_w = label.shape[:2]
-
-        if (image_h, image_w) != (label_h, label_w):
-            raise ValueError(
-                f"Image and label spatial shapes differ: "
-                f"image={(image_h, image_w)}, label={(label_h, label_w)}"
-            )
-        if image_h < target_h or image_w < target_w:
-            raise ValueError(
-                f"Cannot crop image of shape {(image_h, image_w)} to {target_size}"
-            )
-
-        top = (image_h - target_h) // 2
-        left = (image_w - target_w) // 2
-        bottom = top + target_h
-        right = left + target_w
-
-        return image[top:bottom, left:right, :], label[top:bottom, left:right]
-
-    def __len__(self) -> int:
-        return len(self.valid_image_paths)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, str, str]:
         """
@@ -257,90 +113,13 @@ class LunarCraterDataset(Dataset):
             img_path (str): Path to the image file
             label_path (str): Path to the label file
         """
-        img_path = self.valid_image_paths[idx]
-        label_path = self.valid_label_paths[idx]
-
-        image = read_image_file(Path(img_path))
-        if Path(label_path).suffix == ".npz":
-            with np.load(label_path) as archive:
-                label = archive[self.label_npz_key]
-        else:
-            label = np.load(label_path)
-        label = label.astype(np.int64)
-        if self.binarize_label:
-            label = (label > 0).astype(np.int64)
-
-        # Convert to (H, W, C) format for processing
-        if image.ndim == 3:
-            image = image.transpose(1, 2, 0)  # (C, H, W) -> (H, W, C)
-        elif image.ndim == 2:
-            image = image[:, :, np.newaxis]  # (H, W) -> (H, W, 1)
-        else:
-            raise ValueError(
-                f"Unexpected image dimensions: {image.shape} for {img_path}"
-            )
-
-        # Verify channel count matches expected
-        if image.shape[2] != self.num_channels:
-            raise ValueError(
-                f"Channel mismatch: expected {self.num_channels}, "
-                f"got {image.shape[2]} for {img_path}"
-            )
-
-        # Filter down to desired bands
-        image = image[:, :, self.band_filter].astype(np.float32)
-
-        if self.scale_inputs:
-            # Min-max scale .tif inputs
-            image = LunarCraterDataset._min_max_scale_bands(image)
-
-        # Normalize image with dataset statistics
-        if self.normalize_inputs:
-            if self.mean is None or self.std is None:
-                raise ValueError("normalize_inputs=True requires mean and std arrays.")
-            if len(self.mean) == image.shape[2]:
-                mean_filtered = self.mean
-                std_filtered = self.std
-            else:
-                mean_filtered = self.mean[self.band_filter]
-                std_filtered = self.std[self.band_filter]
-            mean_reshaped = mean_filtered.reshape(1, 1, -1)
-            std_reshaped = std_filtered.reshape(1, 1, -1)
-            image = (image - mean_reshaped) / std_reshaped
-
-        if self.spatial_transform == "crop":
-            image, label = LunarCraterDataset._center_crop(
-                image,
-                label,
-                self.target_size,
-            )
-
-        # Convert to torch tensors: (C, H, W) for image, (H, W) for label
-        image = torch.from_numpy(image).permute(2, 0, 1)
-        label = torch.from_numpy(label)
-
-        if self.spatial_transform == "resize":
-            # Resize image to target size (C, target_H, target_W)
-            image = F.interpolate(
-                image.unsqueeze(0),
-                size=self.target_size,
-                mode="bilinear",
-                align_corners=False,
-            ).squeeze(0)
-
-            # Resize label using nearest neighbor to preserve class indices
-            label = (
-                F.interpolate(
-                    label.unsqueeze(0).unsqueeze(0).float(),
-                    size=self.target_size,
-                    mode="nearest",
-                )
-                .squeeze(0)
-                .squeeze(0)
-                .long()
-            )
-
-        return image, label, img_path, label_path
+        sample = self.prepare_sample(idx)
+        return (
+            sample["image"],
+            sample["mask"],
+            sample["image_path"],
+            sample["label_path"],
+        )
 
 
 def calculate_dataset_statistics(
@@ -767,6 +546,7 @@ def get_dataloaders(
     # Calculate statistics if not loaded, or if we are doing a new filtering
     if (mean is None or std is None) and normalize_inputs:
         print("Computing dataset statistics...")
+        image_dir = os.path.join(base_dir, "chips")
         mean, std = calculate_dataset_statistics(image_dir, input_file_type, debug)
 
         # Save statistics if directory provided

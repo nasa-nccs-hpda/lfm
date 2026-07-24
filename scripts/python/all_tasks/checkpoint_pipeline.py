@@ -121,6 +121,8 @@ def _semantic_comparison_command(
     _append_flag(command, "--label-glob", args.label_glob)
     _append_flag(command, "--image-suffix", args.image_suffix)
     _append_flag(command, "--label-suffix", args.label_suffix)
+    _append_flag(command, "--ignore-nodata-in-loss", args.ignore_nodata_in_loss)
+    _append_flag(command, "--nodata-ignore-index", args.nodata_ignore_index)
     _append_flag(command, "--batch-size", args.batch_size)
     _append_flag(command, "--num-workers", args.num_workers)
     _append_flag(command, "--learning-rate", args.learning_rate)
@@ -230,6 +232,8 @@ def _semantic_sweep_command(
     _append_flag(command, "--normalization-source", args.normalization_source)
     _append_flag(command, "--normalization-modality", args.normalization_modality)
     _append_flag(command, "--max-test-samples", args.sweep_max_samples)
+    _append_flag(command, "--ignore-nodata-in-loss", args.ignore_nodata_in_loss)
+    _append_flag(command, "--nodata-ignore-index", args.nodata_ignore_index)
     _append_flag(command, "--dino-checkpoint", args.dino_checkpoint)
     _append_flag(command, "--graha-pretrain-dir", args.graha_pretrain_dir)
     _append_flag(command, "--graha-wac-mode", args.graha_wac_mode)
@@ -425,6 +429,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--max-val-samples", type=int, default=None)
     parser.add_argument("--max-test-samples", type=int, default=None)
+    parser.add_argument(
+        "--ignore-nodata-in-loss",
+        action="store_true",
+        help="Ignore TIFF nodata pixels in semantic segmentation loss and metrics.",
+    )
+    parser.add_argument(
+        "--nodata-ignore-index",
+        type=int,
+        default=-1,
+        help="Target label value used for ignored nodata pixels.",
+    )
     parser.add_argument("--max-epochs", type=int, default=100)
     parser.add_argument("--plot-every-n-epochs", type=int, default=1)
     parser.add_argument("--plot-n-samples", type=int, default=5)

@@ -44,6 +44,8 @@ class ToyComparisonConfig:
     max_train_samples: int | None
     max_val_samples: int | None
     max_test_samples: int | None
+    ignore_nodata_in_loss: bool
+    nodata_ignore_index: int
     batch_size: int
     num_workers: int
     max_epochs: int
@@ -109,9 +111,20 @@ def _semantic_metric_array(metrics: dict[str, float]) -> np.ndarray:
     return row
 
 
-def _semantic_counts(pred: np.ndarray, label: np.ndarray) -> dict[str, float]:
-    pred_bool = pred.astype(bool).reshape(-1)
-    label_bool = label.astype(bool).reshape(-1)
+def _semantic_counts(
+    pred: np.ndarray,
+    label: np.ndarray,
+    *,
+    ignore_index: int | None = None,
+) -> dict[str, float]:
+    pred_flat = pred.reshape(-1)
+    label_flat = label.reshape(-1)
+    if ignore_index is not None:
+        valid = label_flat != int(ignore_index)
+        pred_flat = pred_flat[valid]
+        label_flat = label_flat[valid]
+    pred_bool = pred_flat.astype(bool)
+    label_bool = label_flat.astype(bool)
     return {
         "tp": float(np.sum(pred_bool & label_bool)),
         "fp": float(np.sum(pred_bool & ~label_bool)),
@@ -246,12 +259,14 @@ class SemanticEpochTestSuiteCallback(Callback):
         split: str,
         n_samples: int,
         every_n_epochs: int,
+        ignore_index: int | None = None,
     ) -> None:
         self.output_dir = Path(output_dir)
         self.model_name = model_name
         self.split = split
         self.n_samples = n_samples
         self.every_n_epochs = every_n_epochs
+        self.ignore_index = ignore_index
 
     def on_train_epoch_end(self, trainer, pl_module) -> None:
         epoch = trainer.current_epoch + 1
@@ -312,7 +327,11 @@ class SemanticEpochTestSuiteCallback(Callback):
                                 "pred": preds_np[i],
                             }
                         )
-                    counts = _semantic_counts(preds_np[i], labels_np[i])
+                    counts = _semantic_counts(
+                        preds_np[i],
+                        labels_np[i],
+                        ignore_index=self.ignore_index,
+                    )
                     for key, value in counts.items():
                         total[key] += value
                     _write_semantic_metrics(
@@ -396,6 +415,8 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         max_train_samples=args.max_train_samples,
         max_val_samples=args.max_val_samples,
         max_test_samples=args.max_test_samples,
+        ignore_nodata_in_loss=getattr(args, "ignore_nodata_in_loss", False),
+        nodata_ignore_index=getattr(args, "nodata_ignore_index", -1),
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         max_epochs=args.max_epochs,
@@ -592,6 +613,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--max-val-samples", type=int, default=None)
     parser.add_argument("--max-test-samples", type=int, default=None)
+    parser.add_argument(
+        "--ignore-nodata-in-loss",
+        action="store_true",
+        help="Ignore TIFF nodata pixels in semantic segmentation loss and metrics.",
+    )
+    parser.add_argument(
+        "--nodata-ignore-index",
+        type=int,
+        default=-1,
+        help="Target label value used for ignored nodata pixels.",
+    )
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=10)
     parser.add_argument("--max-epochs", type=int, default=100)

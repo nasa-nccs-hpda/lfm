@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import warnings
 
 import numpy as np
 import torch
@@ -65,20 +66,56 @@ def find_pair_records(
     return records
 
 
-def read_tif(path: Path) -> np.ndarray:
-    """Read a TIFF with rasterio when available, otherwise tifffile."""
+def _nodata_mask_from_array(
+    arr: np.ndarray,
+    nodata: float | int | None = None,
+) -> np.ndarray:
+    arr = np.asarray(arr)
+    if arr.ndim == 2:
+        arr_chw = arr[None, :, :]
+    elif arr.ndim == 3:
+        if arr.shape[0] <= 32:
+            arr_chw = arr
+        elif arr.shape[-1] <= 32:
+            arr_chw = np.moveaxis(arr, -1, 0)
+        else:
+            raise ValueError(f"Expected CHW or HWC image array, got {arr.shape}")
+    else:
+        raise ValueError(f"Expected 2D or 3D image array, got {arr.shape}")
+
+    invalid = ~np.isfinite(arr_chw)
+    if nodata is not None:
+        invalid = invalid | (arr_chw == nodata)
+    return invalid.any(axis=0)
+
+
+def read_tif_with_nodata_mask(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    """Read a TIFF and return ``(array, nodata_mask)``.
+
+    The nodata mask is HW and true wherever any image band is non-finite or
+    equals the file's raster nodata sentinel.
+    """
     try:
         import rasterio
 
         with rasterio.open(path) as src:
             arr = src.read()
+            nodata = src.nodata
+        nodata_mask = _nodata_mask_from_array(arr, nodata)
         if arr.shape[0] == 1:
-            return arr[0]
-        return arr
+            arr = arr[0]
+        return arr, nodata_mask
     except ImportError:
         import tifffile
 
-        return tifffile.imread(path)
+        arr = tifffile.imread(path)
+        return arr, _nodata_mask_from_array(arr)
+
+
+def read_tif(path: Path) -> np.ndarray:
+    """Read a TIFF with rasterio when available, otherwise tifffile."""
+    arr, _ = read_tif_with_nodata_mask(path)
+    return arr
 
 
 def read_netcdf(path: Path, *, variable: str = "band_data") -> np.ndarray:
@@ -118,6 +155,14 @@ def read_image_file(path: Path) -> np.ndarray:
     if suffix == ".nc":
         return read_netcdf(path)
     return read_tif(path)
+
+
+def read_image_file_with_nodata_mask(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    suffix = path.suffix.lower()
+    if suffix in {".tif", ".tiff"}:
+        return read_tif_with_nodata_mask(path)
+    arr = read_image_file(path)
+    return arr, _nodata_mask_from_array(arr)
 
 
 def read_label_file(path: Path) -> np.ndarray | dict[str, np.ndarray | None]:

@@ -172,7 +172,11 @@ class ToySemSegShapeLightningModule(ToySemSegLightningModule):
             prog_bar=False,
             batch_size=batch_size,
         )
-        for name, value in binary_segmentation_stats(logits, labels).items():
+        for name, value in binary_segmentation_stats(
+            logits,
+            labels,
+            ignore_index=self.ignore_index,
+        ).items():
             self.log(
                 f"val/{name}",
                 value,
@@ -195,7 +199,11 @@ class ToySemSegShapeLightningModule(ToySemSegLightningModule):
             batch_size=batch_size,
         )
         self.log("test/loss", loss, on_step=False, on_epoch=True, batch_size=batch_size)
-        for name, value in binary_segmentation_stats(logits, labels).items():
+        for name, value in binary_segmentation_stats(
+            logits,
+            labels,
+            ignore_index=self.ignore_index,
+        ).items():
             self.log(
                 f"test/{name}",
                 value,

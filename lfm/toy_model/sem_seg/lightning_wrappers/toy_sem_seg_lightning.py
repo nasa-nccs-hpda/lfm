@@ -14,7 +14,10 @@ from lfm.toy_model.sem_seg.sseg_utils import get_loss_function
 
 
 def binary_segmentation_stats(
-    logits: torch.Tensor, targets: torch.Tensor
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    *,
+    ignore_index: int | None = None,
 ) -> dict[str, torch.Tensor]:
     """Compute simple foreground metrics for binary segmentation logits."""
     if logits.shape[1] == 2:
@@ -23,6 +26,21 @@ def binary_segmentation_stats(
         probs = torch.sigmoid(logits[:, 0])
     preds = probs > 0.5
     target_fg = targets > 0
+    if ignore_index is not None:
+        valid = targets != int(ignore_index)
+        preds = preds[valid]
+        target_fg = target_fg[valid]
+        if preds.numel() == 0:
+            zero = logits.sum() * 0.0
+            return {
+                "accuracy": zero,
+                "precision": zero,
+                "recall": zero,
+                "f1": zero,
+                "iou": zero,
+                "pred_fg_fraction": zero,
+                "gt_fg_fraction": zero,
+            }
 
     tp = (preds & target_fg).sum().float()
     fp = (preds & ~target_fg).sum().float()
@@ -61,10 +79,12 @@ class ToySemSegLightningModule(LightningModule):
         weight_decay: float = 1e-3,
         max_epochs: int = 100,
         max_grad_norm: float | None = 1.0,
+        ignore_index: int | None = None,
     ) -> None:
         super().__init__()
         self.model = model
-        self.criterion = get_loss_function(loss_type)
+        self.ignore_index = ignore_index
+        self.criterion = get_loss_function(loss_type, ignore_index=ignore_index)
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.max_epochs_for_scheduler = max_epochs
@@ -110,7 +130,11 @@ class ToySemSegLightningModule(LightningModule):
             prog_bar=False,
             batch_size=batch_size,
         )
-        for name, value in binary_segmentation_stats(logits, labels).items():
+        for name, value in binary_segmentation_stats(
+            logits,
+            labels,
+            ignore_index=self.ignore_index,
+        ).items():
             self.log(
                 f"val/{name}",
                 value,
@@ -127,7 +151,11 @@ class ToySemSegLightningModule(LightningModule):
         logits = self(images)
         loss = self.criterion(logits, labels)
         self.log("test/loss", loss, on_step=False, on_epoch=True, batch_size=batch_size)
-        for name, value in binary_segmentation_stats(logits, labels).items():
+        for name, value in binary_segmentation_stats(
+            logits,
+            labels,
+            ignore_index=self.ignore_index,
+        ).items():
             self.log(
                 f"test/{name}",
                 value,

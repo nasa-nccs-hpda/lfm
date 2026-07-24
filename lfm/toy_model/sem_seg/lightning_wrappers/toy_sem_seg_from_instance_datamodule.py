@@ -103,6 +103,8 @@ class ToySemSegFromInstanceDataModule(LunarSemanticSegmentationSplitDataModule):
             image_suffix=self.image_suffix,
             label_suffix=self.label_suffix,
             scale_inputs=self.scale_inputs,
+            ignore_nodata_in_loss=self.ignore_nodata_in_loss,
+            nodata_ignore_index=self.nodata_ignore_index,
         )
 
     def _calculate_train_stats(self) -> None:
@@ -120,6 +122,8 @@ class ToySemSegFromInstanceDataModule(LunarSemanticSegmentationSplitDataModule):
             image_suffix=self.image_suffix,
             label_suffix=self.label_suffix,
             scale_inputs=self.scale_inputs,
+            ignore_nodata_in_loss=self.ignore_nodata_in_loss,
+            nodata_ignore_index=self.nodata_ignore_index,
         )
         pixel_sum = None
         pixel_sq_sum = None
@@ -178,6 +182,8 @@ class ToySemSegFromInstanceDataModule(LunarSemanticSegmentationSplitDataModule):
             "sample_crater_boxes_shape": tuple(crater_boxes.shape),
             "sample_image_path": image_path,
             "sample_label_path": label_path,
+            "ignore_nodata_in_loss": self.ignore_nodata_in_loss,
+            "nodata_ignore_index": self.nodata_ignore_index,
         }
 
     def train_dataloader(self) -> DataLoader:

@@ -135,6 +135,8 @@ def create_datamodule(
         means=means,
         stds=stds,
         scale_inputs=config.normalization_source != "pretrain",
+        ignore_nodata_in_loss=getattr(config, "ignore_nodata_in_loss", False),
+        nodata_ignore_index=getattr(config, "nodata_ignore_index", -1),
         max_train_samples=config.max_train_samples,
         max_val_samples=config.max_val_samples,
         max_test_samples=config.max_test_samples,
@@ -188,6 +190,11 @@ def create_lightning_module(
         weight_decay=config.weight_decay,
         max_epochs=config.max_epochs,
         max_grad_norm=config.toy_gradient_clip_val,
+        ignore_index=(
+            getattr(config, "nodata_ignore_index", -1)
+            if getattr(config, "ignore_nodata_in_loss", False)
+            else None
+        ),
         **kwargs,
     )
 
@@ -235,6 +242,11 @@ def create_trainer(
                 split=config.epoch_test_split,
                 n_samples=config.epoch_test_n_samples,
                 every_n_epochs=config.epoch_test_every_n_epochs,
+                ignore_index=(
+                    getattr(config, "nodata_ignore_index", -1)
+                    if getattr(config, "ignore_nodata_in_loss", False)
+                    else None
+                ),
             )
         )
     return Trainer(

@@ -1,0 +1,219 @@
+Segmentation Data And Workflow Refactor Plan
+===========================================
+
+Purpose
+-------
+
+This document captures a feasible refactor direction for reducing duplicated
+semantic segmentation and instance segmentation workflow code while preserving
+the repository's symmetry goals.
+
+Core Refactor Constraints
+------------------------
+
+- Maintain Toy vs Graha symmetry whenever it does not reduce functionality.
+- Maintain semantic segmentation vs instance segmentation symmetry whenever task
+  differences do not require different structure.
+- Avoid compatibility-only files. If code moves, update imports and references
+  directly, then remove the obsolete location.
+- Treat the eventual package structure as a three-axis separation:
+  shared-across-models, full/Graha-specific, and Toy-specific.
+- Use clean inheritance only at stable specialization boundaries, such as
+  semantic-vs-instance target formatting.
+- Prefer composition for behavior that varies independently, such as
+  normalization, nodata handling, modality registration, plotting, checkpointing,
+  trainer construction, and workflow orchestration.
+
+Current Recommended Direction
+-----------------------------
+
+The overall direction is feasible: separate task data, model family behavior,
+and experiment orchestration into explicit objects/modules instead of letting
+scripts glue all behavior together.
+
+The highest-value first target is the data layer, especially Toy semantic data
+loading. This is where duplicated image loading, band filtering, normalization,
+spatial transforms, label matching, and nodata behavior create avoidable churn.
+
+Recommended Structure, Phased
+-----------------------------
+
+Eventual Target Package Structure
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The long-term package target is:
+
+`lfm/lfm/all_models/all_tasks/`
+`lfm/lfm/all_models/sem_seg/`
+`lfm/lfm/all_models/inst_seg/`
+
+`lfm/lfm/full_model/all_tasks/`
+`lfm/lfm/full_model/sem_seg/`
+`lfm/lfm/full_model/inst_seg/`
+
+`lfm/lfm/toy_model/all_tasks/`
+`lfm/lfm/toy_model/sem_seg/`
+`lfm/lfm/toy_model/inst_seg/`
+
+Ownership rules:
+
+- `all_models/all_tasks`: shared across Toy and Graha, and shared across
+  semantic segmentation and instance segmentation.
+- `all_models/sem_seg`: shared across Toy and Graha, but specific to semantic
+  segmentation.
+- `all_models/inst_seg`: shared across Toy and Graha, but specific to instance
+  segmentation.
+- `full_model/all_tasks`: shared across semantic and instance segmentation, but
+  specific to Graha/full-model behavior.
+- `toy_model/all_tasks`: shared across semantic and instance segmentation, but
+  specific to Toy behavior.
+- `full_model/{sem_seg,inst_seg}` and `toy_model/{sem_seg,inst_seg}`:
+  model-family-specific and task-specific implementation details.
+
+This structure should be introduced gradually. Avoid creating empty mirrored
+directories solely for symmetry. Prefer moving code when there is a concrete
+shared behavior to extract.
+
+Phase 1: Shared Data And Preprocessing
+
+Add shared data utilities under:
+
+`lfm/full_model/all_tasks/data/` initially, with the expected final home:
+
+`lfm/all_models/all_tasks/data/`
+
+The initial `full_model/all_tasks/data` location is a stepping stone from the
+current repo structure. If Toy and Graha both depend on these utilities, moving
+them to `all_models/all_tasks/data` should be treated as part of the structural
+cleanup, not as a compatibility shim.
+
+Candidate modules:
+
+- `image_io.py`
+- `normalization.py`
+- `nodata.py`
+- `base_dataset.py`
+- `base_datamodule.py`
+
+Responsibilities:
+
+- Match image and label files.
+- Read image files consistently.
+- Apply band filtering.
+- Apply crop/resize transforms.
+- Apply nodata policy.
+- Apply normalization strategy.
+
+Phase 2: Shared Dataset Path
+
+Introduce a shared segmentation dataset base, tentatively:
+
+`LunarSegmentationDataset`
+
+This should handle image-side behavior once. Semantic and instance datasets
+should only specialize target formatting:
+
+- Semantic target output: `{"image", "mask", "filename"}`
+- Instance target output: `{"image", "boxes", "masks", "labels", ...}`
+
+Use inheritance only for the semantic-vs-instance target formatting boundary.
+Use composition for behavior that varies independently.
+
+Phase 3: Normalization Strategy Objects
+
+Introduce composable normalization strategies:
+
+- `NoNormalization`
+- `FinetuneStatsNormalization`
+- `PretrainYamlNormalization`
+
+Both Toy and Graha workflows should request normalization through the same
+interface. The strategy can hide whether stats come from train-split data,
+TerraMind pretraining YAML, or no normalization.
+
+Phase 4: Shared Nodata Policy
+
+Introduce a shared nodata preprocessing policy, for example:
+
+`NoDataPolicy(ignore_in_loss=True, ignore_index=-1, image_fill_value=0.0)`
+
+The dataset should apply image-side nodata behavior once. Losses and metrics
+should consume the same `ignore_index` so masking semantics stay consistent.
+
+Phase 5: Move Toy Semantic Data Loading First
+
+The practical first implementation step should be:
+
+Consolidate Toy semantic data loading onto the shared `LunarSegmentationDataset`
+path.
+
+This is intentionally narrow and testable. It should reduce duplicated code
+without forcing a full experiment-runner rewrite.
+
+After Toy semantic data loading is stable, mirror the same structure for:
+
+- Graha semantic data loading where applicable.
+- Toy instance data loading.
+- Graha instance data loading where applicable.
+
+Phase 6: Model Adapters, Later
+
+After the data layer stabilizes, consider model adapters:
+
+- `ToySemanticModelAdapter`
+- `GrahaSemanticModelAdapter`
+- `ToyInstanceModelAdapter`
+- `GrahaInstanceModelAdapter`
+
+Adapters should know how to build model/task/trainer-related pieces. They
+should not own file matching, image loading, target loading, or normalization
+mechanics.
+
+Phase 7: Experiment Runners, Later
+
+Only after data and workflow boundaries are cleaner, consider:
+
+- `SingleModelExperiment`
+- `ComparisonExperiment`
+- `CheckpointSweepExperiment`
+
+At that point, scripts can become thin CLI wrappers that build config and call
+experiment objects.
+
+Deferred Decisions
+------------------
+
+Do not immediately move Toy workflow modules into `lfm/full_model/{task}`.
+
+The current model-family symmetry is:
+
+- `lfm.toy_model.sem_seg.semantic_seg_finetuning`
+- `lfm.full_model.sem_seg.semantic_seg_finetuning`
+- `lfm.toy_model.inst_seg.instance_seg_finetuning`
+- `lfm.full_model.inst_seg.instance_seg_finetuning`
+
+This is currently clearer than putting Toy implementation under `full_model`.
+Revisit only if the repo explicitly redefines `full_model` as the comparison
+framework root rather than the Graha/full-model implementation area.
+
+Do not start with a full experiment framework rewrite.
+
+The safer path is bottom-up:
+
+1. Shared data IO.
+2. Shared normalization and nodata policy.
+3. Shared base dataset/datamodule.
+4. Toy semantic migration.
+5. Mirrored semantic/instance data migration.
+6. Model adapters.
+7. Experiment runners.
+
+Validation Expectations
+-----------------------
+
+Each phase should include:
+
+- Import/syntax checks for touched modules.
+- Focused unit or smoke tests where available.
+- A structural scan for sem/inst and Toy/Graha symmetry.
+- No compatibility-only files left behind.

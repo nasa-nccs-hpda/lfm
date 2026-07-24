@@ -85,6 +85,8 @@ class SweepConfig:
     normalization_source: str
     normalization_modality: str
     max_test_samples: int | None
+    ignore_nodata_in_loss: bool
+    nodata_ignore_index: int
     dino_checkpoint: Path | None
     graha_pretrain_dir: Path | None
     graha_wac_mode: str
@@ -149,6 +151,8 @@ def build_config(args: argparse.Namespace) -> SweepConfig:
         normalization_source=getattr(args, "normalization_source", "pretrain"),
         normalization_modality=getattr(args, "normalization_modality", "vis_uv"),
         max_test_samples=args.max_test_samples,
+        ignore_nodata_in_loss=getattr(args, "ignore_nodata_in_loss", False),
+        nodata_ignore_index=getattr(args, "nodata_ignore_index", -1),
         dino_checkpoint=dino_checkpoint,
         graha_pretrain_dir=graha_pretrain_dir,
         graha_wac_mode=args.graha_wac_mode,
@@ -399,9 +403,34 @@ def _ap_metrics_from_scores(
     }
 
 
-def _confusion_counts(pred: np.ndarray, label: np.ndarray) -> dict[str, float]:
-    pred_bool = pred.astype(bool).reshape(-1)
-    label_bool = label.astype(bool).reshape(-1)
+def _valid_arrays(
+    pred: np.ndarray,
+    label: np.ndarray,
+    *,
+    ignore_index: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    pred_flat = pred.reshape(-1)
+    label_flat = label.reshape(-1)
+    if ignore_index is not None:
+        valid = label_flat != int(ignore_index)
+        pred_flat = pred_flat[valid]
+        label_flat = label_flat[valid]
+    return pred_flat, label_flat
+
+
+def _confusion_counts(
+    pred: np.ndarray,
+    label: np.ndarray,
+    *,
+    ignore_index: int | None = None,
+) -> dict[str, float]:
+    pred_flat, label_flat = _valid_arrays(
+        pred,
+        label,
+        ignore_index=ignore_index,
+    )
+    pred_bool = pred_flat.astype(bool)
+    label_bool = label_flat.astype(bool)
     return {
         "tp": float(np.sum(pred_bool & label_bool)),
         "fp": float(np.sum(pred_bool & ~label_bool)),
@@ -489,6 +518,7 @@ def _run_checkpoint(
     checkpoint: CheckpointRecord,
     output_dir: Path,
     model_name: str,
+    ignore_index: int | None = None,
 ) -> dict[str, float]:
     _load_lightning_checkpoint_state(task, checkpoint.path)
     device = next(task.parameters()).device
@@ -537,13 +567,23 @@ def _run_checkpoint(
                 np.save(sample_dir / f"{sample_key}_class_pred.npy", preds_np[i])
                 np.save(sample_dir / f"{sample_key}_logits.npy", logits_np[i])
 
-                sample_counts = _confusion_counts(preds_np[i], labels_np[i])
-                _add_counts(counts_total, sample_counts)
-                sample_ap_metrics = _ap_metrics_from_scores(
-                    foreground_scores_np[i], labels_np[i]
+                sample_counts = _confusion_counts(
+                    preds_np[i],
+                    labels_np[i],
+                    ignore_index=ignore_index,
                 )
-                all_foreground_scores.append(foreground_scores_np[i].reshape(-1))
-                all_labels.append(labels_np[i].reshape(-1))
+                _add_counts(counts_total, sample_counts)
+                valid_scores, valid_labels = _valid_arrays(
+                    foreground_scores_np[i],
+                    labels_np[i],
+                    ignore_index=ignore_index,
+                )
+                sample_ap_metrics = _ap_metrics_from_scores(
+                    valid_scores,
+                    valid_labels,
+                )
+                all_foreground_scores.append(valid_scores.reshape(-1))
+                all_labels.append(valid_labels.reshape(-1))
                 sample_metrics = _metrics_from_counts(sample_counts, sample_ap_metrics)
                 _write_metrics(
                     sample_dir,
@@ -682,6 +722,8 @@ def _make_toy_args(config: SweepConfig) -> argparse.Namespace:
             config.max_test_samples if config.max_test_samples is not None else 10**9
         ),
         epoch_test_every_n_epochs=1,
+        ignore_nodata_in_loss=config.ignore_nodata_in_loss,
+        nodata_ignore_index=config.nodata_ignore_index,
     )
 
 
@@ -732,6 +774,9 @@ def run_toy_sweep(config: SweepConfig) -> list[dict[str, Any]]:
             checkpoint=checkpoint,
             output_dir=model_output_dir,
             model_name="Toy",
+            ignore_index=(
+                config.nodata_ignore_index if config.ignore_nodata_in_loss else None
+            ),
         )
         rows.append(
             {
@@ -786,6 +831,8 @@ def _make_graha_args(config: SweepConfig) -> argparse.Namespace:
         progress_log_every_n_batches=25,
         seed=config.seed,
         no_fit=True,
+        ignore_nodata_in_loss=config.ignore_nodata_in_loss,
+        nodata_ignore_index=config.nodata_ignore_index,
     )
 
 
@@ -856,6 +903,9 @@ def run_graha_sweep(config: SweepConfig) -> list[dict[str, Any]]:
             checkpoint=checkpoint,
             output_dir=model_output_dir,
             model_name="Graha",
+            ignore_index=(
+                config.nodata_ignore_index if config.ignore_nodata_in_loss else None
+            ),
         )
         rows.append(
             {
@@ -949,6 +999,17 @@ def parse_args() -> argparse.Namespace:
         default="vis_uv",
     )
     parser.add_argument("--max-test-samples", type=int, default=None)
+    parser.add_argument(
+        "--ignore-nodata-in-loss",
+        action="store_true",
+        help="Ignore TIFF nodata pixels in semantic segmentation metrics.",
+    )
+    parser.add_argument(
+        "--nodata-ignore-index",
+        type=int,
+        default=-1,
+        help="Target label value used for ignored nodata pixels.",
+    )
     parser.add_argument("--dino-checkpoint", type=str, default=None)
     parser.add_argument("--graha-pretrain-dir", type=str, default=None)
     parser.add_argument(

@@ -13,6 +13,16 @@ import os
 import subprocess
 
 
+def _valid_target_mask(targets, ignore_index=None):
+    if ignore_index is None:
+        return torch.ones_like(targets, dtype=torch.bool)
+    return targets != int(ignore_index)
+
+
+def _zero_loss_like(logits):
+    return logits.sum() * 0.0
+
+
 def install_termcolor_locally():
     # First, try standard pip install
     try:
@@ -61,11 +71,15 @@ class FocalLoss(nn.Module):
         gamma (float): Focusing parameter for modulating loss
     """
 
-    def __init__(self, alpha=0.25, gamma=2.0):
+    def __init__(self, alpha=0.25, gamma=2.0, ignore_index=None):
         super().__init__()
         self.alpha = alpha
         self.gamma = gamma
-        self.ce = nn.CrossEntropyLoss(reduction="none")
+        self.ignore_index = ignore_index
+        ce_kwargs = {"reduction": "none"}
+        if ignore_index is not None:
+            ce_kwargs["ignore_index"] = int(ignore_index)
+        self.ce = nn.CrossEntropyLoss(**ce_kwargs)
 
     def forward(self, logits, targets):
         """
@@ -77,9 +91,12 @@ class FocalLoss(nn.Module):
             Focal loss value
         """
         ce_loss = self.ce(logits, targets)
+        valid = _valid_target_mask(targets, self.ignore_index)
+        if not valid.any():
+            return _zero_loss_like(logits)
         pt = torch.exp(-ce_loss)
         focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
-        return focal_loss.mean()
+        return focal_loss[valid].mean()
 
 
 class DiceLoss(nn.Module):
@@ -94,9 +111,10 @@ class DiceLoss(nn.Module):
         smooth (float): Smoothing factor to avoid division by zero
     """
 
-    def __init__(self, smooth=1.0):
+    def __init__(self, smooth=1.0, ignore_index=None):
         super().__init__()
         self.smooth = smooth
+        self.ignore_index = ignore_index
 
     def forward(self, logits, targets):
         """
@@ -110,10 +128,15 @@ class DiceLoss(nn.Module):
         # Get probabilities for crater class (class 1)
         probs = torch.softmax(logits, dim=1)[:, 1]  # (B, H, W)
         targets_one_hot = (targets == 1).float()  # (B, H, W)
+        valid = _valid_target_mask(targets, self.ignore_index).float()
+        if valid.sum() == 0:
+            return _zero_loss_like(logits)
 
         # Compute dice coefficient
-        intersection = (probs * targets_one_hot).sum(dim=(1, 2))
-        union = probs.sum(dim=(1, 2)) + targets_one_hot.sum(dim=(1, 2))
+        intersection = (probs * targets_one_hot * valid).sum(dim=(1, 2))
+        union = (probs * valid).sum(dim=(1, 2)) + (targets_one_hot * valid).sum(
+            dim=(1, 2)
+        )
 
         dice = (2.0 * intersection + self.smooth) / (union + self.smooth)
         return 1 - dice.mean()
@@ -131,9 +154,10 @@ class BoundaryLoss(nn.Module):
         weight (float): Weight for boundary loss component
     """
 
-    def __init__(self, weight=0.2):
+    def __init__(self, weight=0.2, ignore_index=None):
         super().__init__()
         self.weight = weight
+        self.ignore_index = ignore_index
 
         # Sobel filters for edge detection
         # Register_buffer auto-moves to device
@@ -161,6 +185,9 @@ class BoundaryLoss(nn.Module):
         """
         # Get predicted crater mask
         probs = torch.softmax(logits, dim=1)[:, 1:2]  # (B, 1, H, W)
+        valid = _valid_target_mask(targets, self.ignore_index).unsqueeze(1)
+        if not valid.any():
+            return _zero_loss_like(logits)
         targets_mask = (targets == 1).unsqueeze(1).float()  # (B, 1, H, W)
 
         # Compute edges for predictions
@@ -174,7 +201,7 @@ class BoundaryLoss(nn.Module):
         gt_edges = torch.sqrt(gt_edges_x**2 + gt_edges_y**2)
 
         # Penalize difference in boundary strength
-        boundary_loss = F.mse_loss(pred_edges, gt_edges)
+        boundary_loss = F.mse_loss(pred_edges[valid], gt_edges[valid])
         return self.weight * boundary_loss
 
 
@@ -191,12 +218,15 @@ class CombinedLoss(nn.Module):
         dice_weight (float): Weight for dice loss component
     """
 
-    def __init__(self, ce_weight=0.5, dice_weight=0.5):
+    def __init__(self, ce_weight=0.5, dice_weight=0.5, ignore_index=None):
         super().__init__()
         self.ce_weight = ce_weight
         self.dice_weight = dice_weight
-        self.ce = nn.CrossEntropyLoss()
-        self.dice = DiceLoss()
+        ce_kwargs = {}
+        if ignore_index is not None:
+            ce_kwargs["ignore_index"] = int(ignore_index)
+        self.ce = nn.CrossEntropyLoss(**ce_kwargs)
+        self.dice = DiceLoss(ignore_index=ignore_index)
 
     def forward(self, logits, targets):
         """
@@ -226,14 +256,21 @@ class FullLoss(nn.Module):
         boundary_weight (float): Weight for boundary loss
     """
 
-    def __init__(self, ce_weight=0.4, dice_weight=0.4, boundary_weight=0.2):
+    def __init__(
+        self, ce_weight=0.4, dice_weight=0.4, boundary_weight=0.2, ignore_index=None
+    ):
         super().__init__()
         self.ce_weight = ce_weight
         self.dice_weight = dice_weight
         self.boundary_weight = boundary_weight
-        self.ce = nn.CrossEntropyLoss()
-        self.dice = DiceLoss()
-        self.boundary = BoundaryLoss(weight=1.0)  # Weight handled externally
+        ce_kwargs = {}
+        if ignore_index is not None:
+            ce_kwargs["ignore_index"] = int(ignore_index)
+        self.ce = nn.CrossEntropyLoss(**ce_kwargs)
+        self.dice = DiceLoss(ignore_index=ignore_index)
+        self.boundary = BoundaryLoss(
+            weight=1.0, ignore_index=ignore_index
+        )  # Weight handled externally
 
     def forward(self, logits, targets):
         """
@@ -272,13 +309,21 @@ class FocalDiceLoss(nn.Module):
     """
 
     def __init__(
-        self, focal_weight=0.3, dice_weight=0.7, alpha=0.25, gamma=2.0, smooth=1.0
+        self,
+        focal_weight=0.3,
+        dice_weight=0.7,
+        alpha=0.25,
+        gamma=2.0,
+        smooth=1.0,
+        ignore_index=None,
     ):
         super().__init__()
         self.focal_weight = focal_weight
         self.dice_weight = dice_weight
-        self.focal_loss = FocalLoss(alpha=alpha, gamma=gamma)
-        self.dice_loss = DiceLoss(smooth=smooth)
+        self.focal_loss = FocalLoss(
+            alpha=alpha, gamma=gamma, ignore_index=ignore_index
+        )
+        self.dice_loss = DiceLoss(smooth=smooth, ignore_index=ignore_index)
 
     def forward(self, logits, targets):
         """
@@ -300,7 +345,7 @@ class FocalDiceLoss(nn.Module):
         )
 
 
-def get_loss_function(loss_type="cross_entropy"):
+def get_loss_function(loss_type="cross_entropy", ignore_index=None):
     """
     Factory function to get loss function by name.
 
@@ -320,12 +365,27 @@ def get_loss_function(loss_type="cross_entropy"):
         nn.Module: Loss function module
     """
     loss_functions = {
-        "cross_entropy": nn.CrossEntropyLoss(),
-        "focal": FocalLoss(alpha=0.25, gamma=2.0),
-        "dice": DiceLoss(smooth=1.0),
-        "combined": CombinedLoss(ce_weight=0.5, dice_weight=0.5),
-        "focal_dice": FocalDiceLoss(focal_weight=0.3, dice_weight=0.7),
-        "full": FullLoss(ce_weight=0.4, dice_weight=0.4, boundary_weight=0.2),
+        "cross_entropy": nn.CrossEntropyLoss(
+            **(
+                {"ignore_index": int(ignore_index)}
+                if ignore_index is not None
+                else {}
+            )
+        ),
+        "focal": FocalLoss(alpha=0.25, gamma=2.0, ignore_index=ignore_index),
+        "dice": DiceLoss(smooth=1.0, ignore_index=ignore_index),
+        "combined": CombinedLoss(
+            ce_weight=0.5, dice_weight=0.5, ignore_index=ignore_index
+        ),
+        "focal_dice": FocalDiceLoss(
+            focal_weight=0.3, dice_weight=0.7, ignore_index=ignore_index
+        ),
+        "full": FullLoss(
+            ce_weight=0.4,
+            dice_weight=0.4,
+            boundary_weight=0.2,
+            ignore_index=ignore_index,
+        ),
     }
 
     if loss_type not in loss_functions:

@@ -46,6 +46,8 @@ class LunarSegmentationDatamodule(LightningDataModule):
         max_test_samples: int | None = None,
         no_data_replace: float | None = None,
         no_label_replace: int | None = None,
+        ignore_nodata_in_loss: bool = False,
+        nodata_ignore_index: int = -1,
         mask_shift: tuple[int, int] | None = None,
         pin_memory: bool = True,
     ) -> None:
@@ -73,6 +75,8 @@ class LunarSegmentationDatamodule(LightningDataModule):
         }
         self.no_data_replace = no_data_replace
         self.no_label_replace = no_label_replace
+        self.ignore_nodata_in_loss = ignore_nodata_in_loss
+        self.nodata_ignore_index = int(nodata_ignore_index)
         self.mask_shift = mask_shift
         self.pin_memory = pin_memory
 
@@ -100,6 +104,8 @@ class LunarSegmentationDatamodule(LightningDataModule):
             binarize_mask=self.binarize_mask,
             no_data_replace=self.no_data_replace,
             no_label_replace=self.no_label_replace,
+            ignore_nodata_in_loss=self.ignore_nodata_in_loss,
+            nodata_ignore_index=self.nodata_ignore_index,
             mask_shift=self.mask_shift,
             split_name=split_name,
             **self._dataset_kwargs(),
