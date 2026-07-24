@@ -152,7 +152,7 @@ class InstanceComparisonConfig:
     toy_lightning_checkpoint: Path | None
     graha_pretrain_dir: Path | None
     graha_lightning_checkpoint: Path | None
-    graha_wac_mode: str
+    graha_input_modality_mode: str
     graha_vis_uv_merge_method: str
     normalization_source: str
     normalization_modality: str
@@ -237,7 +237,7 @@ def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
             if args.graha_lightning_checkpoint
             else None
         ),
-        graha_wac_mode=args.graha_wac_mode,
+        graha_input_modality_mode=args.graha_input_modality_mode,
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=getattr(args, "normalization_source", "pretrain"),
         normalization_modality=getattr(args, "normalization_modality", "vis_uv"),
@@ -356,7 +356,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--graha-pretrain-dir", type=str, default=None)
     parser.add_argument("--graha-lightning-checkpoint", type=str, default=None)
     parser.add_argument(
-        "--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac"
+        "--graha-input-modality-mode", choices=["new-wac", "vis-uv"], default="new-wac"
     )
     parser.add_argument(
         "--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean"

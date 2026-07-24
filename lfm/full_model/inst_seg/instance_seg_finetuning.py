@@ -89,7 +89,7 @@ class InstanceFineTuningConfig:
     base_output_dir: Path
     lightning_checkpoint: Path | None
     normalized_wac_data_range: list[float]
-    graha_wac_mode: str
+    graha_input_modality_mode: str
     graha_vis_uv_merge_method: str
     normalization_source: str
     normalization_modality: str
@@ -183,7 +183,7 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         base_output_dir=base_output_dir,
         lightning_checkpoint=lightning_checkpoint,
         normalized_wac_data_range=[-1.0, 1.0],
-        graha_wac_mode=args.graha_wac_mode,
+        graha_input_modality_mode=args.graha_input_modality_mode,
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=getattr(args, "normalization_source", "pretrain"),
         normalization_modality=getattr(args, "normalization_modality", "vis_uv"),
@@ -435,7 +435,7 @@ def create_task(
     wac_num_channels = int(sample_batch["image"].shape[1])
     modality_args = _graha_modality_args(config, wac_num_channels)
     print("WAC channels registered for model:", wac_num_channels)
-    print("Graha WAC mode:", config.graha_wac_mode)
+    print("Graha input modality mode:", config.graha_input_modality_mode)
     print("Backbone modalities:", modality_args["backbone_modalities"])
     print("Backbone merge method:", modality_args["backbone_merge_method"])
 
@@ -478,7 +478,7 @@ def create_task(
 def _graha_modality_args(
     config: InstanceFineTuningConfig, wac_num_channels: int
 ) -> dict[str, Any]:
-    if config.graha_wac_mode == "new-wac":
+    if config.graha_input_modality_mode == "new-wac":
         return {
             "backbone_modalities": ["wac"],
             "backbone_new_modalities": {
@@ -490,17 +490,19 @@ def _graha_modality_args(
             },
             "backbone_merge_method": None,
         }
-    if config.graha_wac_mode == "vis-uv":
+    if config.graha_input_modality_mode == "vis-uv":
         if wac_num_channels != 7:
             raise ValueError(
-                f"graha_wac_mode='vis-uv' expects 7 channels (5 vis + 2 uv), got {wac_num_channels}"
+                f"graha_input_modality_mode='vis-uv' expects 7 channels (5 vis + 2 uv), got {wac_num_channels}"
             )
         return {
             "backbone_modalities": ["vis", "uv"],
             "backbone_new_modalities": None,
             "backbone_merge_method": config.graha_vis_uv_merge_method,
         }
-    raise ValueError(f"Unsupported graha_wac_mode: {config.graha_wac_mode}")
+    raise ValueError(
+        f"Unsupported graha_input_modality_mode: {config.graha_input_modality_mode}"
+    )
 
 
 def run_loss_smoke(task, sample_batch: dict[str, Any]) -> None:
@@ -615,7 +617,7 @@ def build_comparison_config(
             if config.graha_lightning_checkpoint
             else None
         ),
-        graha_wac_mode=config.graha_wac_mode,
+        graha_input_modality_mode=config.graha_input_modality_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         normalization_source=config.normalization_source,
         normalization_modality=config.normalization_modality,
@@ -780,7 +782,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pretrain-dir", type=str, default=None)
     parser.add_argument("--lightning-checkpoint", type=str, default=None)
     parser.add_argument(
-        "--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac"
+        "--graha-input-modality-mode", choices=["new-wac", "vis-uv"], default="new-wac"
     )
     parser.add_argument(
         "--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean"

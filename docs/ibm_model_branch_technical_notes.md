@@ -80,7 +80,7 @@ Current preferred approach:
 - Use:
 
 ```bash
---graha-wac-mode vis-uv
+--graha-input-modality-mode vis-uv
 --graha-vis-uv-merge-method mean
 ```
 
@@ -251,7 +251,7 @@ Example:
 Semantic full train plus sweep should use:
 
 ```bash
---graha-wac-mode vis-uv
+--graha-input-modality-mode vis-uv
 --graha-vis-uv-merge-method mean
 --spatial-transform crop
 --target-size 256
@@ -261,7 +261,7 @@ Instance full train plus sweep should use:
 
 ```bash
 --toy-architecture dino-mask-rcnn
---graha-wac-mode vis-uv
+--graha-input-modality-mode vis-uv
 --graha-vis-uv-merge-method mean
 --target-size 256
 ```

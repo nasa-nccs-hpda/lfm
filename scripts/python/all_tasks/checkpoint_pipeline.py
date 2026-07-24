@@ -82,7 +82,7 @@ def _common_comparison_args(args: argparse.Namespace) -> list[str]:
     _append_flag(command, "--data-root", args.data_root)
     _append_flag(command, "--dino-checkpoint", args.dino_checkpoint)
     _append_flag(command, "--graha-pretrain-dir", args.graha_pretrain_dir)
-    _append_flag(command, "--graha-wac-mode", args.graha_wac_mode)
+    _append_flag(command, "--graha-input-modality-mode", args.graha_input_modality_mode)
     _append_flag(command, "--graha-vis-uv-merge-method", args.graha_vis_uv_merge_method)
     _append_flag(command, "--normalization-source", args.normalization_source)
     _append_flag(command, "--normalization-modality", args.normalization_modality)
@@ -236,7 +236,7 @@ def _semantic_sweep_command(
     _append_flag(command, "--nodata-ignore-index", args.nodata_ignore_index)
     _append_flag(command, "--dino-checkpoint", args.dino_checkpoint)
     _append_flag(command, "--graha-pretrain-dir", args.graha_pretrain_dir)
-    _append_flag(command, "--graha-wac-mode", args.graha_wac_mode)
+    _append_flag(command, "--graha-input-modality-mode", args.graha_input_modality_mode)
     _append_flag(command, "--graha-vis-uv-merge-method", args.graha_vis_uv_merge_method)
     _append_flag(command, "--graha-stats-batch-size", args.graha_stats_batch_size)
     _append_flag(command, "--graha-batch-size", args.graha_batch_size)
@@ -286,7 +286,7 @@ def _instance_sweep_command(
     _append_flag(command, "--toy-architecture", args.toy_architecture)
     _append_flag(command, "--dino-checkpoint", args.dino_checkpoint)
     _append_flag(command, "--graha-pretrain-dir", args.graha_pretrain_dir)
-    _append_flag(command, "--graha-wac-mode", args.graha_wac_mode)
+    _append_flag(command, "--graha-input-modality-mode", args.graha_input_modality_mode)
     _append_flag(command, "--graha-vis-uv-merge-method", args.graha_vis_uv_merge_method)
     _append_flag(command, "--graha-stats-batch-size", args.graha_stats_batch_size)
     _append_flag(command, "--graha-batch-size", args.graha_batch_size)
@@ -391,7 +391,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dino-checkpoint", type=str, default=None)
     parser.add_argument("--graha-pretrain-dir", type=str, default=None)
     parser.add_argument(
-        "--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac"
+        "--graha-input-modality-mode", choices=["new-wac", "vis-uv"], default="new-wac"
     )
     parser.add_argument(
         "--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean"

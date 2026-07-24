@@ -50,7 +50,7 @@ COMMON_ARGS=(
   --normalize-inputs
   --loss-type dice
   --disable-toy-gradient-clipping
-  --graha-wac-mode vis-uv
+  --graha-input-modality-mode vis-uv
   --graha-vis-uv-merge-method mean
   --prediction-split val
   --prediction-n-samples "${PREDICTION_N_SAMPLES}"

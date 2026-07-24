@@ -107,7 +107,7 @@ This copies a selected experiment output directory to the project experiment spa
 
 - Semantic comparison can use instance-derived semantic labels with `--semantic-label-source instance`.
 - WAC inputs generally use the first 7 bands.
-- Graha WAC mode should usually be `--graha-wac-mode vis-uv --graha-vis-uv-merge-method mean`.
+- Graha input modality mode should usually be `--graha-input-modality-mode vis-uv --graha-vis-uv-merge-method mean`.
 - TerraMind/Graha pretraining normalization uses `--normalization-source pretrain`.
 - DINO/train-split normalization uses `--normalization-source finetune`.
 - Spatial semantic loss is additive, not a replacement for Dice:

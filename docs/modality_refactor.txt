@@ -9,10 +9,10 @@ This document tracks the remaining repo cleanup needed to make NAC and WAC modal
 Current State
 -------------
 
-- WAC VIS+UV workflows are supported through `--graha-wac-mode vis-uv` and `--normalization-modality vis_uv`.
+- WAC VIS+UV workflows are supported through `--graha-input-modality-mode vis-uv` and `--normalization-modality vis_uv`.
 - NAC workflows currently work, but still use some WAC-era plumbing:
   - `--normalization-modality nac` controls NAC/DTM pretraining normalization stats.
-  - `--graha-wac-mode new-wac` registers the NAC tensor as a new image modality in the Graha/Lunar-FM backbone.
+  - `--graha-input-modality-mode new-wac` registers the NAC tensor as a new image modality in the Graha/Lunar-FM backbone.
   - `--band-filter 0` selects PHO/NAC only.
   - `--band-filter 0 1` should select PHO/NAC + DTM when the dataset was created with DTM.
 - A 100 epoch semantic segmentation experiment is currently being run on the non-DTM NAC dataset with TerraMind-style NAC normalization and spatial + Dice loss.
@@ -32,13 +32,11 @@ Planned Steps
      - expected channel count of 1 or 2
    - Keep lower-level flags temporarily as overrides for debugging and backward compatibility.
 
-2. [Pending] Rename WAC-specific internal argument names.
-   - `graha_wac_mode` is now misleading for NAC.
-   - Consider replacing it with one of:
-     - `graha_modality_mode`
-     - `input_modality_mode`
-     - `modality_family`
-   - Update scripts, notebooks, dataclasses, config JSON, and docs after the external CLI behavior is stable.
+2. [Completed] Rename WAC-specific internal argument names.
+   - The external CLI flag is now `--graha-input-modality-mode`.
+   - The matching Python/config field is now `graha_input_modality_mode`.
+   - The lower-level mode values remain `new-wac` and `vis-uv` until the
+     higher-level `--modality` argument is introduced.
 
 3. [Pending] Add explicit NAC channel-layout validation.
    - For `--modality nac`, validate that the datamodule emits either 1 or 2 channels.

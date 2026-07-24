@@ -68,7 +68,7 @@ class ToyComparisonConfig:
     graha_base_output_dir: Path
     graha_pretrain_dir: Path | None
     graha_lightning_checkpoint: Path | None
-    graha_wac_mode: str
+    graha_input_modality_mode: str
     graha_vis_uv_merge_method: str
     graha_shape_loss_weight: float
     graha_shape_loss_pad_frac: float
@@ -441,7 +441,7 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         graha_base_output_dir=graha_base_output_dir,
         graha_pretrain_dir=graha_pretrain_dir,
         graha_lightning_checkpoint=graha_lightning_checkpoint,
-        graha_wac_mode=args.graha_wac_mode,
+        graha_input_modality_mode=args.graha_input_modality_mode,
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         graha_shape_loss_weight=getattr(args, "graha_shape_loss_weight", 0.05),
         graha_shape_loss_pad_frac=getattr(args, "graha_shape_loss_pad_frac", 0.3),
@@ -673,7 +673,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Optional Graha Lightning .ckpt. Resumes fit, or loads weights when Graha fit is skipped.",
     )
     parser.add_argument(
-        "--graha-wac-mode", choices=["new-wac", "vis-uv"], default="new-wac"
+        "--graha-input-modality-mode", choices=["new-wac", "vis-uv"], default="new-wac"
     )
     parser.add_argument(
         "--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean"
