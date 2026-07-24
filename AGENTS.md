@@ -131,5 +131,5 @@ This copies a selected experiment output directory to the project experiment spa
 - Prefer task-specific modules/scripts over adding more logic directly into notebooks.
 - Use `scripts/python/...` for reusable workflow logic and `scripts/shell/...` for sbatch wrappers.
 - Keep shell scripts Linux-safe and verify new/edited `.sh` files do not contain CRLF line endings.
+- For diagnostic/audit tasks over many files or samples, use progress bars and multiprocessing where appropriate. Prefer `ProcessPoolExecutor` for CPU-bound/file-heavy per-sample work, `ThreadPoolExecutor` for lightweight I/O-bound checks, and plain `tqdm` rather than widget-backed progress bars in HPC/JupyterHub notebooks.
 - Use focused commits and avoid mixing generated experiment artifacts with code/doc changes.
-
