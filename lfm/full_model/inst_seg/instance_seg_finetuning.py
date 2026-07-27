@@ -122,6 +122,8 @@ class InstanceFineTuningConfig:
     prediction_score_threshold: float
     progress_log_every_n_batches: int
     mask_shift: tuple[int, int]
+    ignore_nodata_in_loss: bool
+    nodata_ignore_index: int
     seed: int
 
 
@@ -216,6 +218,8 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         prediction_score_threshold=args.prediction_score_threshold,
         progress_log_every_n_batches=args.progress_log_every_n_batches,
         mask_shift=tuple(args.mask_shift),
+        ignore_nodata_in_loss=getattr(args, "ignore_nodata_in_loss", False),
+        nodata_ignore_index=getattr(args, "nodata_ignore_index", -1),
         seed=args.seed,
     )
 
@@ -320,6 +324,8 @@ def common_datamodule_args(config: InstanceFineTuningConfig) -> dict[str, Any]:
         "no_data_replace": 0.0,
         "no_label_replace": None,
         "mask_shift": config.mask_shift,
+        "ignore_nodata_in_loss": config.ignore_nodata_in_loss,
+        "nodata_ignore_index": config.nodata_ignore_index,
     }
 
 
@@ -650,6 +656,8 @@ def build_comparison_config(
         prediction_score_threshold=config.prediction_score_threshold,
         progress_log_every_n_batches=config.progress_log_every_n_batches,
         mask_shift=config.mask_shift,
+        ignore_nodata_in_loss=config.ignore_nodata_in_loss,
+        nodata_ignore_index=config.nodata_ignore_index,
         seed=config.seed,
         no_fit=config.skip_graha_fit,
         loss_smoke_only=False,
@@ -874,6 +882,17 @@ def parse_args() -> argparse.Namespace:
             "Integer label-mask shift applied before crop. Positive X moves labels right; "
             "positive Y moves labels down."
         ),
+    )
+    parser.add_argument(
+        "--ignore-nodata-in-loss",
+        action="store_true",
+        help="Thread TIFF nodata pixels through instance target preprocessing.",
+    )
+    parser.add_argument(
+        "--nodata-ignore-index",
+        type=int,
+        default=-1,
+        help="Target label value used for ignored nodata pixels.",
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-fit", action="store_true")

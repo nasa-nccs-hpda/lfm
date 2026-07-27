@@ -192,6 +192,8 @@ class InstanceComparisonConfig:
     prediction_n_samples: int
     prediction_score_threshold: float
     mask_shift: tuple[int, int]
+    ignore_nodata_in_loss: bool
+    nodata_ignore_index: int
     skip_toy_fit: bool
     skip_graha_fit: bool
     run_epoch_test_suite: bool
@@ -279,6 +281,8 @@ def build_config(args: argparse.Namespace) -> InstanceComparisonConfig:
         prediction_n_samples=args.prediction_n_samples,
         prediction_score_threshold=args.prediction_score_threshold,
         mask_shift=tuple(args.mask_shift),
+        ignore_nodata_in_loss=getattr(args, "ignore_nodata_in_loss", False),
+        nodata_ignore_index=getattr(args, "nodata_ignore_index", -1),
         skip_toy_fit=args.no_fit or args.skip_toy_fit,
         skip_graha_fit=args.no_fit or args.skip_graha_fit,
         run_epoch_test_suite=args.run_epoch_test_suite,
@@ -448,6 +452,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--prediction-n-samples", type=int, default=5)
     parser.add_argument("--prediction-score-threshold", type=float, default=0.5)
     parser.add_argument("--mask-shift", type=int, nargs=2, default=(0, 0))
+    parser.add_argument(
+        "--ignore-nodata-in-loss",
+        action="store_true",
+        help="Thread TIFF nodata pixels through instance target preprocessing.",
+    )
+    parser.add_argument(
+        "--nodata-ignore-index",
+        type=int,
+        default=-1,
+        help="Target label value used for ignored nodata pixels.",
+    )
     parser.add_argument(
         "--skip-toy-fit", action="store_true", help="Skip only Toy fitting."
     )

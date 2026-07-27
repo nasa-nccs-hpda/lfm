@@ -376,14 +376,17 @@ Sub-steps:
    paths so the older repo-owned full-model datamodules and newer shared data
    scaffold use the same policy object.
 
-3. [In Progress] Pass the same ignore index to loss and metric code.
+3. [Completed] Pass the same ignore index to loss and metric code.
 
    Semantic workflow config already threads `ignore_nodata_in_loss` and
    `nodata_ignore_index` into datamodules, losses, and metrics. Instance
-   workflows still need explicit smoke-test coverage before this is considered
-   fully verified.
+   comparison, finetuning, and checkpoint-sweep entry points now expose the
+   same config fields and pass them into Toy and Graha datamodules. Instance
+   object-detection losses do not consume a semantic-style ignore index
+   directly, but the shared target preprocessing receives the same nodata
+   policy.
 
-4. [Pending] Verify semantic and instance behavior separately. Instance segmentation may
+4. [In Progress] Verify semantic and instance behavior separately. Instance segmentation may
    need different target handling even when image-side nodata behavior is shared.
 
 Phase 5: Move Toy Semantic Data Loading First
