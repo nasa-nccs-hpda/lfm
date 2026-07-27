@@ -8,10 +8,34 @@ This branch develops full-model Lunar-FM/Graha workflows and comparison experime
 
 - Codex/dev micromamba environment: `lfm-codex-dev`
 - Environment path on this Windows machine: `C:\Users\ajkerr1\micromamba\envs\lfm-codex-dev`
+- For Python syntax, formatting, linting, import, and dependency checks, use the
+  environment Python explicitly:
+  `C:\Users\ajkerr1\micromamba\envs\lfm-codex-dev\python.exe`
+- Do not use the global `python` command for repo checks on this machine. It may
+  resolve to a Windows Store/global Python without the repo dependencies.
 - Activate locally with:
 
 ```powershell
 micromamba activate lfm-codex-dev
+```
+
+## Codex Command Notes
+
+- Prefer commands that have been stable in the Codex sandbox: `rg --files`,
+  `rg -n`, and commands run from the intended `workdir`.
+- Avoid command shapes that have repeatedly triggered Windows sandbox launch
+  errors in this repo, including `git -C ...`, PowerShell pipelines for file
+  reads such as `Get-Content ... | Select-Object ...`, and repeated retries of
+  the same failing command form.
+- For Git commands, prefer setting the tool `workdir` to the repo root and then
+  running plain commands such as `git status --short`.
+- If a Python check is needed, call the micromamba environment Python directly,
+  for example:
+
+```powershell
+C:\Users\ajkerr1\micromamba\envs\lfm-codex-dev\python.exe -m black <paths>
+C:\Users\ajkerr1\micromamba\envs\lfm-codex-dev\python.exe -m ruff check <paths>
+C:\Users\ajkerr1\micromamba\envs\lfm-codex-dev\python.exe -m compileall <paths>
 ```
 
 ## Current Layout
