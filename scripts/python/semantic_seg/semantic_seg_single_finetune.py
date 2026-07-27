@@ -1,5 +1,7 @@
 """Run one semantic-segmentation model without final comparison plotting."""
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import argparse
@@ -15,9 +17,18 @@ if str(LFM_ROOT) not in sys.path:
     sys.path.insert(0, str(LFM_ROOT))
 
 from lfm.full_model.all_tasks.utils import ensure_data_symlink
-from lfm.full_model.sem_seg import semantic_seg_finetuning as graha_workflow
-from lfm.toy_model.sem_seg import semantic_seg_finetuning as toy_workflow
-from scripts.python.semantic_seg import semantic_seg_comparison as comparison
+from lfm.full_model.sem_seg.semantic_model_adapter import (
+    GrahaSemanticModelAdapter,
+)
+from lfm.toy_model.sem_seg.semantic_model_adapter import (
+    ToySemanticModelAdapter,
+)
+from scripts.python.semantic_seg import (
+    semantic_seg_comparison as comparison,
+)
+
+TOY_ADAPTER = ToySemanticModelAdapter()
+GRAHA_ADAPTER = GrahaSemanticModelAdapter()
 
 
 def _json_ready(value: Any) -> Any:
@@ -59,7 +70,7 @@ def main() -> None:
     timing_rows: list[dict[str, Any]] = []
 
     if model == "toy":
-        toy_workflow.run_toy_workflow(
+        TOY_ADAPTER.run_workflow(
             config,
             output_dir=output_dir,
             normalization_modality_info=comparison.get_toy_normalization_modality_info(
@@ -70,7 +81,7 @@ def main() -> None:
             record_timing=comparison.record_timing,
         )
     else:
-        graha_workflow.run_graha_workflow(
+        GRAHA_ADAPTER.run_workflow(
             config,
             no_fit=config.skip_graha_fit,
             comparison_output_dir=output_dir,

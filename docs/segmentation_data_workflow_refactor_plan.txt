@@ -467,10 +467,23 @@ Sub-steps:
    `ModelAdapter`, `SemanticModelAdapter`, and `InstanceModelAdapter` protocols
    without importing model-framework dependencies.
 
-2. [In Progress] Keep task differences explicit. A semantic adapter and instance adapter may
+2. [Completed] Keep task differences explicit. A semantic adapter and instance adapter may
    share a base class, but should not hide task-specific loss/metric behavior.
 
-3. [Pending] Use adapters from workflows, not from datasets/datamodules.
+   Semantic now has separate concrete adapters for Toy/DINO and Graha/Lunar-FM:
+
+   - `lfm.toy_model.sem_seg.semantic_model_adapter.ToySemanticModelAdapter`
+   - `lfm.full_model.sem_seg.semantic_model_adapter.GrahaSemanticModelAdapter`
+
+   These adapters wrap existing workflow construction functions and keep
+   model-family-specific behavior in the model-family packages.
+
+3. [In Progress] Use adapters from workflows, not from datasets/datamodules.
+
+   Semantic comparison and semantic single-finetune scripts now invoke Toy and
+   Graha workflow runs through concrete semantic adapters. Semantic checkpoint
+   sweep still calls lower-level workflow functions directly and can be migrated
+   separately.
 
 Phase 7: Experiment Runners, Later
 

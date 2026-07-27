@@ -14,14 +14,17 @@ import numpy as np
 import torch
 from lightning.pytorch.callbacks import Callback
 
-from lfm.full_model.sem_seg import semantic_seg_finetuning as graha_workflow
-from lfm.toy_model.sem_seg import semantic_seg_finetuning as toy_workflow
 from lfm.full_model.all_tasks.utils import (
     create_timestamped_output_dir,
     evaluate_prediction_caches,
     plot_prediction_cache_comparison,
 )
 from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
+from lfm.full_model.sem_seg.semantic_model_adapter import GrahaSemanticModelAdapter
+from lfm.toy_model.sem_seg.semantic_model_adapter import ToySemanticModelAdapter
+
+TOY_ADAPTER = ToySemanticModelAdapter()
+GRAHA_ADAPTER = GrahaSemanticModelAdapter()
 
 
 @dataclass(frozen=True)
@@ -548,7 +551,7 @@ def record_timing(
 def get_toy_normalization_modality_info(config: ToyComparisonConfig) -> Path | None:
     if not config.normalize_inputs or config.normalization_source != "pretrain":
         return None
-    normalization_config = graha_workflow.build_comparison_config(
+    normalization_config = GRAHA_ADAPTER.build_comparison_config(
         config,
         config.graha_base_output_dir,
     )
@@ -718,7 +721,7 @@ def main() -> None:
     save_config(config, output_dir)
     timing_rows: list[dict[str, Any]] = []
 
-    toy_prediction_cache = toy_workflow.run_toy_workflow(
+    toy_prediction_cache = TOY_ADAPTER.run_workflow(
         config,
         output_dir=output_dir,
         normalization_modality_info=get_toy_normalization_modality_info(config),
@@ -727,7 +730,7 @@ def main() -> None:
         record_timing=record_timing,
     )
 
-    _, graha_prediction_cache = graha_workflow.run_graha_workflow(
+    _, graha_prediction_cache = GRAHA_ADAPTER.run_workflow(
         config,
         no_fit=config.skip_graha_fit,
         comparison_output_dir=output_dir,
