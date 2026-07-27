@@ -1,26 +1,26 @@
-"""Graha semantic segmentation model adapter."""
+"""Graha instance segmentation model adapter."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-from lfm.all_models.all_tasks import SemanticModelAdapter
-from lfm.full_model.sem_seg import semantic_seg_finetuning as workflow
+from lfm.all_models.all_tasks import InstanceModelAdapter
+from lfm.full_model.inst_seg import instance_seg_finetuning as workflow
 
 
-class GrahaSemanticModelAdapter(SemanticModelAdapter):
-    """Adapter for Graha/Lunar-FM semantic segmentation workflow construction."""
+class GrahaInstanceModelAdapter(InstanceModelAdapter):
+    """Adapter for Graha/Lunar-FM instance segmentation workflow construction."""
 
     @property
     def display_name(self) -> str:
         return "Graha"
 
-    def build_comparison_config(self, config: Any, output_dir: Path) -> Any:
-        return workflow.build_comparison_config(config, output_dir)
-
     def build_config(self, args: Any) -> Any:
         return workflow.build_config(args)
+
+    def build_comparison_config(self, config: Any, output_dir: Path) -> Any:
+        return workflow.build_comparison_config(config, output_dir)
 
     def configure_environment(self) -> None:
         workflow.configure_proj_environment()
@@ -34,9 +34,9 @@ class GrahaSemanticModelAdapter(SemanticModelAdapter):
     def import_project_dependencies(self) -> dict[str, Any]:
         return workflow.import_project_dependencies()
 
-    def make_task_class(self, lunar_shape_segmentation_task_cls: Any) -> Any:
-        return workflow.make_downstream_shape_segmentation_task_class(
-            lunar_shape_segmentation_task_cls
+    def make_task_class(self, lunar_object_detection_task_cls: Any) -> Any:
+        return workflow.make_downstream_object_detection_task_class(
+            lunar_object_detection_task_cls
         )
 
     def get_normalization_stats(
@@ -64,7 +64,7 @@ class GrahaSemanticModelAdapter(SemanticModelAdapter):
         *args: Any,
         **kwargs: Any,
     ) -> Any:
-        sample_batch = workflow.inspect_batch(datamodule)
+        sample_batch = self.inspect_batch(datamodule)
         return self.create_task(config, *args, sample_batch=sample_batch, **kwargs)
 
     def create_trainer(
@@ -90,5 +90,5 @@ class GrahaSemanticModelAdapter(SemanticModelAdapter):
             **kwargs,
         )
 
-    def run_workflow(self, config: Any, **kwargs: Any) -> tuple[Path, Path | None]:
-        return workflow.run_graha_workflow(config, **kwargs)
+    def run_workflow(self, config: Any, output_dir: Path, **kwargs: Any) -> Path | None:
+        return workflow.run_graha_workflow(config, output_dir, **kwargs)

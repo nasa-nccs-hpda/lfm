@@ -1,5 +1,7 @@
 """Run one instance-segmentation model without final comparison plotting."""
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import argparse
@@ -15,9 +17,12 @@ if str(LFM_ROOT) not in sys.path:
     sys.path.insert(0, str(LFM_ROOT))
 
 from lfm.full_model.all_tasks.utils import ensure_data_symlink
-from lfm.full_model.inst_seg import instance_seg_finetuning as graha_workflow
-from lfm.toy_model.inst_seg import instance_seg_finetuning as toy_workflow
+from lfm.full_model.inst_seg.instance_model_adapter import GrahaInstanceModelAdapter
+from lfm.toy_model.inst_seg.instance_model_adapter import ToyInstanceModelAdapter
 from scripts.python.instance_seg import instance_seg_comparison as comparison
+
+TOY_ADAPTER = ToyInstanceModelAdapter()
+GRAHA_ADAPTER = GrahaInstanceModelAdapter()
 
 
 def _json_ready(value: Any) -> Any:
@@ -60,7 +65,7 @@ def main() -> None:
     save_single_config(model, config, output_dir)
 
     if model == "toy":
-        toy_workflow.run_toy_workflow(
+        TOY_ADAPTER.run_workflow(
             config,
             output_dir,
             normalization_modality_info=comparison.get_toy_normalization_modality_info(
@@ -69,7 +74,7 @@ def main() -> None:
             epoch_test_suite_callback_cls=comparison.InstanceEpochTestSuiteCallback,
         )
     else:
-        graha_workflow.run_graha_workflow(
+        GRAHA_ADAPTER.run_workflow(
             config,
             output_dir,
             validation_plot_callback_cls=comparison.GrahaInstancePlotCallback,

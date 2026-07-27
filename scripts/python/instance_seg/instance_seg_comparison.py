@@ -16,8 +16,8 @@ from typing import Any
 
 from lightning.pytorch.callbacks import Callback
 
-from lfm.full_model.inst_seg import instance_seg_finetuning as graha_workflow
-from lfm.toy_model.inst_seg import instance_seg_finetuning as toy_workflow
+from lfm.full_model.inst_seg.instance_model_adapter import GrahaInstanceModelAdapter
+from lfm.toy_model.inst_seg.instance_model_adapter import ToyInstanceModelAdapter
 from lfm.full_model.all_tasks.utils import (
     create_timestamped_output_dir,
     plot_instance_cache_comparison,
@@ -26,6 +26,9 @@ from lfm.full_model.all_tasks.utils import (
     save_toy_instance_prediction_cache,
 )
 from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
+
+TOY_ADAPTER = ToyInstanceModelAdapter()
+GRAHA_ADAPTER = GrahaInstanceModelAdapter()
 
 
 class GrahaInstancePlotCallback(Callback):
@@ -336,7 +339,7 @@ def get_toy_normalization_modality_info(
 ) -> Path | None:
     if not config.toy_normalize_inputs or config.normalization_source != "pretrain":
         return None
-    normalization_config = graha_workflow.build_comparison_config(
+    normalization_config = GRAHA_ADAPTER.build_comparison_config(
         config,
         config.base_output_dir,
     )
@@ -490,13 +493,13 @@ def main() -> None:
     (output_dir / "checkpoints" / "full_model").mkdir(parents=True, exist_ok=True)
     save_config(config, output_dir)
 
-    toy_prediction_cache = toy_workflow.run_toy_workflow(
+    toy_prediction_cache = TOY_ADAPTER.run_workflow(
         config,
         output_dir,
         normalization_modality_info=get_toy_normalization_modality_info(config),
         epoch_test_suite_callback_cls=InstanceEpochTestSuiteCallback,
     )
-    graha_prediction_cache = graha_workflow.run_graha_workflow(
+    graha_prediction_cache = GRAHA_ADAPTER.run_workflow(
         config,
         output_dir,
         validation_plot_callback_cls=GrahaInstancePlotCallback,

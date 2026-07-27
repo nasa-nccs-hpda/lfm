@@ -478,12 +478,15 @@ Sub-steps:
    These adapters wrap existing workflow construction functions and keep
    model-family-specific behavior in the model-family packages.
 
-3. [In Progress] Use adapters from workflows, not from datasets/datamodules.
+3. [Completed] Use adapters from workflows, not from datasets/datamodules.
 
-   Semantic comparison and semantic single-finetune scripts now invoke Toy and
-   Graha workflow runs through concrete semantic adapters. Semantic checkpoint
-   sweep still calls lower-level workflow functions directly and can be migrated
-   separately.
+   Semantic comparison, semantic single-finetune, and semantic checkpoint sweep
+   now invoke Toy and Graha workflow setup through concrete semantic adapters.
+   Instance comparison, instance single-finetune, and instance checkpoint sweep
+   now mirror the same structure through concrete instance adapters:
+
+   - `lfm.toy_model.inst_seg.instance_model_adapter.ToyInstanceModelAdapter`
+   - `lfm.full_model.inst_seg.instance_model_adapter.GrahaInstanceModelAdapter`
 
 Phase 7: Experiment Runners, Later
 

@@ -36,8 +36,8 @@ from lightning.pytorch import seed_everything
 from tqdm.auto import tqdm
 
 import instance_seg_comparison as comparison_workflow
-from lfm.full_model.inst_seg import instance_seg_finetuning as graha_workflow
-from lfm.toy_model.inst_seg import instance_seg_finetuning as toy_workflow
+from lfm.full_model.inst_seg.instance_model_adapter import GrahaInstanceModelAdapter
+from lfm.toy_model.inst_seg.instance_model_adapter import ToyInstanceModelAdapter
 from lfm.full_model.all_tasks.utils.metrics import _instance_metrics
 from lfm.full_model.inst_seg.instance_prediction_cache import (
     _load_instance_prediction_cache,
@@ -47,6 +47,9 @@ from lfm.full_model.all_tasks.utils import (
     save_graha_instance_prediction_cache,
     save_toy_instance_prediction_cache,
 )
+
+TOY_ADAPTER = ToyInstanceModelAdapter()
+GRAHA_ADAPTER = GrahaInstanceModelAdapter()
 
 METRIC_NAMES = [
     "semantic_f1",
@@ -639,7 +642,7 @@ def _make_comparison_args(config: InstanceSweepConfig) -> argparse.Namespace:
 def _setup_toy(config: InstanceSweepConfig):
     comparison_config = comparison_workflow.build_config(_make_comparison_args(config))
     with _quiet(not config.verbose):
-        datamodule = toy_workflow.create_datamodule(
+        datamodule = TOY_ADAPTER.create_datamodule(
             comparison_config,
             normalization_modality_info=(
                 comparison_workflow.get_toy_normalization_modality_info(
@@ -648,43 +651,37 @@ def _setup_toy(config: InstanceSweepConfig):
             ),
         )
         datamodule.setup(config.prediction_split)
-        task = toy_workflow.create_task(
-            comparison_config,
-            datamodule.weight_assignments or [],
-        )
-        image_processor = toy_workflow.create_image_processor(comparison_config)
+        task = TOY_ADAPTER.create_model_or_task(comparison_config, datamodule)
+        image_processor = TOY_ADAPTER.create_image_processor(comparison_config)
     task.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
     return comparison_config, datamodule, task, image_processor
 
 
 def _setup_graha(config: InstanceSweepConfig):
     comparison_config = comparison_workflow.build_config(_make_comparison_args(config))
-    graha_config = graha_workflow.build_comparison_config(
+    graha_config = GRAHA_ADAPTER.build_comparison_config(
         comparison_config,
         config.output_root / "_graha_setup",
     )
     with _quiet(not config.verbose):
-        graha_workflow.configure_proj_environment()
-        graha_workflow.configure_python_paths(graha_config)
-        graha_workflow.validate_required_paths(graha_config)
-        deps = graha_workflow.import_project_dependencies()
+        GRAHA_ADAPTER.configure_environment()
+        GRAHA_ADAPTER.configure_python_paths(graha_config)
+        GRAHA_ADAPTER.validate_required_paths(graha_config)
+        deps = GRAHA_ADAPTER.import_project_dependencies()
         datamodule_cls = deps["LunarObjectDetectionInstanceMaskDatamodule"]
-        task_cls = graha_workflow.make_downstream_object_detection_task_class(
-            deps["LunarObjectDetectionTask"]
-        )
-        means, stds = graha_workflow.get_normalization_stats(
+        task_cls = GRAHA_ADAPTER.make_task_class(deps["LunarObjectDetectionTask"])
+        means, stds = GRAHA_ADAPTER.get_normalization_stats(
             graha_config,
             datamodule_cls,
         )
-        datamodule = graha_workflow.create_datamodule(
+        datamodule = GRAHA_ADAPTER.create_datamodule(
             graha_config,
             datamodule_cls,
             means,
             stds,
         )
         datamodule.setup(config.prediction_split)
-        sample_batch = graha_workflow.inspect_batch(datamodule)
-        task = graha_workflow.create_task(graha_config, task_cls, sample_batch)
+        task = GRAHA_ADAPTER.create_model_or_task(graha_config, datamodule, task_cls)
     task.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
     return datamodule, task
 

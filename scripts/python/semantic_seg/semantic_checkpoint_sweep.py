@@ -34,13 +34,16 @@ from lightning.pytorch import seed_everything
 from tqdm.auto import tqdm
 from torch.utils.data import Subset
 
-from lfm.full_model.sem_seg import semantic_seg_finetuning as graha_workflow
-from lfm.toy_model.sem_seg import semantic_seg_finetuning as toy_workflow
 from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
+from lfm.full_model.sem_seg.semantic_model_adapter import GrahaSemanticModelAdapter
+from lfm.toy_model.sem_seg.semantic_model_adapter import ToySemanticModelAdapter
 from semantic_seg_comparison import (
     build_config as build_toy_config,
     get_toy_normalization_modality_info,
 )
+
+TOY_ADAPTER = ToySemanticModelAdapter()
+GRAHA_ADAPTER = GrahaSemanticModelAdapter()
 
 METRIC_NAMES = [
     "pixel_accuracy",
@@ -739,17 +742,13 @@ def run_toy_sweep(config: SweepConfig) -> list[dict[str, Any]]:
     toy_config = build_toy_config(_make_toy_args(config))
     setup_dir = config.output_root / "_toy_setup"
     with _quiet(not config.verbose):
-        datamodule = toy_workflow.create_datamodule(
+        datamodule = TOY_ADAPTER.create_datamodule(
             toy_config,
             setup_dir,
             normalization_modality_info=get_toy_normalization_modality_info(toy_config),
         )
         datamodule.setup("test")
-        if datamodule.weight_assignments is None:
-            raise RuntimeError("Toy datamodule did not create weight assignments.")
-
-        model = toy_workflow.create_model(toy_config, datamodule.weight_assignments)
-        task = toy_workflow.create_lightning_module(toy_config, model)
+        task = TOY_ADAPTER.create_model_or_task(toy_config, datamodule)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     task.to(device)
 
@@ -793,7 +792,7 @@ def run_toy_sweep(config: SweepConfig) -> list[dict[str, Any]]:
         )
 
     _write_model_summary(model_output_dir, rows)
-    del task, model, datamodule
+    del task, datamodule
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -846,12 +845,12 @@ def run_graha_sweep(config: SweepConfig) -> list[dict[str, Any]]:
     print(f"[Graha] Found {len(checkpoints)} checkpoint(s).")
 
     with _quiet(not config.verbose):
-        graha_workflow.configure_proj_environment()
-        graha_config = graha_workflow.build_config(_make_graha_args(config))
-        graha_workflow.configure_python_paths(graha_config)
-        graha_workflow.validate_required_paths(graha_config)
+        GRAHA_ADAPTER.configure_environment()
+        graha_config = GRAHA_ADAPTER.build_config(_make_graha_args(config))
+        GRAHA_ADAPTER.configure_python_paths(graha_config)
+        GRAHA_ADAPTER.validate_required_paths(graha_config)
 
-        deps = graha_workflow.import_project_dependencies()
+        deps = GRAHA_ADAPTER.import_project_dependencies()
         datamodule_cls = deps[
             (
                 "LunarSemanticFromInstanceDatamodule"
@@ -859,14 +858,12 @@ def run_graha_sweep(config: SweepConfig) -> list[dict[str, Any]]:
                 else "LunarSemanticMaskSegmentationDatamodule"
             )
         ]
-        task_cls = graha_workflow.make_downstream_shape_segmentation_task_class(
-            deps["LunarShapeSegmentationTask"]
-        )
-        means, stds = graha_workflow.get_normalization_stats(
+        task_cls = GRAHA_ADAPTER.make_task_class(deps["LunarShapeSegmentationTask"])
+        means, stds = GRAHA_ADAPTER.get_normalization_stats(
             graha_config,
             datamodule_cls,
         )
-        datamodule = graha_workflow.create_datamodule(
+        datamodule = GRAHA_ADAPTER.create_datamodule(
             graha_config, datamodule_cls, means, stds
         )
         datamodule.setup("test")
@@ -877,8 +874,8 @@ def run_graha_sweep(config: SweepConfig) -> list[dict[str, Any]]:
             split_name="test",
         )
 
-        sample_batch = graha_workflow.inspect_batch(datamodule)
-        task = graha_workflow.create_task(graha_config, task_cls, sample_batch)
+        sample_batch = GRAHA_ADAPTER.inspect_batch(datamodule)
+        task = GRAHA_ADAPTER.create_task(graha_config, task_cls, sample_batch)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     task.to(device)
 
