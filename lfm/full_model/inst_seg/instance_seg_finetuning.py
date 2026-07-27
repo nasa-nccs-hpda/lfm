@@ -26,7 +26,9 @@ from lfm.full_model.all_tasks.utils import (
     plot_instance_predictions,
     save_graha_instance_prediction_cache,
 )
-from lfm.full_model.all_tasks.utils import load_terramind_pretraining_stats
+from lfm.all_models.all_tasks.data.normalization import (
+    load_terramind_pretraining_stats,
+)
 from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
 
 

@@ -20,6 +20,9 @@ from lfm.all_models.all_tasks.data.normalization import (
     PretrainYamlNormalization,
     ZScoreNormalization,
     build_normalization_strategy,
+    load_terramind_nac_pretraining_stats,
+    load_terramind_pretraining_stats,
+    load_terramind_wac_pretraining_stats,
 )
 
 __all__ = [
@@ -36,6 +39,9 @@ __all__ = [
     "build_normalization_strategy",
     "find_pair_records",
     "image_to_hwc_float",
+    "load_terramind_nac_pretraining_stats",
+    "load_terramind_pretraining_stats",
+    "load_terramind_wac_pretraining_stats",
     "path_key",
     "read_image_file",
     "read_image_file_with_nodata_mask",

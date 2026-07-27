@@ -12,8 +12,10 @@ from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 from transformers import AutoImageProcessor
 
-from lfm.full_model.all_tasks.utils import (
+from lfm.all_models.all_tasks.data.normalization import (
     load_terramind_pretraining_stats,
+)
+from lfm.full_model.all_tasks.utils import (
     plot_instance_cache_predictions,
     save_graha_instance_prediction_cache,
     save_toy_instance_prediction_cache,

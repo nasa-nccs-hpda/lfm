@@ -22,8 +22,10 @@ import torch
 from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 
-from lfm.full_model.all_tasks.utils import (
+from lfm.all_models.all_tasks.data.normalization import (
     load_terramind_pretraining_stats,
+)
+from lfm.full_model.all_tasks.utils import (
     save_prediction_cache,
 )
 

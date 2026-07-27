@@ -336,16 +336,22 @@ Sub-steps:
    - `FinetuneStatsNormalization`
    - `PretrainYamlNormalization`
 
-3. [In Progress] Move ad hoc normalization calls out of dataset/datamodule code
+3. [Completed] Move ad hoc normalization calls out of dataset/datamodule code
    as each path migrates.
 
    The current Toy semantic, Toy instance, and repo-owned Graha datamodule paths
    now compose a normalization strategy while preserving existing `means`/`stds`
    constructor arguments.
 
-4. [Pending] Keep modality-specific stats selection outside the dataset. The
+4. [Completed] Keep modality-specific stats selection outside the dataset. The
    workflow or model adapter should decide which normalization strategy to pass
    in.
+
+   TerraMind pretraining-stat loading now lives with shared normalization code
+   under `lfm.all_models.all_tasks.data.normalization`, and active Toy/Graha
+   workflows import it directly from that shared layer. The full-model utility
+   package re-exports the same functions for older callers, but no shared
+   `all_models` normalization code depends on `full_model`.
 
 Phase 4: Shared Nodata Policy
 
