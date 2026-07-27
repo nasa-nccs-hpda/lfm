@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 
-from lfm.full_model.all_tasks.data.image_io import (
+from lfm.all_models.all_tasks.data.image_io import (
     PairRecord,
     find_pair_records,
     image_to_hwc_float,
@@ -18,8 +18,8 @@ from lfm.full_model.all_tasks.data.image_io import (
     read_image_file_with_nodata_mask,
     read_label_file,
 )
-from lfm.full_model.all_tasks.data.nodata import NoDataPolicy
-from lfm.full_model.all_tasks.data.normalization import (
+from lfm.all_models.all_tasks.data.nodata import NoDataPolicy
+from lfm.all_models.all_tasks.data.normalization import (
     NoNormalization,
     NormalizationStrategy,
 )
@@ -46,6 +46,7 @@ class LunarSegmentationDataset(Dataset):
         label_glob: str = "*_label.*",
         image_suffix: str = "_input_wac_static_chip",
         label_suffix: str = "_label",
+        require_all_labels: bool = False,
         label_npz_key: str = "mask",
         binarize_label: bool = False,
         scale_inputs: bool = True,
@@ -77,6 +78,7 @@ class LunarSegmentationDataset(Dataset):
             label_glob=label_glob,
             image_suffix=image_suffix,
             label_suffix=label_suffix,
+            require_all_labels=require_all_labels,
         )
         if max_samples is not None and max_samples < len(records):
             records = records[:max_samples]

@@ -8,10 +8,10 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from lfm.full_model.all_tasks.datamodules.datamodule_utils import (
-    boxes_to_tensor,
+from lfm.all_models.all_tasks.data.image_crop_resize import (
     crop_boxes_xywh_to_xyxy,
 )
+from lfm.all_models.inst_seg.instance_data_utils import boxes_to_tensor
 from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_datamodule import (
     LunarSemanticSegmentationSplitDataModule,
 )

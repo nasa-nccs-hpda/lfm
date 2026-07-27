@@ -8,7 +8,12 @@ import torch
 from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader, Dataset, Subset, random_split
 
-from .datamodule_utils import collate_semantic_segmentation
+from lfm.all_models.all_tasks.data.collate import collate_semantic_segmentation
+from lfm.all_models.all_tasks.data.nodata import NoDataPolicy
+from lfm.all_models.all_tasks.data.normalization import (
+    NormalizationStrategy,
+    build_normalization_strategy,
+)
 from .lunar_segmentation_dataset import LunarSegmentationDataset
 
 
@@ -33,6 +38,7 @@ class LunarSegmentationDatamodule(LightningDataModule):
         crop_size: int | tuple[int, int] | None = 256,
         means: list[float] | None = None,
         stds: list[float] | None = None,
+        normalization: NormalizationStrategy | None = None,
         binarize_mask: bool = True,
         image_glob: str = "*.tif",
         label_glob: str = "*_label.*",
@@ -48,6 +54,7 @@ class LunarSegmentationDatamodule(LightningDataModule):
         no_label_replace: int | None = None,
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
+        nodata_policy: NoDataPolicy | None = None,
         mask_shift: tuple[int, int] | None = None,
         pin_memory: bool = True,
     ) -> None:
@@ -60,6 +67,11 @@ class LunarSegmentationDatamodule(LightningDataModule):
         self.crop_size = crop_size
         self.means = means
         self.stds = stds
+        self.normalization = normalization or build_normalization_strategy(
+            normalize_inputs=means is not None and stds is not None,
+            means=means,
+            stds=stds,
+        )
         self.binarize_mask = binarize_mask
         self.image_glob = image_glob
         self.label_glob = label_glob
@@ -77,6 +89,15 @@ class LunarSegmentationDatamodule(LightningDataModule):
         self.no_label_replace = no_label_replace
         self.ignore_nodata_in_loss = ignore_nodata_in_loss
         self.nodata_ignore_index = int(nodata_ignore_index)
+        self.nodata_policy = nodata_policy or NoDataPolicy(
+            ignore_in_loss=ignore_nodata_in_loss,
+            ignore_index=nodata_ignore_index,
+            image_fill_value=(
+                float(no_data_replace) if no_data_replace is not None else 0.0
+            ),
+            label_fill_value=no_label_replace,
+            fill_image_nodata=no_data_replace is not None,
+        )
         self.mask_shift = mask_shift
         self.pin_memory = pin_memory
 
@@ -101,11 +122,13 @@ class LunarSegmentationDatamodule(LightningDataModule):
             crop_size=self.crop_size,
             means=self.means,
             stds=self.stds,
+            normalization=self.normalization,
             binarize_mask=self.binarize_mask,
             no_data_replace=self.no_data_replace,
             no_label_replace=self.no_label_replace,
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
             nodata_ignore_index=self.nodata_ignore_index,
+            nodata_policy=self.nodata_policy,
             mask_shift=self.mask_shift,
             split_name=split_name,
             **self._dataset_kwargs(),

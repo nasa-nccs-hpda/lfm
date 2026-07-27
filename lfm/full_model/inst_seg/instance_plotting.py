@@ -1,4 +1,4 @@
-﻿"""Instance segmentation plotting helpers."""
+"""Instance segmentation plotting helpers."""
 
 from __future__ import annotations
 
@@ -8,17 +8,20 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from matplotlib.colors import ListedColormap
 from matplotlib.patches import Rectangle
 
-from lfm.full_model.all_tasks.datamodules.datamodule_utils import (
-    image_to_chw_float,
+from lfm.all_models.all_tasks.data.image_io import (
     path_key,
     read_tif,
 )
+from lfm.all_models.all_tasks.data.tensor_utils import image_to_chw_float
 from lfm.full_model.all_tasks.utils.common import (
     _display_sample_key,
     _extract_paths,
+    _get_split_dataloader,
     _model_display_name,
+    _sample_key,
 )
 from lfm.full_model.all_tasks.utils.display import prepare_image_for_display
 from lfm.full_model.all_tasks.utils.metrics import _instance_metrics, calculate_f1_score

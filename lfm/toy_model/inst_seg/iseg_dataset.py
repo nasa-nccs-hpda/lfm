@@ -5,17 +5,9 @@ Supports images with any number of channels (grayscale, RGB, multispectral, etc.
 """
 
 import os
-
-os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
-os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
-
 import warnings
-
-warnings.filterwarnings("ignore", message=".*HF Hub.*")
-warnings.filterwarnings("ignore", message=".*unauthenticated.*")
-
-from pathlib import Path
 from glob import glob
+from pathlib import Path
 from typing import Tuple, Optional, List
 
 import numpy as np
@@ -25,6 +17,12 @@ import torch.nn.functional as F
 from tqdm import tqdm
 import rasterio
 from transformers import AutoImageProcessor
+
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
+
+warnings.filterwarnings("ignore", message=".*HF Hub.*")
+warnings.filterwarnings("ignore", message=".*unauthenticated.*")
 
 
 class LunarCraterDatasetMask2Former(Dataset):
@@ -573,7 +571,7 @@ def get_input_metadata(
         Index corresponds to band position after filtering.
     """
 
-    from lfm.full_model.all_tasks.datamodules.datamodule_utils import read_image_file
+    from lfm.all_models.all_tasks.data.image_io import read_image_file
 
     image_dir = f"{base_dir}/chips"
     all_image_paths = []

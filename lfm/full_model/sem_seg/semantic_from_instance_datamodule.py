@@ -9,10 +9,10 @@ from lfm.full_model.all_tasks.datamodules import (
     LunarSegmentationDatamodule,
     LunarSegmentationDataset,
 )
-from lfm.full_model.all_tasks.datamodules.datamodule_utils import (
-    boxes_to_tensor,
+from lfm.all_models.all_tasks.data.collate import (
     collate_instance_segmentation,
 )
+from lfm.all_models.inst_seg.instance_data_utils import boxes_to_tensor
 
 
 class LunarSemanticFromInstanceDataset(LunarSegmentationDataset):

@@ -8,7 +8,7 @@ from lfm.full_model.all_tasks.datamodules import (
     LunarSegmentationDatamodule,
     LunarSegmentationDataset,
 )
-from lfm.full_model.all_tasks.datamodules.datamodule_utils import (
+from lfm.all_models.all_tasks.data.collate import (
     collate_semantic_segmentation,
 )
 

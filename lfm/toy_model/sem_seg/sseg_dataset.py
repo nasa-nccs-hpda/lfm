@@ -16,13 +16,13 @@ from torch.utils.data import random_split, DataLoader
 from tqdm import tqdm
 import rasterio
 
-from lfm.full_model.all_tasks.data import (
+from lfm.all_models.all_tasks.data import (
     FinetuneStatsNormalization,
-    LunarSegmentationDataset,
     NoDataPolicy,
     NoNormalization,
     read_image_file,
 )
+from lfm.all_models.sem_seg import SemanticSegmentationDataset
 
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
@@ -31,7 +31,7 @@ warnings.filterwarnings("ignore", message=".*HF Hub.*")
 warnings.filterwarnings("ignore", message=".*unauthenticated.*")
 
 
-class LunarCraterDataset(LunarSegmentationDataset):
+class LunarCraterDataset(SemanticSegmentationDataset):
     """
     Dataset for multi-channel images and segmentation masks.
     Images are expected to be .tif files in <base_dir>/chips/
@@ -105,7 +105,10 @@ class LunarCraterDataset(LunarSegmentationDataset):
             ),
         )
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, str, str]:
+    def format_output(
+        self,
+        sample: dict,
+    ) -> Tuple[torch.Tensor, torch.Tensor, str, str]:
         """
         Returns:
             image (torch.Tensor): Transformed image (C, H, W)
@@ -113,7 +116,6 @@ class LunarCraterDataset(LunarSegmentationDataset):
             img_path (str): Path to the image file
             label_path (str): Path to the label file
         """
-        sample = self.prepare_sample(idx)
         return (
             sample["image"],
             sample["mask"],

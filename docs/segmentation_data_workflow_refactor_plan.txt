@@ -74,18 +74,79 @@ This structure should be introduced gradually. Avoid creating empty mirrored
 directories solely for symmetry. Prefer moving code when there is a concrete
 shared behavior to extract.
 
+Object-Oriented Design Target
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The desired design should use shallow inheritance for stable structural
+boundaries and composition for behaviors that vary independently.
+
+Inheritance should cover:
+
+- Dataset shape:
+  - `BaseLunarSegmentationDataset`
+  - `SemanticSegmentationDataset`
+  - `InstanceSegmentationDataset`
+- DataModule shape:
+  - `BaseLunarSegmentationDataModule`
+  - `SemanticSegmentationDataModule`
+  - `InstanceSegmentationDataModule`
+- Workflow/model adapter shape, later:
+  - `BaseWorkflow`
+  - `ToyWorkflow`
+  - `GrahaWorkflow`
+  - `BaseModelAdapter`
+  - `ToySemanticModelAdapter`
+  - `GrahaSemanticModelAdapter`
+  - `ToyInstanceModelAdapter`
+  - `GrahaInstanceModelAdapter`
+
+Composition should cover:
+
+- `ImageReader`
+- `LabelReader`
+- `PairMatcher`
+- `NormalizationStrategy`
+- `NoDataPolicy`
+- `SpatialTransform`
+- `TargetFormatter`
+- `CollatePolicy`
+- `Plotter`
+- `PredictionCache`
+- `CheckpointPolicy`
+- `TrainerFactory`
+
+Avoid inheritance trees that combine independent axes. Do not create classes
+such as `ToyNacSemanticDataset` or `GrahaWacInstanceDataset` unless there is a
+real model-family-specific behavioral boundary that cannot be expressed through
+composition.
+
+The near-term data package target is:
+
+`all_models/all_tasks/data/base_dataset.py`
+`all_models/all_tasks/data/base_datamodule.py`
+`all_models/all_tasks/data/image_io.py`
+`all_models/all_tasks/data/normalization.py`
+`all_models/all_tasks/data/nodata.py`
+`all_models/all_tasks/data/image_crop_resize.py`
+`all_models/all_tasks/data/tensor_utils.py`
+`all_models/all_tasks/data/collate.py`
+
+`all_models/sem_seg/semantic_dataset.py`
+`all_models/sem_seg/semantic_datamodule.py`
+
+`all_models/inst_seg/instance_dataset.py`
+`all_models/inst_seg/instance_datamodule.py`
+`all_models/inst_seg/instance_data_utils.py`
+
 Phase 1: Shared Data And Preprocessing
 
-Add shared data utilities under:
-
-`lfm/full_model/all_tasks/data/` initially, with the expected final home:
+Shared data utilities now live under:
 
 `lfm/all_models/all_tasks/data/`
 
-The initial `full_model/all_tasks/data` location is a stepping stone from the
-current repo structure. If Toy and Graha both depend on these utilities, moving
-them to `all_models/all_tasks/data` should be treated as part of the structural
-cleanup, not as a compatibility shim.
+They were initially introduced under `lfm/full_model/all_tasks/data/`, but that
+temporary location should not be used going forward. Shared Toy/Graha imports
+should use `lfm.all_models.all_tasks.data`.
 
 Candidate modules:
 
@@ -104,11 +165,39 @@ Responsibilities:
 - Apply nodata policy.
 - Apply normalization strategy.
 
+Sub-steps:
+
+1. [Completed] Move the new shared data scaffold from the temporary location:
+
+   `lfm/full_model/all_tasks/data/`
+
+   to the final shared-across-models location:
+
+   `lfm/all_models/all_tasks/data/`
+
+2. [Completed] Update imports directly. Do not leave compatibility modules in
+   `lfm/full_model/all_tasks/data`.
+
+3. [Completed] Split or merge overlapping utility behavior from
+   `lfm/full_model/all_tasks/datamodules/datamodule_utils.py` into the new data
+   package:
+
+   - File matching and image IO belong in `image_io.py`.
+   - Tensor conversion belongs in `tensor_utils.py`.
+   - Generic crop helpers belong in `image_crop_resize.py`.
+   - Semantic/instance collate functions belong in `collate.py`.
+   - Instance box/mask target helpers belong in
+     `all_models/inst_seg/instance_data_utils.py`.
+
+4. [Completed] Keep the first move narrow. Prefer moving utilities that are
+   already used by both Toy and Graha before migrating larger dataset/datamodule
+   classes.
+
 Phase 2: Shared Dataset Path
 
-Introduce a shared segmentation dataset base, tentatively:
+Introduce a shared segmentation dataset base:
 
-`LunarSegmentationDataset`
+`BaseLunarSegmentationDataset`
 
 This should handle image-side behavior once. Semantic and instance datasets
 should only specialize target formatting:
@@ -118,6 +207,77 @@ should only specialize target formatting:
 
 Use inheritance only for the semantic-vs-instance target formatting boundary.
 Use composition for behavior that varies independently.
+
+Sub-steps:
+
+1. Define `BaseLunarSegmentationDataset`.
+
+   It should own the common sample lifecycle:
+
+   - pair image and label paths
+   - read image data
+   - read raw label data
+   - convert image layout
+   - apply band filtering
+   - apply nodata image policy
+   - apply normalization strategy
+   - apply spatial transform
+   - return a prepared sample dict
+
+   It should not decide final semantic-vs-instance target structure.
+
+2. Define `SemanticSegmentationDataset(BaseLunarSegmentationDataset)`.
+
+   It should specialize:
+
+   - semantic label validation
+   - semantic mask conversion
+   - semantic ignore-index handling
+   - semantic output formatting
+
+3. [Completed] Define `InstanceSegmentationDataset(BaseLunarSegmentationDataset)`.
+
+   It should specialize:
+
+   - `.npz` instance label validation
+   - instance mask conversion
+   - box conversion/cropping
+   - object-detection target formatting
+   - instance output formatting
+
+   `lfm.all_models.inst_seg.InstanceSegmentationDataset` now owns the shared
+   split instance-label loading path used by Toy Mask2Former and Toy Mask R-CNN.
+   It currently inherits from the all-task `LunarSegmentationDataset` base; the
+   planned `BaseLunarSegmentationDataset` rename remains a later naming cleanup.
+
+4. [Completed] Migrate Toy semantic first.
+
+   The existing `LunarCraterDataset` can either become a thin subclass of
+   `SemanticSegmentationDataset` if its name must remain temporarily, or be
+   replaced directly if all imports can be updated in one step.
+
+5. [Completed] Migrate Toy instance second.
+
+   This is higher risk than semantic because it needs box/mask target behavior
+   and object-detection collate semantics.
+
+   Toy instance datamodules now instantiate
+   `lfm.all_models.inst_seg.InstanceSegmentationDataset`, and Toy Mask R-CNN
+   subclasses it for object-detection target formatting.
+
+6. [Completed] Extract shared Toy instance datamodule mechanics.
+
+   `lfm.all_models.inst_seg.instance_datamodule.InstanceSegmentationDataModule`
+   now owns the duplicated split setup, dataset construction, optional train
+   statistics, and dataloader creation used by the Toy Mask2Former and Toy
+   Mask R-CNN instance datamodules. The Toy classes remain real
+   specializations: they supply Toy input metadata behavior, and Mask R-CNN
+   supplies its object-detection dataset, collate function, and stats key.
+
+7. [Pending] Review Graha semantic and instance datasets after Toy paths are stable.
+
+   Do not touch `lfm/full_model/graha-lunar-fm`. Only migrate repo-owned Graha
+   wrapper/datamodule code where behavior clearly overlaps.
 
 Phase 3: Normalization Strategy Objects
 
@@ -131,6 +291,34 @@ Both Toy and Graha workflows should request normalization through the same
 interface. The strategy can hide whether stats come from train-split data,
 TerraMind pretraining YAML, or no normalization.
 
+Sub-steps:
+
+1. [Completed] Keep the shared interface simple:
+
+   `NormalizationStrategy.apply(image, *, band_filter) -> image`
+
+   The strategy interface also supports CHW tensors through
+   `NormalizationStrategy.apply_tensor(image, *, band_filter=None) -> image` so
+   older datamodule paths can use the same composition object before all dataset
+   classes are unified.
+
+2. [Completed] Use concrete strategy objects:
+
+   - `NoNormalization`
+   - `FinetuneStatsNormalization`
+   - `PretrainYamlNormalization`
+
+3. [In Progress] Move ad hoc normalization calls out of dataset/datamodule code
+   as each path migrates.
+
+   The current Toy semantic, Toy instance, and repo-owned Graha datamodule paths
+   now compose a normalization strategy while preserving existing `means`/`stds`
+   constructor arguments.
+
+4. [Pending] Keep modality-specific stats selection outside the dataset. The
+   workflow or model adapter should decide which normalization strategy to pass
+   in.
+
 Phase 4: Shared Nodata Policy
 
 Introduce a shared nodata preprocessing policy, for example:
@@ -140,12 +328,36 @@ Introduce a shared nodata preprocessing policy, for example:
 The dataset should apply image-side nodata behavior once. Losses and metrics
 should consume the same `ignore_index` so masking semantics stay consistent.
 
+Sub-steps:
+
+1. [Completed] Keep nodata detection in image IO or preprocessing utilities.
+
+2. [Completed] Keep nodata decisions in `NoDataPolicy`:
+
+   - whether nodata pixels should be ignored in loss
+   - which target ignore index to use
+   - which image fill value to use
+
+   `NoDataPolicy` now supports both HWC numpy arrays and CHW/HW torch tensor
+   paths so the older repo-owned full-model datamodules and newer shared data
+   scaffold use the same policy object.
+
+3. [In Progress] Pass the same ignore index to loss and metric code.
+
+   Semantic workflow config already threads `ignore_nodata_in_loss` and
+   `nodata_ignore_index` into datamodules, losses, and metrics. Instance
+   workflows still need explicit smoke-test coverage before this is considered
+   fully verified.
+
+4. [Pending] Verify semantic and instance behavior separately. Instance segmentation may
+   need different target handling even when image-side nodata behavior is shared.
+
 Phase 5: Move Toy Semantic Data Loading First
 
 The practical first implementation step should be:
 
-Consolidate Toy semantic data loading onto the shared `LunarSegmentationDataset`
-path.
+Consolidate Toy semantic data loading onto the shared
+`SemanticSegmentationDataset` path.
 
 This is intentionally narrow and testable. It should reduce duplicated code
 without forcing a full experiment-runner rewrite.
@@ -153,8 +365,34 @@ without forcing a full experiment-runner rewrite.
 After Toy semantic data loading is stable, mirror the same structure for:
 
 - Graha semantic data loading where applicable.
-- Toy instance data loading.
+- Toy instance data loading. [Completed]
 - Graha instance data loading where applicable.
+
+Sub-steps:
+
+1. [Completed] Finish the current Toy semantic migration by moving shared imports from
+   `full_model` to `all_models`.
+
+2. [Completed] Replace legacy helper calls in Toy semantic with the new composed objects
+   wherever behavior overlaps.
+
+   Toy semantic now inherits from
+   `lfm.all_models.sem_seg.SemanticSegmentationDataset`, which wraps the
+   all-task image-side dataset preparation with a semantic target/output
+   boundary.
+
+3. [Completed] Keep the existing public datamodule/workflow behavior stable.
+
+   `LunarCraterDataset` keeps its historical tuple output by implementing the
+   shared `format_output` hook.
+
+4. [In Progress] Add or run smoke checks for:
+
+   - dataset construction
+   - one sample load
+   - dataloader batch construction
+   - optional nodata ignore behavior
+   - optional normalization behavior
 
 Phase 6: Model Adapters, Later
 
@@ -169,6 +407,23 @@ Adapters should know how to build model/task/trainer-related pieces. They
 should not own file matching, image loading, target loading, or normalization
 mechanics.
 
+Sub-steps:
+
+1. Define a small model adapter interface only after the data layer is stable.
+
+   Candidate responsibilities:
+
+   - build model
+   - build Lightning task/wrapper
+   - build callbacks
+   - expose model-family display name
+   - expose checkpoint-loading behavior
+
+2. Keep task differences explicit. A semantic adapter and instance adapter may
+   share a base class, but should not hide task-specific loss/metric behavior.
+
+3. Use adapters from workflows, not from datasets/datamodules.
+
 Phase 7: Experiment Runners, Later
 
 Only after data and workflow boundaries are cleaner, consider:
@@ -179,6 +434,22 @@ Only after data and workflow boundaries are cleaner, consider:
 
 At that point, scripts can become thin CLI wrappers that build config and call
 experiment objects.
+
+Sub-steps:
+
+1. Extract repeated single-model run behavior into `SingleModelExperiment`.
+
+2. Extract Toy-vs-Graha orchestration into `ComparisonExperiment`.
+
+3. Extract repeated checkpoint enumeration/evaluation into
+   `CheckpointSweepExperiment`.
+
+4. Keep scripts as CLI wrappers:
+
+   - parse arguments
+   - build config
+   - call experiment object
+   - exit with clear status
 
 Deferred Decisions
 ------------------

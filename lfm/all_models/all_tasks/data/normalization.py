@@ -5,7 +5,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+import warnings
+
 import numpy as np
+import torch
 
 from lfm.full_model.all_tasks.utils import load_terramind_pretraining_stats
 
@@ -15,10 +18,27 @@ class NormalizationStrategy(ABC):
     def apply(self, image: np.ndarray, *, band_filter: list[int]) -> np.ndarray:
         """Return a normalized HWC float image."""
 
+    @abstractmethod
+    def apply_tensor(
+        self,
+        image: torch.Tensor,
+        *,
+        band_filter: list[int] | None = None,
+    ) -> torch.Tensor:
+        """Return a normalized CHW image tensor."""
+
 
 @dataclass(frozen=True)
 class NoNormalization(NormalizationStrategy):
     def apply(self, image: np.ndarray, *, band_filter: list[int]) -> np.ndarray:
+        return image
+
+    def apply_tensor(
+        self,
+        image: torch.Tensor,
+        *,
+        band_filter: list[int] | None = None,
+    ) -> torch.Tensor:
         return image
 
 
@@ -41,6 +61,52 @@ class ZScoreNormalization(NormalizationStrategy):
         return (image - mean_filtered.reshape(1, 1, -1)) / std_filtered.reshape(
             1, 1, -1
         )
+
+    def apply_tensor(
+        self,
+        image: torch.Tensor,
+        *,
+        band_filter: list[int] | None = None,
+    ) -> torch.Tensor:
+        means = np.asarray(self.means, dtype=np.float32)
+        stds = np.asarray(self.stds, dtype=np.float32)
+        if len(means) == image.shape[0]:
+            mean_filtered = means
+            std_filtered = stds
+        elif band_filter is not None:
+            mean_filtered = means[band_filter]
+            std_filtered = stds[band_filter]
+        else:
+            raise ValueError(
+                f"Normalization stats have {len(means)} channel(s), "
+                f"but image has {image.shape[0]} channel(s)."
+            )
+
+        mean = torch.tensor(mean_filtered, dtype=image.dtype, device=image.device).view(
+            -1, 1, 1
+        )
+        std = torch.tensor(std_filtered, dtype=image.dtype, device=image.device).view(
+            -1, 1, 1
+        )
+        if torch.any(std <= 0):
+            raise ValueError("All normalization stds must be positive.")
+        if mean.shape[0] == 1 and image.shape[0] != 1:
+            warnings.warn(
+                "Expanding single-channel norm stats to "
+                f"{image.shape[0]} image channels. "
+                "This is only appropriate when all channels share the same "
+                "physical modality/range.",
+                UserWarning,
+                stacklevel=2,
+            )
+            mean = mean.expand(image.shape[0], -1, -1)
+            std = std.expand(image.shape[0], -1, -1)
+        elif mean.shape[0] != image.shape[0]:
+            raise ValueError(
+                f"Normalization stats have {mean.shape[0]} channel(s), "
+                f"but image has {image.shape[0]} channel(s)."
+            )
+        return (image - mean) / std
 
 
 @dataclass(frozen=True)

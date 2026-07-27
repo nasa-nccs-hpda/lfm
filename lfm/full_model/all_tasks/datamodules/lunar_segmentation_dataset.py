@@ -8,14 +8,20 @@ from typing import Callable
 import torch
 from torch.utils.data import Dataset
 
-from .datamodule_utils import (
-    center_crop,
+from lfm.all_models.all_tasks.data.image_crop_resize import center_crop
+from lfm.all_models.all_tasks.data.image_io import (
     find_pair_records,
+    read_image_file_with_nodata_mask,
+    read_label_file_with_metadata,
+)
+from lfm.all_models.all_tasks.data.normalization import (
+    NormalizationStrategy,
+    build_normalization_strategy,
+)
+from lfm.all_models.all_tasks.data.nodata import NoDataPolicy
+from lfm.all_models.all_tasks.data.tensor_utils import (
     image_to_chw_float,
     mask_to_hw_long,
-    normalize_image,
-    read_image_file_with_nodata_mask,
-    read_label_file,
     shift_mask,
 )
 
@@ -40,11 +46,13 @@ class LunarSegmentationDataset(Dataset):
         crop_size: int | tuple[int, int] | None = 256,
         means: list[float] | None = None,
         stds: list[float] | None = None,
+        normalization: NormalizationStrategy | None = None,
         binarize_mask: bool = True,
         no_data_replace: float | None = None,
         no_label_replace: int | None = None,
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
+        nodata_policy: NoDataPolicy | None = None,
         mask_shift: tuple[int, int] | None = None,
         transform: Callable[[dict], dict] | None = None,
         split_name: str | None = None,
@@ -53,11 +61,25 @@ class LunarSegmentationDataset(Dataset):
         self.crop_size = crop_size
         self.means = means
         self.stds = stds
+        self.normalization = normalization or build_normalization_strategy(
+            normalize_inputs=means is not None and stds is not None,
+            means=means,
+            stds=stds,
+        )
         self.binarize_mask = binarize_mask
         self.no_data_replace = no_data_replace
         self.no_label_replace = no_label_replace
         self.ignore_nodata_in_loss = ignore_nodata_in_loss
         self.nodata_ignore_index = int(nodata_ignore_index)
+        self.nodata_policy = nodata_policy or NoDataPolicy(
+            ignore_in_loss=ignore_nodata_in_loss,
+            ignore_index=nodata_ignore_index,
+            image_fill_value=(
+                float(no_data_replace) if no_data_replace is not None else 0.0
+            ),
+            label_fill_value=no_label_replace,
+            fill_image_nodata=no_data_replace is not None,
+        )
         self.mask_shift = mask_shift
         self.transform = transform
         self.records = find_pair_records(
@@ -67,6 +89,7 @@ class LunarSegmentationDataset(Dataset):
             label_glob=label_glob,
             image_suffix=image_suffix,
             label_suffix=label_suffix,
+            require_all_labels=True,
         )
         print(
             f"[{self.split_name}] Found {len(self.records)} matched image-label pairs "
@@ -83,31 +106,24 @@ class LunarSegmentationDataset(Dataset):
         )
         image = image_to_chw_float(image_array)
         nodata_mask = torch.as_tensor(nodata_mask_array, dtype=torch.bool)
-        label = read_label_file(record.label_path)
+        label = read_label_file_with_metadata(record.label_path)
         label_mask = label["mask"] if isinstance(label, dict) else label
         mask = mask_to_hw_long(label_mask)
 
-        if self.no_data_replace is not None:
-            image = torch.nan_to_num(image, nan=float(self.no_data_replace))
-            if nodata_mask.any():
-                image = image.clone()
-                image[:, nodata_mask] = float(self.no_data_replace)
-        if self.no_label_replace is not None:
-            mask = torch.nan_to_num(
-                mask.float(), nan=float(self.no_label_replace)
-            ).long()
+        image = self.nodata_policy.apply_to_image_tensor(image, nodata_mask)
+        mask = self.nodata_policy.apply_to_mask_tensor(
+            mask,
+            nodata_mask,
+            ignore_nodata=False,
+        )
         mask = shift_mask(mask, self.mask_shift)
         if self.binarize_mask:
             mask = (mask > 0).long()
-        if self.ignore_nodata_in_loss and nodata_mask.any():
-            if tuple(nodata_mask.shape) != tuple(mask.shape):
-                raise ValueError(
-                    "Nodata mask and label shapes differ for "
-                    f"{record.image_path.name}: "
-                    f"nodata={tuple(nodata_mask.shape)}, mask={tuple(mask.shape)}"
-                )
-            mask = mask.clone()
-            mask[nodata_mask] = self.nodata_ignore_index
+        mask = self.nodata_policy.apply_to_mask_tensor(
+            mask,
+            nodata_mask,
+            fill_label=False,
+        )
 
         sample = {
             "image": image,
@@ -140,7 +156,7 @@ class LunarSegmentationDataset(Dataset):
             sample["image"] = image
             sample["mask"] = mask
 
-        sample["image"] = normalize_image(sample["image"], self.means, self.stds)
+        sample["image"] = self.normalization.apply_tensor(sample["image"])
         if self.transform is not None:
             sample = self.transform(sample)
         return sample, boxes

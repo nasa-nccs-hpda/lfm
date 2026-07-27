@@ -176,6 +176,24 @@ def read_label_file(
     return read_tif(path)
 
 
+def read_label_file_with_metadata(
+    path: str | Path,
+) -> np.ndarray | dict[str, np.ndarray | None]:
+    path = Path(path)
+    if path.suffix.lower() == ".npy":
+        return np.load(path)
+    if path.suffix.lower() == ".npz":
+        with np.load(path) as data:
+            if "mask" not in data:
+                raise KeyError(f"{path} is missing required 'mask' array")
+            return {
+                "mask": data["mask"],
+                "bboxes": data["bboxes"] if "bboxes" in data else None,
+                "num_craters": data["num_craters"] if "num_craters" in data else None,
+            }
+    return read_tif(path)
+
+
 def image_to_hwc_float(arr: np.ndarray) -> np.ndarray:
     arr = np.asarray(arr)
     if arr.ndim == 2:
