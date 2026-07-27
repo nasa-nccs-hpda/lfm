@@ -18,7 +18,7 @@ from lfm.all_models.all_tasks.data.normalization import (
     NormalizationStrategy,
     build_normalization_strategy,
 )
-from lfm.all_models.all_tasks.data.nodata import NoDataPolicy
+from lfm.all_models.all_tasks.data.nodata import NoDataPolicy, build_nodata_policy
 from lfm.all_models.all_tasks.data.tensor_utils import (
     image_to_chw_float,
     mask_to_hw_long,
@@ -71,14 +71,12 @@ class LunarSegmentationDataset(Dataset):
         self.no_label_replace = no_label_replace
         self.ignore_nodata_in_loss = ignore_nodata_in_loss
         self.nodata_ignore_index = int(nodata_ignore_index)
-        self.nodata_policy = nodata_policy or NoDataPolicy(
-            ignore_in_loss=ignore_nodata_in_loss,
-            ignore_index=nodata_ignore_index,
-            image_fill_value=(
-                float(no_data_replace) if no_data_replace is not None else 0.0
-            ),
-            label_fill_value=no_label_replace,
-            fill_image_nodata=no_data_replace is not None,
+        self.nodata_policy = build_nodata_policy(
+            no_data_replace=no_data_replace,
+            no_label_replace=no_label_replace,
+            ignore_nodata_in_loss=ignore_nodata_in_loss,
+            nodata_ignore_index=nodata_ignore_index,
+            nodata_policy=nodata_policy,
         )
         self.mask_shift = mask_shift
         self.transform = transform

@@ -7,7 +7,11 @@ from typing import Any
 
 import torch
 
-from lfm.all_models.all_tasks.data import LunarSegmentationDataset, NoDataPolicy
+from lfm.all_models.all_tasks.data import (
+    LunarSegmentationDataset,
+    NoDataPolicy,
+    build_nodata_policy,
+)
 from lfm.all_models.all_tasks.data.image_crop_resize import center_crop
 from lfm.all_models.all_tasks.data.image_io import (
     read_image_file_with_nodata_mask,
@@ -87,14 +91,12 @@ class InstanceSegmentationDataset(LunarSegmentationDataset):
             means=means,
             stds=stds,
         )
-        nodata_strategy = nodata_policy or NoDataPolicy(
-            ignore_in_loss=ignore_nodata_in_loss,
-            ignore_index=nodata_ignore_index,
-            image_fill_value=(
-                float(no_data_replace) if no_data_replace is not None else 0.0
-            ),
-            label_fill_value=no_label_replace,
-            fill_image_nodata=no_data_replace is not None,
+        nodata_strategy = build_nodata_policy(
+            no_data_replace=no_data_replace,
+            no_label_replace=no_label_replace,
+            ignore_nodata_in_loss=ignore_nodata_in_loss,
+            nodata_ignore_index=nodata_ignore_index,
+            nodata_policy=nodata_policy,
         )
         super().__init__(
             split_root,

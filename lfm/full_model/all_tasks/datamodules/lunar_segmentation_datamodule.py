@@ -8,8 +8,9 @@ import torch
 from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader, Dataset, Subset, random_split
 
+from lfm.all_models.all_tasks.data.base_datamodule import SplitFolderDataLayout
 from lfm.all_models.all_tasks.data.collate import collate_semantic_segmentation
-from lfm.all_models.all_tasks.data.nodata import NoDataPolicy
+from lfm.all_models.all_tasks.data.nodata import NoDataPolicy, build_nodata_policy
 from lfm.all_models.all_tasks.data.normalization import (
     NormalizationStrategy,
     build_normalization_strategy,
@@ -62,6 +63,11 @@ class LunarSegmentationDatamodule(LightningDataModule):
         self.data_root = Path(data_root)
         self.chips_subdir = chips_subdir
         self.labels_subdir = labels_subdir
+        self.data_layout = SplitFolderDataLayout(
+            self.data_root,
+            chips_subdir=chips_subdir,
+            labels_subdir=labels_subdir,
+        )
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.crop_size = crop_size
@@ -89,14 +95,12 @@ class LunarSegmentationDatamodule(LightningDataModule):
         self.no_label_replace = no_label_replace
         self.ignore_nodata_in_loss = ignore_nodata_in_loss
         self.nodata_ignore_index = int(nodata_ignore_index)
-        self.nodata_policy = nodata_policy or NoDataPolicy(
-            ignore_in_loss=ignore_nodata_in_loss,
-            ignore_index=nodata_ignore_index,
-            image_fill_value=(
-                float(no_data_replace) if no_data_replace is not None else 0.0
-            ),
-            label_fill_value=no_label_replace,
-            fill_image_nodata=no_data_replace is not None,
+        self.nodata_policy = build_nodata_policy(
+            no_data_replace=no_data_replace,
+            no_label_replace=no_label_replace,
+            ignore_nodata_in_loss=ignore_nodata_in_loss,
+            nodata_ignore_index=nodata_ignore_index,
+            nodata_policy=nodata_policy,
         )
         self.mask_shift = mask_shift
         self.pin_memory = pin_memory
@@ -138,16 +142,18 @@ class LunarSegmentationDatamodule(LightningDataModule):
         return {}
 
     def _dataset_for_split(self, split: str) -> Dataset:
+        chips_dir, labels_dir = self.data_layout.split_dirs(split)
         return self._make_dataset(
-            chips_dir=self.data_root / split / self.chips_subdir,
-            labels_dir=self.data_root / split / self.labels_subdir,
+            chips_dir=chips_dir,
+            labels_dir=labels_dir,
             split_name=split,
         )
 
     def _flat_dataset(self) -> Dataset:
+        chips_dir, labels_dir = self.data_layout.flat_dirs()
         return self._make_dataset(
-            chips_dir=self.data_root / self.chips_subdir,
-            labels_dir=self.data_root / self.labels_subdir,
+            chips_dir=chips_dir,
+            labels_dir=labels_dir,
             split_name="full",
         )
 
@@ -169,10 +175,11 @@ class LunarSegmentationDatamodule(LightningDataModule):
         return Subset(dataset, range(limited_count))
 
     def setup(self, stage: str | None = None) -> None:
-        split_layout = (self.data_root / "train" / self.chips_subdir).exists()
+        split_layout = self.data_layout.has_split("train")
 
         if split_layout:
             if stage in (None, "fit"):
+                self.data_layout.require_split_dirs(["train", "val"])
                 self.train_dataset = self._limit_dataset(
                     self._dataset_for_split("train"), "train"
                 )
@@ -180,8 +187,7 @@ class LunarSegmentationDatamodule(LightningDataModule):
                     self._dataset_for_split("val"), "val"
                 )
             if stage in (None, "test"):
-                test_chips = self.data_root / "test" / self.chips_subdir
-                if test_chips.exists():
+                if self.data_layout.has_split("test"):
                     self.test_dataset = self._limit_dataset(
                         self._dataset_for_split("test"), "test"
                     )

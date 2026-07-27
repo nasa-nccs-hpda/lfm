@@ -294,10 +294,18 @@ Sub-steps:
    the shared instance dataset, and skips non-positive instance IDs when
    building Mask2Former targets.
 
-8. [Pending] Review Graha semantic and instance datasets after Toy paths are stable.
+8. [Completed] Review Graha semantic and instance datasets after Toy paths are stable.
 
    Do not touch `lfm/full_model/graha-lunar-fm`. Only migrate repo-owned Graha
    wrapper/datamodule code where behavior clearly overlaps.
+
+   Repo-owned full-model datamodules now compose shared all-model helpers for
+   split-folder layout resolution and nodata-policy construction while
+   preserving TerraTorch-specific output contracts and legacy flat-layout
+   support. Full inheritance from the `all_models` dataset/datamodule base is
+   intentionally deferred until the shared base can express both Toy and Graha
+   constructor/output contracts without forcing task-specific behavior into the
+   wrong layer.
 
 Phase 3: Normalization Strategy Objects
 

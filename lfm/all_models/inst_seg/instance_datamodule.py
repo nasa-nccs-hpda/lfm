@@ -14,7 +14,11 @@ from lfm.all_models.all_tasks.data.normalization import (
     NormalizationStrategy,
     build_normalization_strategy,
 )
-from lfm.all_models.all_tasks.data.nodata import NoDataPolicy
+from lfm.all_models.all_tasks.data.nodata import (
+    NoDataPolicy,
+    build_nodata_policy,
+)
+from lfm.all_models.all_tasks.data.base_datamodule import SplitFolderDataLayout
 from lfm.all_models.inst_seg.instance_data_utils import (
     collate_mask2former_instance_segmentation,
 )
@@ -66,6 +70,11 @@ class InstanceSegmentationDataModule(LightningDataModule):
     ) -> None:
         super().__init__()
         self.data_root = Path(data_root)
+        self.data_layout = SplitFolderDataLayout(
+            self.data_root,
+            chips_subdir=chips_subdir,
+            labels_subdir=labels_subdir,
+        )
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.target_size = target_size
@@ -95,14 +104,12 @@ class InstanceSegmentationDataModule(LightningDataModule):
         self.no_label_replace = no_label_replace
         self.ignore_nodata_in_loss = ignore_nodata_in_loss
         self.nodata_ignore_index = int(nodata_ignore_index)
-        self.nodata_policy = nodata_policy or NoDataPolicy(
-            ignore_in_loss=ignore_nodata_in_loss,
-            ignore_index=nodata_ignore_index,
-            image_fill_value=(
-                float(no_data_replace) if no_data_replace is not None else 0.0
-            ),
-            label_fill_value=no_label_replace,
-            fill_image_nodata=no_data_replace is not None,
+        self.nodata_policy = build_nodata_policy(
+            no_data_replace=no_data_replace,
+            no_label_replace=no_label_replace,
+            ignore_nodata_in_loss=ignore_nodata_in_loss,
+            nodata_ignore_index=nodata_ignore_index,
+            nodata_policy=nodata_policy,
         )
         self.input_metadata_fn = input_metadata_fn
         self.weight_assignments: list[str] | None = None
@@ -129,20 +136,7 @@ class InstanceSegmentationDataModule(LightningDataModule):
             self.test_dataset = self._make_dataset("test", self.max_test_samples)
 
     def _validate_split_dirs(self) -> None:
-        required = []
-        for split in ["train", "val", "test"]:
-            required.extend(
-                [
-                    self.data_root / split / self.chips_subdir,
-                    self.data_root / split / self.labels_subdir,
-                ]
-            )
-        missing = [path for path in required if not path.exists()]
-        if missing:
-            raise FileNotFoundError(
-                "Missing split data directories:\n"
-                + "\n".join(str(path) for path in missing)
-            )
+        self.data_layout.require_split_dirs(["train", "val", "test"])
         if self.chips_subdir != "chips" or self.labels_subdir != "labels":
             raise ValueError(
                 "Toy instance input metadata currently expects split folders named "

@@ -81,3 +81,24 @@ class NoDataPolicy:
         mask = mask.clone()
         mask[nodata_mask] = int(self.ignore_index)
         return mask
+
+
+def build_nodata_policy(
+    *,
+    no_data_replace: float | None = None,
+    no_label_replace: int | None = None,
+    ignore_nodata_in_loss: bool = False,
+    nodata_ignore_index: int = -1,
+    nodata_policy: NoDataPolicy | None = None,
+) -> NoDataPolicy:
+    if nodata_policy is not None:
+        return nodata_policy
+    return NoDataPolicy(
+        ignore_in_loss=ignore_nodata_in_loss,
+        ignore_index=nodata_ignore_index,
+        image_fill_value=(
+            float(no_data_replace) if no_data_replace is not None else 0.0
+        ),
+        label_fill_value=no_label_replace,
+        fill_image_nodata=no_data_replace is not None,
+    )

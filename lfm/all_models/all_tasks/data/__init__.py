@@ -1,5 +1,6 @@
 """Shared data loading and preprocessing utilities for LFM tasks."""
 
+from lfm.all_models.all_tasks.data.base_datamodule import SplitFolderDataLayout
 from lfm.all_models.all_tasks.data.base_dataset import LunarSegmentationDataset
 from lfm.all_models.all_tasks.data.image_io import (
     PairRecord,
@@ -11,7 +12,7 @@ from lfm.all_models.all_tasks.data.image_io import (
     read_label_file,
     read_label_file_with_metadata,
 )
-from lfm.all_models.all_tasks.data.nodata import NoDataPolicy
+from lfm.all_models.all_tasks.data.nodata import NoDataPolicy, build_nodata_policy
 from lfm.all_models.all_tasks.data.normalization import (
     FinetuneStatsNormalization,
     NoNormalization,
@@ -29,7 +30,9 @@ __all__ = [
     "NormalizationStrategy",
     "PairRecord",
     "PretrainYamlNormalization",
+    "SplitFolderDataLayout",
     "ZScoreNormalization",
+    "build_nodata_policy",
     "build_normalization_strategy",
     "find_pair_records",
     "image_to_hwc_float",
