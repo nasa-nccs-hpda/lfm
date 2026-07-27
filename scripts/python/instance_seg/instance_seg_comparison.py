@@ -135,6 +135,7 @@ class InstanceEpochTestSuiteCallback(Callback):
                 name=epoch_name,
             ),
             model_name=self.model_name,
+            score_threshold=self.score_threshold,
         )
         plot_instance_cache_predictions(
             cache_dir,
