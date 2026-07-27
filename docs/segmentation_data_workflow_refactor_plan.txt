@@ -501,7 +501,18 @@ experiment objects.
 
 Sub-steps:
 
-1. Extract repeated single-model run behavior into `SingleModelExperiment`.
+1. [Completed] Extract repeated single-model run behavior into
+   `SingleModelExperiment`.
+
+   `lfm.all_models.all_tasks.experiments.SingleModelExperiment` now owns the
+   shared one-model orchestration mechanics used by semantic and instance
+   single-finetune wrappers:
+
+   - create the output directory
+   - create requested checkpoint subdirectories
+   - save the model-specific config JSON
+   - run the selected Toy or Graha workflow callable
+   - write simple elapsed timing, or delegate to task-specific timing hooks
 
 2. Extract Toy-vs-Graha orchestration into `ComparisonExperiment`.
 
