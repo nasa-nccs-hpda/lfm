@@ -115,7 +115,6 @@ def _semantic_comparison_command(
         str(base_output_dir),
     ]
     command.extend(_common_comparison_args(args))
-    _append_flag(command, "--spatial-transform", args.spatial_transform)
     _append_flag(command, "--semantic-label-source", args.semantic_label_source)
     _append_flag(command, "--image-glob", args.image_glob)
     _append_flag(command, "--label-glob", args.label_glob)
@@ -220,7 +219,6 @@ def _semantic_sweep_command(
     _append_flag(command, "--models", args.models)
     _append_flag(command, "--band-filter", args.band_filter)
     _append_flag(command, "--target-size", args.target_size)
-    _append_flag(command, "--spatial-transform", args.spatial_transform)
     _append_flag(command, "--semantic-label-source", args.semantic_label_source)
     _append_flag(command, "--image-glob", args.image_glob)
     _append_flag(command, "--label-glob", args.label_glob)
@@ -461,9 +459,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--verbose", action="store_true")
 
-    parser.add_argument(
-        "--spatial-transform", choices=["crop", "resize"], default="crop"
-    )
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=10)
     parser.add_argument("--learning-rate", type=float, default=5.0e-5)

@@ -142,7 +142,7 @@ def build_config(args: argparse.Namespace) -> SweepConfig:
         models=models,
         band_filter=args.band_filter,
         target_size=args.target_size,
-        spatial_transform=args.spatial_transform,
+        spatial_transform="crop",
         semantic_label_source=getattr(args, "semantic_label_source", "semantic"),
         image_glob=args.image_glob,
         label_glob=args.label_glob,
@@ -676,7 +676,7 @@ def _make_toy_args(config: SweepConfig) -> argparse.Namespace:
         toy_lightning_checkpoint=None,
         band_filter=config.band_filter,
         target_size=config.target_size,
-        spatial_transform=config.spatial_transform,
+        spatial_transform="crop",
         semantic_label_source=config.semantic_label_source,
         image_glob=config.image_glob,
         label_glob=config.label_glob,
@@ -954,9 +954,6 @@ def parse_args() -> argparse.Namespace:
         "--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6]
     )
     parser.add_argument("--target-size", type=int, default=256)
-    parser.add_argument(
-        "--spatial-transform", choices=["crop", "resize"], default="crop"
-    )
     parser.add_argument(
         "--semantic-label-source",
         choices=["semantic", "instance"],

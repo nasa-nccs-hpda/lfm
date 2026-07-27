@@ -834,9 +834,22 @@ def parse_args() -> argparse.Namespace:
         help="Suffix stripped from label stems before matching chips.",
     )
     parser.add_argument("--max-samples", type=int, default=None)
-    parser.add_argument("--toy-batch-size", type=int, default=2)
+    parser.add_argument(
+        "--toy-batch-size",
+        "--batch-size",
+        dest="toy_batch_size",
+        type=int,
+        default=2,
+        help="Toy instance batch size. --batch-size is accepted for parity with semantic scripts.",
+    )
     parser.add_argument("--toy-num-workers", type=int, default=4)
-    parser.add_argument("--toy-normalize-inputs", action="store_true")
+    parser.add_argument(
+        "--toy-normalize-inputs",
+        "--normalize-inputs",
+        dest="toy_normalize_inputs",
+        action="store_true",
+        help="Enable Toy instance z-score normalization. --normalize-inputs is accepted for parity with semantic scripts.",
+    )
     parser.add_argument(
         "--normalization-source",
         choices=["pretrain", "finetune"],

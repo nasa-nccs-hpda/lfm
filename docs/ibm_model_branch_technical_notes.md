@@ -253,7 +253,6 @@ Semantic full train plus sweep should use:
 ```bash
 --graha-input-modality-mode vis-uv
 --graha-vis-uv-merge-method mean
---spatial-transform crop
 --target-size 256
 ```
 

@@ -17,10 +17,27 @@ mkdir -p scripts/logs
 
 BASE_OUTPUT_DIR="${REPO_DIR}/scripts/outputs/instance_parallel_finetune"
 ARGS=("$@")
+UNSUPPORTED_FLAGS=(
+  "--spatial-transform"
+  "--loss-type"
+  "--toy-loss-type"
+  "--use-toy-shape-loss"
+  "--toy-shape-loss-weight"
+  "--toy-shape-loss-pad-frac"
+  "--graha-shape-loss-weight"
+  "--graha-shape-loss-pad-frac"
+)
 for ((i = 0; i < ${#ARGS[@]}; i++)); do
   if [[ "${ARGS[$i]}" == "--base-output-dir" && $((i + 1)) -lt ${#ARGS[@]} ]]; then
     BASE_OUTPUT_DIR="${ARGS[$((i + 1))]}"
   fi
+  for unsupported_flag in "${UNSUPPORTED_FLAGS[@]}"; do
+    if [[ "${ARGS[$i]}" == "${unsupported_flag}" ]]; then
+      echo "Unsupported instance segmentation argument: ${unsupported_flag}" >&2
+      echo "Semantic-only spatial/loss/shape-loss options do not affect instance segmentation; remove them from the instance command." >&2
+      exit 2
+    fi
+  done
 done
 
 TIMESTAMP="$(date +date_%Y_%m_%d-time_%H_%M_%S)"

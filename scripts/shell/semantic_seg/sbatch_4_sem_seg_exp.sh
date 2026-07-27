@@ -40,7 +40,6 @@ COMMON_ARGS=(
   --data-root "${DATA_ROOT}"
   --max-epochs "${MAX_EPOCHS}"
   --target-size 256
-  --spatial-transform crop
   --semantic-label-source instance
   --batch-size "${BATCH_SIZE}"
   --graha-batch-size "${GRAHA_BATCH_SIZE}"

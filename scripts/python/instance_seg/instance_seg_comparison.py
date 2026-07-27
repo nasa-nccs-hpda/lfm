@@ -413,7 +413,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--max-val-samples", type=int, default=None)
     parser.add_argument("--max-test-samples", type=int, default=None)
-    parser.add_argument("--toy-batch-size", type=int, default=2)
+    parser.add_argument(
+        "--toy-batch-size",
+        "--batch-size",
+        dest="toy_batch_size",
+        type=int,
+        default=2,
+        help="Toy instance batch size. --batch-size is accepted for parity with semantic scripts.",
+    )
     parser.add_argument("--toy-num-workers", type=int, default=10)
     parser.add_argument("--graha-stats-batch-size", type=int, default=16)
     parser.add_argument("--graha-batch-size", type=int, default=2)
@@ -422,7 +429,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--toy-learning-rate", type=float, default=5.0e-5)
     parser.add_argument("--toy-weight-decay", type=float, default=1.0e-3)
     parser.add_argument("--toy-freeze-backbone", action="store_true")
-    parser.add_argument("--toy-normalize-inputs", action="store_true")
+    parser.add_argument(
+        "--toy-normalize-inputs",
+        "--normalize-inputs",
+        dest="toy_normalize_inputs",
+        action="store_true",
+        help="Enable Toy instance z-score normalization. --normalize-inputs is accepted for parity with semantic scripts.",
+    )
     parser.add_argument("--toy-gradient-clip-val", type=float, default=1.0)
     parser.add_argument("--disable-toy-gradient-clipping", action="store_true")
     parser.add_argument("--graha-backbone-lr", type=float, default=5.0e-5)
