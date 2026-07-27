@@ -48,7 +48,7 @@ COMMON_ARGS=(
   --graha-num-workers "${GRAHA_NUM_WORKERS}"
   --graha-stats-batch-size "${GRAHA_STATS_BATCH_SIZE}"
   --normalize-inputs
-  --loss-type dice
+  --toy-loss-type dice
   --disable-toy-gradient-clipping
   --graha-input-modality-mode vis-uv
   --graha-vis-uv-merge-method mean

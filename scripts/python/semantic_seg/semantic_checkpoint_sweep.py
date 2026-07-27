@@ -690,7 +690,7 @@ def _make_toy_args(config: SweepConfig) -> argparse.Namespace:
         max_epochs=1,
         learning_rate=5e-5,
         weight_decay=0.05,
-        loss_type="dice",
+        toy_loss_type="dice",
         use_toy_shape_loss=False,
         toy_shape_loss_weight=0.05,
         toy_shape_loss_pad_frac=0.3,

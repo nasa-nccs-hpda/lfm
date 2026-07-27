@@ -187,7 +187,7 @@ def create_lightning_module(
         }
     return module_cls(
         model=model,
-        loss_type=config.loss_type,
+        loss_type=config.toy_loss_type,
         learning_rate=config.learning_rate,
         weight_decay=config.weight_decay,
         max_epochs=config.max_epochs,

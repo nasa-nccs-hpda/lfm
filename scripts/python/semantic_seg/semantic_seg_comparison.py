@@ -54,7 +54,7 @@ class ToyComparisonConfig:
     max_epochs: int
     learning_rate: float
     weight_decay: float
-    loss_type: str
+    toy_loss_type: str
     use_toy_shape_loss: bool
     toy_shape_loss_weight: float
     toy_shape_loss_pad_frac: float
@@ -425,7 +425,7 @@ def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
         max_epochs=args.max_epochs,
         learning_rate=args.learning_rate,
         weight_decay=args.weight_decay,
-        loss_type=args.loss_type,
+        toy_loss_type=args.toy_loss_type,
         use_toy_shape_loss=args.use_toy_shape_loss,
         toy_shape_loss_weight=args.toy_shape_loss_weight,
         toy_shape_loss_pad_frac=args.toy_shape_loss_pad_frac,
@@ -632,7 +632,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-epochs", type=int, default=100)
     parser.add_argument("--learning-rate", type=float, default=5e-5)
     parser.add_argument("--weight-decay", type=float, default=1e-3)
-    parser.add_argument("--loss-type", type=str, default="focal_dice")
+    parser.add_argument(
+        "--toy-loss-type",
+        type=str,
+        default="focal_dice",
+        help="Loss function for the Toy semantic model. Graha semantic currently uses its own Dice loss path.",
+    )
     parser.add_argument("--use-toy-shape-loss", action="store_true")
     parser.add_argument("--toy-shape-loss-weight", type=float, default=0.05)
     parser.add_argument("--toy-shape-loss-pad-frac", type=float, default=0.3)
