@@ -87,3 +87,48 @@ class SingleModelExperiment:
                 path=self.output_dir / f"timing_summary_{self.model}_model.json",
             )
         return result
+
+
+class ComparisonExperiment:
+    """Common runner for paired Toy and Graha comparison workflows."""
+
+    def __init__(
+        self,
+        *,
+        config: Any,
+        output_dir: Path,
+        run_toy: Callable[[], Any],
+        run_graha: Callable[[], Any],
+        checkpoint_subdirs: Sequence[str | Path] = (),
+        on_complete: Callable[[float, dict[str, Any]], None] | None = None,
+    ) -> None:
+        self.config = config
+        self.output_dir = Path(output_dir)
+        self.run_toy = run_toy
+        self.run_graha = run_graha
+        self.checkpoint_subdirs = tuple(Path(path) for path in checkpoint_subdirs)
+        self.on_complete = on_complete
+
+    def prepare(self) -> None:
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        for subdir in self.checkpoint_subdirs:
+            (self.output_dir / subdir).mkdir(parents=True, exist_ok=True)
+        save_config_json(self.config, self.output_dir / "config.json")
+
+    def run(self) -> dict[str, Any]:
+        started_at = time.perf_counter()
+        self.prepare()
+        results = {
+            "toy": self.run_toy(),
+            "graha": self.run_graha(),
+        }
+        if self.on_complete is not None:
+            self.on_complete(started_at, results)
+        else:
+            elapsed = time.perf_counter() - started_at
+            with (self.output_dir / "timing_summary.json").open(
+                "w", encoding="utf-8"
+            ) as f:
+                json.dump({"seconds": round(elapsed, 3)}, f, indent=2)
+            print(f"Comparison elapsed seconds: {elapsed:.3f}", flush=True)
+        return results

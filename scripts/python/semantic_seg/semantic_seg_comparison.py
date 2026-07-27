@@ -6,7 +6,7 @@ import argparse
 import csv
 import json
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +14,7 @@ import numpy as np
 import torch
 from lightning.pytorch.callbacks import Callback
 
+from lfm.all_models.all_tasks import ComparisonExperiment, save_config_json
 from lfm.full_model.all_tasks.utils import (
     create_timestamped_output_dir,
     evaluate_prediction_caches,
@@ -488,16 +489,7 @@ def validate_data_paths(config: ToyComparisonConfig) -> None:
 
 
 def save_config(config: ToyComparisonConfig, output_dir: Path) -> None:
-    def encode(value: Any) -> Any:
-        if isinstance(value, Path):
-            return str(value)
-        if isinstance(value, tuple):
-            return list(value)
-        return value
-
-    payload = {key: encode(value) for key, value in asdict(config).items()}
-    with (output_dir / "config.json").open("w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+    save_config_json(config, output_dir / "config.json")
 
 
 def _format_seconds(seconds: float) -> str:
@@ -720,53 +712,71 @@ def main() -> None:
     config = build_config(args)
     validate_data_paths(config)
     output_dir = create_timestamped_output_dir(config.base_output_dir)
-    save_config(config, output_dir)
     timing_rows: list[dict[str, Any]] = []
 
-    toy_prediction_cache = TOY_ADAPTER.run_workflow(
-        config,
-        output_dir=output_dir,
-        normalization_modality_info=get_toy_normalization_modality_info(config),
-        epoch_test_suite_callback_cls=SemanticEpochTestSuiteCallback,
-        timing_rows=timing_rows,
-        record_timing=record_timing,
-    )
-
-    _, graha_prediction_cache = GRAHA_ADAPTER.run_workflow(
-        config,
-        no_fit=config.skip_graha_fit,
-        comparison_output_dir=output_dir,
-        epoch_test_suite_callback_cls=SemanticEpochTestSuiteCallback,
-        timing_rows=timing_rows,
-        record_timing=record_timing,
-    )
-
-    if config.cache_predictions and toy_prediction_cache and graha_prediction_cache:
-        comparison_started_at = time.perf_counter()
-        comparison_caches = {
-            "toy": toy_prediction_cache,
-            "graha": graha_prediction_cache,
-        }
-        plot_prediction_cache_comparison(
-            comparison_caches,
-            output_dir / "plots" / "comparison",
-            n_samples=min(5, config.prediction_n_samples),
+    def run_toy():
+        return TOY_ADAPTER.run_workflow(
+            config,
+            output_dir=output_dir,
+            normalization_modality_info=get_toy_normalization_modality_info(config),
+            epoch_test_suite_callback_cls=SemanticEpochTestSuiteCallback,
+            timing_rows=timing_rows,
+            record_timing=record_timing,
         )
-        _, metric_summary = evaluate_prediction_caches(
-            comparison_caches,
-            output_dir / "comparison_metrics",
+
+    def run_graha():
+        _, graha_prediction_cache = GRAHA_ADAPTER.run_workflow(
+            config,
+            no_fit=config.skip_graha_fit,
+            comparison_output_dir=output_dir,
+            epoch_test_suite_callback_cls=SemanticEpochTestSuiteCallback,
+            timing_rows=timing_rows,
+            record_timing=record_timing,
         )
-        print("Comparison metric summary:")
-        for row in metric_summary:
-            print("  " + json.dumps(row, sort_keys=True))
+        return graha_prediction_cache
+
+    def on_complete(started_at: float, results: dict[str, Any]) -> None:
+        toy_prediction_cache = results["toy"]
+        graha_prediction_cache = results["graha"]
+        if config.cache_predictions and toy_prediction_cache and graha_prediction_cache:
+            comparison_started_at = time.perf_counter()
+            comparison_caches = {
+                "toy": toy_prediction_cache,
+                "graha": graha_prediction_cache,
+            }
+            plot_prediction_cache_comparison(
+                comparison_caches,
+                output_dir / "plots" / "comparison",
+                n_samples=min(5, config.prediction_n_samples),
+            )
+            _, metric_summary = evaluate_prediction_caches(
+                comparison_caches,
+                output_dir / "comparison_metrics",
+            )
+            print("Comparison metric summary:")
+            for row in metric_summary:
+                print("  " + json.dumps(row, sort_keys=True))
+            record_timing(
+                timing_rows,
+                model="Comparison",
+                stage="plots_and_metrics",
+                started_at=comparison_started_at,
+            )
         record_timing(
             timing_rows,
             model="Comparison",
-            stage="plots_and_metrics",
-            started_at=comparison_started_at,
+            stage="total",
+            started_at=started_at,
         )
+        save_timing_summary(timing_rows, output_dir)
 
-    save_timing_summary(timing_rows, output_dir)
+    ComparisonExperiment(
+        config=config,
+        output_dir=output_dir,
+        run_toy=run_toy,
+        run_graha=run_graha,
+        on_complete=on_complete,
+    ).run()
 
 
 if __name__ == "__main__":

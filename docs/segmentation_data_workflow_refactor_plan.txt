@@ -514,7 +514,18 @@ Sub-steps:
    - run the selected Toy or Graha workflow callable
    - write simple elapsed timing, or delegate to task-specific timing hooks
 
-2. Extract Toy-vs-Graha orchestration into `ComparisonExperiment`.
+2. [Completed] Extract Toy-vs-Graha orchestration into `ComparisonExperiment`.
+
+   `lfm.all_models.all_tasks.experiments.ComparisonExperiment` now owns the
+   shared paired-model orchestration used by semantic and instance comparison
+   scripts:
+
+   - create the timestamped output directory supplied by the script
+   - create requested checkpoint subdirectories
+   - save the shared comparison config JSON
+   - run Toy first, then Graha
+   - pass both workflow results to task-specific completion hooks for plotting,
+     metrics, and timing
 
 3. Extract repeated checkpoint enumeration/evaluation into
    `CheckpointSweepExperiment`.

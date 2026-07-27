@@ -10,12 +10,13 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from lightning.pytorch.callbacks import Callback
 
+from lfm.all_models.all_tasks import ComparisonExperiment, save_config_json
 from lfm.full_model.inst_seg.instance_model_adapter import GrahaInstanceModelAdapter
 from lfm.toy_model.inst_seg.instance_model_adapter import ToyInstanceModelAdapter
 from lfm.full_model.all_tasks.utils import (
@@ -322,17 +323,7 @@ def validate_paths(config: InstanceComparisonConfig) -> None:
 
 
 def save_config(config: InstanceComparisonConfig, output_dir: Path) -> None:
-    def encode(value: Any) -> Any:
-        if isinstance(value, Path):
-            return str(value)
-        if isinstance(value, tuple):
-            return list(value)
-        return value
-
-    with (output_dir / "config.json").open("w", encoding="utf-8") as f:
-        json.dump(
-            {key: encode(value) for key, value in asdict(config).items()}, f, indent=2
-        )
+    save_config_json(config, output_dir / "config.json")
 
 
 def get_toy_normalization_modality_info(
@@ -496,44 +487,58 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main() -> None:
-    started = time.perf_counter()
     args = parse_args()
     notebook_dir = Path(__file__).resolve().parents[2] / "notebooks" / "full_model"
     ensure_data_symlink(args.simlink_dest, notebook_dir / "data")
     config = build_config(args)
     validate_paths(config)
     output_dir = create_timestamped_output_dir(config.base_output_dir)
-    (output_dir / "checkpoints" / "toy_model").mkdir(parents=True, exist_ok=True)
-    (output_dir / "checkpoints" / "full_model").mkdir(parents=True, exist_ok=True)
-    save_config(config, output_dir)
 
-    toy_prediction_cache = TOY_ADAPTER.run_workflow(
-        config,
-        output_dir,
-        normalization_modality_info=get_toy_normalization_modality_info(config),
-        epoch_test_suite_callback_cls=InstanceEpochTestSuiteCallback,
-    )
-    graha_prediction_cache = GRAHA_ADAPTER.run_workflow(
-        config,
-        output_dir,
-        validation_plot_callback_cls=GrahaInstancePlotCallback,
-        epoch_test_suite_callback_cls=InstanceEpochTestSuiteCallback,
-    )
-
-    if toy_prediction_cache is not None and graha_prediction_cache is not None:
-        plot_instance_cache_comparison(
-            {
-                "toy": toy_prediction_cache,
-                "graha": graha_prediction_cache,
-            },
-            output_dir / "plots" / "comparison",
-            n_samples=config.prediction_n_samples,
+    def run_toy():
+        return TOY_ADAPTER.run_workflow(
+            config,
+            output_dir,
+            normalization_modality_info=get_toy_normalization_modality_info(config),
+            epoch_test_suite_callback_cls=InstanceEpochTestSuiteCallback,
         )
 
-    elapsed = time.perf_counter() - started
-    with (output_dir / "timing_summary.json").open("w", encoding="utf-8") as f:
-        json.dump({"seconds": round(elapsed, 3)}, f, indent=2)
-    print(f"Comparison elapsed seconds: {elapsed:.3f}", flush=True)
+    def run_graha():
+        return GRAHA_ADAPTER.run_workflow(
+            config,
+            output_dir,
+            validation_plot_callback_cls=GrahaInstancePlotCallback,
+            epoch_test_suite_callback_cls=InstanceEpochTestSuiteCallback,
+        )
+
+    def on_complete(started_at: float, results: dict[str, Any]) -> None:
+        toy_prediction_cache = results["toy"]
+        graha_prediction_cache = results["graha"]
+        if toy_prediction_cache is not None and graha_prediction_cache is not None:
+            plot_instance_cache_comparison(
+                {
+                    "toy": toy_prediction_cache,
+                    "graha": graha_prediction_cache,
+                },
+                output_dir / "plots" / "comparison",
+                n_samples=config.prediction_n_samples,
+            )
+
+        elapsed = time.perf_counter() - started_at
+        with (output_dir / "timing_summary.json").open("w", encoding="utf-8") as f:
+            json.dump({"seconds": round(elapsed, 3)}, f, indent=2)
+        print(f"Comparison elapsed seconds: {elapsed:.3f}", flush=True)
+
+    ComparisonExperiment(
+        config=config,
+        output_dir=output_dir,
+        checkpoint_subdirs=[
+            Path("checkpoints") / "toy_model",
+            Path("checkpoints") / "full_model",
+        ],
+        run_toy=run_toy,
+        run_graha=run_graha,
+        on_complete=on_complete,
+    ).run()
 
 
 if __name__ == "__main__":

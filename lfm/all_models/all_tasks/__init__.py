@@ -1,6 +1,7 @@
 """Shared code used across model families and segmentation tasks."""
 
 from lfm.all_models.all_tasks.experiments import (
+    ComparisonExperiment,
     SingleModelExperiment,
     json_ready,
     save_config_json,
@@ -16,6 +17,7 @@ __all__ = [
     "InstanceModelAdapter",
     "ModelAdapter",
     "SemanticModelAdapter",
+    "ComparisonExperiment",
     "SingleModelExperiment",
     "json_ready",
     "save_config_json",
