@@ -45,6 +45,7 @@ class LunarSegmentationDatamodule(LightningDataModule):
         label_glob: str = "*_label.*",
         image_suffix: str = "_input_wac_static_chip",
         label_suffix: str = "_label",
+        band_filter: list[int] | None = None,
         val_fraction: float = 0.15,
         test_fraction: float = 0.0,
         split_seed: int = 42,
@@ -83,6 +84,7 @@ class LunarSegmentationDatamodule(LightningDataModule):
         self.label_glob = label_glob
         self.image_suffix = image_suffix
         self.label_suffix = label_suffix
+        self.band_filter = band_filter
         self.val_fraction = val_fraction
         self.test_fraction = test_fraction
         self.split_seed = split_seed
@@ -124,6 +126,7 @@ class LunarSegmentationDatamodule(LightningDataModule):
             image_suffix=self.image_suffix,
             label_suffix=self.label_suffix,
             crop_size=self.crop_size,
+            band_filter=self.band_filter,
             means=self.means,
             stds=self.stds,
             normalization=self.normalization,

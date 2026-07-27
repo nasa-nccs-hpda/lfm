@@ -44,6 +44,7 @@ class LunarSegmentationDataset(Dataset):
         image_suffix: str = "_input_wac_static_chip",
         label_suffix: str = "_label",
         crop_size: int | tuple[int, int] | None = 256,
+        band_filter: list[int] | None = None,
         means: list[float] | None = None,
         stds: list[float] | None = None,
         normalization: NormalizationStrategy | None = None,
@@ -59,6 +60,7 @@ class LunarSegmentationDataset(Dataset):
     ) -> None:
         self.split_name = split_name or Path(chips_dir).parent.name
         self.crop_size = crop_size
+        self.band_filter = band_filter
         self.means = means
         self.stds = stds
         self.normalization = normalization or build_normalization_strategy(
@@ -103,6 +105,14 @@ class LunarSegmentationDataset(Dataset):
             record.image_path
         )
         image = image_to_chw_float(image_array)
+        if self.band_filter is not None:
+            max_index = max(self.band_filter, default=-1)
+            if max_index >= image.shape[0]:
+                raise ValueError(
+                    f"Band filter {self.band_filter} is incompatible with "
+                    f"{image.shape[0]} input channel(s)."
+                )
+            image = image[self.band_filter, :, :]
         nodata_mask = torch.as_tensor(nodata_mask_array, dtype=torch.bool)
         label = read_label_file_with_metadata(record.label_path)
         label_mask = label["mask"] if isinstance(label, dict) else label

@@ -337,6 +337,7 @@ def common_datamodule_args(config: FineTuningConfig) -> dict[str, Any]:
         "label_glob": config.label_glob,
         "image_suffix": config.image_suffix,
         "label_suffix": config.label_suffix,
+        "band_filter": config.band_filter,
         "max_train_samples": config.max_train_samples,
         "max_val_samples": config.max_val_samples,
         "max_test_samples": config.max_test_samples,
