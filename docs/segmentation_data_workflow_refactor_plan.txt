@@ -274,7 +274,27 @@ Sub-steps:
    specializations: they supply Toy input metadata behavior, and Mask R-CNN
    supplies its object-detection dataset, collate function, and stats key.
 
-7. [Pending] Review Graha semantic and instance datasets after Toy paths are stable.
+7. [Completed] Align Toy wrapper split layout and nodata composition.
+
+   Toy Lightning wrapper data paths should use the same pre-split folder
+   structure expected by the repo-owned full-model/Graha datamodules:
+
+   `data_root/train/chips`
+   `data_root/train/labels`
+   `data_root/val/chips`
+   `data_root/val/labels`
+   `data_root/test/chips`
+   `data_root/test/labels`
+
+   Keep older legacy helper code stable, but route active Toy wrapper paths
+   through composed `NoDataPolicy` behavior where they use shared datasets.
+   Toy semantic already used this split-folder wrapper shape. Toy instance now
+   validates the same split-folder structure, threads `NoDataPolicy` through
+   the shared instance datamodule, applies nodata-aware image/mask handling in
+   the shared instance dataset, and skips non-positive instance IDs when
+   building Mask2Former targets.
+
+8. [Pending] Review Graha semantic and instance datasets after Toy paths are stable.
 
    Do not touch `lfm/full_model/graha-lunar-fm`. Only migrate repo-owned Graha
    wrapper/datamodule code where behavior clearly overlaps.

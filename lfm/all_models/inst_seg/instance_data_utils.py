@@ -39,7 +39,7 @@ def mask_to_binary_instance_targets(
     mask_labels: list[torch.Tensor] = []
     class_labels: list[torch.Tensor] = []
     for instance_id in torch.unique(mask).tolist():
-        if int(instance_id) == 0:
+        if int(instance_id) <= 0:
             continue
         instance_mask = (mask == int(instance_id)).float()
         if instance_mask.any():

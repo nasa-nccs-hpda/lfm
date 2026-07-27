@@ -14,6 +14,7 @@ from lfm.all_models.all_tasks.data.normalization import (
     NormalizationStrategy,
     build_normalization_strategy,
 )
+from lfm.all_models.all_tasks.data.nodata import NoDataPolicy
 from lfm.all_models.inst_seg.instance_data_utils import (
     collate_mask2former_instance_segmentation,
 )
@@ -42,6 +43,8 @@ class InstanceSegmentationDataModule(LightningDataModule):
         target_size: int | tuple[int, int] = 256,
         image_glob: str = "*.tif",
         label_glob: str = "*_label.npz",
+        chips_subdir: str = "chips",
+        labels_subdir: str = "labels",
         image_suffix: str = "_input_wac_static_chip",
         label_suffix: str = "_label",
         band_filter: list[int] | None = None,
@@ -54,6 +57,11 @@ class InstanceSegmentationDataModule(LightningDataModule):
         stds: list[float] | None = None,
         normalization: NormalizationStrategy | None = None,
         scale_inputs: bool = True,
+        no_data_replace: float | None = None,
+        no_label_replace: int | None = None,
+        ignore_nodata_in_loss: bool = False,
+        nodata_ignore_index: int = -1,
+        nodata_policy: NoDataPolicy | None = None,
         input_metadata_fn: InputMetadataFn | None = None,
     ) -> None:
         super().__init__()
@@ -63,6 +71,8 @@ class InstanceSegmentationDataModule(LightningDataModule):
         self.target_size = target_size
         self.image_glob = image_glob
         self.label_glob = label_glob
+        self.chips_subdir = chips_subdir
+        self.labels_subdir = labels_subdir
         self.image_suffix = image_suffix
         self.label_suffix = label_suffix
         self.band_filter = band_filter
@@ -81,10 +91,24 @@ class InstanceSegmentationDataModule(LightningDataModule):
             stds=stds,
         )
         self.scale_inputs = scale_inputs
+        self.no_data_replace = no_data_replace
+        self.no_label_replace = no_label_replace
+        self.ignore_nodata_in_loss = ignore_nodata_in_loss
+        self.nodata_ignore_index = int(nodata_ignore_index)
+        self.nodata_policy = nodata_policy or NoDataPolicy(
+            ignore_in_loss=ignore_nodata_in_loss,
+            ignore_index=nodata_ignore_index,
+            image_fill_value=(
+                float(no_data_replace) if no_data_replace is not None else 0.0
+            ),
+            label_fill_value=no_label_replace,
+            fill_image_nodata=no_data_replace is not None,
+        )
         self.input_metadata_fn = input_metadata_fn
         self.weight_assignments: list[str] | None = None
 
     def setup(self, stage: str | None = None) -> None:
+        self._validate_split_dirs()
         if self.weight_assignments is None and self.input_metadata_fn is not None:
             self.weight_assignments = self.input_metadata_fn(
                 str(self.data_root / "train"),
@@ -103,6 +127,27 @@ class InstanceSegmentationDataModule(LightningDataModule):
             self.val_dataset = self._make_dataset("val", self.max_val_samples)
         if stage in (None, "test", "predict"):
             self.test_dataset = self._make_dataset("test", self.max_test_samples)
+
+    def _validate_split_dirs(self) -> None:
+        required = []
+        for split in ["train", "val", "test"]:
+            required.extend(
+                [
+                    self.data_root / split / self.chips_subdir,
+                    self.data_root / split / self.labels_subdir,
+                ]
+            )
+        missing = [path for path in required if not path.exists()]
+        if missing:
+            raise FileNotFoundError(
+                "Missing split data directories:\n"
+                + "\n".join(str(path) for path in missing)
+            )
+        if self.chips_subdir != "chips" or self.labels_subdir != "labels":
+            raise ValueError(
+                "Toy instance input metadata currently expects split folders named "
+                "'chips' and 'labels'."
+            )
 
     def _make_dataset(
         self,
@@ -123,6 +168,11 @@ class InstanceSegmentationDataModule(LightningDataModule):
             normalization=self.normalization,
             scale_inputs=self.scale_inputs,
             mask_shift=self.mask_shift,
+            no_data_replace=self.no_data_replace,
+            no_label_replace=self.no_label_replace,
+            ignore_nodata_in_loss=self.ignore_nodata_in_loss,
+            nodata_ignore_index=self.nodata_ignore_index,
+            nodata_policy=self.nodata_policy,
             max_samples=max_samples,
             split_name=split,
         )
@@ -140,6 +190,11 @@ class InstanceSegmentationDataModule(LightningDataModule):
             normalization=None,
             scale_inputs=self.scale_inputs,
             mask_shift=self.mask_shift,
+            no_data_replace=self.no_data_replace,
+            no_label_replace=self.no_label_replace,
+            ignore_nodata_in_loss=self.ignore_nodata_in_loss,
+            nodata_ignore_index=self.nodata_ignore_index,
+            nodata_policy=self.nodata_policy,
             max_samples=self.max_train_samples,
             split_name="train-stats",
         )
