@@ -527,8 +527,23 @@ Sub-steps:
    - pass both workflow results to task-specific completion hooks for plotting,
      metrics, and timing
 
-3. Extract repeated checkpoint enumeration/evaluation into
+3. [Completed] Extract repeated checkpoint enumeration/evaluation into
    `CheckpointSweepExperiment`.
+
+   `lfm.all_models.all_tasks.experiments.CheckpointSweepExperiment` now owns the
+   shared checkpoint-sweep orchestration used by semantic and instance
+   checkpoint sweep scripts:
+
+   - create the output root
+   - seed through the script-provided Lightning seed function
+   - validate model-specific checkpoint directories
+   - discover, sort, de-duplicate, and limit checkpoint records
+   - dispatch Toy and Graha checkpoint sweeps in the requested order
+
+   Shared checkpoint utilities now also own Lightning checkpoint state loading
+   and checkpoint metrics summary writing. Task-specific scripts still own
+   semantic-vs-instance evaluation, prediction/cache output details, and metric
+   definitions.
 
 4. Keep scripts as CLI wrappers:
 

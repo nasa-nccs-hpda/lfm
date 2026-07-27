@@ -24,8 +24,6 @@ import argparse
 import contextlib
 import gc
 import os
-import re
-import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -36,6 +34,13 @@ from lightning.pytorch import seed_everything
 from tqdm.auto import tqdm
 
 import instance_seg_comparison as comparison_workflow
+from lfm.all_models.all_tasks import (
+    CheckpointRecord,
+    CheckpointSweepExperiment,
+    discover_checkpoints,
+    load_lightning_checkpoint_state,
+    write_checkpoint_metrics_summary,
+)
 from lfm.full_model.inst_seg.instance_model_adapter import GrahaInstanceModelAdapter
 from lfm.toy_model.inst_seg.instance_model_adapter import ToyInstanceModelAdapter
 from lfm.full_model.all_tasks.utils.metrics import _instance_metrics
@@ -65,13 +70,6 @@ METRIC_NAMES = [
 ]
 
 AP_IOU_THRESHOLDS = np.round(np.arange(0.5, 1.0, 0.05), 2)
-
-
-@dataclass(frozen=True)
-class CheckpointRecord:
-    path: Path
-    epoch: int | None
-    name: str
 
 
 @dataclass(frozen=True)
@@ -200,70 +198,6 @@ def _quiet(enabled: bool):
     with open(os.devnull, "w", encoding="utf-8") as devnull:
         with contextlib.redirect_stdout(devnull):
             yield
-
-
-def discover_checkpoints(
-    checkpoint_dir: Path,
-    *,
-    max_checkpoints: int | None = None,
-) -> list[CheckpointRecord]:
-    checkpoint_dir = Path(checkpoint_dir).resolve()
-    if not checkpoint_dir.exists():
-        raise FileNotFoundError(
-            f"Checkpoint directory does not exist: {checkpoint_dir}"
-        )
-    paths = sorted(path for path in checkpoint_dir.rglob("*.ckpt") if path.is_file())
-    if not paths:
-        raise FileNotFoundError(f"No .ckpt files found under {checkpoint_dir}")
-    records = [
-        CheckpointRecord(
-            path=path,
-            epoch=_parse_epoch(path),
-            name=_checkpoint_output_name(path, _parse_epoch(path)),
-        )
-        for path in paths
-    ]
-    records.sort(
-        key=lambda item: (
-            item.epoch is None,
-            item.epoch if item.epoch is not None else 10**9,
-            str(item.path),
-        )
-    )
-    if max_checkpoints is not None:
-        records = records[:max_checkpoints]
-    return records
-
-
-def _parse_epoch(path: Path) -> int | None:
-    text = str(path)
-    for pattern in [r"epoch[=_-](\d+)", r"model-(\d+)-", r"epoch_(\d+)"]:
-        match = re.search(pattern, text)
-        if match:
-            return int(match.group(1))
-    return None
-
-
-def _checkpoint_output_name(path: Path, epoch: int | None) -> str:
-    if epoch is not None:
-        return f"epoch_{epoch:03d}"
-    stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", path.stem).strip("_")
-    return stem or "checkpoint"
-
-
-def _load_lightning_checkpoint_state(
-    module: torch.nn.Module, checkpoint_path: Path
-) -> None:
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message=".*You are using `torch.load` with `weights_only=False`.*",
-            category=FutureWarning,
-        )
-        checkpoint = torch.load(
-            Path(checkpoint_path).resolve(), map_location="cpu", weights_only=False
-        )
-    module.load_state_dict(checkpoint.get("state_dict", checkpoint), strict=True)
 
 
 def _semantic_f1(pred_mask: np.ndarray, gt_mask: np.ndarray) -> float:
@@ -534,43 +468,6 @@ def _write_checkpoint_outputs(
     return aggregate
 
 
-def _write_model_summary(model_output_dir: Path, rows: list[dict[str, Any]]) -> None:
-    if not rows:
-        return
-    model_output_dir.mkdir(parents=True, exist_ok=True)
-    txt_path = model_output_dir / "checkpoint_metrics_summary.txt"
-    with txt_path.open("w", encoding="utf-8") as f:
-        header = ["checkpoint_name", "epoch", "checkpoint_path", *METRIC_NAMES]
-        f.write("\t".join(header) + "\n")
-        for row in rows:
-            f.write(
-                "\t".join(
-                    [
-                        row["checkpoint_name"],
-                        "" if row["epoch"] is None else str(row["epoch"]),
-                        str(row["checkpoint_path"]),
-                        *[f"{row[name]:.8f}" for name in METRIC_NAMES],
-                    ]
-                )
-                + "\n"
-            )
-    dtype = [
-        ("checkpoint_name", "U128"),
-        ("epoch", "i8"),
-        ("checkpoint_path", "U1024"),
-        *[(name, "f8") for name in METRIC_NAMES],
-    ]
-    arr = np.zeros(len(rows), dtype=dtype)
-    for i, row in enumerate(rows):
-        arr[i]["checkpoint_name"] = row["checkpoint_name"]
-        arr[i]["epoch"] = -1 if row["epoch"] is None else int(row["epoch"])
-        arr[i]["checkpoint_path"] = str(row["checkpoint_path"])
-        for name in METRIC_NAMES:
-            arr[i][name] = row[name]
-    np.save(model_output_dir / "checkpoint_metrics_summary.npy", arr)
-    print(f"Saved model summary to {txt_path}", flush=True)
-
-
 def _prediction_count(config: InstanceSweepConfig) -> int:
     return config.max_samples if config.max_samples is not None else 10**9
 
@@ -686,18 +583,21 @@ def _setup_graha(config: InstanceSweepConfig):
     return datamodule, task
 
 
-def run_toy_sweep(config: InstanceSweepConfig) -> list[dict[str, Any]]:
-    if config.toy_checkpoint_dir is None:
-        raise ValueError("Toy sweep requested but toy_checkpoint_dir is not set.")
-    checkpoints = discover_checkpoints(
-        config.toy_checkpoint_dir, max_checkpoints=config.max_checkpoints
-    )
-    print(f"[Toy] Found {len(checkpoints)} checkpoint(s).")
+def run_toy_sweep(
+    config: InstanceSweepConfig, checkpoints: list[CheckpointRecord] | None = None
+) -> list[dict[str, Any]]:
+    if checkpoints is None:
+        if config.toy_checkpoint_dir is None:
+            raise ValueError("Toy sweep requested but toy_checkpoint_dir is not set.")
+        checkpoints = discover_checkpoints(
+            config.toy_checkpoint_dir, max_checkpoints=config.max_checkpoints
+        )
+        print(f"[Toy] Found {len(checkpoints)} checkpoint(s).")
     _, datamodule, task, image_processor = _setup_toy(config)
     model_output_dir = config.output_root / "toy_model"
     rows = []
     for checkpoint in tqdm(checkpoints, desc="Toy checkpoints", dynamic_ncols=True):
-        _load_lightning_checkpoint_state(task, checkpoint.path)
+        load_lightning_checkpoint_state(task, checkpoint.path)
         if image_processor is None:
             cache_dir = save_graha_instance_prediction_cache(
                 task=task,
@@ -734,7 +634,11 @@ def run_toy_sweep(config: InstanceSweepConfig) -> list[dict[str, Any]]:
                 **metrics,
             }
         )
-    _write_model_summary(model_output_dir, rows)
+    write_checkpoint_metrics_summary(
+        model_output_dir,
+        rows,
+        metric_names=METRIC_NAMES,
+    )
     del task, datamodule
     gc.collect()
     if torch.cuda.is_available():
@@ -742,18 +646,23 @@ def run_toy_sweep(config: InstanceSweepConfig) -> list[dict[str, Any]]:
     return rows
 
 
-def run_graha_sweep(config: InstanceSweepConfig) -> list[dict[str, Any]]:
-    if config.graha_checkpoint_dir is None:
-        raise ValueError("Graha sweep requested but graha_checkpoint_dir is not set.")
-    checkpoints = discover_checkpoints(
-        config.graha_checkpoint_dir, max_checkpoints=config.max_checkpoints
-    )
-    print(f"[Graha] Found {len(checkpoints)} checkpoint(s).")
+def run_graha_sweep(
+    config: InstanceSweepConfig, checkpoints: list[CheckpointRecord] | None = None
+) -> list[dict[str, Any]]:
+    if checkpoints is None:
+        if config.graha_checkpoint_dir is None:
+            raise ValueError(
+                "Graha sweep requested but graha_checkpoint_dir is not set."
+            )
+        checkpoints = discover_checkpoints(
+            config.graha_checkpoint_dir, max_checkpoints=config.max_checkpoints
+        )
+        print(f"[Graha] Found {len(checkpoints)} checkpoint(s).")
     datamodule, task = _setup_graha(config)
     model_output_dir = config.output_root / "graha_model"
     rows = []
     for checkpoint in tqdm(checkpoints, desc="Graha checkpoints", dynamic_ncols=True):
-        _load_lightning_checkpoint_state(task, checkpoint.path)
+        load_lightning_checkpoint_state(task, checkpoint.path)
         cache_dir = save_graha_instance_prediction_cache(
             task=task,
             datamodule=datamodule,
@@ -778,7 +687,11 @@ def run_graha_sweep(config: InstanceSweepConfig) -> list[dict[str, Any]]:
                 **metrics,
             }
         )
-    _write_model_summary(model_output_dir, rows)
+    write_checkpoint_metrics_summary(
+        model_output_dir,
+        rows,
+        metric_names=METRIC_NAMES,
+    )
     del task, datamodule
     gc.collect()
     if torch.cuda.is_available():
@@ -787,14 +700,27 @@ def run_graha_sweep(config: InstanceSweepConfig) -> list[dict[str, Any]]:
 
 
 def run_sweep(config: InstanceSweepConfig) -> dict[str, list[dict[str, Any]]]:
-    config.output_root.mkdir(parents=True, exist_ok=True)
-    seed_everything(config.seed)
-    results: dict[str, list[dict[str, Any]]] = {}
-    if "toy" in config.models:
-        results["toy"] = run_toy_sweep(config)
-    if "graha" in config.models:
-        results["graha"] = run_graha_sweep(config)
-    return results
+    def run_model_sweep(
+        model: str, checkpoints: list[CheckpointRecord]
+    ) -> list[dict[str, Any]]:
+        if model == "toy":
+            return run_toy_sweep(config, checkpoints)
+        if model == "graha":
+            return run_graha_sweep(config, checkpoints)
+        raise ValueError(f"Unknown model name: {model}")
+
+    return CheckpointSweepExperiment(
+        output_root=config.output_root,
+        models=config.models,
+        checkpoint_dirs={
+            "toy": config.toy_checkpoint_dir,
+            "graha": config.graha_checkpoint_dir,
+        },
+        run_model_sweep=run_model_sweep,
+        max_checkpoints=config.max_checkpoints,
+        seed=config.seed,
+        seed_fn=seed_everything,
+    ).run()
 
 
 def parse_args() -> argparse.Namespace:
