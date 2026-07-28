@@ -1,4 +1,4 @@
-"""Script-level Toy instance segmentation workflow orchestration."""
+"""Toy instance segmentation workflow orchestration."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from lfm.full_model.all_tasks.utils import (
     save_graha_instance_prediction_cache,
     save_toy_instance_prediction_cache,
 )
-from lfm.toy_model.inst_seg import instance_seg_finetuning as toy_components
+from lfm.toy_model.inst_seg import instance_toy_components
 
 
 def run_toy_workflow(
@@ -34,16 +34,16 @@ def run_toy_workflow(
     print(f"\n=== {title} instance segmentation ===", flush=True)
     started = time.perf_counter()
     seed_everything(config.seed)
-    toy_datamodule = toy_components.create_datamodule(
+    toy_datamodule = instance_toy_components.create_datamodule(
         config,
         normalization_modality_info=normalization_modality_info,
     )
-    toy_task = toy_components.create_task(
+    toy_task = instance_toy_components.create_task(
         config,
         toy_datamodule.weight_assignments or [],
     )
-    toy_image_processor = toy_components.create_image_processor(config)
-    toy_trainer = toy_components.create_trainer(
+    toy_image_processor = instance_toy_components.create_image_processor(config)
+    toy_trainer = instance_toy_components.create_trainer(
         config,
         output_dir,
         toy_image_processor,
@@ -54,7 +54,7 @@ def run_toy_workflow(
     if config.skip_toy_fit:
         print("Skipping Toy trainer.fit().", flush=True)
         if config.toy_lightning_checkpoint is not None:
-            toy_components.load_lightning_checkpoint_state(
+            instance_toy_components.load_lightning_checkpoint_state(
                 toy_task,
                 config.toy_lightning_checkpoint,
                 "Toy",

@@ -1,4 +1,4 @@
-"""Script-level Graha instance segmentation workflow orchestration."""
+"""Graha instance segmentation workflow orchestration."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from lfm.full_model.all_tasks.utils import (
     plot_instance_cache_predictions,
     save_graha_instance_prediction_cache,
 )
-from lfm.full_model.inst_seg import instance_seg_finetuning as graha_components
+from lfm.full_model.inst_seg import instance_graha_components
 
 
 def run_graha_workflow(
@@ -27,37 +27,40 @@ def run_graha_workflow(
 ) -> Path | None:
     print("\n=== Graha/Lunar-FM Mask R-CNN instance segmentation ===", flush=True)
     started = time.perf_counter()
-    graha_components.configure_proj_environment()
-    graha_config = graha_components.build_comparison_config(config, output_dir)
-    graha_components.configure_python_paths(graha_config)
-    graha_components.print_config(graha_config)
-    graha_components.validate_required_paths(graha_config)
+    instance_graha_components.configure_proj_environment()
+    graha_config = instance_graha_components.build_comparison_config(config, output_dir)
+    instance_graha_components.configure_python_paths(graha_config)
+    instance_graha_components.print_config(graha_config)
+    instance_graha_components.validate_required_paths(graha_config)
 
-    deps = graha_components.import_project_dependencies()
+    deps = instance_graha_components.import_project_dependencies()
     datamodule_cls = deps["LunarObjectDetectionInstanceMaskDatamodule"]
-    task_cls = graha_components.make_downstream_object_detection_task_class(
+    task_cls = instance_graha_components.make_downstream_object_detection_task_class(
         deps["LunarObjectDetectionTask"]
     )
 
     seed_everything(graha_config.seed)
-    means, stds = graha_components.get_normalization_stats(
+    means, stds = instance_graha_components.get_normalization_stats(
         graha_config,
         datamodule_cls,
     )
-    graha_datamodule = graha_components.create_datamodule(
+    graha_datamodule = instance_graha_components.create_datamodule(
         graha_config,
         datamodule_cls,
         means,
         stds,
     )
-    graha_sample_batch = graha_components.inspect_batch(graha_datamodule)
-    graha_task = graha_components.create_task(
+    graha_sample_batch = instance_graha_components.inspect_batch(graha_datamodule)
+    graha_task = instance_graha_components.create_task(
         graha_config,
         task_cls,
         graha_sample_batch,
     )
-    graha_components.run_loss_smoke(graha_task, graha_sample_batch)
-    graha_trainer = graha_components.create_trainer(graha_config, output_dir)
+    instance_graha_components.run_loss_smoke(graha_task, graha_sample_batch)
+    graha_trainer = instance_graha_components.create_trainer(
+        graha_config,
+        output_dir,
+    )
     if validation_plot_callback_cls is not None:
         graha_trainer.callbacks.append(
             validation_plot_callback_cls(
@@ -86,7 +89,7 @@ def run_graha_workflow(
     if config.skip_graha_fit:
         print("Skipping Graha trainer.fit().", flush=True)
         if config.graha_lightning_checkpoint is not None:
-            graha_components.load_lightning_checkpoint_state(
+            instance_graha_components.load_lightning_checkpoint_state(
                 graha_task,
                 config.graha_lightning_checkpoint,
             )

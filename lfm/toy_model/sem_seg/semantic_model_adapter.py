@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from lfm.all_models.all_tasks import SemanticModelAdapter
-from lfm.toy_model.sem_seg import semantic_seg_finetuning as workflow
+from lfm.toy_model.sem_seg import semantic_toy_components as components
 
 
 class ToySemanticModelAdapter(SemanticModelAdapter):
@@ -17,13 +17,13 @@ class ToySemanticModelAdapter(SemanticModelAdapter):
         return "Toy"
 
     def create_datamodule(self, config: Any, *args: Any, **kwargs: Any) -> Any:
-        return workflow.create_datamodule(config, *args, **kwargs)
+        return components.create_datamodule(config, *args, **kwargs)
 
     def create_model(self, config: Any, weight_assignments: list[str]) -> Any:
-        return workflow.create_model(config, weight_assignments)
+        return components.create_model(config, weight_assignments)
 
     def create_lightning_module(self, config: Any, model: Any, **kwargs: Any) -> Any:
-        return workflow.create_lightning_module(config, model, **kwargs)
+        return components.create_lightning_module(config, model, **kwargs)
 
     def create_model_or_task(
         self,
@@ -44,7 +44,7 @@ class ToySemanticModelAdapter(SemanticModelAdapter):
         *args: Any,
         **kwargs: Any,
     ) -> Any:
-        return workflow.create_trainer(config, output_dir, *args, **kwargs)
+        return components.create_trainer(config, output_dir, *args, **kwargs)
 
     def load_checkpoint_state(
         self,
@@ -53,7 +53,7 @@ class ToySemanticModelAdapter(SemanticModelAdapter):
         *args: Any,
         **kwargs: Any,
     ) -> Any:
-        return workflow.load_lightning_checkpoint_state(
+        return components.load_lightning_checkpoint_state(
             model_or_task,
             checkpoint_path,
             *args,

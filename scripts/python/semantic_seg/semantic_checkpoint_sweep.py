@@ -15,29 +15,38 @@ Each checkpoint directory also receives aggregate ``metrics.npy`` and
 companion notebook and from sbatch.
 """
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import argparse
 import contextlib
 import gc
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-import numpy as np
 import torch
 from lightning.pytorch import seed_everything
 from tqdm.auto import tqdm
 from torch.utils.data import Subset
 
+LFM_ROOT = Path(__file__).resolve().parents[3]
+if str(LFM_ROOT) not in sys.path:
+    sys.path.insert(0, str(LFM_ROOT))
+
 from lfm.all_models.all_tasks import (
     CheckpointRecord,
     CheckpointSweepExperiment,
     discover_checkpoints,
-    load_lightning_checkpoint_state,
     write_checkpoint_metrics_summary,
+)
+from lfm.all_models.sem_seg.semantic_test_suite import (
+    SEMANTIC_CHECKPOINT_METRICS as METRIC_NAMES,
+    run_semantic_checkpoint,
 )
 from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
 from lfm.full_model.sem_seg.semantic_model_adapter import GrahaSemanticModelAdapter
@@ -49,19 +58,6 @@ from semantic_seg_comparison import (
 
 TOY_ADAPTER = ToySemanticModelAdapter()
 GRAHA_ADAPTER = GrahaSemanticModelAdapter()
-
-METRIC_NAMES = [
-    "pixel_accuracy",
-    "foreground_precision",
-    "foreground_recall",
-    "foreground_f1",
-    "iou",
-    "average_precision",
-    "background_average_precision",
-    "mean_average_precision",
-    "predicted_foreground_fraction",
-    "ground_truth_foreground_fraction",
-]
 
 
 @dataclass(frozen=True)
@@ -193,50 +189,6 @@ def _limit_dataset(
     return Subset(dataset, range(limited_count))
 
 
-def _sample_key_from_path(path: str | Path | None, fallback_index: int) -> str:
-    if path is None:
-        return f"sample_{fallback_index:04d}"
-    stem = Path(str(path)).stem
-    return stem.split("_input", 1)[0]
-
-
-def _extract_batch(batch: Any) -> tuple[torch.Tensor, torch.Tensor, list[str | None]]:
-    if isinstance(batch, dict):
-        images = batch["image"]
-        labels = batch["mask"]
-        filenames = batch.get("filename")
-        if filenames is None:
-            image_paths = [None] * images.shape[0]
-        elif isinstance(filenames, (str, Path)):
-            image_paths = [str(filenames)]
-        else:
-            image_paths = [str(item) for item in filenames]
-        return images, labels, image_paths
-    if isinstance(batch, (tuple, list)) and len(batch) >= 2:
-        images = batch[0]
-        labels = batch[1]
-        image_paths = batch[2] if len(batch) > 2 else [None] * images.shape[0]
-        return (
-            images,
-            labels,
-            [str(item) if item is not None else None for item in image_paths],
-        )
-    raise TypeError(f"Unsupported batch type: {type(batch)}")
-
-
-def _move_batch_to_device(batch: Any, device: torch.device) -> Any:
-    if isinstance(batch, dict):
-        return {
-            key: value.to(device) if torch.is_tensor(value) else value
-            for key, value in batch.items()
-        }
-    if isinstance(batch, (tuple, list)):
-        return tuple(
-            value.to(device) if torch.is_tensor(value) else value for value in batch
-        )
-    return batch.to(device) if torch.is_tensor(batch) else batch
-
-
 def _cache_batch_on_cpu(batch: Any) -> Any:
     if isinstance(batch, dict):
         return {key: _cache_batch_on_cpu(value) for key, value in batch.items()}
@@ -269,284 +221,6 @@ def preload_test_batches(dataloader, *, model_name: str) -> list[Any]:
         gc.collect()
     print(f"[{model_name}] Preloaded {len(cached_batches)} test batch(es).", flush=True)
     return cached_batches
-
-
-def _logits_from_output(output: Any) -> torch.Tensor:
-    if torch.is_tensor(output):
-        return output
-    if hasattr(output, "output"):
-        return output.output
-    raise TypeError(f"Unsupported model output type: {type(output)}")
-
-
-def _hard_predictions(logits: torch.Tensor) -> torch.Tensor:
-    if logits.shape[1] > 1:
-        return logits.argmax(dim=1).long()
-    return (torch.sigmoid(logits[:, 0]) > 0.5).long()
-
-
-def _class_probabilities(logits: torch.Tensor) -> torch.Tensor:
-    if logits.shape[1] > 1:
-        return torch.softmax(logits, dim=1)
-    foreground = torch.sigmoid(logits[:, 0])
-    return torch.stack([1.0 - foreground, foreground], dim=1)
-
-
-def _average_precision(scores: np.ndarray, labels: np.ndarray) -> float:
-    scores = np.asarray(scores, dtype=np.float64).reshape(-1)
-    labels = np.asarray(labels, dtype=bool).reshape(-1)
-    if labels.size == 0 or not np.any(labels):
-        return 0.0
-    order = np.argsort(-scores, kind="mergesort")
-    labels = labels[order]
-    tp = np.cumsum(labels, dtype=np.float64)
-    fp = np.cumsum(~labels, dtype=np.float64)
-    recall = tp / max(float(labels.sum()), 1.0)
-    precision = tp / np.maximum(tp + fp, 1.0)
-    recall = np.concatenate(([0.0], recall, [1.0]))
-    precision = np.concatenate(([1.0], precision, [0.0]))
-    precision = np.maximum.accumulate(precision[::-1])[::-1]
-    changed = np.where(recall[1:] != recall[:-1])[0]
-    return float(
-        np.sum((recall[changed + 1] - recall[changed]) * precision[changed + 1])
-    )
-
-
-def _ap_metrics_from_scores(
-    foreground_scores: np.ndarray, labels: np.ndarray
-) -> dict[str, float]:
-    labels_bool = np.asarray(labels).astype(bool)
-    foreground_ap = _average_precision(foreground_scores, labels_bool)
-    background_ap = _average_precision(1.0 - foreground_scores, ~labels_bool)
-    return {
-        "average_precision": foreground_ap,
-        "background_average_precision": background_ap,
-        "mean_average_precision": float((foreground_ap + background_ap) / 2.0),
-    }
-
-
-def _valid_arrays(
-    pred: np.ndarray,
-    label: np.ndarray,
-    *,
-    ignore_index: int | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
-    pred_flat = pred.reshape(-1)
-    label_flat = label.reshape(-1)
-    if ignore_index is not None:
-        valid = label_flat != int(ignore_index)
-        pred_flat = pred_flat[valid]
-        label_flat = label_flat[valid]
-    return pred_flat, label_flat
-
-
-def _confusion_counts(
-    pred: np.ndarray,
-    label: np.ndarray,
-    *,
-    ignore_index: int | None = None,
-) -> dict[str, float]:
-    pred_flat, label_flat = _valid_arrays(
-        pred,
-        label,
-        ignore_index=ignore_index,
-    )
-    pred_bool = pred_flat.astype(bool)
-    label_bool = label_flat.astype(bool)
-    return {
-        "tp": float(np.sum(pred_bool & label_bool)),
-        "fp": float(np.sum(pred_bool & ~label_bool)),
-        "fn": float(np.sum(~pred_bool & label_bool)),
-        "tn": float(np.sum(~pred_bool & ~label_bool)),
-        "n": float(pred_bool.size),
-        "pred_fg": float(np.sum(pred_bool)),
-        "label_fg": float(np.sum(label_bool)),
-    }
-
-
-def _metrics_from_counts(
-    counts: dict[str, float],
-    ap_metrics: dict[str, float] | None = None,
-) -> dict[str, float]:
-    tp = counts["tp"]
-    fp = counts["fp"]
-    fn = counts["fn"]
-    tn = counts["tn"]
-    n = counts["n"]
-    eps = 1e-8
-    precision = tp / (tp + fp + eps)
-    recall = tp / (tp + fn + eps)
-    f1 = 2 * precision * recall / (precision + recall + eps)
-    iou = tp / (tp + fp + fn + eps)
-    accuracy = (tp + tn) / (tp + tn + fp + fn + eps)
-    metrics = {
-        "pixel_accuracy": float(accuracy),
-        "foreground_precision": float(precision),
-        "foreground_recall": float(recall),
-        "foreground_f1": float(f1),
-        "iou": float(iou),
-        "average_precision": 0.0,
-        "background_average_precision": 0.0,
-        "mean_average_precision": 0.0,
-        "predicted_foreground_fraction": float(counts["pred_fg"] / (n + eps)),
-        "ground_truth_foreground_fraction": float(counts["label_fg"] / (n + eps)),
-    }
-    if ap_metrics:
-        metrics.update(ap_metrics)
-    return metrics
-
-
-def _empty_counts() -> dict[str, float]:
-    return {
-        "tp": 0.0,
-        "fp": 0.0,
-        "fn": 0.0,
-        "tn": 0.0,
-        "n": 0.0,
-        "pred_fg": 0.0,
-        "label_fg": 0.0,
-    }
-
-
-def _add_counts(total: dict[str, float], part: dict[str, float]) -> None:
-    for key, value in part.items():
-        total[key] += value
-
-
-def _metrics_to_array(metrics: dict[str, float]) -> np.ndarray:
-    dtype = [(name, "f8") for name in METRIC_NAMES]
-    row = np.zeros((), dtype=dtype)
-    for name in METRIC_NAMES:
-        row[name] = float(metrics[name])
-    return row
-
-
-def _write_metrics(
-    output_dir: Path, metrics: dict[str, float], *, header: str | None = None
-) -> None:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    np.save(output_dir / "metrics.npy", _metrics_to_array(metrics))
-    with (output_dir / "metrics.txt").open("w", encoding="utf-8") as f:
-        if header:
-            f.write(header.rstrip() + "\n")
-        for name in METRIC_NAMES:
-            f.write(f"{name}: {metrics[name]:.8f}\n")
-
-
-def _run_checkpoint(
-    *,
-    task: torch.nn.Module,
-    test_batches,
-    checkpoint: CheckpointRecord,
-    output_dir: Path,
-    model_name: str,
-    ignore_index: int | None = None,
-) -> dict[str, float]:
-    load_lightning_checkpoint_state(task, checkpoint.path)
-    device = next(task.parameters()).device
-    was_training = task.training
-    task.eval()
-
-    checkpoint_output_dir = output_dir / checkpoint.name
-    checkpoint_output_dir.mkdir(parents=True, exist_ok=True)
-    counts_total = _empty_counts()
-    all_foreground_scores = []
-    all_labels = []
-    sample_index = 0
-
-    batch_bar = tqdm(
-        test_batches,
-        desc=f"{model_name} {checkpoint.name} batches",
-        leave=False,
-        dynamic_ncols=True,
-    )
-
-    with torch.no_grad():
-        for batch in batch_bar:
-            batch = _move_batch_to_device(batch, device)
-            images, labels, image_paths = _extract_batch(batch)
-            logits = _logits_from_output(task(images))
-            probs = _class_probabilities(logits)
-            preds = _hard_predictions(logits)
-
-            images_np = images.detach().cpu().numpy()
-            labels_np = labels.detach().cpu().numpy()
-            logits_np = logits.detach().cpu().numpy()
-            foreground_scores_np = probs[:, 1].detach().cpu().numpy()
-            preds_np = preds.detach().cpu().numpy()
-
-            for i in range(images_np.shape[0]):
-                sample_key = _sample_key_from_path(
-                    image_paths[i] if i < len(image_paths) else None,
-                    sample_index,
-                )
-                sample_dir = checkpoint_output_dir / sample_key
-                sample_dir.mkdir(parents=True, exist_ok=True)
-
-                np.save(sample_dir / f"{sample_key}_input.npy", images_np[i])
-                np.save(sample_dir / f"{sample_key}_label.npy", labels_np[i])
-                np.save(sample_dir / f"{sample_key}_pred.npy", preds_np[i])
-                np.save(sample_dir / f"{sample_key}_class_pred.npy", preds_np[i])
-                np.save(sample_dir / f"{sample_key}_logits.npy", logits_np[i])
-
-                sample_counts = _confusion_counts(
-                    preds_np[i],
-                    labels_np[i],
-                    ignore_index=ignore_index,
-                )
-                _add_counts(counts_total, sample_counts)
-                valid_scores, valid_labels = _valid_arrays(
-                    foreground_scores_np[i],
-                    labels_np[i],
-                    ignore_index=ignore_index,
-                )
-                sample_ap_metrics = _ap_metrics_from_scores(
-                    valid_scores,
-                    valid_labels,
-                )
-                all_foreground_scores.append(valid_scores.reshape(-1))
-                all_labels.append(valid_labels.reshape(-1))
-                sample_metrics = _metrics_from_counts(sample_counts, sample_ap_metrics)
-                _write_metrics(
-                    sample_dir,
-                    sample_metrics,
-                    header=(
-                        f"model: {model_name}\n"
-                        f"checkpoint: {checkpoint.path}\n"
-                        f"sample_key: {sample_key}"
-                    ),
-                )
-                sample_index += 1
-            batch_bar.set_postfix(samples=sample_index)
-
-    aggregate_ap_metrics = (
-        _ap_metrics_from_scores(
-            np.concatenate(all_foreground_scores), np.concatenate(all_labels)
-        )
-        if all_foreground_scores
-        else None
-    )
-    aggregate_metrics = _metrics_from_counts(counts_total, aggregate_ap_metrics)
-    _write_metrics(
-        checkpoint_output_dir,
-        aggregate_metrics,
-        header=(
-            f"model: {model_name}\n"
-            f"checkpoint: {checkpoint.path}\n"
-            f"epoch: {checkpoint.epoch}\n"
-            f"samples: {sample_index}"
-        ),
-    )
-    task.train(was_training)
-    print(
-        f"[{model_name}] {checkpoint.name}: "
-        f"F1={aggregate_metrics['foreground_f1']:.4f}, "
-        f"IoU={aggregate_metrics['iou']:.4f}, "
-        f"AP={aggregate_metrics['average_precision']:.4f}, "
-        f"mAP={aggregate_metrics['mean_average_precision']:.4f}, samples={sample_index}",
-        flush=True,
-    )
-    return aggregate_metrics
 
 
 def _make_toy_args(config: SweepConfig) -> argparse.Namespace:
@@ -649,7 +323,7 @@ def run_toy_sweep(
     )
     for checkpoint in checkpoint_bar:
         checkpoint_bar.set_postfix(checkpoint=checkpoint.name)
-        metrics = _run_checkpoint(
+        metrics = run_semantic_checkpoint(
             task=task,
             test_batches=test_batches,
             checkpoint=checkpoint,
@@ -783,7 +457,7 @@ def run_graha_sweep(
     )
     for checkpoint in checkpoint_bar:
         checkpoint_bar.set_postfix(checkpoint=checkpoint.name)
-        metrics = _run_checkpoint(
+        metrics = run_semantic_checkpoint(
             task=task,
             test_batches=test_batches,
             checkpoint=checkpoint,

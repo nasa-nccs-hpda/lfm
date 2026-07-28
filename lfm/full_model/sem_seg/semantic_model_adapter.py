@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from lfm.all_models.all_tasks import SemanticModelAdapter
-from lfm.full_model.sem_seg import semantic_seg_finetuning as workflow
+from lfm.full_model.sem_seg import semantic_graha_components as components
 
 
 class GrahaSemanticModelAdapter(SemanticModelAdapter):
@@ -17,25 +17,25 @@ class GrahaSemanticModelAdapter(SemanticModelAdapter):
         return "Graha"
 
     def build_comparison_config(self, config: Any, output_dir: Path) -> Any:
-        return workflow.build_comparison_config(config, output_dir)
+        return components.build_comparison_config(config, output_dir)
 
     def build_config(self, args: Any) -> Any:
-        return workflow.build_config(args)
+        return components.build_config(args)
 
     def configure_environment(self) -> None:
-        workflow.configure_proj_environment()
+        components.configure_proj_environment()
 
     def configure_python_paths(self, config: Any) -> None:
-        workflow.configure_python_paths(config)
+        components.configure_python_paths(config)
 
     def validate_required_paths(self, config: Any) -> None:
-        workflow.validate_required_paths(config)
+        components.validate_required_paths(config)
 
     def import_project_dependencies(self) -> dict[str, Any]:
-        return workflow.import_project_dependencies()
+        return components.import_project_dependencies()
 
     def make_task_class(self, lunar_shape_segmentation_task_cls: Any) -> Any:
-        return workflow.make_downstream_shape_segmentation_task_class(
+        return components.make_downstream_shape_segmentation_task_class(
             lunar_shape_segmentation_task_cls
         )
 
@@ -44,18 +44,18 @@ class GrahaSemanticModelAdapter(SemanticModelAdapter):
         config: Any,
         datamodule_cls: Any,
     ) -> tuple[list[float], list[float]]:
-        return workflow.get_normalization_stats(config, datamodule_cls)
+        return components.get_normalization_stats(config, datamodule_cls)
 
     def create_datamodule(self, config: Any, *args: Any, **kwargs: Any) -> Any:
-        return workflow.create_datamodule(config, *args, **kwargs)
+        return components.create_datamodule(config, *args, **kwargs)
 
     def inspect_batch(self, datamodule: Any) -> dict[str, Any]:
-        return workflow.inspect_batch(datamodule)
+        return components.inspect_batch(datamodule)
 
     def create_task(
         self, config: Any, task_cls: Any, sample_batch: dict[str, Any]
     ) -> Any:
-        return workflow.create_task(config, task_cls, sample_batch)
+        return components.create_task(config, task_cls, sample_batch)
 
     def create_model_or_task(
         self,
@@ -64,7 +64,7 @@ class GrahaSemanticModelAdapter(SemanticModelAdapter):
         *args: Any,
         **kwargs: Any,
     ) -> Any:
-        sample_batch = workflow.inspect_batch(datamodule)
+        sample_batch = components.inspect_batch(datamodule)
         return self.create_task(config, *args, sample_batch=sample_batch, **kwargs)
 
     def create_trainer(
@@ -74,7 +74,7 @@ class GrahaSemanticModelAdapter(SemanticModelAdapter):
         *args: Any,
         **kwargs: Any,
     ) -> Any:
-        return workflow.create_trainer(config, output_dir, *args, **kwargs)
+        return components.create_trainer(config, output_dir, *args, **kwargs)
 
     def load_checkpoint_state(
         self,
@@ -83,7 +83,7 @@ class GrahaSemanticModelAdapter(SemanticModelAdapter):
         *args: Any,
         **kwargs: Any,
     ) -> Any:
-        return workflow.load_lightning_checkpoint_state(
+        return components.load_lightning_checkpoint_state(
             model_or_task,
             checkpoint_path,
             *args,

@@ -17,139 +17,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from lightning.pytorch.callbacks import Callback
-
 LFM_ROOT = Path(__file__).resolve().parents[3]
 if str(LFM_ROOT) not in sys.path:
     sys.path.insert(0, str(LFM_ROOT))
 
 from lfm.all_models.all_tasks import ComparisonExperiment, save_config_json
+from lfm.all_models.inst_seg.instance_test_suite_callback import (
+    GrahaInstancePlotCallback,
+    InstanceEpochTestSuiteCallback,
+)
 from lfm.full_model.inst_seg.instance_model_adapter import GrahaInstanceModelAdapter
 from lfm.full_model.all_tasks.utils import (
     create_timestamped_output_dir,
     plot_instance_cache_comparison,
-    plot_instance_cache_predictions,
-    save_graha_instance_prediction_cache,
-    save_toy_instance_prediction_cache,
 )
 from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
 
 GRAHA_ADAPTER = GrahaInstanceModelAdapter()
-
-
-class GrahaInstancePlotCallback(Callback):
-    """Save Graha instance validation plots at epoch end."""
-
-    def __init__(
-        self,
-        output_dir: Path,
-        *,
-        n_samples: int,
-        every_n_epochs: int,
-        score_threshold: float,
-    ) -> None:
-        self.output_dir = output_dir
-        self.n_samples = n_samples
-        self.every_n_epochs = every_n_epochs
-        self.score_threshold = score_threshold
-
-    def on_validation_epoch_end(self, trainer, pl_module) -> None:
-        if trainer.sanity_checking:
-            return
-        epoch = trainer.current_epoch
-        if self.every_n_epochs <= 0 or (epoch + 1) % self.every_n_epochs != 0:
-            return
-        cache_dir = save_graha_instance_prediction_cache(
-            task=pl_module,
-            datamodule=trainer.datamodule,
-            output_dir=self.output_dir,
-            model_name="graha",
-            split="val",
-            n_samples=self.n_samples,
-            score_threshold=self.score_threshold,
-            setup_datamodule=False,
-        )
-        plot_instance_cache_predictions(
-            cache_dir,
-            self.output_dir / "plots" / "single_model" / "full_model",
-            model_name="graha",
-            n_samples=self.n_samples,
-            filename=f"validation_epoch_{epoch + 1:03d}.png",
-        )
-
-
-class InstanceEpochTestSuiteCallback(Callback):
-    """Run an instance test suite at epoch end and save arrays/metrics."""
-
-    def __init__(
-        self,
-        *,
-        output_dir: Path,
-        model_name: str,
-        split: str,
-        n_samples: int,
-        every_n_epochs: int,
-        score_threshold: float,
-        image_processor=None,
-    ) -> None:
-        self.output_dir = Path(output_dir)
-        self.model_name = model_name
-        self.split = split
-        self.n_samples = n_samples
-        self.every_n_epochs = every_n_epochs
-        self.score_threshold = score_threshold
-        self.image_processor = image_processor
-
-    def on_train_epoch_end(self, trainer, pl_module) -> None:
-        epoch = trainer.current_epoch + 1
-        if self.every_n_epochs <= 0 or epoch % self.every_n_epochs != 0:
-            return
-        from instance_checkpoint_sweep import (
-            CheckpointRecord,
-            _write_checkpoint_outputs,
-        )
-
-        epoch_name = f"epoch_{epoch:03d}"
-        epoch_dir = self.output_dir / "test_suite" / self.model_name / epoch_name
-        if self.image_processor is None:
-            cache_dir = save_graha_instance_prediction_cache(
-                task=pl_module,
-                datamodule=trainer.datamodule,
-                output_dir=epoch_dir,
-                model_name=self.model_name,
-                split=self.split,
-                n_samples=self.n_samples,
-                score_threshold=self.score_threshold,
-            )
-        else:
-            cache_dir = save_toy_instance_prediction_cache(
-                task=pl_module,
-                datamodule=trainer.datamodule,
-                output_dir=epoch_dir,
-                image_processor=self.image_processor,
-                model_name=self.model_name,
-                split=self.split,
-                n_samples=self.n_samples,
-                score_threshold=self.score_threshold,
-            )
-        _write_checkpoint_outputs(
-            cache_dir=cache_dir,
-            checkpoint_output_dir=epoch_dir,
-            checkpoint=CheckpointRecord(
-                path=Path(f"{self.model_name}_{epoch_name}"),
-                epoch=epoch,
-                name=epoch_name,
-            ),
-            model_name=self.model_name,
-            score_threshold=self.score_threshold,
-        )
-        plot_instance_cache_predictions(
-            cache_dir,
-            epoch_dir,
-            model_name=self.model_name,
-            n_samples=min(5, self.n_samples),
-            filename=f"{self.split}_instance_predictions.png",
-        )
 
 
 @dataclass(frozen=True)
@@ -500,7 +384,7 @@ def main() -> None:
     output_dir = create_timestamped_output_dir(config.base_output_dir)
 
     def run_toy():
-        from scripts.python.instance_seg import instance_toy_workflow
+        from lfm.all_models.inst_seg.workflows import instance_toy_workflow
 
         return instance_toy_workflow.run_toy_workflow(
             config,
@@ -510,7 +394,7 @@ def main() -> None:
         )
 
     def run_graha():
-        from scripts.python.instance_seg import instance_graha_workflow
+        from lfm.all_models.inst_seg.workflows import instance_graha_workflow
 
         return instance_graha_workflow.run_graha_workflow(
             config,

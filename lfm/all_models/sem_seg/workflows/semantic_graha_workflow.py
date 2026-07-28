@@ -1,4 +1,4 @@
-"""Script-level Graha semantic segmentation workflow orchestration."""
+"""Graha semantic segmentation workflow orchestration."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from lightning.pytorch import seed_everything
 from lightning.pytorch.callbacks import Callback
 
 from lfm.full_model.all_tasks.utils import save_prediction_cache
-from lfm.full_model.sem_seg import semantic_seg_finetuning as graha_components
+from lfm.full_model.sem_seg import semantic_graha_components
 
 
 def _record_timing(
@@ -39,16 +39,16 @@ def run_graha_workflow(
 ) -> tuple[Path, Path | None]:
     """Run the Graha/Lunar-FM semantic segmentation path for comparison."""
     graha_total_started_at = time.perf_counter()
-    graha_components.configure_proj_environment()
-    graha_config = graha_components.build_comparison_config(
+    semantic_graha_components.configure_proj_environment()
+    graha_config = semantic_graha_components.build_comparison_config(
         config,
         comparison_output_dir,
     )
-    graha_components.configure_python_paths(graha_config)
-    graha_components.print_config(graha_config)
-    graha_components.validate_required_paths(graha_config)
+    semantic_graha_components.configure_python_paths(graha_config)
+    semantic_graha_components.print_config(graha_config)
+    semantic_graha_components.validate_required_paths(graha_config)
 
-    deps = graha_components.import_project_dependencies()
+    deps = semantic_graha_components.import_project_dependencies()
     datamodule_cls = deps[
         (
             "LunarSemanticFromInstanceDatamodule"
@@ -56,18 +56,18 @@ def run_graha_workflow(
             else "LunarSemanticMaskSegmentationDatamodule"
         )
     ]
-    task_cls = graha_components.make_downstream_shape_segmentation_task_class(
+    task_cls = semantic_graha_components.make_downstream_shape_segmentation_task_class(
         deps["LunarShapeSegmentationTask"]
     )
 
-    output_dir = graha_components.create_output_dirs(
+    output_dir = semantic_graha_components.create_output_dirs(
         graha_config,
         deps["create_timestamped_output_dir"],
         use_timestamp=False,
     )
     seed_everything(graha_config.seed)
     stats_started_at = time.perf_counter()
-    means, stds = graha_components.get_normalization_stats(
+    means, stds = semantic_graha_components.get_normalization_stats(
         graha_config,
         datamodule_cls,
     )
@@ -77,16 +77,16 @@ def run_graha_workflow(
         stage="stats",
         started_at=stats_started_at,
     )
-    datamodule = graha_components.create_datamodule(
+    datamodule = semantic_graha_components.create_datamodule(
         graha_config,
         datamodule_cls,
         means,
         stds,
     )
-    sample_batch = graha_components.inspect_batch(datamodule)
-    task = graha_components.create_task(graha_config, task_cls, sample_batch)
-    graha_components.inspect_backbone(task)
-    trainer = graha_components.create_trainer(
+    sample_batch = semantic_graha_components.inspect_batch(datamodule)
+    task = semantic_graha_components.create_task(graha_config, task_cls, sample_batch)
+    semantic_graha_components.inspect_backbone(task)
+    trainer = semantic_graha_components.create_trainer(
         graha_config,
         output_dir,
         deps["ValidationPlotCallback"],
@@ -113,7 +113,7 @@ def run_graha_workflow(
     if no_fit:
         print("Skipping Graha trainer.fit() because --no-fit was set.")
         if config.graha_lightning_checkpoint is not None:
-            graha_components.load_lightning_checkpoint_state(
+            semantic_graha_components.load_lightning_checkpoint_state(
                 task,
                 config.graha_lightning_checkpoint,
                 "Graha",

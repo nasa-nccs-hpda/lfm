@@ -1,4 +1,4 @@
-"""Script-level Toy semantic segmentation workflow orchestration."""
+"""Toy semantic segmentation workflow orchestration."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from lightning.pytorch import seed_everything
 from lightning.pytorch.callbacks import Callback
 
 from lfm.full_model.all_tasks.utils import save_prediction_cache
-from lfm.toy_model.sem_seg import semantic_seg_finetuning as toy_components
+from lfm.toy_model.sem_seg import semantic_toy_components
 
 
 def _record_timing(
@@ -41,7 +41,7 @@ def run_toy_workflow(
     toy_total_started_at = time.perf_counter()
     seed_everything(config.seed)
 
-    toy_datamodule = toy_components.create_datamodule(
+    toy_datamodule = semantic_toy_components.create_datamodule(
         config,
         output_dir,
         normalization_modality_info=normalization_modality_info,
@@ -49,9 +49,12 @@ def run_toy_workflow(
     if toy_datamodule.weight_assignments is None:
         raise RuntimeError("Toy DataModule did not create weight assignments.")
 
-    toy_model = toy_components.create_model(config, toy_datamodule.weight_assignments)
-    toy_task = toy_components.create_lightning_module(config, toy_model)
-    toy_trainer = toy_components.create_trainer(
+    toy_model = semantic_toy_components.create_model(
+        config,
+        toy_datamodule.weight_assignments,
+    )
+    toy_task = semantic_toy_components.create_lightning_module(config, toy_model)
+    toy_trainer = semantic_toy_components.create_trainer(
         config,
         output_dir,
         plots_subdir=Path("plots") / "single_model" / "toy_model",
@@ -62,7 +65,7 @@ def run_toy_workflow(
     if config.skip_toy_fit:
         print("Skipping Toy trainer.fit().")
         if config.toy_lightning_checkpoint is not None:
-            toy_components.load_lightning_checkpoint_state(
+            semantic_toy_components.load_lightning_checkpoint_state(
                 toy_task,
                 config.toy_lightning_checkpoint,
                 "Toy",

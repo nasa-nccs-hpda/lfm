@@ -13,6 +13,10 @@ if str(LFM_ROOT) not in sys.path:
     sys.path.insert(0, str(LFM_ROOT))
 
 from lfm.all_models.all_tasks import SingleModelExperiment
+from lfm.all_models.inst_seg.instance_test_suite_callback import (
+    GrahaInstancePlotCallback,
+    InstanceEpochTestSuiteCallback,
+)
 from lfm.full_model.all_tasks.utils import ensure_data_symlink
 from scripts.python.instance_seg import instance_seg_comparison as comparison
 
@@ -35,7 +39,7 @@ def main() -> None:
 
     def run_model():
         if model == "toy":
-            from scripts.python.instance_seg import instance_toy_workflow
+            from lfm.all_models.inst_seg.workflows import instance_toy_workflow
 
             return instance_toy_workflow.run_toy_workflow(
                 config,
@@ -43,15 +47,16 @@ def main() -> None:
                 normalization_modality_info=(
                     comparison.get_toy_normalization_modality_info(config)
                 ),
-                epoch_test_suite_callback_cls=comparison.InstanceEpochTestSuiteCallback,
+                epoch_test_suite_callback_cls=InstanceEpochTestSuiteCallback,
             )
-        from scripts.python.instance_seg import instance_graha_workflow
+
+        from lfm.all_models.inst_seg.workflows import instance_graha_workflow
 
         return instance_graha_workflow.run_graha_workflow(
             config,
             output_dir,
-            validation_plot_callback_cls=comparison.GrahaInstancePlotCallback,
-            epoch_test_suite_callback_cls=comparison.InstanceEpochTestSuiteCallback,
+            validation_plot_callback_cls=GrahaInstancePlotCallback,
+            epoch_test_suite_callback_cls=InstanceEpochTestSuiteCallback,
         )
 
     SingleModelExperiment(

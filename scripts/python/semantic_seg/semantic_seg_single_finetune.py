@@ -14,12 +14,15 @@ if str(LFM_ROOT) not in sys.path:
     sys.path.insert(0, str(LFM_ROOT))
 
 from lfm.all_models.all_tasks import SingleModelExperiment
+from lfm.all_models.sem_seg.semantic_test_suite_callback import (
+    SemanticEpochTestSuiteCallback,
+)
 from lfm.full_model.all_tasks.utils import ensure_data_symlink
-from scripts.python.semantic_seg import (
+from lfm.all_models.sem_seg.workflows import (
     semantic_graha_workflow,
-    semantic_seg_comparison as comparison,
     semantic_toy_workflow,
 )
+from scripts.python.semantic_seg import semantic_seg_comparison as comparison
 
 
 def parse_args() -> tuple[str, argparse.Namespace]:
@@ -47,7 +50,7 @@ def main() -> None:
                 normalization_modality_info=(
                     comparison.get_toy_normalization_modality_info(config)
                 ),
-                epoch_test_suite_callback_cls=comparison.SemanticEpochTestSuiteCallback,
+                epoch_test_suite_callback_cls=SemanticEpochTestSuiteCallback,
                 timing_rows=timing_rows,
                 record_timing=comparison.record_timing,
             )
@@ -55,7 +58,7 @@ def main() -> None:
             config,
             no_fit=config.skip_graha_fit,
             comparison_output_dir=output_dir,
-            epoch_test_suite_callback_cls=comparison.SemanticEpochTestSuiteCallback,
+            epoch_test_suite_callback_cls=SemanticEpochTestSuiteCallback,
             timing_rows=timing_rows,
             record_timing=comparison.record_timing,
         )

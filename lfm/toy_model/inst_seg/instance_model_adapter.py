@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from lfm.all_models.all_tasks import InstanceModelAdapter
-from lfm.toy_model.inst_seg import instance_seg_finetuning as workflow
+from lfm.toy_model.inst_seg import instance_toy_components as components
 
 
 class ToyInstanceModelAdapter(InstanceModelAdapter):
@@ -17,10 +17,10 @@ class ToyInstanceModelAdapter(InstanceModelAdapter):
         return "Toy"
 
     def create_datamodule(self, config: Any, *args: Any, **kwargs: Any) -> Any:
-        return workflow.create_datamodule(config, *args, **kwargs)
+        return components.create_datamodule(config, *args, **kwargs)
 
     def create_task(self, config: Any, weight_assignments: list[str]) -> Any:
-        return workflow.create_task(config, weight_assignments)
+        return components.create_task(config, weight_assignments)
 
     def create_model_or_task(
         self,
@@ -32,7 +32,7 @@ class ToyInstanceModelAdapter(InstanceModelAdapter):
         return self.create_task(config, datamodule.weight_assignments or [])
 
     def create_image_processor(self, config: Any) -> Any:
-        return workflow.create_image_processor(config)
+        return components.create_image_processor(config)
 
     def create_trainer(
         self,
@@ -41,7 +41,7 @@ class ToyInstanceModelAdapter(InstanceModelAdapter):
         *args: Any,
         **kwargs: Any,
     ) -> Any:
-        return workflow.create_trainer(config, output_dir, *args, **kwargs)
+        return components.create_trainer(config, output_dir, *args, **kwargs)
 
     def load_checkpoint_state(
         self,
@@ -50,7 +50,7 @@ class ToyInstanceModelAdapter(InstanceModelAdapter):
         *args: Any,
         **kwargs: Any,
     ) -> Any:
-        return workflow.load_lightning_checkpoint_state(
+        return components.load_lightning_checkpoint_state(
             model_or_task,
             checkpoint_path,
             *args,
