@@ -1,5 +1,7 @@
 .ipynb_checkpoints/
 outputs/
+scripts/logs/*
+!scripts/logs/.gitkeep
 !scripts/outputs/
 !scripts/outputs/.gitkeep
 **/__pycache__/
