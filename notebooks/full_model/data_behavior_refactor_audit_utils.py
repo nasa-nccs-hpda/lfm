@@ -177,13 +177,20 @@ if __name__ == "__main__":
 """
 
 
-def build_audit_cases(target_size: int) -> list[dict[str, Any]]:
+def build_audit_cases(
+    target_size: int,
+    *,
+    image_glob: str = "*.tif",
+    label_glob: str = "*_label.npz",
+    image_suffix: str = "_input_wac_chip",
+    label_suffix: str = "_label",
+) -> list[dict[str, Any]]:
     """Return the default audit cases for an instance-label split dataset."""
     common_file_kwargs = {
-        "image_glob": "*.tif",
-        "label_glob": "*_label.npz",
-        "image_suffix": "_input_nac_chip",
-        "label_suffix": "_label",
+        "image_glob": image_glob,
+        "label_glob": label_glob,
+        "image_suffix": image_suffix,
+        "label_suffix": label_suffix,
     }
     return [
         {
@@ -208,8 +215,8 @@ def build_audit_cases(target_size: int) -> list[dict[str, Any]]:
                 "label_file_type": ".npz",
                 "label_npz_key": "mask",
                 "binarize_label": True,
-                "image_suffix": "_input_nac_chip",
-                "label_suffix": "_label",
+                "image_suffix": image_suffix,
+                "label_suffix": label_suffix,
                 "normalize_inputs": False,
                 "scale_inputs": True,
                 "max_train_samples": 8,

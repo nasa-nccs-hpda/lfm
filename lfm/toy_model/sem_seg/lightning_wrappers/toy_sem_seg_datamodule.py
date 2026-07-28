@@ -7,16 +7,15 @@ from typing import Any
 
 import numpy as np
 import torch
-from lightning.pytorch import LightningDataModule
-from torch.utils.data import DataLoader
 
+from lfm.all_models.all_tasks.data import SplitSegmentationDataModule
 from lfm.toy_model.sem_seg.sseg_dataset import (
     LunarCraterDataset,
     get_input_metadata,
 )
 
 
-class LunarSemanticSegmentationSplitDataModule(LightningDataModule):
+class LunarSemanticSegmentationSplitDataModule(SplitSegmentationDataModule):
     """Use the old toy semantic-seg dataset with explicit train/val/test splits.
 
     This wrapper intentionally preserves the legacy semantic data behavior used
@@ -25,6 +24,9 @@ class LunarSemanticSegmentationSplitDataModule(LightningDataModule):
     z-score statistics are computed from the training split after the same
     crop/min-max preprocessing used by the model.
     """
+
+    dataset_cls = LunarCraterDataset
+    stats_log_label = "Toy semantic"
 
     def __init__(
         self,
@@ -53,21 +55,21 @@ class LunarSemanticSegmentationSplitDataModule(LightningDataModule):
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
     ) -> None:
-        super().__init__()
-        self.data_root = Path(data_root)
-        self.batch_size = batch_size
-        self.num_workers = num_workers
+        super().__init__(
+            data_root,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            max_train_samples=max_train_samples,
+            max_val_samples=max_val_samples,
+            max_test_samples=max_test_samples,
+            band_filter=band_filter,
+            pin_memory=pin_memory,
+            input_metadata_fn=get_input_metadata,
+        )
         self.target_size = target_size
         self.spatial_transform = spatial_transform
-        self.band_filter = band_filter
         self.normalize_inputs = normalize_inputs
-        self.max_samples = {
-            "train": max_train_samples,
-            "val": max_val_samples,
-            "test": max_test_samples,
-        }
         self.output_dir = Path(output_dir) if output_dir is not None else None
-        self.pin_memory = pin_memory
         self.image_file_type = image_file_type
         self.label_file_type = label_file_type
         self.image_suffix = image_suffix
@@ -78,160 +80,79 @@ class LunarSemanticSegmentationSplitDataModule(LightningDataModule):
         self.ignore_nodata_in_loss = ignore_nodata_in_loss
         self.nodata_ignore_index = int(nodata_ignore_index)
 
-        self.weight_assignments: list[str] | None = None
         self.mean: np.ndarray | None = (
             np.asarray(means, dtype=np.float32) if means is not None else None
         )
         self.std: np.ndarray | None = (
             np.asarray(stds, dtype=np.float32) if stds is not None else None
         )
-        self.train_dataset = None
-        self.val_dataset = None
-        self.test_dataset = None
 
-    def setup(self, stage: str | None = None) -> None:
-        self._validate_split_dirs()
-        if self.weight_assignments is None:
-            self.weight_assignments = get_input_metadata(
-                str(self.data_root / "train"),
-                self.band_filter,
-            )
-        if self.normalize_inputs and (self.mean is None or self.std is None):
-            self._calculate_train_stats()
+    def _needs_train_stats(self) -> bool:
+        return self.normalize_inputs and (self.mean is None or self.std is None)
 
-        if stage in (None, "fit"):
-            self.train_dataset = self._make_dataset("train")
-            self.val_dataset = self._make_dataset("val")
-            self._write_file_lists(["train", "val"])
-            self._write_sanity_report()
-
-        if stage in (None, "validate"):
-            self.val_dataset = self._make_dataset("val")
-            self._write_file_lists(["val"])
-
-        if stage in (None, "test", "predict"):
-            self.test_dataset = self._make_dataset("test")
-            self._write_file_lists(["test"])
-
-    def _validate_split_dirs(self) -> None:
-        required = []
-        for split in ["train", "val", "test"]:
-            required.extend(
-                [
-                    self.data_root / split / "chips",
-                    self.data_root / split / "labels",
-                ]
-            )
-        missing = [path for path in required if not path.exists()]
-        if missing:
-            raise FileNotFoundError(
-                "Missing split data directories:\n"
-                + "\n".join(str(path) for path in missing)
-            )
-
-    def _make_dataset(self, split: str) -> LunarCraterDataset:
-        return LunarCraterDataset(
+    def _make_dataset(
+        self,
+        split: str,
+        max_samples: int | None,
+    ) -> LunarCraterDataset:
+        return self.dataset_cls(
             base_dir=str(self.data_root / split),
             mean=self.mean,
             std=self.std,
             target_size=self.target_size,
             spatial_transform=self.spatial_transform,
-            max_samples=self.max_samples[split],
+            max_samples=max_samples,
             band_filter=self.band_filter,
             normalize_inputs=self.normalize_inputs,
             split_name=split,
-            image_file_type=self.image_file_type,
-            label_file_type=self.label_file_type,
             image_suffix=self.image_suffix,
             label_suffix=self.label_suffix,
-            label_npz_key=self.label_npz_key,
-            binarize_label=self.binarize_label,
             scale_inputs=self.scale_inputs,
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
             nodata_ignore_index=self.nodata_ignore_index,
+            **self._dataset_kwargs(),
         )
 
-    def _calculate_train_stats(self) -> None:
-        stats_dataset = LunarCraterDataset(
+    def _dataset_kwargs(self) -> dict[str, object]:
+        return {
+            "image_file_type": self.image_file_type,
+            "label_file_type": self.label_file_type,
+            "label_npz_key": self.label_npz_key,
+            "binarize_label": self.binarize_label,
+        }
+
+    def _make_stats_dataset(self) -> LunarCraterDataset:
+        return self.dataset_cls(
             base_dir=str(self.data_root / "train"),
             mean=None,
             std=None,
             target_size=self.target_size,
             spatial_transform=self.spatial_transform,
-            max_samples=self.max_samples["train"],
+            max_samples=self.max_samples_by_split["train"],
             band_filter=self.band_filter,
             normalize_inputs=False,
             split_name="train-stats",
-            image_file_type=self.image_file_type,
-            label_file_type=self.label_file_type,
             image_suffix=self.image_suffix,
             label_suffix=self.label_suffix,
-            label_npz_key=self.label_npz_key,
-            binarize_label=self.binarize_label,
             scale_inputs=self.scale_inputs,
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
             nodata_ignore_index=self.nodata_ignore_index,
-        )
-        pixel_sum = None
-        pixel_sq_sum = None
-        pixel_count = 0
-
-        for index in range(len(stats_dataset)):
-            image, _, _, _ = stats_dataset[index]
-            image = image.to(torch.float64)
-            if pixel_sum is None:
-                pixel_sum = torch.zeros(image.shape[0], dtype=torch.float64)
-                pixel_sq_sum = torch.zeros(image.shape[0], dtype=torch.float64)
-            pixel_sum += image.sum(dim=(1, 2))
-            pixel_sq_sum += (image**2).sum(dim=(1, 2))
-            pixel_count += image.shape[1] * image.shape[2]
-
-        if pixel_sum is None or pixel_sq_sum is None or pixel_count == 0:
-            raise ValueError(
-                "Could not compute toy train statistics from an empty dataset."
-            )
-
-        mean = pixel_sum / pixel_count
-        variance = (pixel_sq_sum / pixel_count) - (mean**2)
-        std = torch.sqrt(torch.clamp(variance, min=1e-12))
-        self.mean = mean.numpy().astype(np.float32)
-        self.std = std.numpy().astype(np.float32)
-
-        print("[train] Toy z-score mean:", self.mean.tolist())
-        print("[train] Toy z-score std:", self.std.tolist())
-
-    def train_dataloader(self) -> DataLoader:
-        if self.train_dataset is None:
-            self.setup("fit")
-        return DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
+            **self._dataset_kwargs(),
         )
 
-    def val_dataloader(self) -> DataLoader:
-        if self.val_dataset is None:
-            self.setup("validate")
-        return DataLoader(
-            self.val_dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-        )
+    def _set_train_stats(self, means: list[float], stds: list[float]) -> None:
+        self.mean = np.asarray(means, dtype=np.float32)
+        self.std = np.asarray(stds, dtype=np.float32)
 
-    def test_dataloader(self) -> DataLoader:
-        if self.test_dataset is None:
-            self.setup("test")
-        return DataLoader(
-            self.test_dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-        )
+    def _after_fit_setup(self) -> None:
+        self._write_file_lists(["train", "val"])
+        self._write_sanity_report()
+
+    def _after_validate_setup(self) -> None:
+        self._write_file_lists(["val"])
+
+    def _after_test_setup(self) -> None:
+        self._write_file_lists(["test"])
 
     def _write_file_lists(self, splits: list[str]) -> None:
         if self.output_dir is None:

@@ -1,6 +1,9 @@
 """Shared data loading and preprocessing utilities for LFM tasks."""
 
-from lfm.all_models.all_tasks.data.base_datamodule import SplitFolderDataLayout
+from lfm.all_models.all_tasks.data.base_datamodule import (
+    SplitFolderDataLayout,
+    SplitSegmentationDataModule,
+)
 from lfm.all_models.all_tasks.data.base_dataset import LunarSegmentationDataset
 from lfm.all_models.all_tasks.data.image_io import (
     PairRecord,
@@ -34,6 +37,7 @@ __all__ = [
     "PairRecord",
     "PretrainYamlNormalization",
     "SplitFolderDataLayout",
+    "SplitSegmentationDataModule",
     "ZScoreNormalization",
     "build_nodata_policy",
     "build_normalization_strategy",

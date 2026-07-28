@@ -788,7 +788,7 @@ Sub-steps:
    - Scripts, workflows, components, and notebooks were updated to import the
      new package locations directly.
 
-10. Validate the script cleanup without changing behavior.
+10. [Completed] Validate the script cleanup without changing behavior.
 
    Validation should include:
 
@@ -798,6 +798,213 @@ Sub-steps:
    - checkpoint sweep smoke tests for both semantic and instance segmentation
    - a structural scan confirming no `lfm/` package module imports from
      `scripts/python`
+
+   Progress:
+
+   - Import, syntax, formatting, and direct CLI `--help` checks passed for the
+     touched phase 7 modules and entry points.
+   - Semantic and instance smoke tests passed after the phase 7 utility
+     namespace cleanup.
+   - Checkpoint sweep smoke tests passed for both semantic and instance
+     segmentation.
+   - The active package code was scanned to confirm `lfm/` modules do not
+     import from `scripts/python`.
+
+Phase 8: Datamodule Inheritance
+
+Review and tighten the dataset/datamodule inheritance and composition structure
+now that workflows, callbacks, plotting, prediction cache, normalization, and
+nodata policy are in their intended package layers.
+
+Goal:
+
+- Use inheritance only for stable structural boundaries.
+- Use composition for independently varying behavior.
+- Keep Toy vs Graha and semantic vs instance symmetry where it does not distort
+  the task-specific output contracts.
+
+Sub-steps:
+
+1. Audit current dataset/datamodule classes and draw the real inheritance graph.
+
+   Include:
+
+   - `lfm/all_models/all_tasks/data/base_dataset.py`
+   - `lfm/all_models/all_tasks/data/base_datamodule.py`
+   - `lfm/all_models/sem_seg/semantic_dataset.py`
+   - `lfm/all_models/inst_seg/instance_dataset.py`
+   - `lfm/all_models/inst_seg/instance_datamodule.py`
+   - Toy semantic and instance Lightning wrapper datamodules
+   - repo-owned full-model/Graha semantic and instance datamodules
+
+2. Identify behavior that should be inherited versus composed.
+
+   Inheritance candidates:
+
+   - split-folder dataset/datamodule lifecycle
+   - semantic target formatting
+   - instance target formatting
+   - object-detection target formatting
+
+   Composition candidates:
+
+   - file matching
+   - image reading
+   - label reading
+   - crop/resize policy
+   - normalization
+   - nodata policy
+   - collate policy
+   - train-stat calculation
+
+3. Align semantic datamodule structure with instance datamodule structure where
+   the shared shape is real.
+
+   Avoid creating mirrored files that contain no behavior. If semantic does not
+   need a concrete shared datamodule yet, document why and defer it rather than
+   adding a compatibility-only module.
+
+4. Evaluate whether repo-owned Graha datamodules should inherit from the shared
+   all-model datamodule base or continue composing shared helpers.
+
+   Criteria for inheritance:
+
+   - constructor contracts can be made compatible without awkward adapter
+     parameters
+   - TerraTorch output dictionaries remain unchanged
+   - flat-layout legacy support can either be preserved cleanly or deliberately
+     removed in phase 9
+   - semantic and instance paths can be kept structurally similar
+
+5. Implement the smallest inheritance cleanup that removes real duplication.
+
+   Do not force Graha datamodules into the shared base if composition remains
+   clearer for TerraTorch-specific output contracts.
+
+6. Validate with dataset audits and semantic/instance smoke tests.
+
+Progress:
+
+- Added `SplitSegmentationDataModule` under
+  `lfm/all_models/all_tasks/data/base_datamodule.py` as the shared
+  pre-split LightningDataModule lifecycle for active Toy/shared data paths.
+- `SplitSegmentationDataModule` now owns:
+
+  - `train/val/test/{chips,labels}` validation
+  - optional input metadata setup
+  - optional train-stat aggregation
+  - train/val/test dataset creation lifecycle
+  - standard dataloader construction
+  - hook points for task-specific file-list/sanity output
+
+- `lfm/all_models/inst_seg/instance_datamodule.py` now inherits from
+  `SplitSegmentationDataModule` and keeps only instance-specific dataset
+  construction, collate policy, and normalization-stat storage.
+- `lfm/toy_model/sem_seg/lightning_wrappers/toy_sem_seg_datamodule.py` now
+  inherits from `SplitSegmentationDataModule` and keeps Toy semantic-specific
+  dataset construction, tuple-output behavior, file-list output, and sanity
+  summaries.
+- `lfm/toy_model/sem_seg/lightning_wrappers/toy_sem_seg_from_instance_datamodule.py`
+  now declares only its dataset class, collate function, stats label, and
+  semantic-from-instance sanity summary instead of duplicating dataloader and
+  train-stat code.
+- Repo-owned Graha datamodules intentionally remain under
+  `lfm/full_model/all_tasks/datamodules.LunarSegmentationDatamodule` for now.
+  That class still supports both split and flat layouts and preserves
+  TerraTorch-specific output contracts. Full inheritance into the all-model
+  split datamodule base should wait until phase 9 decides whether flat-layout
+  support is deprecated.
+- Local validation completed for the touched modules with compile and lint
+  checks. Dataset audits and semantic/instance smoke tests should be run before
+  marking this phase complete.
+
+Phase 9: Deprecation
+
+Create and execute a deprecation plan for legacy features, scripts, modules, and
+classes that no longer fit the OOP/Lightning workflow direction.
+
+Goal:
+
+- Remove old paths only after references are updated.
+- Do not leave compatibility-only files.
+- Preserve active experiment behavior.
+
+Sub-steps:
+
+1. Create a deprecation inventory under `docs/`.
+
+   Candidate categories:
+
+   - old Toy non-Lightning training drivers
+   - obsolete notebook-only helpers
+   - duplicated plotting/cache/evaluation utilities
+   - old flat-layout data loading support, if pre-split datasets are now the
+     intended contract
+   - misleading compatibility files or imports left from previous moves
+
+2. For each candidate, classify it as:
+
+   - remove now
+   - keep temporarily with a documented reason
+   - keep as active supported behavior
+
+3. Before deleting anything, run a reference scan across `lfm`, `scripts`,
+   `notebooks`, and docs.
+
+4. Remove references to deprecated code directly.
+
+   Update imports, scripts, notebooks, and docs to the active package locations.
+   Do not create compatibility shims.
+
+5. Delete deprecated files once reference scans are clean.
+
+6. Validate with import/syntax checks, structural scans, and smoke tests for the
+   affected workflows.
+
+Phase 10: Naming Cleanup
+
+Rename classes, functions, and modules whose names imply the wrong ownership
+axis after the refactor.
+
+Goal:
+
+- Names should accurately communicate whether code is shared across tasks,
+  shared across model families, Toy-specific, Graha-specific, semantic-specific,
+  or instance-specific.
+- Rename directly and update all references. Do not leave compatibility files.
+
+Sub-steps:
+
+1. Audit class/module names that still imply only one task or model family when
+   they are now shared.
+
+   Candidate examples:
+
+   - base dataset/datamodule names that should include `Base`
+   - classes with `Toy`, `Graha`, `Semantic`, or `Instance` in the name despite
+     broader ownership
+   - modules whose filenames imply full-model/Graha ownership but now contain
+     all-model behavior
+
+2. Prioritize names that actively confuse workflow usage or inheritance.
+
+   Avoid churn for names that are technically imperfect but isolated and not on
+   active user-facing paths.
+
+3. Rename in small batches by ownership axis:
+
+   - all-task shared names
+   - semantic shared names
+   - instance shared names
+   - Toy-specific names
+   - Graha/full-model-specific names
+
+4. Update imports and references directly.
+
+5. Remove obsolete files after each rename batch.
+
+6. Validate with formatting, linting, compile checks, reference scans, and smoke
+   tests where behavior-bearing code was renamed.
 
 Deferred Decisions
 ------------------
