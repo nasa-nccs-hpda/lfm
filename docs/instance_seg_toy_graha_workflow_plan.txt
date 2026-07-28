@@ -1,0 +1,313 @@
+Instance Segmentation Toy/Graha Workflow Plan
+=============================================
+
+Purpose
+-------
+
+Plan the path to fully support both Toy instance segmentation workflows and
+make side-by-side Toy vs Graha comparisons as controlled as possible.
+
+Current State On `ibm_model`
+----------------------------
+
+After merging the latest OOP refactor work, the active instance segmentation
+workflow shape is:
+
+- Shared data/utility/workflow code lives under `lfm/all_models`.
+- Toy-specific implementation lives under `lfm/toy_model/inst_seg`.
+- Graha-specific implementation currently lives under `lfm/full_model/inst_seg`
+  until the planned phase 10 `graha_model` rename.
+- Script entrypoints live under `scripts/python/instance_seg`.
+- Shell entrypoints live under `scripts/shell/instance_seg`.
+
+Active Toy instance workflows:
+
+1. Toy Mask2Former
+
+   CLI value: `--toy-architecture mask2former`
+
+   Current implementation:
+
+   - `lfm/toy_model/inst_seg/iseg_model.py`
+   - `lfm/toy_model/inst_seg/lightning_wrappers/toy_instance_seg_datamodule.py`
+   - `lfm/toy_model/inst_seg/lightning_wrappers/toy_instance_seg_lightning.py`
+   - `lfm/toy_model/inst_seg/instance_toy_components.py`
+
+   Current role: active Toy baseline, but architecture differs substantially
+   from Graha because the segmentation head is Mask2Former.
+
+2. Toy DINO Mask R-CNN
+
+   CLI value: `--toy-architecture dino-mask-rcnn`
+
+   Current implementation:
+
+   - `lfm/toy_model/inst_seg/dino_mask_rcnn_model.py`
+   - `lfm/toy_model/inst_seg/lightning_wrappers/toy_dino_mask_rcnn_datamodule.py`
+   - `lfm/toy_model/inst_seg/lightning_wrappers/toy_dino_mask_rcnn_lightning.py`
+   - `lfm/toy_model/inst_seg/instance_toy_components.py`
+
+   Current role: closer architectural comparison to Graha because both use a
+   Mask R-CNN style detector/head, but Toy currently uses TorchVision Mask R-CNN
+   rather than TerraTorch object detection.
+
+Active Graha instance workflow:
+
+- Graha/Lunar-FM + TerraTorch Mask R-CNN.
+- Current implementation:
+
+  - `lfm/full_model/inst_seg/instance_graha_components.py`
+  - `lfm/full_model/inst_seg/instance_mask_datamodule.py`
+  - `lfm/full_model/inst_seg/instance_model_adapter.py`
+
+Current comparison entrypoints:
+
+- `scripts/python/instance_seg/instance_seg_comparison.py`
+- `scripts/python/instance_seg/instance_seg_single_finetune.py`
+- `scripts/python/instance_seg/instance_checkpoint_sweep.py`
+- `scripts/shell/instance_seg/submit_instance_parallel_finetune.sh`
+- `scripts/shell/instance_seg/sbatch_instance_seg_comparison.sh`
+- `scripts/shell/instance_seg/sbatch_instance_checkpoint_sweep.sh`
+
+Recent validation status:
+
+- Shared data/datamodule refactor audits passed for semantic and instance data.
+- Instance smoke tests passed for the current OOP/refactor state.
+- Phase 9 deprecation cleanup is intentionally deferred because this instance
+  architecture work is higher priority.
+- Near-term support artifacts have been added:
+
+  - `docs/instance_seg_controlled_smoke_tests.txt`
+  - `scripts/python/instance_seg/instance_target_contract_audit.py`
+  - `notebooks/full_model/dino_mask_rcnn_feature_diagnostic.ipynb`
+
+Target Comparison Modes
+-----------------------
+
+Support three clear comparison modes:
+
+1. Toy Mask2Former vs Graha Mask R-CNN
+
+   Purpose: compare the original Toy instance approach against Graha.
+
+   Interpretation: useful as a model-family comparison, but not a controlled
+   head/architecture comparison because the decoders differ.
+
+2. Toy DINO TorchVision Mask R-CNN vs Graha TerraTorch Mask R-CNN
+
+   Purpose: compare DINO/Toy encoder behavior against Graha/Lunar-FM while
+   keeping the detector family closer.
+
+   Interpretation: currently the best near-term controlled comparison, but
+   still has framework/head implementation differences.
+
+3. Toy DINO TerraTorch Mask R-CNN vs Graha TerraTorch Mask R-CNN
+
+   Purpose: most controlled long-term architecture comparison.
+
+   Interpretation: preferred target if TerraTorch can accept a Toy/DINO
+   backbone cleanly through an adapter without distorting the Toy model.
+
+Controlled Variables
+--------------------
+
+Control these wherever possible across Toy and Graha:
+
+- Dataset root and split files:
+  `train/val/test/{chips,labels}`.
+- Image/label matching:
+  `image_glob`, `label_glob`, `image_suffix`, `label_suffix`.
+- Sample caps:
+  `max_train_samples`, `max_val_samples`, `max_test_samples`.
+- Target chip size:
+  `target_size` / Graha `crop_size`.
+- Spatial transform:
+  crop only for current active workflows.
+- Band selection:
+  same `band_filter`.
+- Normalization choice:
+  same `normalization_source` and `normalization_modality` when enabled.
+- Nodata behavior:
+  same `ignore_nodata_in_loss` and `nodata_ignore_index`.
+- Instance target geometry:
+  same mask shift, box format, and target clipping policy.
+- Training duration:
+  same max epochs and seed.
+- Output artifacts:
+  same prediction split, prediction sample count, score threshold, plots,
+  checkpoint naming, cache schema, and epoch test suite.
+- Evaluation:
+  same postprocessing thresholds and metric functions.
+
+Allow these to differ when architecturally justified:
+
+- Encoder/backbone architecture and pretraining source.
+- Toy Mask2Former vs Mask R-CNN head semantics.
+- Optimizer parameter groups if the model framework requires different grouping.
+- Learning rates if parameterization differs substantially, but record them
+  explicitly in config.
+- Batch size if Graha memory limits require smaller batches. Prefer matching
+  effective batch size later through gradient accumulation if needed.
+- Graha modality registration and VIS/UV merge behavior, because this is
+  specific to Graha/Lunar-FM.
+
+Work Needed Before Reliable Side-By-Side Comparisons
+----------------------------------------------------
+
+1. Document and verify the two existing Toy paths.
+
+   Status: documented, pending HPC execution.
+
+   - Confirm `--toy-architecture mask2former` works in comparison, single
+     fine-tune, and checkpoint sweep entrypoints.
+   - Confirm `--toy-architecture dino-mask-rcnn` works in the same entrypoints.
+   - Smoke-test commands for both Toy architectures and Graha on the same small
+     instance dataset are now documented in
+     `docs/instance_seg_controlled_smoke_tests.txt`.
+
+2. Tighten shared instance target contracts.
+
+   Status: audit script added, pending HPC execution.
+
+   - Confirm Toy Mask2Former, Toy Mask R-CNN, and Graha Mask R-CNN all consume
+     targets derived from the same shared instance mask/box utility layer.
+   - Verify box coordinate conventions are explicit and consistent:
+     `xyxy`, cropped to image bounds, float boxes, int labels, uint8 masks.
+   - A target audit script now checks the same sample through all three
+     datamodule paths:
+
+     `scripts/python/instance_seg/instance_target_contract_audit.py`
+
+3. Align prediction cache and evaluation outputs.
+
+   Status: current cache schema reviewed; no code change needed yet.
+
+   - Ensure all three paths write the same cache schema:
+     image, filename, ground-truth mask/instances, predicted masks, boxes,
+     labels, scores, and metadata.
+   - Avoid model-specific cache fields unless they are namespaced.
+   - Ensure comparison plotting reads only the shared cache contract.
+
+   Current shared cache arrays:
+
+   - `image`
+   - `gt_mask`
+   - `gt_boxes`
+   - `pred_mask`
+   - `pred_boxes`
+   - `pred_scores`
+   - `sample_key`
+   - `model_name`
+   - `image_path`
+
+   Current cache writers:
+
+   - Toy Mask2Former:
+     `save_toy_instance_prediction_cache`
+   - Toy DINO Mask R-CNN and Graha Mask R-CNN:
+     `save_graha_instance_prediction_cache`
+
+   The writer names are historically imperfect, but the stored cache schema is
+   shared. Rename these in phase 10 or a focused cache-naming cleanup, not in
+   the current architecture diagnostic step.
+
+4. Add explicit comparison mode naming.
+
+   Proposed names:
+
+   - `toy_mask2former_vs_graha_mask_rcnn`
+   - `toy_torchvision_mask_rcnn_vs_graha_mask_rcnn`
+   - `toy_terratorch_mask_rcnn_vs_graha_mask_rcnn`
+
+   Near-term CLI can continue using `--toy-architecture`, but output config and
+   directory metadata should record the full comparison mode.
+
+5. Evaluate TerraTorch Toy Mask R-CNN feasibility.
+
+   Status: diagnostic notebook added, pending HPC execution.
+
+   Goal: determine whether Toy DINO can be exposed as a TerraTorch-compatible
+   backbone and trained through the same object detection task interface as
+   Graha.
+
+   Questions to answer:
+
+   - Can the Toy DINO backbone emit the feature dictionary expected by the
+     TerraTorch object detection task/model?
+   - Can Toy input channel adaptation and weight assignment be represented
+     cleanly without importing Graha-specific modality logic?
+   - Can TerraTorch Mask R-CNN accept the same anchor sizes/aspect ratios,
+     score threshold, mask fields, and zero-instance handling?
+   - Can checkpoint loading stay Toy-specific while training/evaluation uses
+     the same task wrapper shape as Graha?
+
+   Diagnostic notebook:
+
+   `notebooks/full_model/dino_mask_rcnn_feature_diagnostic.ipynb`
+
+   This notebook summarizes the current Toy DINO Mask R-CNN feature pyramid:
+   feature names, shapes, channels, approximate strides, and anchor settings.
+   Use that output to decide whether a TerraTorch backbone adapter is clean.
+
+6. If feasible, implement Toy TerraTorch Mask R-CNN as a third Toy architecture.
+
+   Suggested CLI value:
+
+   `--toy-architecture dino-terratorch-mask-rcnn`
+
+   Suggested files:
+
+   - `lfm/toy_model/inst_seg/dino_terratorch_mask_rcnn_model.py`
+   - `lfm/toy_model/inst_seg/lightning_wrappers/toy_dino_terratorch_mask_rcnn_lightning.py`
+   - Reuse the existing object-detection datamodule if its output contract fits.
+
+   Do not create compatibility files. Update imports directly.
+
+7. Add controlled experiment presets.
+
+   Add shell commands or documented presets for:
+
+   - small smoke test: 2 epochs, 5 train/val/test samples
+   - medium behavior check: 2 epochs, 100 train/val/test samples
+   - full comparison run: agreed sample caps and epoch count
+
+   Each preset should run:
+
+   - Toy Mask2Former only
+   - Toy DINO Mask R-CNN only
+   - Graha Mask R-CNN only
+   - Toy Mask2Former vs Graha comparison
+   - Toy DINO Mask R-CNN vs Graha comparison
+   - optional Toy TerraTorch Mask R-CNN vs Graha comparison if implemented
+
+8. Add checkpoint sweep parity.
+
+   - Confirm checkpoint sweep supports `--toy-architecture mask2former`.
+   - Confirm checkpoint sweep supports `--toy-architecture dino-mask-rcnn`.
+   - Extend sweep support to Toy TerraTorch Mask R-CNN if implemented.
+   - Ensure sweep metrics and artifacts are architecture-neutral.
+
+9. Run final validation before serious comparisons.
+
+   Required:
+
+   - datamodule/target audit across Toy Mask2Former, Toy Mask R-CNN, and Graha
+   - smoke tests for single-model Toy/Graha paths
+   - smoke tests for comparison paths
+   - one checkpoint sweep smoke test per Toy architecture
+   - reference scan confirming no `scripts/python` imports inside `lfm`
+
+Priority
+--------
+
+Near-term priority:
+
+1. Validate and document current `mask2former` and `dino-mask-rcnn` Toy paths.
+2. Tighten shared target/cache/evaluation contracts.
+3. Determine whether Toy DINO can use TerraTorch Mask R-CNN cleanly.
+
+Deferred until after that:
+
+- More phase 9 deprecation cleanup.
+- `full_model` to `graha_model` naming cleanup.
+- Deleting old Toy non-Lightning notebooks/helpers.
