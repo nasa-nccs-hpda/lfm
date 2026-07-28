@@ -171,6 +171,7 @@ def build_registered_backbone(
         "out_channels": args.out_channels,
         "layers_to_extract": args.layers_to_extract,
         "output_strides": args.output_strides,
+        "return_format": args.backbone_return_format,
         "freeze_encoder": args.freeze_backbone,
         "device": str(args.device),
     }
@@ -291,6 +292,7 @@ def run_terratorch_task_step(
             "backbone_out_channels": args.out_channels,
             "backbone_layers_to_extract": args.layers_to_extract,
             "backbone_output_strides": args.output_strides,
+            "backbone_return_format": args.backbone_return_format,
             "backbone_freeze_encoder": args.freeze_backbone,
             "backbone_device": str(args.device),
             "num_classes": 2,
@@ -303,6 +305,7 @@ def run_terratorch_task_step(
         freeze_decoder=False,
         class_names=["Background", "Crater"],
     ).to(args.device)
+    model_summary = summarize_terratorch_detection_model(task)
     task.train()
     images = batch["image"].to(args.device)
     if hasattr(task, "reformat_batch"):
@@ -322,12 +325,51 @@ def run_terratorch_task_step(
     return {
         "task_type": f"{type(task).__module__}.{type(task).__name__}",
         "model_type": f"{type(task.model).__module__}.{type(task.model).__name__}",
+        "model_summary": model_summary,
         "loss_terms": {
             key: round(float(value.detach().cpu()), 8)
             for key, value in loss_dict.items()
         },
         "loss": round(float(loss.detach().cpu()), 8),
     }
+
+
+def summarize_terratorch_detection_model(task: Any) -> dict[str, Any]:
+    summary: dict[str, Any] = {}
+    model = getattr(task, "model", None)
+    torchvision_model = getattr(model, "torchvision_model", None)
+    summary["model_type"] = (
+        f"{type(model).__module__}.{type(model).__name__}"
+        if model is not None
+        else None
+    )
+    summary["torchvision_model_type"] = (
+        f"{type(torchvision_model).__module__}.{type(torchvision_model).__name__}"
+        if torchvision_model is not None
+        else None
+    )
+    if torchvision_model is None:
+        return summary
+    backbone = getattr(torchvision_model, "backbone", None)
+    summary["backbone_type"] = (
+        f"{type(backbone).__module__}.{type(backbone).__name__}"
+        if backbone is not None
+        else None
+    )
+    summary["backbone_out_channels"] = compact_value(
+        getattr(backbone, "out_channels", None)
+    )
+    roi_heads = getattr(torchvision_model, "roi_heads", None)
+    if roi_heads is not None:
+        box_roi_pool = getattr(roi_heads, "box_roi_pool", None)
+        mask_roi_pool = getattr(roi_heads, "mask_roi_pool", None)
+        summary["box_roi_pool_featmap_names"] = compact_value(
+            getattr(box_roi_pool, "featmap_names", None)
+        )
+        summary["mask_roi_pool_featmap_names"] = compact_value(
+            getattr(mask_roi_pool, "featmap_names", None)
+        )
+    return summary
 
 
 def configure_proj_environment() -> None:
@@ -378,6 +420,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-strides", type=int, nargs="+", default=[8, 16, 32, 64]
+    )
+    parser.add_argument(
+        "--backbone-return-format",
+        choices=["list", "ordered_dict"],
+        default="list",
+        help="Feature container returned by the registered TerraTorch wrapper.",
     )
     parser.add_argument(
         "--anchor-sizes",
@@ -439,6 +487,7 @@ def main() -> None:
                 if hasattr(backbone, "backbone")
                 else None
             ),
+            "return_format": getattr(backbone, "return_format", None),
         }
 
     result["checks"]["registry_build"] = safe_step(

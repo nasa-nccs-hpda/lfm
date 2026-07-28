@@ -40,14 +40,26 @@ class ToyDinoTerraTorchBackbone(nn.Module):
     Toy DINO Mask R-CNN backbone but reports per-level channels for TerraTorch.
     """
 
-    def __init__(self, backbone: nn.Module, output_strides: list[int]) -> None:
+    def __init__(
+        self,
+        backbone: nn.Module,
+        output_strides: list[int],
+        *,
+        return_format: str = "list",
+    ) -> None:
         super().__init__()
         self.backbone = backbone
         self.output_strides = list(output_strides)
         self.out_channels = [int(backbone.out_channels)] * len(self.output_strides)
+        self.return_format = return_format
 
     def forward(self, x: torch.Tensor):
-        return self.backbone(x)
+        features = self.backbone(x)
+        if self.return_format == "ordered_dict":
+            return features
+        if self.return_format == "list":
+            return list(features.values())
+        raise ValueError(f"Unsupported return_format: {self.return_format}")
 
 
 def _build_toy_dino_mask_rcnn_backbone(**kwargs: Any) -> ToyDinoTerraTorchBackbone:
@@ -74,6 +86,7 @@ def _build_toy_dino_mask_rcnn_backbone(**kwargs: Any) -> ToyDinoTerraTorchBackbo
     )
     output_strides = _pop_first(kwargs, "output_strides", default=(8, 16, 32, 64))
     freeze_encoder = bool(_pop_first(kwargs, "freeze_encoder", default=False))
+    return_format = str(_pop_first(kwargs, "return_format", default="list"))
 
     if weight_assignments is None and num_bands != 3:
         raise ValueError(
@@ -102,7 +115,11 @@ def _build_toy_dino_mask_rcnn_backbone(**kwargs: Any) -> ToyDinoTerraTorchBackbo
         weight_assignments=weight_assignments,
         freeze_encoder=freeze_encoder,
     )
-    return ToyDinoTerraTorchBackbone(backbone, output_strides=list(output_strides))
+    return ToyDinoTerraTorchBackbone(
+        backbone,
+        output_strides=list(output_strides),
+        return_format=return_format,
+    )
 
 
 if TERRATORCH_BACKBONE_REGISTRY is not None:
