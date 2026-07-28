@@ -586,9 +586,9 @@ def create_trainer(
             ),
             ModelCheckpoint(
                 dirpath=str(output_dir / checkpoint_subdir),
-                monitor="val_loss",
+                monitor="val/loss",
                 mode="min",
-                filename="model-epoch-{epoch:02d}-val-loss={val_loss:.3f}",
+                filename="model-epoch-{epoch:02d}",
                 auto_insert_metric_name=False,
                 save_top_k=-1,
                 save_last=False,
