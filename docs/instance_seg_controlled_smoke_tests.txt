@@ -115,6 +115,24 @@ bash scripts/shell/instance_seg/submit_instance_parallel_finetune.sh \
   --base-output-dir /explore/nobackup/people/ajkerr1/Lunar_FM/graha_vs_toy_experiments/smoke/iseg_dino_terratorch_mask_rcnn_vs_graha
 ```
 
+Parallel Three-Model Fine-Tune Smoke Test
+-----------------------------------------
+
+This submits three independent jobs under one timestamped run root:
+
+- Toy Mask2Former
+- Toy DINO TerraTorch Mask R-CNN
+- Graha Mask R-CNN
+
+Do not pass `--toy-architecture`; the orchestrator sets the two Toy
+architectures internally.
+
+```bash
+bash scripts/shell/instance_seg/submit_instance_three_model_finetune.sh \
+  "${COMMON_ARGS[@]}" \
+  --base-output-dir /explore/nobackup/people/ajkerr1/Lunar_FM/graha_vs_toy_experiments/smoke/iseg_three_model_finetune
+```
+
 Single-Model Toy Checks
 -----------------------
 
