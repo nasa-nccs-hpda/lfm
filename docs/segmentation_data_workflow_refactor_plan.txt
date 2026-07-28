@@ -17,7 +17,7 @@ Core Refactor Constraints
 - Avoid compatibility-only files. If code moves, update imports and references
   directly, then remove the obsolete location.
 - Treat the eventual package structure as a three-axis separation:
-  shared-across-models, full/Graha-specific, and Toy-specific.
+  shared-across-models, Graha-specific, and Toy-specific.
 - Use clean inheritance only at stable specialization boundaries, such as
   semantic-vs-instance target formatting.
 - Prefer composition for behavior that varies independently, such as
@@ -47,9 +47,9 @@ The long-term package target is:
 `lfm/lfm/all_models/sem_seg/`
 `lfm/lfm/all_models/inst_seg/`
 
-`lfm/lfm/full_model/all_tasks/`
-`lfm/lfm/full_model/sem_seg/`
-`lfm/lfm/full_model/inst_seg/`
+`lfm/lfm/graha_model/all_tasks/`
+`lfm/lfm/graha_model/sem_seg/`
+`lfm/lfm/graha_model/inst_seg/`
 
 `lfm/lfm/toy_model/all_tasks/`
 `lfm/lfm/toy_model/sem_seg/`
@@ -63,16 +63,41 @@ Ownership rules:
   segmentation.
 - `all_models/inst_seg`: shared across Toy and Graha, but specific to instance
   segmentation.
-- `full_model/all_tasks`: shared across semantic and instance segmentation, but
-  specific to Graha/full-model behavior.
+- `graha_model/all_tasks`: shared across semantic and instance segmentation,
+  but specific to Graha behavior.
 - `toy_model/all_tasks`: shared across semantic and instance segmentation, but
   specific to Toy behavior.
-- `full_model/{sem_seg,inst_seg}` and `toy_model/{sem_seg,inst_seg}`:
+- `graha_model/{sem_seg,inst_seg}` and `toy_model/{sem_seg,inst_seg}`:
   model-family-specific and task-specific implementation details.
 
 This structure should be introduced gradually. Avoid creating empty mirrored
 directories solely for symmetry. Prefer moving code when there is a concrete
 shared behavior to extract.
+
+Naming Convention
+~~~~~~~~~~~~~~~~~
+
+Use `Graha` as the canonical model-family name for the Lunar-FM/Graha path.
+Avoid adding new names that use `full_model` or "full model" for repo-owned
+code. Existing `lfm/full_model/...` paths are legacy naming and should be
+renamed during phase 10 after behavior-bearing refactors are stable.
+
+Conventions:
+
+- User-facing text and docs: `Graha`, or `Graha/Lunar-FM` when the connection
+  to the original model family needs to be explicit.
+- Python package directories: `graha_model`, mirroring the existing
+  `toy_model` package.
+- Python classes and types: `Graha...`.
+- Python functions, variables, config fields, and CLI flags: `graha_...` or
+  `--graha-...`.
+- Historical references may keep exact paths such as `lfm/full_model/...` when
+  documenting current code or completed migrations, but those names should be
+  treated as legacy.
+
+The vendored `graha-lunar-fm` directory is a special case. Do not rename the
+vendored repo itself unless that is planned separately. If the parent package is
+renamed later, the likely shape is `lfm/graha_model/graha-lunar-fm/...`.
 
 Object-Oriented Design Target
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -578,9 +603,10 @@ Sub-steps:
 5. [Completed] Rename or split package modules so `lfm/full_model/{task}` no
    longer reads like a script location.
 
-   `lfm/full_model/{task}` should continue to own Graha/full-model reusable
-   implementation details, but files named like standalone training scripts are
-   misleading once orchestration lives under `scripts/python`.
+   The Graha package should continue to own Graha reusable implementation
+   details, but files named like standalone training scripts are misleading
+   once orchestration lives under `scripts/python`. The current package path is
+   still the legacy `lfm/full_model/{task}` name until phase 10 renames it.
 
    Candidate package-module shape:
 
@@ -769,7 +795,8 @@ Sub-steps:
 
    - Move truly shared utilities to `lfm/all_models/all_tasks/utils` or
      task-specific `lfm/all_models/{task}` modules.
-   - Keep Graha-only utilities under `lfm/full_model`.
+   - Keep Graha-only utilities under the Graha package, currently
+     `lfm/full_model` and eventually `lfm/graha_model`.
    - Keep Toy-only utilities under `lfm/toy_model`.
    - Preserve existing behavior by updating imports directly; do not create
      compatibility-only modules.
@@ -964,18 +991,43 @@ Sub-steps:
 Phase 10: Naming Cleanup
 
 Rename classes, functions, and modules whose names imply the wrong ownership
-axis after the refactor.
+axis after the refactor. The largest planned rename is replacing repo-owned
+`full_model` naming with `graha_model` / `Graha` naming.
 
 Goal:
 
 - Names should accurately communicate whether code is shared across tasks,
   shared across model families, Toy-specific, Graha-specific, semantic-specific,
   or instance-specific.
+- `full_model` is legacy naming for repo-owned Graha code. New code should use
+  `graha_model`, `Graha`, `graha_...`, and `--graha-...` as appropriate.
 - Rename directly and update all references. Do not leave compatibility files.
 
 Sub-steps:
 
-1. Audit class/module names that still imply only one task or model family when
+1. Rename the repo-owned Graha package namespace from `lfm/full_model` to
+   `lfm/graha_model`.
+
+   Scope:
+
+   - Move repo-owned Graha modules under `lfm/graha_model`.
+   - Update imports in `lfm`, `scripts`, notebooks, and docs directly.
+   - Preserve the vendored `graha-lunar-fm` directory name unless a separate
+     vendor-repo rename is explicitly planned.
+   - Do not create compatibility modules under `lfm/full_model`.
+
+2. Rename code symbols and file names that still use `full_model` or
+   "full-model" for Graha-owned behavior.
+
+   Examples:
+
+   - package/module paths should use `graha_model`
+   - classes should use `Graha...`
+   - functions and variables should use `graha_...`
+   - CLI flags should use `--graha-...`
+   - docs should say `Graha` or `Graha/Lunar-FM`
+
+3. Audit class/module names that still imply only one task or model family when
    they are now shared.
 
    Candidate examples:
@@ -983,45 +1035,47 @@ Sub-steps:
    - base dataset/datamodule names that should include `Base`
    - classes with `Toy`, `Graha`, `Semantic`, or `Instance` in the name despite
      broader ownership
-   - modules whose filenames imply full-model/Graha ownership but now contain
+   - modules whose filenames imply Graha ownership but now contain
      all-model behavior
 
-2. Prioritize names that actively confuse workflow usage or inheritance.
+4. Prioritize names that actively confuse workflow usage or inheritance.
 
    Avoid churn for names that are technically imperfect but isolated and not on
    active user-facing paths.
 
-3. Rename in small batches by ownership axis:
+5. Rename in small batches by ownership axis:
 
    - all-task shared names
    - semantic shared names
    - instance shared names
    - Toy-specific names
-   - Graha/full-model-specific names
+   - Graha-specific names
 
-4. Update imports and references directly.
+6. Update imports and references directly.
 
-5. Remove obsolete files after each rename batch.
+7. Remove obsolete files after each rename batch.
 
-6. Validate with formatting, linting, compile checks, reference scans, and smoke
+8. Validate with formatting, linting, compile checks, reference scans, and smoke
    tests where behavior-bearing code was renamed.
 
 Deferred Decisions
 ------------------
 
-Do not immediately move Toy workflow modules into `lfm/full_model/{task}`.
+Do not move Toy workflow modules into the Graha package.
 
 The desired model-family symmetry is not that Toy code lives under
-`lfm/full_model`. The desired symmetry is:
+`lfm/full_model` or future `lfm/graha_model`. The desired symmetry is:
 
 - reusable Toy components live under `lfm/toy_model/{task}`
-- reusable Graha/full-model components live under `lfm/full_model/{task}`
+- reusable Graha components live under `lfm/graha_model/{task}` after the
+  phase 10 rename
 - shared Toy/Graha behavior lives under `lfm/all_models/{task}`
 - importable workflow orchestration lives under `lfm/all_models/{task}/workflows`
 - `scripts/python/{task}` contains executable entry points only
 
-This is clearer than putting Toy implementation under `full_model`, and clearer
-than keeping script-like finetuning orchestration under package modules.
+This is clearer than putting Toy implementation under the Graha package, and
+clearer than keeping script-like finetuning orchestration under package
+modules.
 
 Do not start with a full experiment framework rewrite.
 

@@ -104,10 +104,12 @@ def audit_case(repo_root, data_root, case, n_samples):
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
+    print(f"[audit] importing {case['module']}.{case['class']}", file=sys.stderr, flush=True)
     module = importlib.import_module(case["module"])
     cls = getattr(module, case["class"])
     kwargs = dict(case.get("kwargs", {}))
     kwargs["data_root"] = str(data_root)
+    print(f"[audit] constructing {case['name']}", file=sys.stderr, flush=True)
     dm = cls(**kwargs)
     result = {
         "case": case["name"],
@@ -118,13 +120,16 @@ def audit_case(repo_root, data_root, case, n_samples):
         "splits": {},
     }
     try:
+        print(f"[audit] setup {case['name']}", file=sys.stderr, flush=True)
         dm.setup(None)
     except Exception as exc:
         result["setup_error"] = {"type": type(exc).__name__, "message": str(exc)}
         return result
+    print(f"[audit] setup complete {case['name']}", file=sys.stderr, flush=True)
     if hasattr(dm, "weight_assignments"):
         result["weight_assignments"] = getattr(dm, "weight_assignments")
     for split in ("train", "val", "test"):
+        print(f"[audit] summarize {case['name']} {split}", file=sys.stderr, flush=True)
         split_result = {}
         dataset = get_dataset(dm, split)
         if dataset is None:
@@ -146,6 +151,11 @@ def audit_case(repo_root, data_root, case, n_samples):
                 samples.append({"sample_index": idx, "error": {"type": type(exc).__name__, "message": str(exc)}})
         split_result["samples"] = samples
         try:
+            print(
+                f"[audit] dataloader batch {case['name']} {split}",
+                file=sys.stderr,
+                flush=True,
+            )
             random.seed(1000 + len(split))
             np.random.seed(1000 + len(split))
             torch.manual_seed(1000 + len(split))
@@ -342,6 +352,7 @@ def run_repo_case(
     case: dict[str, Any],
     runner_path: Path,
     n_samples: int,
+    timeout_seconds: int | None = 300,
 ) -> dict[str, Any]:
     side = "base" if repo_label == "base" else "oop"
     kwargs = dict(case.get("kwargs", {}))
@@ -364,7 +375,23 @@ def run_repo_case(
         "--n-samples",
         str(n_samples),
     ]
-    completed = subprocess.run(cmd, text=True, capture_output=True)
+    try:
+        completed = subprocess.run(
+            cmd,
+            text=True,
+            capture_output=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "repo_label": repo_label,
+            "repo_root": str(repo_root),
+            "case": case["name"],
+            "returncode": "timeout",
+            "timeout_seconds": timeout_seconds,
+            "stderr_tail": (exc.stderr or "")[-4000:],
+            "stdout_tail": (exc.stdout or "")[-4000:],
+        }
     payload = {
         "repo_label": repo_label,
         "repo_root": str(repo_root),
@@ -394,6 +421,7 @@ def run_audit_cases(
     oop_python: str,
     runner_path: Path,
     n_samples: int,
+    timeout_seconds: int | None = 300,
 ) -> dict[str, dict[str, Any]]:
     audit_results: dict[str, dict[str, Any]] = {"base": {}, "oop": {}}
     for case in audit_cases:
@@ -406,6 +434,7 @@ def run_audit_cases(
             case,
             runner_path,
             n_samples,
+            timeout_seconds,
         )
         print(f"running {case['name']} oop...")
         audit_results["oop"][case["name"]] = run_repo_case(
@@ -416,6 +445,7 @@ def run_audit_cases(
             case,
             runner_path,
             n_samples,
+            timeout_seconds,
         )
     return audit_results
 
@@ -468,7 +498,9 @@ def compare_audit_results(
         oop_flat = flatten(oop_summary)
         all_keys = sorted(set(base_flat) | set(oop_flat))
         for key in all_keys:
-            if key in {"module", "class", "datamodule_type"}:
+            if key in {"module", "class", "datamodule_type"} or key.endswith(
+                ".dataset_type"
+            ):
                 continue
             base_value = base_flat.get(key, "<MISSING>")
             oop_value = oop_flat.get(key, "<MISSING>")
