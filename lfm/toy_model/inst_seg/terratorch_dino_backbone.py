@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from typing import Any
 
 import torch
@@ -45,17 +46,24 @@ class ToyDinoTerraTorchBackbone(nn.Module):
         backbone: nn.Module,
         output_strides: list[int],
         *,
-        return_format: str = "list",
+        return_format: str = "ordered_dict",
+        feature_names: list[str] | None = None,
     ) -> None:
         super().__init__()
         self.backbone = backbone
         self.output_strides = list(output_strides)
         self.out_channels = [int(backbone.out_channels)] * len(self.output_strides)
         self.return_format = return_format
+        self.feature_names = feature_names
 
     def forward(self, x: torch.Tensor):
         features = self.backbone(x)
         if self.return_format == "ordered_dict":
+            if self.feature_names is not None:
+                return OrderedDict(
+                    (name, value)
+                    for name, value in zip(self.feature_names, features.values())
+                )
             return features
         if self.return_format == "list":
             return list(features.values())
@@ -86,7 +94,10 @@ def _build_toy_dino_mask_rcnn_backbone(**kwargs: Any) -> ToyDinoTerraTorchBackbo
     )
     output_strides = _pop_first(kwargs, "output_strides", default=(8, 16, 32, 64))
     freeze_encoder = bool(_pop_first(kwargs, "freeze_encoder", default=False))
-    return_format = str(_pop_first(kwargs, "return_format", default="list"))
+    return_format = str(_pop_first(kwargs, "return_format", default="ordered_dict"))
+    feature_names = _pop_first(kwargs, "feature_names", default=None)
+    if feature_names is not None:
+        feature_names = [str(name) for name in feature_names]
 
     if weight_assignments is None and num_bands != 3:
         raise ValueError(
@@ -119,6 +130,7 @@ def _build_toy_dino_mask_rcnn_backbone(**kwargs: Any) -> ToyDinoTerraTorchBackbo
         backbone,
         output_strides=list(output_strides),
         return_format=return_format,
+        feature_names=feature_names,
     )
 
 

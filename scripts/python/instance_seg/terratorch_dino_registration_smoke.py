@@ -175,6 +175,8 @@ def build_registered_backbone(
         "freeze_encoder": args.freeze_backbone,
         "device": str(args.device),
     }
+    if args.backbone_feature_names is not None:
+        kwargs["feature_names"] = args.backbone_feature_names
     if args.dino_checkpoint is not None:
         kwargs["checkpoint_path"] = str(args.dino_checkpoint)
     return registry.build(BACKBONE_NAME, **kwargs)
@@ -275,26 +277,32 @@ def unwrap_torchvision_backbone(backbone):
     return getattr(backbone, "backbone", backbone)
 
 
-def run_terratorch_task_step(
+def build_terratorch_task(
     args: argparse.Namespace,
     batch: dict[str, Any],
     weight_assignments: list[str],
-) -> dict[str, Any]:
+):
     from terratorch.tasks import ObjectDetectionTask
+
+    backbone_args = {
+        "backbone_num_bands": len(weight_assignments),
+        "backbone_weight_assignments": weight_assignments,
+        "backbone_out_channels": args.out_channels,
+        "backbone_layers_to_extract": args.layers_to_extract,
+        "backbone_output_strides": args.output_strides,
+        "backbone_return_format": args.backbone_return_format,
+        "backbone_freeze_encoder": args.freeze_backbone,
+        "backbone_device": str(args.device),
+    }
+    if args.backbone_feature_names is not None:
+        backbone_args["backbone_feature_names"] = args.backbone_feature_names
 
     task = ObjectDetectionTask(
         model_factory="ObjectDetectionModelFactory",
         model_args={
             "framework": "mask-rcnn",
             "backbone": BACKBONE_NAME,
-            "backbone_num_bands": len(weight_assignments),
-            "backbone_weight_assignments": weight_assignments,
-            "backbone_out_channels": args.out_channels,
-            "backbone_layers_to_extract": args.layers_to_extract,
-            "backbone_output_strides": args.output_strides,
-            "backbone_return_format": args.backbone_return_format,
-            "backbone_freeze_encoder": args.freeze_backbone,
-            "backbone_device": str(args.device),
+            **backbone_args,
             "num_classes": 2,
             "in_channels": int(batch["image"].shape[1]),
             "framework_min_size": args.target_size,
@@ -305,7 +313,14 @@ def run_terratorch_task_step(
         freeze_decoder=False,
         class_names=["Background", "Crater"],
     ).to(args.device)
-    model_summary = summarize_terratorch_detection_model(task)
+    return task
+
+
+def run_terratorch_task_loss_step(
+    args: argparse.Namespace,
+    task: Any,
+    batch: dict[str, Any],
+) -> dict[str, Any]:
     task.train()
     images = batch["image"].to(args.device)
     if hasattr(task, "reformat_batch"):
@@ -325,7 +340,6 @@ def run_terratorch_task_step(
     return {
         "task_type": f"{type(task).__module__}.{type(task).__name__}",
         "model_type": f"{type(task.model).__module__}.{type(task.model).__name__}",
-        "model_summary": model_summary,
         "loss_terms": {
             key: round(float(value.detach().cpu()), 8)
             for key, value in loss_dict.items()
@@ -424,8 +438,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--backbone-return-format",
         choices=["list", "ordered_dict"],
-        default="list",
+        default="ordered_dict",
         help="Feature container returned by the registered TerraTorch wrapper.",
+    )
+    parser.add_argument(
+        "--backbone-feature-names",
+        nargs="+",
+        default=None,
+        help=(
+            "Optional feature names for the registered OrderedDict output. "
+            "Use this to match TerraTorch ROI pool featmap_names."
+        ),
     )
     parser.add_argument(
         "--anchor-sizes",
@@ -488,6 +511,7 @@ def main() -> None:
                 else None
             ),
             "return_format": getattr(backbone, "return_format", None),
+            "feature_names": compact_value(getattr(backbone, "feature_names", None)),
         }
 
     result["checks"]["registry_build"] = safe_step(
@@ -524,9 +548,30 @@ def main() -> None:
     )
 
     if not args.skip_terratorch_task:
-        result["checks"]["terratorch_object_detection_task"] = safe_step(
-            "terratorch_object_detection_task",
-            lambda: run_terratorch_task_step(args, batch, weight_assignments),
+        task_holder: dict[str, Any] = {}
+
+        def check_terratorch_task_build() -> dict[str, Any]:
+            task = build_terratorch_task(args, batch, weight_assignments)
+            task_holder["task"] = task
+            return {
+                "task_type": f"{type(task).__module__}.{type(task).__name__}",
+                "model_summary": summarize_terratorch_detection_model(task),
+            }
+
+        result["checks"]["terratorch_object_detection_task_build"] = safe_step(
+            "terratorch_object_detection_task_build",
+            check_terratorch_task_build,
+        )
+
+        def check_terratorch_task_loss() -> dict[str, Any]:
+            task = task_holder.get("task")
+            if task is None:
+                task = build_terratorch_task(args, batch, weight_assignments)
+            return run_terratorch_task_loss_step(args, task, batch)
+
+        result["checks"]["terratorch_object_detection_task_loss"] = safe_step(
+            "terratorch_object_detection_task_loss",
+            check_terratorch_task_loss,
         )
 
     output_json = args.output_json
