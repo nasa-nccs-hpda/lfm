@@ -98,6 +98,8 @@ def _build_toy_dino_mask_rcnn_backbone(**kwargs: Any) -> ToyDinoTerraTorchBackbo
     feature_names = _pop_first(kwargs, "feature_names", default=None)
     if feature_names is not None:
         feature_names = [str(name) for name in feature_names]
+    elif return_format == "ordered_dict":
+        feature_names = [f"feat{i}" for i in range(len(output_strides))]
 
     if weight_assignments is None and num_bands != 3:
         raise ValueError(
