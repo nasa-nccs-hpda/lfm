@@ -62,6 +62,18 @@ def tensor_summary(value: torch.Tensor) -> dict[str, Any]:
     return summary
 
 
+def compact_value(value: Any) -> Any:
+    if torch.is_tensor(value):
+        return tensor_summary(value)
+    if isinstance(value, dict):
+        return {str(key): compact_value(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [compact_value(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
+
+
 def safe_step(name: str, fn: Callable[[], Any]) -> dict[str, Any]:
     try:
         return {"ok": True, "result": fn()}
@@ -257,6 +269,11 @@ def run_torchvision_loss_step(
     }
 
 
+def unwrap_torchvision_backbone(backbone):
+    """Return the inner TorchVision-compatible backbone when wrapped for TerraTorch."""
+    return getattr(backbone, "backbone", backbone)
+
+
 def run_terratorch_task_step(
     args: argparse.Namespace,
     batch: dict[str, Any],
@@ -411,7 +428,17 @@ def main() -> None:
         backbone_holder["backbone"] = backbone
         return {
             "type": f"{type(backbone).__module__}.{type(backbone).__name__}",
-            "out_channels": int(backbone.out_channels),
+            "out_channels": compact_value(backbone.out_channels),
+            "inner_backbone_type": (
+                f"{type(backbone.backbone).__module__}.{type(backbone.backbone).__name__}"
+                if hasattr(backbone, "backbone")
+                else None
+            ),
+            "inner_out_channels": (
+                compact_value(backbone.backbone.out_channels)
+                if hasattr(backbone, "backbone")
+                else None
+            ),
         }
 
     result["checks"]["registry_build"] = safe_step(
@@ -437,7 +464,9 @@ def main() -> None:
     )
 
     def check_torchvision_loss() -> dict[str, Any]:
-        backbone = build_registered_backbone(args, weight_assignments)
+        backbone = unwrap_torchvision_backbone(
+            build_registered_backbone(args, weight_assignments)
+        )
         return run_torchvision_loss_step(args, backbone, batch)
 
     result["checks"]["torchvision_mask_rcnn_loss"] = safe_step(

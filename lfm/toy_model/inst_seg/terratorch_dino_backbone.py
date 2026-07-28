@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import torch
+from torch import nn
 
 try:
     from terratorch.registry import TERRATORCH_BACKBONE_REGISTRY
@@ -30,7 +31,26 @@ def _normalize_weight_assignments(value: Any) -> list[str] | None:
     return [str(item) for item in value]
 
 
-def _build_toy_dino_mask_rcnn_backbone(**kwargs: Any):
+class ToyDinoTerraTorchBackbone(nn.Module):
+    """TerraTorch-facing wrapper around the existing Toy DINO feature pyramid.
+
+    TorchVision's Mask R-CNN expects ``backbone.out_channels`` to be one integer.
+    TerraTorch's object detection factory expects a list-like channel contract
+    while assembling necks. This wrapper keeps the same forward behavior as the
+    Toy DINO Mask R-CNN backbone but reports per-level channels for TerraTorch.
+    """
+
+    def __init__(self, backbone: nn.Module, output_strides: list[int]) -> None:
+        super().__init__()
+        self.backbone = backbone
+        self.output_strides = list(output_strides)
+        self.out_channels = [int(backbone.out_channels)] * len(self.output_strides)
+
+    def forward(self, x: torch.Tensor):
+        return self.backbone(x)
+
+
+def _build_toy_dino_mask_rcnn_backbone(**kwargs: Any) -> ToyDinoTerraTorchBackbone:
     from lfm.toy_model.inst_seg.dino_mask_rcnn_model import DinoMaskRCNNBackbone
     from lfm.toy_model.inst_seg.iseg_model import load_dinov3_encoder
 
@@ -74,7 +94,7 @@ def _build_toy_dino_mask_rcnn_backbone(**kwargs: Any):
             flush=True,
         )
 
-    return DinoMaskRCNNBackbone(
+    backbone = DinoMaskRCNNBackbone(
         encoder,
         out_channels=out_channels,
         layers_to_extract=layers_to_extract,
@@ -82,6 +102,7 @@ def _build_toy_dino_mask_rcnn_backbone(**kwargs: Any):
         weight_assignments=weight_assignments,
         freeze_encoder=freeze_encoder,
     )
+    return ToyDinoTerraTorchBackbone(backbone, output_strides=list(output_strides))
 
 
 if TERRATORCH_BACKBONE_REGISTRY is not None:
