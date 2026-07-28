@@ -942,13 +942,18 @@ Progress:
   split datamodule base should wait until phase 9 decides whether flat-layout
   support is deprecated.
 - Local validation completed for the touched modules with compile and lint
-  checks. Dataset audits and semantic/instance smoke tests should be run before
-  marking this phase complete.
+  checks. Dataset audits and semantic/instance smoke tests passed, so phase 8
+  is complete.
 
 Phase 9: Deprecation
 
 Create and execute a deprecation plan for legacy features, scripts, modules, and
 classes that no longer fit the OOP/Lightning workflow direction.
+
+Status: partially complete and deferred. The deprecation inventory has been
+created, one compatibility-only wrapper has been removed, and the remaining
+cleanup candidates are lower priority than implementing the TerraTorch /
+Mask R-CNN instance segmentation path.
 
 Goal:
 
@@ -958,7 +963,7 @@ Goal:
 
 Sub-steps:
 
-1. Create a deprecation inventory under `docs/`.
+1. [Completed] Create a deprecation inventory under `docs/`.
 
    Candidate categories:
 
@@ -987,6 +992,26 @@ Sub-steps:
 
 6. Validate with import/syntax checks, structural scans, and smoke tests for the
    affected workflows.
+
+Progress:
+
+- Added `docs/segmentation_deprecation_inventory.txt`.
+- Removed the compatibility-only shell wrapper:
+
+  `scripts/shell/semantic_seg/sbatch_toy_sem_seg_comparison.sh`
+
+  The active semantic comparison sbatch entrypoint is:
+
+  `scripts/shell/semantic_seg/sbatch_semantic_seg_comparison.sh`
+
+- Deferred removal of old non-Lightning Toy dataloader/stat helpers because the
+  old toy training notebooks still reference them.
+- Deferred Graha flat-layout support removal until there is an explicit
+  decision that pre-split `train/val/test/{chips,labels}` is the only supported
+  data contract.
+- Remaining phase 9 cleanup is intentionally paused. Revisit it after the
+  higher-priority instance segmentation architecture work, or when old Toy
+  notebooks / flat-layout support become active blockers.
 
 Phase 10: Naming Cleanup
 
