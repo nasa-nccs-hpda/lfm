@@ -1,10 +1,13 @@
 """Train Toy and Graha semantic segmentation models on split full-model data."""
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import argparse
 import csv
 import json
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +17,10 @@ import numpy as np
 import torch
 from lightning.pytorch.callbacks import Callback
 
+LFM_ROOT = Path(__file__).resolve().parents[3]
+if str(LFM_ROOT) not in sys.path:
+    sys.path.insert(0, str(LFM_ROOT))
+
 from lfm.all_models.all_tasks import ComparisonExperiment, save_config_json
 from lfm.full_model.all_tasks.utils import (
     create_timestamped_output_dir,
@@ -22,9 +29,14 @@ from lfm.full_model.all_tasks.utils import (
 )
 from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
 from lfm.full_model.sem_seg.semantic_model_adapter import GrahaSemanticModelAdapter
-from lfm.toy_model.sem_seg.semantic_model_adapter import ToySemanticModelAdapter
 
-TOY_ADAPTER = ToySemanticModelAdapter()
+try:
+    from scripts.python.semantic_seg import semantic_graha_workflow
+    from scripts.python.semantic_seg import semantic_toy_workflow
+except ModuleNotFoundError:
+    import semantic_graha_workflow
+    import semantic_toy_workflow
+
 GRAHA_ADAPTER = GrahaSemanticModelAdapter()
 
 
@@ -715,7 +727,7 @@ def main() -> None:
     timing_rows: list[dict[str, Any]] = []
 
     def run_toy():
-        return TOY_ADAPTER.run_workflow(
+        return semantic_toy_workflow.run_toy_workflow(
             config,
             output_dir=output_dir,
             normalization_modality_info=get_toy_normalization_modality_info(config),
@@ -725,7 +737,7 @@ def main() -> None:
         )
 
     def run_graha():
-        _, graha_prediction_cache = GRAHA_ADAPTER.run_workflow(
+        _, graha_prediction_cache = semantic_graha_workflow.run_graha_workflow(
             config,
             no_fit=config.skip_graha_fit,
             comparison_output_dir=output_dir,

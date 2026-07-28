@@ -59,6 +59,3 @@ class ToySemanticModelAdapter(SemanticModelAdapter):
             *args,
             **kwargs,
         )
-
-    def run_workflow(self, config: Any, **kwargs: Any) -> Path | None:
-        return workflow.run_toy_workflow(config, **kwargs)

@@ -89,6 +89,3 @@ class GrahaInstanceModelAdapter(InstanceModelAdapter):
             *args,
             **kwargs,
         )
-
-    def run_workflow(self, config: Any, output_dir: Path, **kwargs: Any) -> Path | None:
-        return workflow.run_graha_workflow(config, output_dir, **kwargs)

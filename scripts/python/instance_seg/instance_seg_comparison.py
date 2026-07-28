@@ -5,10 +5,13 @@ Both models use the same split instance dataset rooted at
 or Mask R-CNN; Graha uses Lunar-FM + TerraTorch Mask R-CNN.
 """
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,9 +19,12 @@ from typing import Any
 
 from lightning.pytorch.callbacks import Callback
 
+LFM_ROOT = Path(__file__).resolve().parents[3]
+if str(LFM_ROOT) not in sys.path:
+    sys.path.insert(0, str(LFM_ROOT))
+
 from lfm.all_models.all_tasks import ComparisonExperiment, save_config_json
 from lfm.full_model.inst_seg.instance_model_adapter import GrahaInstanceModelAdapter
-from lfm.toy_model.inst_seg.instance_model_adapter import ToyInstanceModelAdapter
 from lfm.full_model.all_tasks.utils import (
     create_timestamped_output_dir,
     plot_instance_cache_comparison,
@@ -28,7 +34,6 @@ from lfm.full_model.all_tasks.utils import (
 )
 from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
 
-TOY_ADAPTER = ToyInstanceModelAdapter()
 GRAHA_ADAPTER = GrahaInstanceModelAdapter()
 
 
@@ -495,7 +500,9 @@ def main() -> None:
     output_dir = create_timestamped_output_dir(config.base_output_dir)
 
     def run_toy():
-        return TOY_ADAPTER.run_workflow(
+        from scripts.python.instance_seg import instance_toy_workflow
+
+        return instance_toy_workflow.run_toy_workflow(
             config,
             output_dir,
             normalization_modality_info=get_toy_normalization_modality_info(config),
@@ -503,7 +510,9 @@ def main() -> None:
         )
 
     def run_graha():
-        return GRAHA_ADAPTER.run_workflow(
+        from scripts.python.instance_seg import instance_graha_workflow
+
+        return instance_graha_workflow.run_graha_workflow(
             config,
             output_dir,
             validation_plot_callback_cls=GrahaInstancePlotCallback,

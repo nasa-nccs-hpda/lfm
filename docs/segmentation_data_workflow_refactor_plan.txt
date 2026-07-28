@@ -545,28 +545,151 @@ Sub-steps:
    semantic-vs-instance evaluation, prediction/cache output details, and metric
    definitions.
 
-4. Keep scripts as CLI wrappers:
+4. Audit current workflow modules and classify responsibilities.
+
+   The goal is not to move all `*_finetuning.py` code wholesale into
+   `scripts/python`. Those modules currently mix reusable model-family
+   construction behavior with driver/orchestration behavior.
+
+   Classify each function in the current Toy and Graha workflow modules as one
+   of:
+
+   - reusable package behavior, which should remain under `lfm/`
+   - script-level driver behavior, which should move under `scripts/python/`
+   - task-specific output/metric behavior, which may remain script-local until
+     it has clear reuse pressure
+
+   Package behavior includes:
+
+   - model/task construction
+   - datamodule construction
+   - normalization-stat selection
+   - TerraTorch/Graha dependency import and path setup
+   - callback factories that are reusable outside one script
+
+   Driver behavior includes:
+
+   - running fit/test/predict workflows
+   - choosing output directories
+   - saving script-run timing/config artifacts
+   - invoking prediction cache generation
+   - invoking comparison/evaluation/reporting steps
+
+5. Rename or split package modules so `lfm/full_model/{task}` no longer reads
+   like a script location.
+
+   `lfm/full_model/{task}` should continue to own Graha/full-model reusable
+   implementation details, but files named like standalone training scripts are
+   misleading once orchestration lives under `scripts/python`.
+
+   Candidate package-module shape:
+
+   - `lfm/full_model/sem_seg/semantic_model_adapter.py`
+   - `lfm/full_model/sem_seg/semantic_graha_components.py`
+   - `lfm/full_model/inst_seg/instance_model_adapter.py`
+   - `lfm/full_model/inst_seg/instance_graha_components.py`
+
+   Equivalent Toy reusable components should remain under:
+
+   - `lfm/toy_model/sem_seg/`
+   - `lfm/toy_model/inst_seg/`
+
+   Do not create compatibility-only modules. If a file is renamed or split,
+   update imports directly and remove the obsolete file once no code references
+   it.
+
+6. Move script-level Toy and Graha workflow orchestration under
+   `scripts/python/{task}`.
+
+   Candidate script-level workflow modules:
+
+   - `scripts/python/semantic_seg/semantic_toy_workflow.py`
+   - `scripts/python/semantic_seg/semantic_graha_workflow.py`
+   - `scripts/python/instance_seg/instance_toy_workflow.py`
+   - `scripts/python/instance_seg/instance_graha_workflow.py`
+
+   These files may call package-level adapters/components from `lfm/`, but
+   package modules under `lfm/` should not import from `scripts/python`.
+
+   Keep the symmetry rule explicit:
+
+   - if a Toy workflow helper exists for semantic segmentation, the Graha
+     semantic workflow should expose an equivalent helper when feasible
+   - if semantic segmentation has a workflow module shape, instance
+     segmentation should mirror that shape unless task-specific behavior makes
+     the split misleading
+
+   Semantic progress:
+
+   - `scripts/python/semantic_seg/semantic_toy_workflow.py` now owns Toy
+     semantic fit/cache/test orchestration.
+   - `scripts/python/semantic_seg/semantic_graha_workflow.py` now owns Graha
+     semantic fit/cache orchestration.
+   - Semantic comparison and semantic single-finetune entry points call those
+     script-level workflows directly.
+   - Semantic model adapters no longer expose `run_workflow`; they remain
+     focused on reusable construction helpers.
+
+   Instance progress:
+
+   - `scripts/python/instance_seg/instance_toy_workflow.py` now owns Toy
+     instance fit/cache/plot orchestration.
+   - `scripts/python/instance_seg/instance_graha_workflow.py` now owns Graha
+     instance fit/cache/plot orchestration.
+   - Instance comparison and instance single-finetune entry points call those
+     script-level workflows directly.
+   - Instance model adapters no longer expose `run_workflow`; they remain
+     focused on reusable construction helpers.
+
+7. Thin the top-level CLI entry points.
+
+   The scripts below should become mostly CLI wrappers:
+
+   - `scripts/python/semantic_seg/semantic_seg_comparison.py`
+   - `scripts/python/semantic_seg/semantic_seg_single_finetune.py`
+   - `scripts/python/semantic_seg/semantic_checkpoint_sweep.py`
+   - `scripts/python/instance_seg/instance_seg_comparison.py`
+   - `scripts/python/instance_seg/instance_seg_single_finetune.py`
+   - `scripts/python/instance_seg/instance_checkpoint_sweep.py`
+   - `scripts/python/all_tasks/checkpoint_pipeline.py`
+
+   Their intended responsibilities are:
 
    - parse arguments
    - build config
    - call experiment object
    - exit with clear status
 
+   Shared orchestration should live in experiment objects. Model-family
+   construction should live in adapters/components. Task-specific workflow
+   steps should live in the script-level workflow modules.
+
+8. Validate the script cleanup without changing behavior.
+
+   Validation should include:
+
+   - import/syntax checks for touched modules
+   - direct script `--help` checks where local dependencies permit
+   - semantic and instance smoke tests
+   - checkpoint sweep smoke tests for both semantic and instance segmentation
+   - a structural scan confirming no `lfm/` package module imports from
+     `scripts/python`
+
 Deferred Decisions
 ------------------
 
 Do not immediately move Toy workflow modules into `lfm/full_model/{task}`.
 
-The current model-family symmetry is:
+The desired model-family symmetry is not that Toy code lives under
+`lfm/full_model`. The desired symmetry is:
 
-- `lfm.toy_model.sem_seg.semantic_seg_finetuning`
-- `lfm.full_model.sem_seg.semantic_seg_finetuning`
-- `lfm.toy_model.inst_seg.instance_seg_finetuning`
-- `lfm.full_model.inst_seg.instance_seg_finetuning`
+- reusable Toy components live under `lfm/toy_model/{task}`
+- reusable Graha/full-model components live under `lfm/full_model/{task}`
+- shared Toy/Graha behavior lives under `lfm/all_models/{task}`
+- driver workflows live under `scripts/python/{task}`
 
-This is currently clearer than putting Toy implementation under `full_model`.
-Revisit only if the repo explicitly redefines `full_model` as the comparison
-framework root rather than the Graha/full-model implementation area.
+This is clearer than putting Toy implementation under `full_model`, and clearer
+than keeping script-like finetuning orchestration under package modules.
 
 Do not start with a full experiment framework rewrite.
 

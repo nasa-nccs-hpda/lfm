@@ -15,18 +15,11 @@ if str(LFM_ROOT) not in sys.path:
 
 from lfm.all_models.all_tasks import SingleModelExperiment
 from lfm.full_model.all_tasks.utils import ensure_data_symlink
-from lfm.full_model.sem_seg.semantic_model_adapter import (
-    GrahaSemanticModelAdapter,
-)
-from lfm.toy_model.sem_seg.semantic_model_adapter import (
-    ToySemanticModelAdapter,
-)
 from scripts.python.semantic_seg import (
+    semantic_graha_workflow,
     semantic_seg_comparison as comparison,
+    semantic_toy_workflow,
 )
-
-TOY_ADAPTER = ToySemanticModelAdapter()
-GRAHA_ADAPTER = GrahaSemanticModelAdapter()
 
 
 def parse_args() -> tuple[str, argparse.Namespace]:
@@ -48,7 +41,7 @@ def main() -> None:
 
     def run_model():
         if model == "toy":
-            return TOY_ADAPTER.run_workflow(
+            return semantic_toy_workflow.run_toy_workflow(
                 config,
                 output_dir=output_dir,
                 normalization_modality_info=(
@@ -58,7 +51,7 @@ def main() -> None:
                 timing_rows=timing_rows,
                 record_timing=comparison.record_timing,
             )
-        return GRAHA_ADAPTER.run_workflow(
+        return semantic_graha_workflow.run_graha_workflow(
             config,
             no_fit=config.skip_graha_fit,
             comparison_output_dir=output_dir,

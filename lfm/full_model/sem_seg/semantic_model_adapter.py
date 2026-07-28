@@ -89,6 +89,3 @@ class GrahaSemanticModelAdapter(SemanticModelAdapter):
             *args,
             **kwargs,
         )
-
-    def run_workflow(self, config: Any, **kwargs: Any) -> tuple[Path, Path | None]:
-        return workflow.run_graha_workflow(config, **kwargs)
