@@ -105,6 +105,16 @@ bash scripts/shell/instance_seg/submit_instance_parallel_finetune.sh \
   --base-output-dir /explore/nobackup/people/ajkerr1/Lunar_FM/graha_vs_toy_experiments/smoke/iseg_dino_mask_rcnn_vs_graha
 ```
 
+Parallel Toy DINO TerraTorch Mask R-CNN vs Graha Smoke Test
+-----------------------------------------------------------
+
+```bash
+bash scripts/shell/instance_seg/submit_instance_parallel_finetune.sh \
+  "${COMMON_ARGS[@]}" \
+  --toy-architecture dino-terratorch-mask-rcnn \
+  --base-output-dir /explore/nobackup/people/ajkerr1/Lunar_FM/graha_vs_toy_experiments/smoke/iseg_dino_terratorch_mask_rcnn_vs_graha
+```
+
 Single-Model Toy Checks
 -----------------------
 
@@ -124,6 +134,14 @@ sbatch scripts/shell/instance_seg/sbatch_instance_seg_single_finetune.sh \
   "${COMMON_ARGS[@]}" \
   --toy-architecture dino-mask-rcnn \
   --base-output-dir /explore/nobackup/people/ajkerr1/Lunar_FM/graha_vs_toy_experiments/smoke/toy_dino_mask_rcnn_single
+```
+
+```bash
+sbatch scripts/shell/instance_seg/sbatch_instance_seg_single_finetune.sh \
+  --model toy \
+  "${COMMON_ARGS[@]}" \
+  --toy-architecture dino-terratorch-mask-rcnn \
+  --base-output-dir /explore/nobackup/people/ajkerr1/Lunar_FM/graha_vs_toy_experiments/smoke/toy_dino_terratorch_mask_rcnn_single
 ```
 
 Single-Model Graha Check
@@ -181,4 +199,25 @@ sbatch scripts/shell/instance_seg/sbatch_instance_checkpoint_sweep.sh \
   --normalization-source pretrain \
   --normalization-modality vis_uv \
   --toy-checkpoint-dir /path/to/toy_dino_mask_rcnn_checkpoints
+```
+
+```bash
+sbatch scripts/shell/instance_seg/sbatch_instance_checkpoint_sweep.sh \
+  --data-root /explore/nobackup/projects/lfm/model_inputs/300_300_inputs/full_model_inst_seg_v2 \
+  --output-root /explore/nobackup/people/ajkerr1/Lunar_FM/graha_vs_toy_experiments/smoke/iseg_dino_terratorch_mask_rcnn_checkpoint_sweep \
+  --models toy \
+  --toy-architecture dino-terratorch-mask-rcnn \
+  --max-checkpoints 1 \
+  --max-samples 5 \
+  --target-size 256 \
+  --image-glob '*.tif' \
+  --label-glob '*_label.npz' \
+  --image-suffix '_input_wac_chip' \
+  --label-suffix '_label' \
+  --batch-size 2 \
+  --band-filter 0 1 2 3 4 5 6 \
+  --normalize-inputs \
+  --normalization-source pretrain \
+  --normalization-modality vis_uv \
+  --toy-checkpoint-dir /path/to/toy_dino_terratorch_mask_rcnn_checkpoints
 ```

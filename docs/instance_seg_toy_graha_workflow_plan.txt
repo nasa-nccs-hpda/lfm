@@ -51,6 +51,21 @@ Active Toy instance workflows:
    Mask R-CNN style detector/head, but Toy currently uses TorchVision Mask R-CNN
    rather than TerraTorch object detection.
 
+3. Toy DINO TerraTorch Mask R-CNN
+
+   CLI value: `--toy-architecture dino-terratorch-mask-rcnn`
+
+   Current implementation:
+
+   - `lfm/toy_model/inst_seg/terratorch_dino_backbone.py`
+   - `lfm/toy_model/inst_seg/toy_terratorch_object_detection_task.py`
+   - `lfm/toy_model/inst_seg/lightning_wrappers/toy_dino_mask_rcnn_datamodule.py`
+   - `lfm/toy_model/inst_seg/instance_toy_components.py`
+
+   Current role: most controlled Toy/Graha instance comparison path because
+   Toy and Graha both train through TerraTorch Mask R-CNN while keeping their
+   backbone families distinct.
+
 Active Graha instance workflow:
 
 - Graha/Lunar-FM + TerraTorch Mask R-CNN.
@@ -80,6 +95,7 @@ Recent validation status:
   - `docs/instance_seg_controlled_smoke_tests.txt`
   - `scripts/python/instance_seg/instance_target_contract_audit.py`
   - `notebooks/full_model/dino_mask_rcnn_feature_diagnostic.ipynb`
+  - `scripts/python/instance_seg/terratorch_dino_registration_smoke.py`
 
 Target Comparison Modes
 -----------------------
@@ -224,7 +240,7 @@ Work Needed Before Reliable Side-By-Side Comparisons
 
 5. Evaluate TerraTorch Toy Mask R-CNN feasibility.
 
-   Status: diagnostic notebook added, pending HPC execution.
+   Status: complete.
 
    Goal: determine whether Toy DINO can be exposed as a TerraTorch-compatible
    backbone and trained through the same object detection task interface as
@@ -241,25 +257,28 @@ Work Needed Before Reliable Side-By-Side Comparisons
    - Can checkpoint loading stay Toy-specific while training/evaluation uses
      the same task wrapper shape as Graha?
 
-   Diagnostic notebook:
+   Diagnostic artifacts:
 
    `notebooks/full_model/dino_mask_rcnn_feature_diagnostic.ipynb`
+   `scripts/python/instance_seg/terratorch_dino_registration_smoke.py`
 
-   This notebook summarizes the current Toy DINO Mask R-CNN feature pyramid:
-   feature names, shapes, channels, approximate strides, and anchor settings.
-   Use that output to decide whether a TerraTorch backbone adapter is clean.
+   HPC diagnostics confirmed that the locally registered Toy DINO backbone can
+   build through TerraTorch, emit `feat0` through `feat3` feature maps, and run
+   a TerraTorch ObjectDetectionTask Mask R-CNN loss step.
 
 6. If feasible, implement Toy TerraTorch Mask R-CNN as a third Toy architecture.
 
-   Suggested CLI value:
+   Status: implemented for initial smoke testing.
+
+   CLI value:
 
    `--toy-architecture dino-terratorch-mask-rcnn`
 
-   Suggested files:
+   Files:
 
-   - `lfm/toy_model/inst_seg/dino_terratorch_mask_rcnn_model.py`
-   - `lfm/toy_model/inst_seg/lightning_wrappers/toy_dino_terratorch_mask_rcnn_lightning.py`
-   - Reuse the existing object-detection datamodule if its output contract fits.
+   - `lfm/toy_model/inst_seg/terratorch_dino_backbone.py`
+   - `lfm/toy_model/inst_seg/toy_terratorch_object_detection_task.py`
+   - Reuses `ToyDinoMaskRCNNSplitDataModule`.
 
    Do not create compatibility files. Update imports directly.
 
@@ -278,13 +297,14 @@ Work Needed Before Reliable Side-By-Side Comparisons
    - Graha Mask R-CNN only
    - Toy Mask2Former vs Graha comparison
    - Toy DINO Mask R-CNN vs Graha comparison
-   - optional Toy TerraTorch Mask R-CNN vs Graha comparison if implemented
+   - Toy TerraTorch Mask R-CNN vs Graha comparison
 
 8. Add checkpoint sweep parity.
 
    - Confirm checkpoint sweep supports `--toy-architecture mask2former`.
    - Confirm checkpoint sweep supports `--toy-architecture dino-mask-rcnn`.
-   - Extend sweep support to Toy TerraTorch Mask R-CNN if implemented.
+   - Confirm checkpoint sweep supports
+     `--toy-architecture dino-terratorch-mask-rcnn`.
    - Ensure sweep metrics and artifacts are architecture-neutral.
 
 9. Run final validation before serious comparisons.
@@ -302,9 +322,11 @@ Priority
 
 Near-term priority:
 
-1. Validate and document current `mask2former` and `dino-mask-rcnn` Toy paths.
-2. Tighten shared target/cache/evaluation contracts.
-3. Determine whether Toy DINO can use TerraTorch Mask R-CNN cleanly.
+1. Smoke test `--toy-architecture dino-terratorch-mask-rcnn` in the normal
+   comparison workflow.
+2. Smoke test checkpoint sweep parity for all three Toy architectures.
+3. Tighten shared target/cache/evaluation contracts if new test output reveals
+   mismatches.
 
 Deferred until after that:
 

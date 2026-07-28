@@ -30,6 +30,15 @@ from lfm.toy_model.inst_seg.lightning_wrappers import (
     ToyInstanceSegLightningModule,
     ToyInstanceSegSplitDataModule,
 )
+from lfm.toy_model.inst_seg.toy_terratorch_object_detection_task import (
+    ToyDinoTerraTorchObjectDetectionTask,
+)
+
+TOY_DINO_TERRATORCH_BACKBONE_NAME = "toy_dino_v3_mask_rcnn_backbone"
+TOY_OBJECT_DETECTION_ARCHITECTURES = {
+    "dino-mask-rcnn",
+    "dino-terratorch-mask-rcnn",
+}
 
 
 class FitProgressLogger(Callback):
@@ -174,7 +183,7 @@ def create_datamodule(
     means, stds = _pretraining_stats(config, normalization_modality_info)
     datamodule_cls = (
         ToyDinoMaskRCNNSplitDataModule
-        if config.toy_architecture == "dino-mask-rcnn"
+        if config.toy_architecture in TOY_OBJECT_DETECTION_ARCHITECTURES
         else ToyInstanceSegSplitDataModule
     )
     datamodule = datamodule_cls(
@@ -208,6 +217,42 @@ def create_datamodule(
 
 def create_task(config: Any, weight_assignments: list[str]):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if config.toy_architecture == "dino-terratorch-mask-rcnn":
+        from lfm.toy_model.inst_seg import terratorch_dino_backbone  # noqa: F401
+
+        backbone_args = {
+            "backbone_num_bands": len(weight_assignments),
+            "backbone_weight_assignments": weight_assignments,
+            "backbone_out_channels": 256,
+            "backbone_layers_to_extract": [5, 11, 17, 23],
+            "backbone_output_strides": [8, 16, 32, 64],
+            "backbone_return_format": "ordered_dict",
+            "backbone_freeze_encoder": config.toy_freeze_backbone,
+            "backbone_device": str(device),
+        }
+        if config.dino_checkpoint is not None:
+            backbone_args["backbone_checkpoint_path"] = str(config.dino_checkpoint)
+        return ToyDinoTerraTorchObjectDetectionTask(
+            model_factory="ObjectDetectionModelFactory",
+            model_args={
+                "framework": "mask-rcnn",
+                "backbone": TOY_DINO_TERRATORCH_BACKBONE_NAME,
+                **backbone_args,
+                "num_classes": 2,
+                "in_channels": len(weight_assignments),
+                "framework_min_size": config.target_size,
+                "framework_max_size": config.target_size,
+                "necks": [],
+            },
+            freeze_backbone=False,
+            freeze_decoder=False,
+            class_names=["Background", "Crater"],
+            learning_rate=config.toy_learning_rate,
+            weight_decay=config.toy_weight_decay,
+            max_epochs=config.max_epochs,
+            max_grad_norm=config.toy_gradient_clip_val,
+        ).to(device)
+
     if config.dino_checkpoint is not None:
         encoder = load_dinov3_encoder(
             weights_local_checkpoint=str(config.dino_checkpoint),
@@ -249,7 +294,7 @@ def create_task(config: Any, weight_assignments: list[str]):
 
 
 def create_image_processor(config: Any):
-    if config.toy_architecture == "dino-mask-rcnn":
+    if config.toy_architecture in TOY_OBJECT_DETECTION_ARCHITECTURES:
         return None
     return AutoImageProcessor.from_pretrained(
         "facebook/mask2former-swin-large-coco-instance",

@@ -490,7 +490,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--toy-normalize-inputs", action="store_true")
     parser.add_argument(
         "--toy-architecture",
-        choices=["mask2former", "dino-mask-rcnn"],
+        choices=["mask2former", "dino-mask-rcnn", "dino-terratorch-mask-rcnn"],
         default="mask2former",
     )
     parser.add_argument("--disable-toy-gradient-clipping", action="store_true")

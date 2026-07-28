@@ -26,11 +26,12 @@ def run_toy_workflow(
     normalization_modality_info: Path | None = None,
     epoch_test_suite_callback_cls: type[Callback] | None = None,
 ) -> Path | None:
-    title = (
-        "Toy Mask R-CNN (DINOv3 backbone)"
-        if config.toy_architecture == "dino-mask-rcnn"
-        else "Toy Mask2Former (DINOv3 backbone)"
-    )
+    titles = {
+        "mask2former": "Toy Mask2Former (DINOv3 backbone)",
+        "dino-mask-rcnn": "Toy Mask R-CNN (DINOv3 backbone)",
+        "dino-terratorch-mask-rcnn": ("Toy TerraTorch Mask R-CNN (DINOv3 backbone)"),
+    }
+    title = titles.get(config.toy_architecture, f"Toy {config.toy_architecture}")
     print(f"\n=== {title} instance segmentation ===", flush=True)
     started = time.perf_counter()
     seed_everything(config.seed)

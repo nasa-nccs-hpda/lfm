@@ -283,9 +283,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--toy-architecture",
-        choices=["mask2former", "dino-mask-rcnn"],
+        choices=["mask2former", "dino-mask-rcnn", "dino-terratorch-mask-rcnn"],
         default="mask2former",
-        help="Toy instance head to train. Use dino-mask-rcnn for a tighter Mask R-CNN comparison.",
+        help=(
+            "Toy instance head to train. Use dino-mask-rcnn for TorchVision "
+            "Mask R-CNN or dino-terratorch-mask-rcnn for TerraTorch Mask R-CNN."
+        ),
     )
     parser.add_argument("--target-size", type=int, default=256)
     parser.add_argument(

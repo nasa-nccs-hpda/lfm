@@ -512,7 +512,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--toy-architecture",
-        choices=["mask2former", "dino-mask-rcnn"],
+        choices=["mask2former", "dino-mask-rcnn", "dino-terratorch-mask-rcnn"],
         default="mask2former",
     )
     parser.add_argument("--dino-checkpoint", type=str, default=None)
