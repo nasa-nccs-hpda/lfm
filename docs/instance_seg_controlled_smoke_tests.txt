@@ -118,11 +118,16 @@ bash scripts/shell/instance_seg/submit_instance_parallel_finetune.sh \
 Parallel Three-Model Fine-Tune Smoke Test
 -----------------------------------------
 
-This submits three independent jobs under one timestamped run root:
+This submits three independent training jobs under one timestamped run root:
 
 - Toy Mask2Former
 - Toy DINO TerraTorch Mask R-CNN
 - Graha Mask R-CNN
+
+It also submits a fourth plotting job with a Slurm `afterok` dependency on all
+three training jobs. The plotting job is queued immediately, waits until the
+training jobs finish successfully, then loads the final checkpoint from each
+model directory and writes all-model plus pairwise comparison plots.
 
 Do not pass `--toy-architecture`; the orchestrator sets the two Toy
 architectures internally.
@@ -131,6 +136,75 @@ architectures internally.
 bash scripts/shell/instance_seg/submit_instance_three_model_finetune.sh \
   "${COMMON_ARGS[@]}" \
   --base-output-dir /explore/nobackup/people/ajkerr1/Lunar_FM/graha_vs_toy_experiments/smoke/iseg_three_model_finetune
+```
+
+To submit only the three training jobs and skip the dependent plotting job, add:
+
+```bash
+  --skip-final-comparison-plot
+```
+
+To write final comparison plots outside the timestamped run root, add:
+
+```bash
+  --final-comparison-output-dir /path/to/final_checkpoint_comparison
+```
+
+Post-Training Final Checkpoint Comparison Plots
+-----------------------------------------------
+
+The three-model orchestrator now submits this plotting job automatically. Run
+this manually only when you skipped automatic plotting, want to regenerate
+plots, or want to compare a different set of checkpoints. The script selects
+the final checkpoint from each model directory, writes prediction caches,
+creates one all-model plot, and creates all pairwise plots.
+
+```bash
+sbatch scripts/shell/instance_seg/sbatch_instance_checkpoint_comparison_plot.sh \
+  --run-root /path/to/timestamped/iseg_three_model_finetune/date_YYYY_MM_DD-time_HH_MM_SS \
+  --data-root /explore/nobackup/projects/lfm/model_inputs/300_300_inputs/full_model_inst_seg_v2 \
+  --output-dir /explore/nobackup/people/ajkerr1/Lunar_FM/graha_vs_toy_experiments/smoke/iseg_three_model_final_plots \
+  --graha-pretrain-dir /explore/nobackup/people/ajkerr1/Lunar_FM/sandy_graha_pretrain_dir \
+  --target-size 256 \
+  --image-glob '*.tif' \
+  --label-glob '*_label.npz' \
+  --image-suffix '_input_wac_chip' \
+  --label-suffix '_label' \
+  --batch-size 2 \
+  --graha-batch-size 2 \
+  --graha-stats-batch-size 4 \
+  --band-filter 0 1 2 3 4 5 6 \
+  --normalize-inputs \
+  --normalization-source pretrain \
+  --normalization-modality vis_uv \
+  --graha-input-modality-mode new-wac \
+  --prediction-split val \
+  --n-samples 5 \
+  --score-threshold 0.5
+```
+
+For a two-model comparison, provide any two checkpoint paths or directories
+instead of `--run-root`, for example:
+
+```bash
+sbatch scripts/shell/instance_seg/sbatch_instance_checkpoint_comparison_plot.sh \
+  --data-root /explore/nobackup/projects/lfm/model_inputs/300_300_inputs/full_model_inst_seg_v2 \
+  --output-dir /explore/nobackup/people/ajkerr1/Lunar_FM/graha_vs_toy_experiments/smoke/two_model_final_plots \
+  --graha-pretrain-dir /explore/nobackup/people/ajkerr1/Lunar_FM/sandy_graha_pretrain_dir \
+  --toy-terratorch-checkpoint-dir /path/to/toy_dino_terratorch_mask_rcnn/checkpoints/toy_model \
+  --graha-checkpoint-dir /path/to/graha_mask_rcnn/checkpoints/full_model \
+  --target-size 256 \
+  --image-glob '*.tif' \
+  --label-glob '*_label.npz' \
+  --image-suffix '_input_wac_chip' \
+  --label-suffix '_label' \
+  --band-filter 0 1 2 3 4 5 6 \
+  --normalize-inputs \
+  --normalization-source pretrain \
+  --normalization-modality vis_uv \
+  --graha-input-modality-mode new-wac \
+  --prediction-split val \
+  --n-samples 5
 ```
 
 Single-Model Toy Checks
