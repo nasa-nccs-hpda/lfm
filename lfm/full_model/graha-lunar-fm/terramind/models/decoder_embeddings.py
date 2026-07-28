@@ -17,15 +17,8 @@ import torch.nn as nn
 
 from einops import repeat
 
-from terramind.models.codebook_fusion import (
-    UnifiedCodebookFusion,
-    UnifiedProjectionFusion,
-)
-from terramind.models.tm_utils import (
-    build_1d_sincos_posemb,
-    build_2d_sincos_posemb,
-    pair,
-)
+from terramind.models.codebook_fusion import UnifiedCodebookFusion, UnifiedProjectionFusion
+from terramind.models.tm_utils import build_1d_sincos_posemb, build_2d_sincos_posemb, pair
 
 
 class SequenceDecoderEmbedding(nn.Module):
@@ -76,19 +69,14 @@ class SequenceDecoderEmbedding(nn.Module):
         # Fixed-size positional embeddings. Can be interpolated to different input sizes
         if self.sincos_pos_emb:
             if self.max_length > self.max_sincos_pos_emb:
-                raise ValueError(
-                    f"Max length ({self.max_length}) > number of posembs ({self.max_sincos_pos_emb}"
-                )
+                raise ValueError(f"Max length ({self.max_length}) > number of posembs ({self.max_sincos_pos_emb}")
             # Get all posembs, than truncate up to max length
             pos_emb = build_1d_sincos_posemb(
-                max_len=self.max_sincos_pos_emb,
-                embed_dim=self.dim_tokens,
-            )[:, : self.max_length, :]
+                max_len=self.max_sincos_pos_emb, embed_dim=self.dim_tokens,
+            )[:, :self.max_length, :]
             self.register_buffer("pos_emb", pos_emb)
         else:
-            self.pos_emb = nn.Parameter(
-                torch.zeros(1, self.max_length, self.dim_tokens)
-            )
+            self.pos_emb = nn.Parameter(torch.zeros(1, self.max_length, self.dim_tokens))
             nn.init.normal_(self.pos_emb, std=init_std)
 
         # Task embedding identifying from which task a given token comes from
@@ -114,7 +102,7 @@ class SequenceDecoderEmbedding(nn.Module):
         else:
             # When not sharing, use vocabulary-scaled init for input embeddings only
             # to prevent gradient explosions with large vocabularies
-            embedding_init_std = init_std * (1.0 / (self.vocab_size**0.5))
+            embedding_init_std = init_std * (1.0 / (self.vocab_size ** 0.5))
             nn.init.normal_(self.token_emb.weight, mean=0.0, std=embedding_init_std)
             self.token_emb._fill_padding_idx_with_zero()
             # Output projection uses standard initialization
@@ -143,9 +131,7 @@ class SequenceDecoderEmbedding(nn.Module):
         """
         ids = d["tensor"]
         B = ids.shape[0]
-        assert (
-            self.dim_tokens is not None
-        ), "Need to call init(dim_tokens) function first"
+        assert self.dim_tokens is not None, "Need to call init(dim_tokens) function first"
 
         # Map to embedding
         x = self.token_emb(ids)
@@ -235,9 +221,7 @@ class ImageTokenDecoderEmbedding(nn.Module):
         self.dim_tokens = dim_tokens
         self.sincos_pos_emb = sincos_pos_emb
         self.image_size = pair(input_size)
-        self.num_patches = (self.image_size[0] // self.patch_size[0]) * (
-            self.image_size[1] // self.patch_size[1]
-        )
+        self.num_patches = (self.image_size[0] // self.patch_size[0]) * (self.image_size[1] // self.patch_size[1])
         self.share_embedding = share_embedding
         self.num_codebooks = num_codebooks
 
@@ -271,14 +255,10 @@ class ImageTokenDecoderEmbedding(nn.Module):
         w_posemb = self.image_size[1] // self.patch_size[1]
 
         if self.sincos_pos_emb:
-            pos_emb = build_2d_sincos_posemb(
-                h=h_posemb, w=w_posemb, embed_dim=self.dim_tokens
-            )
+            pos_emb = build_2d_sincos_posemb(h=h_posemb, w=w_posemb, embed_dim=self.dim_tokens)
             self.register_buffer("pos_emb", pos_emb)
         else:
-            self.pos_emb = nn.Parameter(
-                torch.zeros(1, (h_posemb * w_posemb), self.dim_tokens)
-            )
+            self.pos_emb = nn.Parameter(torch.zeros(1, (h_posemb * w_posemb), self.dim_tokens))
             nn.init.normal_(self.pos_emb, std=init_std)
 
         # Task embedding identifying from which task a given token comes from
@@ -289,40 +269,30 @@ class ImageTokenDecoderEmbedding(nn.Module):
         # (not needed if only masked tokens are given as input, but can be useful to train Token Critic)
         if self.is_heterogeneous:
             # Heterogeneous codebooks: create separate embedding table for each codebook
-            self.token_emb = nn.ModuleList(
-                [
-                    nn.Embedding(
-                        num_embeddings=vocab_size, embedding_dim=self.dim_tokens
-                    )
-                    for vocab_size in self.vocab_sizes
-                ]
-            )
+            self.token_emb = nn.ModuleList([
+                nn.Embedding(num_embeddings=vocab_size, embedding_dim=self.dim_tokens)
+                for vocab_size in self.vocab_sizes
+            ])
             # Initialize each embedding table with vocab-size-specific scaling
             for i, vocab_size in enumerate(self.vocab_sizes):
-                embedding_init_std = init_std * (1.0 / (vocab_size**0.5))
+                embedding_init_std = init_std * (1.0 / (vocab_size ** 0.5))
                 emb_module = self.token_emb[i]
-                assert isinstance(
-                    emb_module, nn.Embedding
-                ), "Expected nn.Embedding module"
+                assert isinstance(emb_module, nn.Embedding), "Expected nn.Embedding module"
                 nn.init.normal_(emb_module.weight, mean=0.0, std=embedding_init_std)
         else:
             # Homogeneous codebooks: single shared embedding table (backward compatible)
-            self.token_emb = nn.Embedding(
-                num_embeddings=self.vocab_size, embedding_dim=self.dim_tokens
-            )
+            self.token_emb = nn.Embedding(num_embeddings=self.vocab_size, embedding_dim=self.dim_tokens)
 
             # Scale initialization by 1/sqrt(vocab_size) for large vocabularies
             # This prevents gradient explosions with large vocabularies (e.g., 15k codes)
             # For small vocabularies, this still provides reasonable init
-            embedding_init_std = init_std * (1.0 / (self.vocab_size**0.5))
+            embedding_init_std = init_std * (1.0 / (self.vocab_size ** 0.5))
             nn.init.normal_(self.token_emb.weight, mean=0.0, std=embedding_init_std)
 
         # Codebook embeddings for multi-codebook case
         # Each codebook gets its own learnable embedding to differentiate tokens from different codebooks
         if self.num_codebooks > 1:
-            self.codebook_emb = nn.Parameter(
-                torch.zeros(self.num_codebooks, self.dim_tokens)
-            )
+            self.codebook_emb = nn.Parameter(torch.zeros(self.num_codebooks, self.dim_tokens))
             nn.init.normal_(self.codebook_emb, std=init_std)
 
             self.codebook_fusion = UnifiedCodebookFusion(
@@ -392,13 +362,9 @@ class ImageTokenDecoderEmbedding(nn.Module):
             elif ids.ndim == 2:
                 # During generation, the tensor starts as (B, num_tokens) zeros (all masked).
                 # Expand to (B, num_tokens, num_codebooks) by repeating the same ids across codebooks.
-                ids_reshaped = (
-                    ids.unsqueeze(-1).expand(-1, -1, self.num_codebooks).contiguous()
-                )
+                ids_reshaped = ids.unsqueeze(-1).expand(-1, -1, self.num_codebooks).contiguous()
             else:
-                raise ValueError(
-                    f"Expected 2, 3 or 4 dimensions for multi-codebook tokens, got {ids.ndim}"
-                )
+                raise ValueError(f"Expected 2, 3 or 4 dimensions for multi-codebook tokens, got {ids.ndim}")
 
             num_tokens = ids_reshaped.shape[1]
 
@@ -412,11 +378,9 @@ class ImageTokenDecoderEmbedding(nn.Module):
             else:
                 # Homogeneous: use shared embedding table for all codebooks
                 for c in range(self.num_codebooks):
-                    codebook_embeddings.append(
-                        self.token_emb(ids_reshaped[:, :, c]) + self.codebook_emb[c]
-                    )
+                    codebook_embeddings.append(self.token_emb(ids_reshaped[:, :, c]) + self.codebook_emb[c])
 
-            x = self.codebook_fusion(codebook_embeddings)  # (B, num_tokens, dim_tokens)
+            x = self.codebook_fusion(codebook_embeddings)   # (B, num_tokens, dim_tokens)
 
             ids_output = ids_reshaped  # Shape: (B, num_tokens, num_codebooks)
         else:
@@ -463,9 +427,7 @@ class ImageTokenDecoderEmbedding(nn.Module):
             return logits_output
         else:
             # Multi-codebook: logits_output is a list of tensors
-            assert isinstance(
-                logits_output, list
-            ), "Expected list of logits for multi-codebook"
+            assert isinstance(logits_output, list), "Expected list of logits for multi-codebook"
 
             if self.is_heterogeneous:
                 # Heterogeneous: pad to max vocab size for stacking

@@ -19,11 +19,7 @@ from einops import rearrange, repeat
 
 from terramind.models.codebook_fusion import UnifiedCodebookFusion
 from terramind.models.flexivit import pi_resize_patch_embed
-from terramind.models.tm_utils import (
-    build_1d_sincos_posemb,
-    build_2d_sincos_posemb,
-    pair,
-)
+from terramind.models.tm_utils import build_1d_sincos_posemb, build_2d_sincos_posemb, pair
 
 
 class SequenceEncoderEmbedding(nn.Module):
@@ -72,18 +68,13 @@ class SequenceEncoderEmbedding(nn.Module):
         # Fixed-size positional embeddings. Can be interpolated to different input sizes
         if self.sincos_pos_emb:
             if self.max_length > self.max_sincos_pos_emb:
-                raise ValueError(
-                    f"Max length ({self.max_length}) > number of posembs ({self.max_sincos_pos_emb}"
-                )
+                raise ValueError(f"Max length ({self.max_length}) > number of posembs ({self.max_sincos_pos_emb}")
             pos_emb = build_1d_sincos_posemb(
-                max_len=self.max_sincos_pos_emb,
-                embed_dim=self.dim_tokens,
-            )[:, : self.max_length, :]
+                max_len=self.max_sincos_pos_emb, embed_dim=self.dim_tokens,
+            )[:, :self.max_length, :]
             self.register_buffer("pos_emb", pos_emb)
         else:
-            self.pos_emb = nn.Parameter(
-                torch.zeros(1, self.max_length, self.dim_tokens)
-            )
+            self.pos_emb = nn.Parameter(torch.zeros(1, self.max_length, self.dim_tokens))
             nn.init.normal_(self.pos_emb, std=init_std)
 
         # Task embedding identifying from which task a given token comes from
@@ -98,7 +89,7 @@ class SequenceEncoderEmbedding(nn.Module):
 
         # Scale initialization by 1/sqrt(vocab_size) for large vocabularies
         # to prevent gradient explosions with large vocabularies
-        embedding_init_std = init_std * (1.0 / (self.vocab_size**0.5))
+        embedding_init_std = init_std * (1.0 / (self.vocab_size ** 0.5))
         nn.init.normal_(self.token_emb.weight, mean=0.0, std=embedding_init_std)
         self.token_emb._fill_padding_idx_with_zero()
 
@@ -106,9 +97,7 @@ class SequenceEncoderEmbedding(nn.Module):
     def no_weight_decay(self):
         return set()
 
-    def forward(
-        self, d: torch.Tensor | dict[str, torch.Tensor]
-    ) -> dict[str, torch.Tensor]:
+    def forward(self, d: torch.Tensor | dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Forward pass through embedding module, transforming sequence of ids to sequence of embeddings.
         Creates corresponding modality and positional embeddings and adds them to the dict.
 
@@ -125,16 +114,12 @@ class SequenceEncoderEmbedding(nn.Module):
                 - "emb" (torch.Tensor): Sum of positional and modality embeddings for input sequence. Shape (B, L, D).
         """
         if not isinstance(d, dict):
-            d = {
-                "tensor": d,
-                "input_mask": torch.zeros_like(d, dtype=torch.bool),
-            }  # No masking
+            d = {"tensor": d,
+                 "input_mask": torch.zeros_like(d, dtype=torch.bool)}  # No masking
 
         ids = d["tensor"]
         B = ids.shape[0]
-        assert (
-            self.dim_tokens is not None
-        ), "Need to call init(dim_tokens) function first"
+        assert self.dim_tokens is not None, "Need to call init(dim_tokens) function first"
 
         # Map to embedding
         x = self.token_emb(ids)
@@ -199,9 +184,7 @@ class ImageTokenEncoderEmbedding(nn.Module):
         self.dim_tokens = dim_tokens
         self.sincos_pos_emb = sincos_pos_emb
         self.image_size = pair(input_size)
-        self.num_patches = (self.image_size[0] // self.patch_size[0]) * (
-            self.image_size[1] // self.patch_size[1]
-        )
+        self.num_patches = (self.image_size[0] // self.patch_size[0]) * (self.image_size[1] // self.patch_size[1])
         self.num_codebooks = num_codebooks
 
         # Codebook fusion configuration (default: mlp)
@@ -227,16 +210,10 @@ class ImageTokenEncoderEmbedding(nn.Module):
         w_posemb = self.image_size[1] // self.patch_size[1]
 
         if self.sincos_pos_emb:
-            pos_emb = build_2d_sincos_posemb(
-                h=h_posemb, w=w_posemb, embed_dim=self.dim_tokens
-            )
-            self.register_buffer(
-                "pos_emb", pos_emb
-            )  # self.pos_emb is now a buffer for FSDP
+            pos_emb = build_2d_sincos_posemb(h=h_posemb, w=w_posemb, embed_dim=self.dim_tokens)
+            self.register_buffer("pos_emb", pos_emb)  # self.pos_emb is now a buffer for FSDP
         else:
-            self.pos_emb = nn.Parameter(
-                torch.zeros(1, (h_posemb * w_posemb), self.dim_tokens)
-            )
+            self.pos_emb = nn.Parameter(torch.zeros(1, (h_posemb * w_posemb), self.dim_tokens))
             nn.init.normal_(self.pos_emb, std=init_std)
 
         # Task embedding identifying from which task a given token comes from
@@ -246,40 +223,30 @@ class ImageTokenEncoderEmbedding(nn.Module):
         # Token embedding with vocabulary-scaled initialization
         if self.is_heterogeneous:
             # Heterogeneous codebooks: create separate embedding table for each codebook
-            self.token_emb = nn.ModuleList(
-                [
-                    nn.Embedding(
-                        num_embeddings=vocab_size, embedding_dim=self.dim_tokens
-                    )
-                    for vocab_size in self.vocab_sizes
-                ]
-            )
+            self.token_emb = nn.ModuleList([
+                nn.Embedding(num_embeddings=vocab_size, embedding_dim=self.dim_tokens)
+                for vocab_size in self.vocab_sizes
+            ])
             # Initialize each embedding table with vocab-size-specific scaling
             for i, vocab_size in enumerate(self.vocab_sizes):
-                embedding_init_std = init_std * (1.0 / (vocab_size**0.5))
+                embedding_init_std = init_std * (1.0 / (vocab_size ** 0.5))
                 emb_module = self.token_emb[i]
-                assert isinstance(
-                    emb_module, nn.Embedding
-                ), "Expected nn.Embedding module"
+                assert isinstance(emb_module, nn.Embedding), "Expected nn.Embedding module"
                 nn.init.normal_(emb_module.weight, mean=0.0, std=embedding_init_std)
         else:
             # Homogeneous codebooks: single shared embedding table (backward compatible)
-            self.token_emb = nn.Embedding(
-                num_embeddings=self.vocab_size, embedding_dim=self.dim_tokens
-            )
+            self.token_emb = nn.Embedding(num_embeddings=self.vocab_size, embedding_dim=self.dim_tokens)
 
             # Scale initialization by 1/sqrt(vocab_size) for large vocabularies
             # This prevents gradient explosions with large vocabularies (e.g., 15k codes)
             # For small vocabularies, this still provides reasonable init
-            embedding_init_std = init_std * (1.0 / (self.vocab_size**0.5))
+            embedding_init_std = init_std * (1.0 / (self.vocab_size ** 0.5))
             nn.init.normal_(self.token_emb.weight, mean=0.0, std=embedding_init_std)
 
         # Codebook embeddings for multi-codebook case
         # Each codebook gets its own learnable embedding to differentiate tokens from different codebooks
         if self.num_codebooks > 1:
-            self.codebook_emb = nn.Parameter(
-                torch.zeros(self.num_codebooks, self.dim_tokens)
-            )
+            self.codebook_emb = nn.Parameter(torch.zeros(self.num_codebooks, self.dim_tokens))
             nn.init.normal_(self.codebook_emb, std=init_std)
 
             self.codebook_fusion = UnifiedCodebookFusion(
@@ -294,9 +261,7 @@ class ImageTokenEncoderEmbedding(nn.Module):
     def no_weight_decay(self):
         return set()
 
-    def forward(
-        self, d: torch.Tensor | dict[str, torch.Tensor]
-    ) -> dict[str, torch.Tensor]:
+    def forward(self, d: torch.Tensor | dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Forward pass through embedding module, transforming image tokens to a sequence of embeddings.
         Creates corresponding modality and positional embeddings and adds them to the dict.
 
@@ -318,9 +283,7 @@ class ImageTokenEncoderEmbedding(nn.Module):
         ids = d["tensor"]
         B = ids.shape[0]
 
-        assert (
-            self.dim_tokens is not None
-        ), "Need to call init(dim_tokens) function first"
+        assert self.dim_tokens is not None, "Need to call init(dim_tokens) function first"
 
         if self.num_codebooks > 1:
             # Handle multi-codebook tokens: (B, H, W, num_codebooks) or (B, num_tokens, num_codebooks)
@@ -337,11 +300,9 @@ class ImageTokenEncoderEmbedding(nn.Module):
             else:
                 # Homogeneous: use shared embedding table for all codebooks
                 for c in range(self.num_codebooks):
-                    codebook_embeddings.append(
-                        self.token_emb(ids[:, :, c]) + self.codebook_emb[c]
-                    )
+                    codebook_embeddings.append(self.token_emb(ids[:, :, c]) + self.codebook_emb[c])
 
-            x = self.codebook_fusion(codebook_embeddings)  # (B, num_tokens, dim_tokens)
+            x = self.codebook_fusion(codebook_embeddings)   # (B, num_tokens, dim_tokens)
 
         else:
             # Single codebook case: (B, H, W) or (B, num_tokens)
@@ -396,9 +357,7 @@ class ImageEncoderEmbedding(nn.Module):
         self.dim_tokens = dim_tokens
         self.sincos_pos_emb = sincos_pos_emb
         self.image_size = pair(input_size)
-        self.num_patches = (self.image_size[0] // self.patch_size[0]) * (
-            self.image_size[1] // self.patch_size[1]
-        )
+        self.num_patches = (self.image_size[0] // self.patch_size[0]) * (self.image_size[1] // self.patch_size[1])
 
         if dim_tokens is not None:
             self.init(dim_tokens=dim_tokens)
@@ -419,16 +378,10 @@ class ImageEncoderEmbedding(nn.Module):
         w_posemb = self.image_size[1] // self.patch_size[1]
 
         if self.sincos_pos_emb:
-            pos_emb = build_2d_sincos_posemb(
-                h=h_posemb, w=w_posemb, embed_dim=self.dim_tokens
-            )
-            self.register_buffer(
-                "pos_emb", pos_emb
-            )  # self.pos_emb is now a buffer for FSDP
+            pos_emb = build_2d_sincos_posemb(h=h_posemb, w=w_posemb, embed_dim=self.dim_tokens)
+            self.register_buffer("pos_emb", pos_emb)  # self.pos_emb is now a buffer for FSDP
         else:
-            self.pos_emb = nn.Parameter(
-                torch.zeros(1, (h_posemb * w_posemb), self.dim_tokens)
-            )
+            self.pos_emb = nn.Parameter(torch.zeros(1, (h_posemb * w_posemb), self.dim_tokens))
             nn.init.normal_(self.pos_emb, std=init_std)
 
         self.mod_emb = nn.Parameter(torch.zeros(1, 1, self.dim_tokens))
@@ -445,9 +398,7 @@ class ImageEncoderEmbedding(nn.Module):
     def no_weight_decay(self):
         return set()
 
-    def forward(
-        self, d: torch.Tensor | dict[str, torch.Tensor]
-    ) -> dict[str, torch.Tensor]:
+    def forward(self, d: torch.Tensor | dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Forward pass through embedding module, transforming image to sequence of tokens.
         Creates corresponding modality and positional embeddings and adds them to the dict.
 
@@ -475,9 +426,7 @@ class ImageEncoderEmbedding(nn.Module):
 
         x = d["tensor"]
         B, C, H, W = x.shape
-        assert (
-            self.dim_tokens is not None
-        ), "Need to call init(dim_tokens) function first"
+        assert self.dim_tokens is not None, "Need to call init(dim_tokens) function first"
 
         # FlexiViT runtime patch size override. Accepts a Python int/tuple/list, or a 0-d/1-d torch.Tensor
         runtime_ps = d.get("runtime_patch_size")
@@ -493,9 +442,9 @@ class ImageEncoderEmbedding(nn.Module):
         else:
             runtime_ps = pair(runtime_ps)
 
-        assert (H % runtime_ps[0] == 0) and (
-            W % runtime_ps[1] == 0
-        ), f"Image sizes {H}x{W} must be divisible by patch sizes {runtime_ps[0]}x{runtime_ps[1]}"
+        assert (H % runtime_ps[0] == 0) and (W % runtime_ps[1] == 0), (
+            f"Image sizes {H}x{W} must be divisible by patch sizes {runtime_ps[0]}x{runtime_ps[1]}"
+        )
 
         # PI-resize the projection weight when the runtime patch size differs from the canonical.
         if tuple(runtime_ps) != tuple(self.patch_size):
@@ -524,10 +473,7 @@ class ImageEncoderEmbedding(nn.Module):
         # interpolate it to the runtime grid ``(H/runtime_ps, W/runtime_ps)``.
         new_h = H // runtime_ps[0]
         new_w = W // runtime_ps[1]
-        if (new_h, new_w) != (
-            self.image_size[0] // self.patch_size[0],
-            self.image_size[1] // self.patch_size[1],
-        ):
+        if (new_h, new_w) != (self.image_size[0] // self.patch_size[0], self.image_size[1] // self.patch_size[1]):
             pos_emb = self._resize_pos_encoding(self.pos_emb.clone(), new_h, new_w)
         else:
             pos_emb = self.pos_emb
@@ -540,9 +486,7 @@ class ImageEncoderEmbedding(nn.Module):
 
         return d
 
-    def _resize_pos_encoding(
-        self, pos_embeddings: torch.Tensor, new_h: int, new_w: int
-    ) -> torch.Tensor:
+    def _resize_pos_encoding(self, pos_embeddings: torch.Tensor, new_h: int, new_w: int) -> torch.Tensor:
         """Bicubic resize of a stored 2D positional embedding to a new grid.
 
         Generalization of :meth:`interpolate_pos_encoding` that takes the new grid size
@@ -550,13 +494,9 @@ class ImageEncoderEmbedding(nn.Module):
         for FlexiViT runtime grids where the patch size differs from ``self.patch_size``.
         """
         num_positions = pos_embeddings.shape[1]
-        sqrt_num_positions = int(num_positions**0.5)
-        assert (
-            self.dim_tokens is not None
-        ), "Need to call init(dim_tokens) function first"
-        pos_embeddings = pos_embeddings.reshape(
-            1, sqrt_num_positions, sqrt_num_positions, self.dim_tokens
-        )
+        sqrt_num_positions = int(num_positions ** 0.5)
+        assert self.dim_tokens is not None, "Need to call init(dim_tokens) function first"
+        pos_embeddings = pos_embeddings.reshape(1, sqrt_num_positions, sqrt_num_positions, self.dim_tokens)
         pos_embeddings = pos_embeddings.permute(0, 3, 1, 2)
         pos_embeddings = nn.functional.interpolate(
             pos_embeddings,
@@ -567,9 +507,7 @@ class ImageEncoderEmbedding(nn.Module):
         pos_embeddings = pos_embeddings.permute(0, 2, 3, 1).view(1, -1, self.dim_tokens)
         return pos_embeddings
 
-    def interpolate_pos_encoding(
-        self, pos_embeddings: torch.Tensor, height, width
-    ) -> torch.Tensor:
+    def interpolate_pos_encoding(self, pos_embeddings: torch.Tensor, height, width) -> torch.Tensor:
         """This method allows to interpolate the pre-trained position encodings, to be able to use the model on higher
         resolution images. This method is also adapted to support torch.jit tracing.
 
@@ -624,7 +562,7 @@ class ImageEncoderEmbedding(nn.Module):
                     )
                 else:
                     ckpt_n_pix = ckpt_in // self.num_channels
-                    ckpt_ph = int(round(ckpt_n_pix**0.5))
+                    ckpt_ph = int(round(ckpt_n_pix ** 0.5))
                     if ckpt_ph * ckpt_ph != ckpt_n_pix:
                         error_msgs.append(
                             f"{proj_key}: checkpoint patch is non-square ({ckpt_n_pix} pixels); "
@@ -648,20 +586,14 @@ class ImageEncoderEmbedding(nn.Module):
         # Pos-emb resize for sincos (buffer) and learnable (parameter) cases.
         # The RFF mode has no stored grid-shaped tensor, so nothing to do.
         pos_emb_key = prefix + "pos_emb"
-        if (
-            pos_emb_key in state_dict
-            and hasattr(self, "pos_emb")
-            and self.dim_tokens is not None
-        ):
+        if pos_emb_key in state_dict and hasattr(self, "pos_emb") and self.dim_tokens is not None:
             ckpt_pe = state_dict[pos_emb_key]
             cur_pe = self.pos_emb
             if ckpt_pe.shape != cur_pe.shape:
                 # Reuse the existing bicubic helper. It interpolates from the
                 # checkpoint grid to ``(image_size / patch_size)`` — exactly the
                 # current module's grid.
-                resized_pe = self.interpolate_pos_encoding(
-                    ckpt_pe.clone(), self.image_size[0], self.image_size[1]
-                )
+                resized_pe = self.interpolate_pos_encoding(ckpt_pe.clone(), self.image_size[0], self.image_size[1])
                 if resized_pe.shape != cur_pe.shape:
                     error_msgs.append(
                         f"{pos_emb_key}: pos-emb interpolation produced shape "

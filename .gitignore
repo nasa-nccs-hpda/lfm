@@ -1,6 +1,7 @@
 .ipynb_checkpoints/
 outputs/
-scripts/logs/*
+**/logs/*
+!**/logs/.gitkeep
 !scripts/logs/.gitkeep
 !scripts/outputs/
 !scripts/outputs/.gitkeep

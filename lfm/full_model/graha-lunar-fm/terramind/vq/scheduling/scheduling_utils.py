@@ -16,9 +16,7 @@ import numpy as np
 import torch
 
 
-def scaled_cosine_alphas(
-    num_diffusion_timesteps: int, noise_shift: float = 1.0
-) -> torch.Tensor:
+def scaled_cosine_alphas(num_diffusion_timesteps: int, noise_shift: float = 1.0) -> torch.Tensor:
     """Shifts a cosine noise schedule by a specified amount in log-SNR space.
 
     noise_shift = 1.0 corresponds to the standard cosine noise schedule.

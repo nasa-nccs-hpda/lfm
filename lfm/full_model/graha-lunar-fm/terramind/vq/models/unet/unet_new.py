@@ -19,6 +19,7 @@
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 def pair(t) -> tuple[int, int]:
@@ -50,29 +51,15 @@ def normalization(channels, groups=32):
 
 class Upsample(nn.Module):
     """Nearest-neighbor upsample by x2 with optional conv to clean aliasing."""
-
-    def __init__(
-        self,
-        channels: int,
-        out_channels: int,
-        use_conv: bool = True,
-        padding_mode: str = "reflect",
-    ):
+    def __init__(self, channels: int, out_channels: int, use_conv: bool = True, padding_mode: str = "reflect"):
         super().__init__()
         self.channels = channels
         self.out_channels = out_channels
         self.use_conv = use_conv
         self.upsample = nn.Upsample(scale_factor=2, mode="nearest")
         if use_conv:
-            self.conv = nn.Conv2d(
-                self.channels,
-                self.out_channels,
-                3,
-                padding=1,
-                groups=16,
-                padding_mode=padding_mode,
-                bias=False,
-            )
+            self.conv = nn.Conv2d(self.channels, self.out_channels, 3, padding=1, groups=16,
+                                  padding_mode=padding_mode, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.upsample(x)
@@ -81,9 +68,7 @@ class Upsample(nn.Module):
         return x
 
 
-def icnr_init(
-    weight: torch.Tensor, upsample_factor: int = 2, init=nn.init.kaiming_normal_
-):
+def icnr_init(weight: torch.Tensor, upsample_factor: int = 2, init=nn.init.kaiming_normal_):
     """ICNR initialization for sub-pixel convolutions to reduce checkerboard artifacts.
 
     weight: [out_c, in_c, k, k] where out_c = out_ch * r^2
@@ -94,9 +79,7 @@ def icnr_init(
     assert out_c % (r * r) == 0, f"out_channels={out_c} not divisible by r^2={r*r}"
     new_out_c = out_c // (r * r)
     # initialize a smaller kernel then tile
-    subkernel = torch.zeros(
-        [new_out_c, in_c, k1, k2], device=weight.device, dtype=weight.dtype
-    )
+    subkernel = torch.zeros([new_out_c, in_c, k1, k2], device=weight.device, dtype=weight.dtype)
     init(subkernel)
     subkernel = subkernel.repeat_interleave(r * r, dim=0)
     with torch.no_grad():
@@ -108,15 +91,10 @@ class PixelShuffleUpsample(nn.Module):
     """Conv (in_ch -> out_ch * r^2) -> PixelShuffle(r) -> optional 3x3 conv cleanup.
     Produces [B, out_ch, H*r, W*r].
     """
-
-    def __init__(
-        self, in_ch: int, out_ch: int, r: int = 2, padding_mode: str = "reflect"
-    ):
+    def __init__(self, in_ch: int, out_ch: int, r: int = 2, padding_mode: str = "reflect"):
         super().__init__()
         self.r = r
-        self.expand = nn.Conv2d(
-            in_ch, out_ch * (r * r), kernel_size=3, padding=1, padding_mode=padding_mode
-        )
+        self.expand = nn.Conv2d(in_ch, out_ch * (r * r), kernel_size=3, padding=1, padding_mode=padding_mode)
         # ICNR init to reduce checkerboard patterns
         icnr_init(self.expand.weight, upsample_factor=r)
         nn.init.zeros_(self.expand.bias)
@@ -133,7 +111,6 @@ class ResBlock(nn.Module):
     """Simple residual block (no time/cond). Matches the structure used in diffusion UNet
     but without FiLM. Supports channel change via 1x1 (or 3x3) skip.
     """
-
     def __init__(
         self,
         channels: int,
@@ -157,21 +134,14 @@ class ResBlock(nn.Module):
             normalization(out_channels, groups=norm_groups),
             nn.SiLU(),
             nn.Dropout(p=dropout),
-            nn.Conv2d(
-                out_channels, out_channels, 3, padding=1, padding_mode=padding_mode
-            ),
+            nn.Conv2d(out_channels, out_channels, 3, padding=1, padding_mode=padding_mode),
         )
 
         if out_channels == channels:
             self.skip = nn.Identity()
         else:
-            self.skip = (
-                nn.Conv2d(
-                    channels, out_channels, 3, padding=1, padding_mode=padding_mode
-                )
-                if use_conv_skip
-                else nn.Conv2d(channels, out_channels, 1)
-            )
+            self.skip = nn.Conv2d(channels, out_channels, 3, padding=1, padding_mode=padding_mode) \
+                if use_conv_skip else nn.Conv2d(channels, out_channels, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         h = self.in_layers(x)
@@ -181,7 +151,6 @@ class ResBlock(nn.Module):
 
 class QKVAttention(nn.Module):
     """Same functional shape as in unet_diffusion: apply self-attention over flattened spatial tokens."""
-
     def __init__(self, n_heads: int):
         super().__init__()
         self.n_heads = n_heads
@@ -195,15 +164,14 @@ class QKVAttention(nn.Module):
         q = (q * scale).view(bs * self.n_heads, ch, length)
         k = (k * scale).view(bs * self.n_heads, ch, length)
         v = v.reshape(bs * self.n_heads, ch, length)
-        attn = torch.einsum("bct,bcs->bts", q, k)  # [B*H, T, T]
+        attn = torch.einsum("bct,bcs->bts", q, k)          # [B*H, T, T]
         attn = torch.softmax(attn.float(), dim=-1).type_as(attn)
-        out = torch.einsum("bts,bcs->bct", attn, v)  # [B*H, C, T]
+        out = torch.einsum("bts,bcs->bct", attn, v)        # [B*H, C, T]
         return out.reshape(bs, -1, length)
 
 
 class AttentionBlock(nn.Module):
     """Spatial self-attention (GroupNorm + 1x1 qkv + attention + 1x1 proj)."""
-
     def __init__(
         self,
         channels: int,
@@ -244,36 +212,20 @@ class UNetDecoder(nn.Module):
         super().__init__()
         assert len(channel_mult) >= 1, "channel_mult must have at least one entry"
         if patch_size != 2 ** len(channel_mult):
-            print(
-                f"Output size is will not match image size. "
-                f"2 ** channel_mult must match patch_size {patch_size} ({channel_mult})."
-            )
+            print(f"Output size is will not match image size. "
+                  f"2 ** channel_mult must match patch_size {patch_size} ({channel_mult}).")
         self.out_channels = out_channels
         self.channel_mult = tuple(int(m) for m in channel_mult)
         self.model_channels = int(model_channels)
         self.dropout = float(dropout)
 
         # Stem to receive post-quant proj features
-        self.stem = nn.Conv2d(
-            model_channels, model_channels, 3, padding=1, padding_mode=padding_mode
-        )
+        self.stem = nn.Conv2d(model_channels, model_channels, 3, padding=1, padding_mode=padding_mode)
 
         self.middle_block = nn.Sequential(
-            ResBlock(
-                model_channels,
-                model_channels,
-                dropout=self.dropout,
-                norm_groups=norm_groups,
-            ),
-            AttentionBlock(
-                model_channels, num_heads=num_heads, norm_groups=norm_groups
-            ),
-            ResBlock(
-                model_channels,
-                model_channels,
-                dropout=self.dropout,
-                norm_groups=norm_groups,
-            ),
+            ResBlock(model_channels, model_channels, dropout=self.dropout, norm_groups=norm_groups),
+            AttentionBlock(model_channels, num_heads=num_heads, norm_groups=norm_groups),
+            ResBlock(model_channels, model_channels, dropout=self.dropout, norm_groups=norm_groups),
         )
 
         # Build upsampling blocks
@@ -282,45 +234,24 @@ class UNetDecoder(nn.Module):
         for i, mult in enumerate(channel_mult):
             # Each block: PixelShuffleUpscale -> ResBlock -> (optional Attn) -> ResBlock
             out_ch = model_channels // mult
-            up_blocks.append(
-                nn.Sequential(
-                    PixelShuffleUpsample(in_ch, out_ch, padding_mode=padding_mode),
-                    ResBlock(
-                        out_ch,
-                        out_ch,
-                        dropout=self.dropout,
-                        padding_mode=padding_mode,
-                        norm_groups=norm_groups,
-                    ),
-                    (
-                        AttentionBlock(
-                            out_ch, num_heads=num_heads, norm_groups=norm_groups
-                        )
-                        if i in attn_blocks
-                        else nn.Identity()
-                    ),
-                    ResBlock(
-                        out_ch,
-                        out_ch,
-                        dropout=self.dropout,
-                        padding_mode=padding_mode,
-                        norm_groups=norm_groups,
-                    ),
-                )
-            )
+            up_blocks.append(nn.Sequential(
+                PixelShuffleUpsample(in_ch, out_ch, padding_mode=padding_mode),
+                ResBlock(out_ch, out_ch, dropout=self.dropout, padding_mode=padding_mode, norm_groups=norm_groups),
+                AttentionBlock(out_ch, num_heads=num_heads, norm_groups=norm_groups)
+                    if i in attn_blocks else nn.Identity(),
+                ResBlock(out_ch, out_ch, dropout=self.dropout, padding_mode=padding_mode, norm_groups=norm_groups),
+            ))
             in_ch = out_ch
         self.up_blocks = nn.Sequential(*up_blocks)
 
         self.out = nn.Sequential(
             normalization(out_ch, groups=norm_groups),
             nn.SiLU(),
-            zero_module(
-                nn.Conv2d(out_ch, out_channels, 3, padding=1, padding_mode="reflect")
-            ),
+            zero_module(nn.Conv2d(out_ch, out_channels, 3, padding=1, padding_mode="reflect")),
         )
 
     def forward(self, quant: torch.Tensor) -> torch.Tensor:
-        """Forward function.
+        """ Forward function.
 
         Args:
           quant: [B, C_dec, H0, W0] with C_dec == model_channels
@@ -340,4 +271,8 @@ def unet(**kwargs) -> UNetDecoder:
 
 
 def unet_small(**kwargs) -> UNetDecoder:
-    return UNetDecoder(model_channels=192, attn_blocks=[], norm_groups=24, **kwargs)
+    return UNetDecoder(
+        model_channels=192,
+        attn_blocks=[],
+        norm_groups=24,
+        **kwargs)

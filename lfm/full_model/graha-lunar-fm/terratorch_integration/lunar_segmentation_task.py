@@ -57,6 +57,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from terratorch.tasks import SemanticSegmentationTask
 from terratorch.tasks.segmentation_tasks import to_segmentation_prediction
 
+
 # ---------------------------------------------------------------------------
 # Shared LLRD helpers (mirrors lunar_object_detection_task.py)
 # ---------------------------------------------------------------------------
@@ -92,7 +93,7 @@ def _encoder_block_index(name: str) -> int | None:
         idx = name.find(key)
         if idx < 0:
             continue
-        tail = name[idx + len(key) :]
+        tail = name[idx + len(key):]
         first = tail.split(".", 1)[0]
         if first.isdigit():
             return int(first)
@@ -134,13 +135,14 @@ def _is_new_modality_param(name: str, new_modality_names: list[str]) -> bool:
     """
     if not new_modality_names:
         return False
-    return any(f"encoder_embeddings.{mod}." in name for mod in new_modality_names)
+    return any(
+        f"encoder_embeddings.{mod}." in name for mod in new_modality_names
+    )
 
 
 # ---------------------------------------------------------------------------
 # LunarSegmentationTask
 # ---------------------------------------------------------------------------
-
 
 class LunarSegmentationTask(SemanticSegmentationTask):
     """Segmentation task with LLRD and split encoder/decoder param groups.
@@ -189,9 +191,7 @@ class LunarSegmentationTask(SemanticSegmentationTask):
         self.layer_decay = float(layer_decay)
         self.weight_decay = float(weight_decay)
         self.head_weight_decay = (
-            float(head_weight_decay)
-            if head_weight_decay is not None
-            else float(weight_decay)
+            float(head_weight_decay) if head_weight_decay is not None else float(weight_decay)
         )
         self.warmup_steps = int(warmup_steps)
         self.cosine_t_max = cosine_t_max
@@ -345,7 +345,6 @@ class LunarSegmentationTask(SemanticSegmentationTask):
 # Shape-loss helper
 # ---------------------------------------------------------------------------
 
-
 def crater_shape_loss(
     prob: Tensor,
     boxes_per_image: list[Tensor],
@@ -424,7 +423,6 @@ def crater_shape_loss(
 # LunarShapeSegmentationTask
 # ---------------------------------------------------------------------------
 
-
 class LunarShapeSegmentationTask(LunarSegmentationTask):
     """Segmentation task with LLRD **and** a per-crater roundness loss.
 
@@ -472,7 +470,6 @@ class LunarShapeSegmentationTask(LunarSegmentationTask):
         model_output: Any,
         crater_boxes: list[Tensor] | None,
         stage: str,
-        batch_size: int | None = None,
     ) -> Tensor:
         """Add the shape regulariser to ``base_loss``. Logs the component
         under ``{stage}/shape_loss``. No-op when the weight is 0 or when
@@ -486,19 +483,12 @@ class LunarShapeSegmentationTask(LunarSegmentationTask):
             crater_boxes,
             pad_frac=self.shape_loss_pad_frac,
         )
-        self.log(
-            f"{stage}/shape_loss",
-            shape_l,
-            prog_bar=(stage == "train"),
-            batch_size=batch_size,
-        )
+        self.log(f"{stage}/shape_loss", shape_l, prog_bar=(stage == "train"))
         return base_loss + self.shape_loss_weight * shape_l
 
     # ---- lightning hooks --------------------------------------------------
 
-    def training_step(
-        self, batch: Any, batch_idx: int, dataloader_idx: int = 0
-    ) -> Tensor:
+    def training_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> Tensor:
         crater_boxes = self._pop_crater_boxes(batch)
         x = batch["image"]
         y = self.squeeze_ground_truth(batch["mask"])
@@ -508,23 +498,13 @@ class LunarShapeSegmentationTask(LunarSegmentationTask):
         loss = self.train_loss_handler.compute_loss(
             model_output, y, self.criterion, self.aux_loss
         )
-        loss["loss"] = self._add_shape_loss(
-            loss["loss"],
-            model_output,
-            crater_boxes,
-            "train",
-            batch_size=y.shape[0],
-        )
-        self.train_loss_handler.log_loss(
-            self.log, loss_dict=loss, batch_size=y.shape[0]
-        )
+        loss["loss"] = self._add_shape_loss(loss["loss"], model_output, crater_boxes, "train")
+        self.train_loss_handler.log_loss(self.log, loss_dict=loss, batch_size=y.shape[0])
         y_hat_hard = to_segmentation_prediction(model_output)
         self.train_metrics.update(y_hat_hard, y)
         return loss["loss"]
 
-    def validation_step(
-        self, batch: Any, batch_idx: int, dataloader_idx: int = 0
-    ) -> None:
+    def validation_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> None:
         crater_boxes = self._pop_crater_boxes(batch)
         x = batch["image"]
         y = self.squeeze_ground_truth(batch["mask"])
@@ -536,21 +516,7 @@ class LunarShapeSegmentationTask(LunarSegmentationTask):
         loss = self.val_loss_handler.compute_loss(
             model_output, y, self.criterion, self.aux_loss
         )
-        loss["loss"] = self._add_shape_loss(
-            loss["loss"],
-            model_output,
-            crater_boxes,
-            "val",
-            batch_size=y.shape[0],
-        )
-        self.log(
-            "val_loss",
-            loss["loss"],
-            on_step=False,
-            on_epoch=True,
-            prog_bar=False,
-            batch_size=y.shape[0],
-        )
+        loss["loss"] = self._add_shape_loss(loss["loss"], model_output, crater_boxes, "val")
         self.val_loss_handler.log_loss(self.log, loss_dict=loss, batch_size=y.shape[0])
         y_hat_hard = to_segmentation_prediction(model_output)
         self.val_metrics.update(y_hat_hard, y)

@@ -9,6 +9,7 @@ import pandas as pd
 
 from omegaconf import DictConfig, ListConfig, OmegaConf
 
+
 MISSING_FILE_STR = "__MISSING__"
 
 
@@ -18,17 +19,13 @@ def _fix_shape(data: np.ndarray, ndims=3):
     return data
 
 
-def load_netcdf(
-    path: str | Path | io.BytesIO, channels: Sequence[str] | None
-) -> np.ndarray:
+def load_netcdf(path: str | Path | io.BytesIO, channels: Sequence[str] | None) -> np.ndarray:
     """Load netcdf files from path or bytes."""
     with h5py.File(path, "r") as f:
         if channels is None:
             channels = [c for c in f.keys() if c not in ["y", "x"]]
         data = np.stack([f[ch][...] for ch in channels], axis=0)
-        data = _fix_shape(
-            data
-        )  # Temporary hack to fix inconsistent shapes in .nc files
+        data = _fix_shape(data)  # Temporary hack to fix inconsistent shapes in .nc files
 
     return data
 
@@ -69,16 +66,12 @@ def load_parquet_file(
         df = df[~df["key_modalities_allow_nan"]].reset_index(drop=True)
         filtered_by_flag = original_len - len(df)
         if filtered_by_flag > 0:
-            print(
-                f"Filtered {filtered_by_flag} samples with key_modalities_allow_nan=True "
-                f"({filtered_by_flag / original_len * 100:.1f}%)"
-            )
+            print(f"Filtered {filtered_by_flag} samples with key_modalities_allow_nan=True "
+                  f"({filtered_by_flag / original_len * 100:.1f}%)")
 
     # Filter out samples with None/NaN file paths
     if filter_missing_paths:
-        assert (
-            columns is not None
-        ), "One should provide columns to filter if filter_missing_paths=True."
+        assert columns is not None, "One should provide columns to filter if filter_missing_paths=True."
 
         before_filter = len(df)
         # Keep only rows where ALL specified modality columns are not None/NaN
@@ -88,18 +81,14 @@ def load_parquet_file(
 
         filtered_by_paths = before_filter - len(df)
         if filtered_by_paths > 0:
-            print(
-                f"Filtered {filtered_by_paths} samples with missing file paths in {columns} "
-                f"({filtered_by_paths / before_filter * 100:.1f}%)"
-            )
+            print(f"Filtered {filtered_by_paths} samples with missing file paths in {columns} "
+                  f"({filtered_by_paths / before_filter * 100:.1f}%)")
 
     final_len = len(df)
     total_filtered = original_len - final_len
     if total_filtered > 0:
-        print(
-            f"Total filtered: {original_len} -> {final_len} samples "
-            f"(removed {total_filtered}, {total_filtered / original_len * 100:.1f}%)"
-        )
+        print(f"Total filtered: {original_len} -> {final_len} samples "
+              f"(removed {total_filtered}, {total_filtered / original_len * 100:.1f}%)")
 
     return df
 

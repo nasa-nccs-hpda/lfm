@@ -92,9 +92,7 @@ class TerraMind(nn.Module):
         self.init_std = 0.02
         self.use_act_checkpoint = use_act_checkpoint
         self.num_register_tokens = num_register_tokens
-        self.max_num_codebooks = max(
-            m.get("num_codebooks", 0) for m in modality_info.values()
-        )
+        self.max_num_codebooks = max(m.get("num_codebooks", 0) for m in modality_info.values())
         self.track_codebook_losses = track_codebook_losses
         self.last_codebook_losses = {}
 
@@ -118,9 +116,7 @@ class TerraMind(nn.Module):
         if shared_drop_path:
             dpr_encoder = [
                 x.item()
-                for x in torch.linspace(
-                    0, drop_path_rate_encoder, encoder_depth + decoder_depth
-                )
+                for x in torch.linspace(0, drop_path_rate_encoder, encoder_depth + decoder_depth)
             ][:encoder_depth]
         else:
             dpr_encoder = [
@@ -152,9 +148,7 @@ class TerraMind(nn.Module):
         if shared_drop_path:
             dpr_decoder = [
                 x.item()
-                for x in torch.linspace(
-                    0, drop_path_rate_decoder, encoder_depth + decoder_depth
-                )
+                for x in torch.linspace(0, drop_path_rate_decoder, encoder_depth + decoder_depth)
             ][encoder_depth:]
         else:
             dpr_decoder = [
@@ -190,9 +184,7 @@ class TerraMind(nn.Module):
 
         # Additional register tokens that can be used by the encoder during fine-tuning
         if self.num_register_tokens > 0:
-            self.register_tokens = nn.Parameter(
-                torch.zeros(1, self.num_register_tokens, dim)
-            )
+            self.register_tokens = nn.Parameter(torch.zeros(1, self.num_register_tokens, dim))
             nn.init.normal_(self.register_tokens, std=self.init_std)
         else:
             self.register_tokens = None
@@ -217,15 +209,11 @@ class TerraMind(nn.Module):
             elif isinstance(m, nn.Linear):
                 if "qkv" in name:
                     # treat the weights of Q, K, V separately
-                    val = math.sqrt(
-                        6.0 / float(m.weight.shape[0] // 3 + m.weight.shape[1])
-                    )
+                    val = math.sqrt(6.0 / float(m.weight.shape[0] // 3 + m.weight.shape[1]))
                     nn.init.uniform_(m.weight, -val, val)
                 elif "kv" in name:
                     # treat the weights of K, V separately
-                    val = math.sqrt(
-                        6.0 / float(m.weight.shape[0] // 2 + m.weight.shape[1])
-                    )
+                    val = math.sqrt(6.0 / float(m.weight.shape[0] // 2 + m.weight.shape[1]))
                     nn.init.uniform_(m.weight, -val, val)
                 else:
                     nn.init.xavier_uniform_(m.weight)
@@ -272,9 +260,7 @@ class TerraMind(nn.Module):
 
         return no_wd_set
 
-    def cat_encoder_tensors(
-        self, mod_dict: dict[str, dict[str, torch.Tensor]]
-    ) -> tuple[torch.Tensor, ...]:
+    def cat_encoder_tensors(self, mod_dict: dict[str, dict[str, torch.Tensor]]) -> tuple[torch.Tensor, ...]:
         """Concatenate encoder tensors from different modalities.
 
         Args:
@@ -302,11 +288,7 @@ class TerraMind(nn.Module):
             encoder_tokens_all.append(d["x"])
             emb_all.append(d["emb"])
             encoder_mask_all.append(d["input_mask"])
-            mod_mask_all.append(
-                torch.full_like(
-                    d["input_mask"], self.modality_info[mod]["id"], dtype=torch.int16
-                )
-            )
+            mod_mask_all.append(torch.full_like(d["input_mask"], self.modality_info[mod]["id"], dtype=torch.int16))
 
         encoder_tokens_all = torch.cat(encoder_tokens_all, dim=1)
         emb_all = torch.cat(emb_all, dim=1)
@@ -315,9 +297,7 @@ class TerraMind(nn.Module):
 
         return encoder_tokens_all, emb_all, encoder_mask_all, mod_mask_all
 
-    def cat_decoder_tensors(
-        self, mod_dict: dict[str, dict[str, torch.Tensor]]
-    ) -> tuple[torch.Tensor, ...]:
+    def cat_decoder_tensors(self, mod_dict: dict[str, dict[str, torch.Tensor]]) -> tuple[torch.Tensor, ...]:
         """Concatenate decoder tensors from different modalities.
 
         Args:
@@ -348,12 +328,7 @@ class TerraMind(nn.Module):
         mod_mask_all = []
 
         # Shuffle order in which modalities are provided (useful for modality causal mask)
-        mod_dict = {
-            mod: d
-            for mod, d in random.sample(
-                [item for item in mod_dict.items()], len(mod_dict)
-            )
-        }
+        mod_dict = {mod: d for mod, d in random.sample([item for item in mod_dict.items()], len(mod_dict))}
 
         for mod, d in mod_dict.items():
             if self.modality_info[mod]["type"] in ["seq", "seq_emb", "seq_token"]:
@@ -363,34 +338,18 @@ class TerraMind(nn.Module):
                 ids = d["ids"][:, 1:]  # Shifted left
                 emb_all.append(d["emb"][:, :-1])
                 # Logical or with left shifting removes the last unmasked position
-                decoder_mask_all.append(
-                    torch.logical_or(d["target_mask"][:, 1:], d["target_mask"][:, :-1])
-                )
+                decoder_mask_all.append(torch.logical_or(d["target_mask"][:, 1:], d["target_mask"][:, :-1]))
                 # Add attention mask ids
                 attention_mask_all.append(d["decoder_attention_mask"][:, :-1])
-                mod_mask_all.append(
-                    torch.full_like(
-                        d["target_mask"][:, 1:],
-                        self.modality_info[mod]["id"],
-                        dtype=torch.int16,
-                    )
-                )
+                mod_mask_all.append(torch.full_like(d["target_mask"][:, 1:], self.modality_info[mod]["id"], dtype=torch.int16))
             else:
                 # Important: For 2d / image modalities, the decoder input tokens are replaced by the mask token
-                decoder_tokens_all.append(
-                    torch.zeros_like(d["x"]) + self.mask_token
-                )  # Replace x by mask token
+                decoder_tokens_all.append(torch.zeros_like(d["x"]) + self.mask_token)  # Replace x by mask token
                 ids = d["ids"]
                 emb_all.append(d["emb"])
                 decoder_mask_all.append(d["target_mask"])
                 attention_mask_all.append(d["decoder_attention_mask"])
-                mod_mask_all.append(
-                    torch.full_like(
-                        d["target_mask"],
-                        self.modality_info[mod]["id"],
-                        dtype=torch.int16,
-                    )
-                )
+                mod_mask_all.append(torch.full_like(d["target_mask"], self.modality_info[mod]["id"], dtype=torch.int16))
 
             # Pad ids to uniform shape (B, L, max_num_codebooks)
             if ids.ndim == 2:
@@ -413,9 +372,7 @@ class TerraMind(nn.Module):
         decoder_tokens_all = torch.cat(decoder_tokens_all, dim=1)
         emb_all = torch.cat(emb_all, dim=1)
         decoder_mask_all = torch.cat(decoder_mask_all, dim=1)
-        target_ids_all = torch.cat(
-            target_ids_all, dim=1
-        )  # (B, total_tokens, max_num_codebooks)
+        target_ids_all = torch.cat(target_ids_all, dim=1)  # (B, total_tokens, max_num_codebooks)
         attention_mask_all = torch.cat(attention_mask_all, dim=1)
         mod_mask_all = torch.cat(mod_mask_all, dim=1)
 
@@ -458,17 +415,10 @@ class TerraMind(nn.Module):
         """
         B = list(mod_dict.values())[0]["tensor"].shape[0]
 
-        encoder_tokens_all, emb_all, encoder_mask_all, mod_mask_all = (
-            self.cat_encoder_tensors(mod_dict)
-        )
+        encoder_tokens_all, emb_all, encoder_mask_all, mod_mask_all = self.cat_encoder_tensors(mod_dict)
 
         # Add arange multiplied by small constant to mask so they get sorted in a deterministic way
-        mask_arange = (
-            torch.arange(
-                encoder_mask_all.shape[1], device=encoder_mask_all.device
-            ).unsqueeze(0)
-            * 1e-6
-        )
+        mask_arange = torch.arange(encoder_mask_all.shape[1], device=encoder_mask_all.device).unsqueeze(0) * 1e-6
         ids_shuffle = torch.argsort(encoder_mask_all + mask_arange, dim=1)
         # ids_restore = torch.argsort(ids_shuffle, dim=1)
         ids_keep = ids_shuffle[:, :num_encoder_tokens]
@@ -478,9 +428,7 @@ class TerraMind(nn.Module):
             dim=1,
             index=repeat(ids_keep, "b n -> b n d", d=encoder_tokens_all.shape[2]),
         )
-        encoder_emb = torch.gather(
-            emb_all, dim=1, index=repeat(ids_keep, "b n -> b n d", d=emb_all.shape[2])
-        )
+        encoder_emb = torch.gather(emb_all, dim=1, index=repeat(ids_keep, "b n -> b n d", d=emb_all.shape[2]))
         encoder_mask = torch.gather(encoder_mask_all, dim=1, index=ids_keep)
         mod_mask = torch.gather(mod_mask_all, dim=1, index=ids_keep)
 
@@ -488,28 +436,17 @@ class TerraMind(nn.Module):
             register_tokens = repeat(self.register_tokens, "() n d -> b n d", b=B)
             # We add register tokens at the beginning of the sequence
             encoder_tokens = torch.cat([register_tokens, encoder_tokens], dim=1)
-            encoder_emb = torch.cat(
-                [torch.zeros_like(register_tokens), encoder_emb], dim=1
-            )
+            encoder_emb = torch.cat([torch.zeros_like(register_tokens), encoder_emb], dim=1)
             encoder_mask = torch.cat(
                 [
-                    torch.zeros(
-                        (B, register_tokens.shape[1]),
-                        dtype=torch.bool,
-                        device=encoder_mask.device,
-                    ),
+                    torch.zeros((B, register_tokens.shape[1]), dtype=torch.bool, device=encoder_mask.device),
                     encoder_mask,
                 ],
                 dim=1,
             )
             mod_mask = torch.cat(
                 [
-                    torch.full(
-                        (B, register_tokens.shape[1]),
-                        -1,
-                        dtype=torch.int16,
-                        device=mod_mask.device,
-                    ),
+                    torch.full((B, register_tokens.shape[1]), -1, dtype=torch.int16, device=mod_mask.device),
                     mod_mask,
                 ],
                 dim=1,
@@ -561,12 +498,7 @@ class TerraMind(nn.Module):
         ) = self.cat_decoder_tensors(mod_dict)
 
         # Add arange multiplied by small constant to mask so they get sorted in a deterministic way
-        mask_arange = (
-            torch.arange(
-                decoder_mask_all.shape[1], device=decoder_mask_all.device
-            ).unsqueeze(0)
-            * 1e-6
-        )
+        mask_arange = torch.arange(decoder_mask_all.shape[1], device=decoder_mask_all.device).unsqueeze(0) * 1e-6
         ids_shuffle = torch.argsort(decoder_mask_all + mask_arange, dim=1)
         # ids_restore = torch.argsort(ids_shuffle, dim=1)
         ids_keep = ids_shuffle[:, :num_decoder_tokens]
@@ -576,26 +508,16 @@ class TerraMind(nn.Module):
             dim=1,
             index=repeat(ids_keep, "b n -> b n d", d=decoder_tokens_all.shape[2]),
         )
-        decoder_emb = torch.gather(
-            emb_all, dim=1, index=repeat(ids_keep, "b n -> b n d", d=emb_all.shape[2])
-        )
+        decoder_emb = torch.gather(emb_all, dim=1, index=repeat(ids_keep, "b n -> b n d", d=emb_all.shape[2]))
         decoder_mask = torch.gather(decoder_mask_all, dim=1, index=ids_keep)
-        target_ids = torch.gather(
-            target_ids_all,
-            dim=1,
-            index=repeat(ids_keep, "b n -> b n d", d=target_ids_all.shape[2]),
-        )
-        decoder_attention_mask = torch.gather(
-            decoder_attention_mask_all, dim=1, index=ids_keep
-        )
+        target_ids = torch.gather(target_ids_all, dim=1, index=repeat(ids_keep, "b n -> b n d", d=target_ids_all.shape[2]))
+        decoder_attention_mask = torch.gather(decoder_attention_mask_all, dim=1, index=ids_keep)
         mod_mask = torch.gather(mod_mask_all, dim=1, index=ids_keep)
 
         decoder_tokens[decoder_mask] = 0.0
         decoder_emb[decoder_mask] = 0.0
         target_ids[decoder_mask] = 0
-        decoder_attention_mask = self.adapt_decoder_attention_mask(
-            decoder_attention_mask, mod_mask
-        )
+        decoder_attention_mask = self.adapt_decoder_attention_mask(decoder_attention_mask, mod_mask)
         mod_mask[decoder_mask] = -1
 
         # This means this mask can then be re-used for decoder cross-attention
@@ -627,9 +549,7 @@ class TerraMind(nn.Module):
 
         if self.decoder_causal_mask:
             # For causal mode, tokens can only attend to preceding tokens and themselves.
-            causal_mask = torch.ones(
-                (N, N), dtype=torch.bool, device=decoder_attention_mask.device
-            ).triu(1)
+            causal_mask = torch.ones((N, N), dtype=torch.bool, device=decoder_attention_mask.device).triu(1)
             causal_mask = repeat(causal_mask, "n1 n2 -> b n1 n2", b=B)
             adapted_attention_mask = causal_mask
         else:
@@ -647,16 +567,12 @@ class TerraMind(nn.Module):
 
         if self.decoder_sep_mask:
             # Separate attention between tokens based on their modality using mod_mask.
-            sep_mask = repeat(mod_mask, "b n2 -> b n1 n2", n1=N) != repeat(
-                mod_mask, "b n1 -> b n1 n2", n2=N
-            )
+            sep_mask = repeat(mod_mask, "b n2 -> b n1 n2", n1=N) != repeat(mod_mask, "b n1 -> b n1 n2", n2=N)
             adapted_attention_mask = adapted_attention_mask | sep_mask
 
         return adapted_attention_mask
 
-    def forward_encoder(
-        self, x: torch.Tensor, encoder_mask: torch.Tensor
-    ) -> torch.Tensor:
+    def forward_encoder(self, x: torch.Tensor, encoder_mask: torch.Tensor) -> torch.Tensor:
         """Forward pass for the encoder.
 
         Args:
@@ -727,9 +643,7 @@ class TerraMind(nn.Module):
             if return_all_logits:
                 logits = self.decoder_embeddings[mod].forward_logits(y)
             else:
-                logits = self.decoder_embeddings[mod].forward_logits(
-                    y[decoder_mod_mask == idx]
-                )
+                logits = self.decoder_embeddings[mod].forward_logits(y[decoder_mod_mask == idx])
             mod_logits[mod] = logits
         return mod_logits
 
@@ -754,13 +668,9 @@ class TerraMind(nn.Module):
             tuple[torch.Tensor, dict[str, torch.Tensor]]: Total loss and dictionary of loss for each modality.
         """
         if loss_type in ["mod", "modality"]:
-            loss, mod_loss = self.forward_mod_loss(
-                y, target_ids, decoder_mod_dict, decoder_mod_mask
-            )
+            loss, mod_loss = self.forward_mod_loss(y, target_ids, decoder_mod_dict, decoder_mod_mask)
         elif loss_type == "token":
-            loss, mod_loss = self.forward_token_loss(
-                y, target_ids, decoder_mod_dict, decoder_mod_mask
-            )
+            loss, mod_loss = self.forward_token_loss(y, target_ids, decoder_mod_dict, decoder_mod_mask)
         else:
             raise ValueError("Invalid loss type")
 
@@ -792,18 +702,12 @@ class TerraMind(nn.Module):
 
         for mod in decoder_mod_dict:
             idx = self.modality_info[mod]["id"]
-            logits = self.decoder_embeddings[mod].forward_logits(
-                y[decoder_mod_mask == idx]
-            )
-            targets = target_ids[
-                decoder_mod_mask == idx
-            ]  # (L, num_codebooks) -> L = all tokens in batch for modality
+            logits = self.decoder_embeddings[mod].forward_logits(y[decoder_mod_mask == idx])
+            targets = target_ids[decoder_mod_mask == idx]   # (L, num_codebooks) -> L = all tokens in batch for modality
             if self.track_codebook_losses:
                 self.last_codebook_losses[mod] = []
 
-            if (
-                logits.numel() == 0
-            ):  # If no logits/targets, skip to prevent logging 0s and affecting the mean loss
+            if logits.numel() == 0:  # If no logits/targets, skip to prevent logging 0s and affecting the mean loss
                 continue
 
             # Handle multi-codebook case (logits shape = (L, vocab_size, num_codebooks))
@@ -815,7 +719,7 @@ class TerraMind(nn.Module):
                 codebook_loss_values = []  # For tracking
                 for c in range(num_codebooks):
                     cb_loss = F.cross_entropy(
-                        logits[:, :, c],  # (L, vocab_size)
+                        logits[:, :, c],       # (L, vocab_size)
                         targets[:, c].long(),  # (L,)
                         ignore_index=-1,
                         reduction="mean",
@@ -870,18 +774,12 @@ class TerraMind(nn.Module):
 
         for mod in decoder_mod_dict:
             idx = self.modality_info[mod]["id"]
-            logits = self.decoder_embeddings[mod].forward_logits(
-                y[decoder_mod_mask == idx]
-            )
-            targets = target_ids[
-                decoder_mod_mask == idx
-            ]  # (L, num_codebooks) -> L = all tokens in batch for modality
+            logits = self.decoder_embeddings[mod].forward_logits(y[decoder_mod_mask == idx])
+            targets = target_ids[decoder_mod_mask == idx]   # (L, num_codebooks) -> L = all tokens in batch for modality
             if self.track_codebook_losses:
                 self.last_codebook_losses[mod] = []
 
-            if (
-                logits.numel() == 0
-            ):  # If no logits/targets, skip to prevent logging 0s and affecting the mean loss
+            if logits.numel() == 0:  # If no logits/targets, skip to prevent logging 0s and affecting the mean loss
                 continue
 
             # Handle multi-codebook case (logits shape = (L, vocab_size, num_codebooks))
@@ -894,7 +792,7 @@ class TerraMind(nn.Module):
                 valid_counts = []
                 for c in range(num_codebooks):
                     cb_loss = F.cross_entropy(
-                        logits[:, :, c],  # (L, vocab_size)
+                        logits[:, :, c],       # (L, vocab_size)
                         targets[:, c].long(),  # (L,)
                         ignore_index=-1,
                         reduction="mean",
@@ -922,9 +820,7 @@ class TerraMind(nn.Module):
             mod_loss[mod] = loss
 
         # Compute weighted average of losses
-        loss: torch.Tensor = sum(
-            [mod_loss[mod] * mod_count[mod] for mod in mod_loss]
-        ) / sum(mod_count.values())
+        loss: torch.Tensor = sum([mod_loss[mod] * mod_count[mod] for mod in mod_loss]) / sum(mod_count.values())
 
         return loss, mod_loss
 
@@ -935,11 +831,7 @@ class TerraMind(nn.Module):
         num_decoder_tokens: int,
         loss_type: str = "mod",
         return_logits: bool = False,
-    ) -> (
-        dict[str, torch.Tensor]
-        | tuple[torch.Tensor, dict[str, torch.Tensor]]
-        | tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, list[float]]]
-    ):
+    ) -> dict[str, torch.Tensor] | tuple[torch.Tensor, dict[str, torch.Tensor]] | tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, list[float]]]:
         """Forward pass for the model.
 
         Args:
@@ -998,15 +890,11 @@ class TerraMind(nn.Module):
 
         # Logits
         if return_logits:
-            mod_logits = self.forward_logits(
-                y, decoder_mod_dict, decoder_mod_mask, return_all_logits=True
-            )
+            mod_logits = self.forward_logits(y, decoder_mod_dict, decoder_mod_mask, return_all_logits=True)
             return mod_logits
 
         # Loss
-        loss, mod_loss = self.forward_loss(
-            y, target_ids, decoder_mod_dict, decoder_mod_mask, loss_type
-        )
+        loss, mod_loss = self.forward_loss(y, target_ids, decoder_mod_dict, decoder_mod_mask, loss_type)
 
         return loss, mod_loss, self.last_codebook_losses
 
@@ -1083,12 +971,8 @@ class TerraMind(nn.Module):
         self.freeze_decoder(freeze_embeddings=False)
 
     def freeze_params_except_specific_embeddings(self, frozen_embedding_domain):
-        self.freeze_encoder_except_specific_embeddings(
-            frozen_embedding_domain=frozen_embedding_domain
-        )
-        self.freeze_decoder_except_specific_embeddings(
-            frozen_embedding_domain=frozen_embedding_domain
-        )
+        self.freeze_encoder_except_specific_embeddings(frozen_embedding_domain=frozen_embedding_domain)
+        self.freeze_decoder_except_specific_embeddings(frozen_embedding_domain=frozen_embedding_domain)
 
     def unfreeze_shared_params(self):
         self.unfreeze_encoder(unfreeze_embeddings=False)
@@ -1172,7 +1056,7 @@ def build_terrammind_encdec(ckpt_path: str | None = None, **kwargs):
 
 
 def get_terramind_model(variant, **kwargs):
-    """Returns a TerraMind model instance based on the specified variant.
+    """ Returns a TerraMind model instance based on the specified variant.
 
     Args:
         variant: A string identifier for the model variant. Supported values include:

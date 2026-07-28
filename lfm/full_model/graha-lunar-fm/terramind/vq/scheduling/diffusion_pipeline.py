@@ -25,16 +25,12 @@ def rescale_noise_cfg(noise_cfg, noise_pred_conditional, guidance_rescale=0.0):
     Based on findings of [Common Diffusion Noise Schedules and
     Sample Steps are Flawed](https://arxiv.org/pdf/2305.08891.pdf). See Section 3.4
     """
-    std_text = noise_pred_conditional.std(
-        dim=list(range(1, noise_pred_conditional.ndim)), keepdim=True
-    )
+    std_text = noise_pred_conditional.std(dim=list(range(1, noise_pred_conditional.ndim)), keepdim=True)
     std_cfg = noise_cfg.std(dim=list(range(1, noise_cfg.ndim)), keepdim=True)
     # rescale the results from guidance (fixes overexposure)
     noise_pred_rescaled = noise_cfg * (std_text / std_cfg)
     # mix with the original results from guidance by factor guidance_rescale to avoid "plain looking" images
-    noise_cfg = (
-        guidance_rescale * noise_pred_rescaled + (1 - guidance_rescale) * noise_cfg
-    )
+    noise_cfg = guidance_rescale * noise_pred_rescaled + (1 - guidance_rescale) * noise_cfg
     return noise_cfg
 
 
@@ -49,9 +45,7 @@ class PipelineCond(DiffusionPipeline):
         scheduler: A diffusion scheduler, e.g. see scheduling_ddpm.py
     """
 
-    def __init__(
-        self, model: torch.nn.Module, scheduler: SchedulerMixin, n_channels: int
-    ):
+    def __init__(self, model: torch.nn.Module, scheduler: SchedulerMixin, n_channels: int):
         super().__init__()
         self.register_modules(model=model, scheduler=scheduler)
         self.n_channels = n_channels
@@ -89,11 +83,7 @@ class PipelineCond(DiffusionPipeline):
             The generated image.
         """
 
-        timesteps = (
-            self.scheduler.config.num_train_timesteps
-            if timesteps is None
-            else timesteps
-        )
+        timesteps = self.scheduler.config.num_train_timesteps if timesteps is None else timesteps
         batch_size, _, _, _ = cond.shape
 
         # Sample gaussian noise to begin loop
@@ -119,34 +109,22 @@ class PipelineCond(DiffusionPipeline):
 
             if do_cfg:
                 # TODO: is there a better way to get unconditional output?
-                model_output_uncond = self.model(
-                    image, t, cond, unconditional=True, **kwargs
-                )
+                model_output_uncond = self.model(image, t, cond, unconditional=True, **kwargs)
 
                 if callable(guidance_scale):
-                    guidance_scale_value = guidance_scale(
-                        t / self.scheduler.config.num_train_timesteps
-                    )
+                    guidance_scale_value = guidance_scale(t / self.scheduler.config.num_train_timesteps)
                 else:
                     guidance_scale_value = guidance_scale
-                model_output_cfg = model_output_uncond + guidance_scale_value * (
-                    model_output - model_output_uncond
-                )
+                model_output_cfg = model_output_uncond + guidance_scale_value * (model_output - model_output_uncond)
 
                 if guidance_rescale > 0.0:
-                    model_output = rescale_noise_cfg(
-                        model_output_cfg,
-                        model_output,
-                        guidance_rescale=guidance_rescale,
-                    )
+                    model_output = rescale_noise_cfg(model_output_cfg, model_output, guidance_rescale=guidance_rescale)
                 else:
                     model_output = model_output_cfg
 
             # 2. Compute previous image: x_t -> t_t-1
             with torch.amp.autocast("cuda", enabled=False):
-                image = self.scheduler.step(
-                    model_output.float(), t, image, generator=generator
-                ).prev_sample
+                image = self.scheduler.step(model_output.float(), t, image, generator=generator).prev_sample
 
             if verbose:
                 pbar.update()

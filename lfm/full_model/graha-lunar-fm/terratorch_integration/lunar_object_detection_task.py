@@ -17,13 +17,15 @@ Config-level notes:
 
 from __future__ import annotations
 
-from typing import Any
+import math
+from typing import Any, Iterable
 
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
 from terratorch.tasks import ObjectDetectionTask
 from torchvision.models.detection.rpn import AnchorGenerator
+
 
 _NO_DECAY_TOKENS = (
     "bias",
@@ -50,7 +52,7 @@ def _encoder_block_index(name: str) -> int | None:
     idx = name.find(key)
     if idx < 0:
         return None
-    tail = name[idx + len(key) :]
+    tail = name[idx + len(key):]
     first = tail.split(".", 1)[0]
     if first.isdigit():
         return int(first)
@@ -123,9 +125,7 @@ class LunarObjectDetectionTask(ObjectDetectionTask):
         self.layer_decay = float(layer_decay)
         self.weight_decay = float(weight_decay)
         self.head_weight_decay = (
-            float(head_weight_decay)
-            if head_weight_decay is not None
-            else float(weight_decay)
+            float(head_weight_decay) if head_weight_decay is not None else float(weight_decay)
         )
         self.warmup_steps = int(warmup_steps)
         self.cosine_t_max = cosine_t_max

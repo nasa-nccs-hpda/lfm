@@ -30,10 +30,10 @@ from torch.utils.data import DataLoader, Dataset
 
 from terratorch_integration.data_utils import load_nc_band
 
+
 # ---------------------------------------------------------------------------
 # Normalisation helper
 # ---------------------------------------------------------------------------
-
 
 class Normalize:
     """Normalise a batch's ``"image"`` tensor with per-channel mean / std.
@@ -67,8 +67,8 @@ class Normalize:
 
     def _normalize_per_image(self, img: torch.Tensor) -> torch.Tensor:
         mean = img.mean(dim=(1, 2), keepdim=True)
-        std = img.std(dim=(1, 2), keepdim=True)
-        std = torch.where(std > 0, std, torch.ones_like(std))
+        std  = img.std(dim=(1, 2), keepdim=True)
+        std  = torch.where(std > 0, std, torch.ones_like(std))
         return (img - mean) / std
 
     def __call__(self, batch: dict[str, Any]) -> dict[str, Any]:
@@ -81,19 +81,13 @@ class Normalize:
             batch["image"] = torch.stack(imgs)
         else:
             batch["image"] = torch.stack(list(batch["image"]))
-            image = (
-                batch["image"] / self.max_pixel_value
-                if self.max_pixel_value is not None
-                else batch["image"]
-            )
+            image = batch["image"] / self.max_pixel_value if self.max_pixel_value is not None else batch["image"]
             if image.ndim == 4:
                 means = torch.tensor(self.means, device=image.device).view(1, -1, 1, 1)
-                stds = torch.tensor(self.stds, device=image.device).view(1, -1, 1, 1)
+                stds  = torch.tensor(self.stds,  device=image.device).view(1, -1, 1, 1)
             elif image.ndim == 5:
-                means = torch.tensor(self.means, device=image.device).view(
-                    1, -1, 1, 1, 1
-                )
-                stds = torch.tensor(self.stds, device=image.device).view(1, -1, 1, 1, 1)
+                means = torch.tensor(self.means, device=image.device).view(1, -1, 1, 1, 1)
+                stds  = torch.tensor(self.stds,  device=image.device).view(1, -1, 1, 1, 1)
             else:
                 raise ValueError(f"Expected 4- or 5-D image tensor, got {image.ndim}D")
             batch["image"] = (image - means) / stds
@@ -103,7 +97,6 @@ class Normalize:
 # ---------------------------------------------------------------------------
 # Dataset
 # ---------------------------------------------------------------------------
-
 
 class LunarImpSegDataset(Dataset):
     """Lunar IMP semantic segmentation dataset.
@@ -137,8 +130,8 @@ class LunarImpSegDataset(Dataset):
 
     _ANN_FILE: dict[str, str] = {
         "train": "instances_train.json",
-        "val": "instances_val.json",
-        "test": "instances_test.json",
+        "val":   "instances_val.json",
+        "test":  "instances_test.json",
     }
 
     def __init__(
@@ -153,21 +146,19 @@ class LunarImpSegDataset(Dataset):
         fraction_seed: int = 0,
     ) -> None:
         if split not in self._ANN_FILE:
-            raise ValueError(
-                f"split must be one of {list(self._ANN_FILE)}, got '{split}'"
-            )
+            raise ValueError(f"split must be one of {list(self._ANN_FILE)}, got '{split}'")
         if fraction is not None and not (0 < fraction <= 1):
             raise ValueError(f"fraction must be in (0, 1], got {fraction}")
 
-        self.root = Path(root)
-        self.split = split
-        self.image_size = image_size
-        self.transforms = transforms
+        self.root            = Path(root)
+        self.split           = split
+        self.image_size      = image_size
+        self.transforms      = transforms
         self.mask_output_tag = mask_output_tag
-        self.band_name = band_name
-        self.fraction = fraction
-        self.fraction_seed = fraction_seed
-        self.img_dir = self.root / split
+        self.band_name       = band_name
+        self.fraction        = fraction
+        self.fraction_seed   = fraction_seed
+        self.img_dir         = self.root / split
 
         ann_path = self.root / self._ANN_FILE[split]
         if not ann_path.exists():
@@ -180,11 +171,11 @@ class LunarImpSegDataset(Dataset):
 
         # Optional reproducible subsampling (training data reduction experiments)
         if fraction is not None and fraction < 1.0:
-            rng = np.random.default_rng(fraction_seed)
-            n = max(1, round(len(images) * fraction))
+            rng     = np.random.default_rng(fraction_seed)
+            n       = max(1, round(len(images) * fraction))
             indices = rng.choice(len(images), size=n, replace=False)
             indices.sort()  # preserve original file ordering
-            images = [images[i] for i in indices]
+            images  = [images[i] for i in indices]
 
         self.images: list[dict] = images
 
@@ -198,9 +189,9 @@ class LunarImpSegDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict[str, Any]:
         img_info = self.images[index]
-        img_id = img_info["id"]
-        img_w = img_info["width"]
-        img_h = img_info["height"]
+        img_id   = img_info["id"]
+        img_w    = img_info["width"]
+        img_h    = img_info["height"]
 
         # Load image band as float32 (H, W); NetCDF may be (1, H, W) or (H, W).
         image_array = load_nc_band(self.img_dir / img_info["file_name"], self.band_name)
@@ -209,14 +200,12 @@ class LunarImpSegDataset(Dataset):
         # Filling with a fixed value of 1 avoids leaking arbitrary COCO
         # category_id values into what must be a two-class target.
         mask_pil = Image.new("L", (img_w, img_h), 0)
-        draw = ImageDraw.Draw(mask_pil)
+        draw     = ImageDraw.Draw(mask_pil)
         for ann in self.img_id_to_anns.get(img_id, []):
             for polygon in ann["segmentation"]:
                 if len(polygon) < 6:
                     continue
-                coords = [
-                    (polygon[i], polygon[i + 1]) for i in range(0, len(polygon), 2)
-                ]
+                coords = [(polygon[i], polygon[i + 1]) for i in range(0, len(polygon), 2)]
                 draw.polygon(coords, fill=1)
 
         # Optional resize.  Use PIL mode 'F' so float32 values pass through
@@ -236,12 +225,8 @@ class LunarImpSegDataset(Dataset):
         # about non-writable NumPy → Tensor conversions (PIL's buffer may be
         # read-only after resize).
         sample: dict[str, Any] = {
-            "image": torch.from_numpy(
-                np.array(image_array, dtype=np.float32, copy=True)
-            ).unsqueeze(0),
-            self.mask_output_tag: torch.from_numpy(
-                np.array(mask_pil, dtype=np.int64, copy=True)
-            ),
+            "image":              torch.from_numpy(np.array(image_array, dtype=np.float32, copy=True)).unsqueeze(0),
+            self.mask_output_tag: torch.from_numpy(np.array(mask_pil, dtype=np.int64, copy=True)),
         }
 
         if self.transforms is not None:
@@ -301,11 +286,10 @@ class LunarImpSegDataset(Dataset):
                 pred_key = k
                 break
         has_pred = pred_key is not None
-        ncols = 2 if has_pred else 1
+        ncols    = 2 if has_pred else 1
 
-        fig, axs = plt.subplots(
-            1, ncols, squeeze=False, figsize=(ncols * 6, 6), tight_layout=True
-        )
+        fig, axs = plt.subplots(1, ncols, squeeze=False,
+                                figsize=(ncols * 6, 6), tight_layout=True)
 
         def _render(ax: Any, mask_tensor: Any, title: str) -> None:
             ax.imshow(img, cmap="gray", interpolation="nearest")
@@ -315,11 +299,8 @@ class LunarImpSegDataset(Dataset):
                 mask_np = np.asarray(mask_tensor)
             ax.imshow(
                 np.clip(mask_np, 0, 1).astype(float),
-                cmap=cmap,
-                vmin=0,
-                vmax=1,
-                alpha=mask_alpha,
-                interpolation="nearest",
+                cmap=cmap, vmin=0, vmax=1,
+                alpha=mask_alpha, interpolation="nearest",
             )
             ax.axis("off")
             if show_titles:
@@ -338,7 +319,6 @@ class LunarImpSegDataset(Dataset):
 # ---------------------------------------------------------------------------
 # DataModule
 # ---------------------------------------------------------------------------
-
 
 class LunarImpSegDataModule(LightningDataModule):
     """Lightning DataModule for the IMP semantic segmentation dataset.
@@ -392,36 +372,35 @@ class LunarImpSegDataModule(LightningDataModule):
         fraction_seed: int = 0,
     ) -> None:
         super().__init__()
-        self.root = root
-        self.batch_size = batch_size
-        self.num_workers = num_workers
-        self.image_size = image_size
+        self.root            = root
+        self.batch_size      = batch_size
+        self.num_workers     = num_workers
+        self.image_size      = image_size
         self.mask_output_tag = mask_output_tag
-        self.band_name = band_name
-        self.train_fraction = train_fraction
-        self.fraction_seed = fraction_seed
+        self.band_name       = band_name
+        self.train_fraction  = train_fraction
+        self.fraction_seed   = fraction_seed
         self.train_transforms = train_transforms
-        self.val_transforms = val_transforms
-        self.test_transforms = test_transforms or val_transforms
+        self.val_transforms   = val_transforms
+        self.test_transforms  = test_transforms or val_transforms
 
         if per_image_norm:
             self.aug = Normalize(per_image=True, max_pixel_value=max_pixel_value)
         else:
             self.aug = Normalize(
                 means=norm_means or [0.5],
-                stds=norm_stds or [0.25],
+                stds=norm_stds   or [0.25],
                 max_pixel_value=max_pixel_value,
             )
 
         self.train_dataset: LunarImpSegDataset | None = None
-        self.val_dataset: LunarImpSegDataset | None = None
-        self.test_dataset: LunarImpSegDataset | None = None
+        self.val_dataset:   LunarImpSegDataset | None = None
+        self.test_dataset:  LunarImpSegDataset | None = None
 
     def setup(self, stage: str) -> None:
         if stage == "fit":
             self.train_dataset = LunarImpSegDataset(
-                root=self.root,
-                split="train",
+                root=self.root, split="train",
                 image_size=self.image_size,
                 transforms=self.train_transforms,
                 mask_output_tag=self.mask_output_tag,
@@ -430,8 +409,7 @@ class LunarImpSegDataModule(LightningDataModule):
                 fraction_seed=self.fraction_seed,
             )
             self.val_dataset = LunarImpSegDataset(
-                root=self.root,
-                split="val",
+                root=self.root, split="val",
                 image_size=self.image_size,
                 transforms=self.val_transforms,
                 mask_output_tag=self.mask_output_tag,
@@ -440,8 +418,7 @@ class LunarImpSegDataModule(LightningDataModule):
 
         if stage == "validate":
             self.val_dataset = LunarImpSegDataset(
-                root=self.root,
-                split="val",
+                root=self.root, split="val",
                 image_size=self.image_size,
                 transforms=self.val_transforms,
                 mask_output_tag=self.mask_output_tag,
@@ -450,8 +427,7 @@ class LunarImpSegDataModule(LightningDataModule):
 
         if stage in ("test", "predict"):
             self.test_dataset = LunarImpSegDataset(
-                root=self.root,
-                split="test",
+                root=self.root, split="test",
                 image_size=self.image_size,
                 transforms=self.test_transforms,
                 mask_output_tag=self.mask_output_tag,
@@ -461,10 +437,8 @@ class LunarImpSegDataModule(LightningDataModule):
     def _collate(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
         """Stack images and masks, then normalise."""
         collated: dict[str, Any] = {
-            "image": [item["image"] for item in batch],
-            self.mask_output_tag: torch.stack(
-                [item[self.mask_output_tag] for item in batch]
-            ),
+            "image":              [item["image"] for item in batch],
+            self.mask_output_tag: torch.stack([item[self.mask_output_tag] for item in batch]),
         }
         return self.aug(collated)
 

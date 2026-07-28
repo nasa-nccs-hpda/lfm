@@ -25,15 +25,13 @@ from omegaconf import DictConfig, OmegaConf
 from terramind.data.geomap_class_map import MAPPING_GEOMAP_CLASSES
 from terramind.data.io_utils import convert_to_object
 from terramind.data import modality_transforms as mt
-from terramind.models.decoder_embeddings import (
-    ImageTokenDecoderEmbedding,
-    SequenceDecoderEmbedding,
-)
+from terramind.models.decoder_embeddings import ImageTokenDecoderEmbedding, SequenceDecoderEmbedding
 from terramind.models.encoder_embeddings import (
     ImageEncoderEmbedding,
     ImageTokenEncoderEmbedding,
     SequenceEncoderEmbedding,
 )
+
 
 TOKENIZATION_CONFIG_FILE = "tokenization_config.yaml"
 MODALITY_INFO_FILE = "modality_info.yaml"
@@ -85,7 +83,6 @@ class ModalityInfoImg:
         data_range: expected data range.
         one_hot_encoding: number of classes for one-hot encoded modalities.
     """
-
     encoder_embedding: Any | None = ImageEncoderEmbedding
     encoder_kwargs: dict = field(default_factory=dict)
     decoder_embedding: Any | None = None
@@ -99,7 +96,6 @@ class ModalityInfoImg:
 @dataclass
 class ModalityInfoImgTokenized(ModalityInfoImg):
     """Information for tokenized image modalities."""
-
     encoder_embedding: Any | None = ImageTokenEncoderEmbedding
     decoder_embedding: Any | None = ImageTokenDecoderEmbedding
     pretokenized: bool = True
@@ -108,15 +104,12 @@ class ModalityInfoImgTokenized(ModalityInfoImg):
 @dataclass
 class ModalityInfoSeq:
     """Information for sequence modalities."""
-
     encoder_embedding: type = SequenceEncoderEmbedding
     encoder_kwargs: dict = field(default_factory=dict)
     decoder_embedding: type = SequenceDecoderEmbedding
     decoder_kwargs: dict = field(default_factory=dict)
     type: Literal["seq", "seq_emb", "seq_token"] = "seq"
-    image_size: int | None = (
-        None  # Only relevant for bboxes - image size bboxes are based on optical modality
-    )
+    image_size: int | None = None  # Only relevant for bboxes - image size bboxes are based on optical modality
 
 
 def _generate_uint15_hash(seed_str):
@@ -134,22 +127,16 @@ def compute_modality_id(mod_name: str, modality_info: dict) -> int:
     Returns:
         A uint15 hash (0-32767) unique to this modality configuration
     """
-    id_components = [
-        mod_name
-    ]  # Start with modality name only and add configurable properties
+    id_components = [mod_name]  # Start with modality name only and add configurable properties
 
     if modality_info.get("pretokenized") is not None:
-        id_components += [
-            "c" + str(modality_info.get("codebook_size", "x")),
-            "n" + str(modality_info.get("num_codebooks", "x")),
-        ]
+        id_components += ["c" + str(modality_info.get("codebook_size", "x")),
+                          "n" + str(modality_info.get("num_codebooks", "x"))]
 
     if modality_info["type"] == "img":
-        id_components += [
-            "p" + str(modality_info.get("patch_size", "")),
-            "i" + str(modality_info.get("input_size", "")),
-            str(modality_info.get("tokenizer", "untok")),
-        ]
+        id_components += ["p" + str(modality_info.get("patch_size", "")),
+                          "i" + str(modality_info.get("input_size", "")),
+                          str(modality_info.get("tokenizer", "untok"))]
 
     id_string = "-".join(id_components)
     hash_value = _generate_uint15_hash(id_string)
@@ -168,7 +155,7 @@ MODALITY_INFO = {
     "crater_masks": asdict(ModalityInfoImg()),
     "aspect_3m": asdict(ModalityInfoImg(data_range=(-1.0, 1.0))),
     "dtm_3m": asdict(ModalityInfoImg(data_range=(-9500.0, 10800.0))),
-    "nac": asdict(ModalityInfoImg(data_range=(0.0, 1.0))),
+    "nac": asdict(ModalityInfoImg(data_range=(0., 1.))),
     # "psr": asdict(ModalityInfoImg()),
     "slope_3m": asdict(ModalityInfoImg(data_range=(0.0, 90.0))),
     # "rock_abundance": asdict(ModalityInfoImg()),
@@ -189,26 +176,25 @@ MODALITY_INFO = {
     # "albedo": asdict(ModalityInfoImg()),
     # "dice": asdict(ModalityInfoImg()),
     # "tbol_poles": asdict(ModalityInfoImg()),
+
     # Sequence modalities
-    "metadata": asdict(
-        ModalityInfoSeq(
-            encoder_kwargs={"vocab_size": 62_917},
-            decoder_kwargs={"vocab_size": 62_917},
-        )
-    ),
-    "static_maps": asdict(
-        ModalityInfoSeq(
-            encoder_kwargs={"vocab_size": 62_917},
-            decoder_kwargs={"vocab_size": 62_917},
-        )
-    ),
-    "crater_bboxes": asdict(
-        ModalityInfoSeq(
-            image_size=512,
-            encoder_kwargs={"vocab_size": 62_917},
-            decoder_kwargs={"vocab_size": 62_917},
-        )
-    ),
+
+    "metadata": asdict(ModalityInfoSeq(
+        encoder_kwargs={"vocab_size": 62_917},
+        decoder_kwargs={"vocab_size": 62_917},
+    )),
+
+    "static_maps": asdict(ModalityInfoSeq(
+        encoder_kwargs={"vocab_size": 62_917},
+        decoder_kwargs={"vocab_size": 62_917},
+    )),
+
+    "crater_bboxes": asdict(ModalityInfoSeq(
+        image_size=512,
+        encoder_kwargs={"vocab_size": 62_917},
+        decoder_kwargs={"vocab_size": 62_917},
+    )),
+
     # Tokenized image modalities
     "tok_vis": asdict(ModalityInfoImgTokenized()),
     "tok_uv": asdict(ModalityInfoImgTokenized()),
@@ -244,6 +230,7 @@ MODALITY_INFO = {
 
 MODALITY_TRANSFORMS = {
     "mask_valid": partial(mt.MaskTransform, mask_pool_size=1),
+
     # Lunar untokenized modalities
     "vis": mt.UntokLunarTransform,
     "vis_604": mt.UntokLunarTransform,
@@ -276,6 +263,7 @@ MODALITY_TRANSFORMS = {
     # "albedo": mt.UntokLunarTransform,
     # "dice": mt.UntokLunarTransform,
     # "tbol_poles": mt.UntokLunarTransform,
+
     # Lunar tokenized transforms
     "tok_vis": mt.TokTransform,
     "tok_vis_604": mt.TokTransform,
@@ -308,11 +296,10 @@ MODALITY_TRANSFORMS = {
     # "tok_albedo": mt.TokTransform,
     # "tok_dice": mt.TokTransform,
     # "tok_tbol_poles": mt.TokTransform,
+
     # Text modalities
     "metadata": mt.MetadataTransform,
-    "static_maps": partial(
-        mt.StaticMapsTransform, selected_vars=list(STATIC_MAPS_FIELDS)
-    ),
+    "static_maps": partial(mt.StaticMapsTransform, selected_vars=list(STATIC_MAPS_FIELDS)),
     "crater_bboxes": mt.BBoxTransform,
 }
 
@@ -348,25 +335,23 @@ MODALITY_TRANSFORMS_TOK = {
     # "albedo": mt.LunarTransform,
     # "dice": mt.LunarTransform,
     # "tbol_poles": mt.LunarTransform,
+
 }
 
 
 def setup_modality_transform(
-    domains: list[str],
-    stats: dict | DictConfig,
-    scaler_dict: dict | DictConfig | None = None,
-    pre_resize: int | None = None,
-):
+        domains: list[str], stats: dict | DictConfig,
+        scaler_dict: dict | DictConfig | None = None,
+        pre_resize: int | None = None,
+    ):
 
     scaler_dict = {} if scaler_dict is None else convert_to_object(scaler_dict)
     stats = convert_to_object(stats)
     modality_transform = {
-        mod: MODALITY_TRANSFORMS_TOK[mod](
-            **stats[mod],
-            one_hot_encoding=MODALITY_INFO[mod].get("one_hot_encoding"),
-            pre_resize=pre_resize,
-            scaler=scaler_dict.get(mod),
-        )
+        mod: MODALITY_TRANSFORMS_TOK[mod](**stats[mod],
+                                          one_hot_encoding=MODALITY_INFO[mod].get("one_hot_encoding"),
+                                          pre_resize=pre_resize,
+                                          scaler=scaler_dict.get(mod))
         for mod in domains
     }
     return modality_transform
@@ -380,9 +365,7 @@ def setup_modality_transform_tm(domains: list[str], modality_info: dict):
 
         if mod_type == "img":
             if is_tokenized:
-                modality_transform[mod] = MODALITY_TRANSFORMS[mod](
-                    num_codebooks=modality_info[mod]["num_codebooks"]
-                )
+                modality_transform[mod] = MODALITY_TRANSFORMS[mod](num_codebooks=modality_info[mod]["num_codebooks"])
             else:
                 stats = modality_info[mod]["stats"]
                 scaler_dict = modality_info[mod]["scaler_dict"]
@@ -398,21 +381,15 @@ def setup_modality_transform_tm(domains: list[str], modality_info: dict):
         elif mod == "crater_bboxes":
             vis_info = modality_info.get("tok_vis") or modality_info.get("vis")
             if vis_info is None:
-                raise ValueError(
-                    "Modality *crater_bboxes* needs optical *vis* info to be properly loaded."
-                )
-            modality_transform[mod] = MODALITY_TRANSFORMS[mod](
-                original_size=modality_info[mod]["image_size"],
-                pre_resize=vis_info["pre_resize"],
-            )
+                raise ValueError("Modality *crater_bboxes* needs optical *vis* info to be properly loaded.")
+            modality_transform[mod] = MODALITY_TRANSFORMS[mod](original_size=modality_info[mod]["image_size"],
+                                                               pre_resize=vis_info["pre_resize"])
         else:
             modality_transform[mod] = MODALITY_TRANSFORMS[mod]()
     return modality_transform
 
 
-def _load_tokenization_config(
-    data_root: str, mod_path: str, base_mod_dict: dict, add_tokenizer_info: bool
-) -> dict:
+def _load_tokenization_config(data_root: str, mod_path: str, base_mod_dict: dict, add_tokenizer_info: bool) -> dict:
     """Load and parse tokenization config for a pretokenized modality."""
 
     yaml_path = os.path.join(data_root, mod_path, TOKENIZATION_CONFIG_FILE)
@@ -433,30 +410,22 @@ def _load_tokenization_config(
     codebook_size = token_info.codebook_size
     if isinstance(codebook_size, str):
         if codebook_size.startswith("[") and codebook_size.endswith("]"):
-            codebook_size = literal_eval(
-                codebook_size
-            )  # heterogeneous codebooks: "[8640, 1024]"
+            codebook_size = literal_eval(codebook_size)   # heterogeneous codebooks: "[8640, 1024]"
         else:
-            codebook_size = reduce(
-                lambda x, y: x * y, [int(x) for x in codebook_size.split("-")], 1
-            )  # "8-8-8-6-5"
+            codebook_size = reduce(lambda x, y: x * y, [int(x) for x in codebook_size.split("-")], 1)  # "8-8-8-6-5"
 
-    token_dict = {
-        "input_size": input_size,
-        "patch_size": patch_size,
-        "num_channels": num_channels,
-        "codebook_size": codebook_size,
-        "num_codebooks": token_info.num_codebooks,
-        "max_tokens": num_patches,
-        "parent_domain": parent_domain,
-        "tokenizer": token_info.tokenizer,
-        "pre_resize": token_info.pre_resize,
-        "crop_settings": convert_to_object(
-            token_info.crop_settings
-        ),  # Convert ListConfig to list object
-        "scaler_dict": convert_to_object(token_info.scaler_dict),
-        "stats": convert_to_object(token_info.stats),
-    }
+    token_dict = {"input_size": input_size,
+                  "patch_size": patch_size,
+                  "num_channels": num_channels,
+                  "codebook_size": codebook_size,
+                  "num_codebooks": token_info.num_codebooks,
+                  "max_tokens": num_patches,
+                  "parent_domain": parent_domain,
+                  "tokenizer": token_info.tokenizer,
+                  "pre_resize": token_info.pre_resize,
+                  "crop_settings": convert_to_object(token_info.crop_settings),   # Convert ListConfig to list object
+                  "scaler_dict": convert_to_object(token_info.scaler_dict),
+                  "stats": convert_to_object(token_info.stats)}
 
     # Add tokenizer paths if requested
     if add_tokenizer_info:
@@ -466,9 +435,7 @@ def _load_tokenization_config(
     return token_dict
 
 
-def setup_modality_info_tm(
-    cfg: DictConfig, add_tokenizer_info: bool = False
-) -> tuple[dict, int, list]:
+def setup_modality_info_tm(cfg: DictConfig, add_tokenizer_info: bool = False) -> tuple[dict, int, list]:
     """Setup modality info for TerraMind by merging fixed and variable properties.
 
     Args:
@@ -484,9 +451,7 @@ def setup_modality_info_tm(
         keys = keys if keys is not None else list(dict_list[0].keys())
         for k in keys:
             value_list = [d[k] for d in dict_list]
-            assert all(
-                s == value_list[0] for s in value_list[1:]
-            ), f"All modalities must have the same {k}."
+            assert all(s == value_list[0] for s in value_list[1:]), f"All modalities must have the same {k}."
 
     modality_info = {}
     dict_check = []
@@ -510,44 +475,28 @@ def setup_modality_info_tm(
                 modality_info[mod_name]["keep"] = mod_cfg.keep
 
             # Load tokenization info for pretokenized image modalities
-            if (MODALITY_INFO[mod_name]["type"] == "img") and MODALITY_INFO[
-                mod_name
-            ].get("pretokenized"):
+            if (MODALITY_INFO[mod_name]["type"] == "img") and MODALITY_INFO[mod_name].get("pretokenized"):
                 # Load tokenization config
-                token_config = _load_tokenization_config(
-                    data_root=dataset_cfg.data_root,
-                    mod_path=mod_cfg.path,
-                    base_mod_dict=MODALITY_INFO,
-                    add_tokenizer_info=add_tokenizer_info,
-                )
+                token_config = _load_tokenization_config(data_root=dataset_cfg.data_root,
+                                                         mod_path=mod_cfg.path,
+                                                         base_mod_dict=MODALITY_INFO,
+                                                         add_tokenizer_info=add_tokenizer_info)
                 parent_domain = token_config["parent_domain"]
 
                 # Update tokenized modality info
                 modality_info[mod_name].update(token_config)
 
-                common_params = [
-                    "input_size",
-                    "pre_resize",
-                    "crop_settings",
-                    "scaler_dict",
-                    "stats",
-                    "num_channels",
-                ]
+                common_params = ["input_size", "pre_resize", "crop_settings", "scaler_dict", "stats", "num_channels"]
                 common_dict = {k: token_config[k] for k in common_params}
                 dict_check.append(common_dict)
 
                 # Save parameters for parent modality (if it's in all_domains)
                 if parent_domain in cfg.data.all_domains:
                     add_params = {}
-                    if (
-                        dataset_cfg.domains.get(parent_domain, {}).get("max_tokens")
-                        is None
-                    ):
+                    if dataset_cfg.domains.get(parent_domain, {}).get("max_tokens") is None:
                         add_params["max_tokens"] = token_config["max_tokens"]
                     ps = dataset_cfg.domains.get(parent_domain, {}).get("patch_size")
-                    add_params["patch_size"] = (
-                        token_config["patch_size"] if ps is None else ps
-                    )
+                    add_params["patch_size"] = token_config["patch_size"] if ps is None else ps
 
                     parent_mod_info[parent_domain] = {**common_dict, **add_params}
 

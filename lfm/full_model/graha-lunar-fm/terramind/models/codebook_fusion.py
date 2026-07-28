@@ -63,9 +63,7 @@ class CodebookFusionAttention(nn.Module):
             Aggregated embeddings of shape (B, num_patches, D)
         """
         B, N, C, D = x.shape
-        assert (
-            C == self.num_codebooks
-        ), f"Expected {self.num_codebooks} codebooks, got {C}"
+        assert C == self.num_codebooks, f"Expected {self.num_codebooks} codebooks, got {C}"
         assert D == self.dim_tokens, f"Expected dim {self.dim_tokens}, got {D}"
 
         # Reshape to process all patches together
@@ -113,9 +111,7 @@ class CodebookFusionWeighted(nn.Module):
             Aggregated embeddings of shape (B, num_patches, D)
         """
         B, N, C, D = x.shape
-        assert (
-            C == self.num_codebooks
-        ), f"Expected {self.num_codebooks} codebooks, got {C}"
+        assert C == self.num_codebooks, f"Expected {self.num_codebooks} codebooks, got {C}"
         assert D == self.dim_tokens, f"Expected dim {self.dim_tokens}, got {D}"
 
         # Softmax weights to ensure they sum to 1
@@ -168,9 +164,7 @@ class CodebookFusionMLP(nn.Module):
             Aggregated embeddings of shape (B, num_patches, D)
         """
         B, N, C, D = x.shape
-        assert (
-            C == self.num_codebooks
-        ), f"Expected {self.num_codebooks} codebooks, got {C}"
+        assert C == self.num_codebooks, f"Expected {self.num_codebooks} codebooks, got {C}"
         assert D == self.dim_tokens, f"Expected dim {self.dim_tokens}, got {D}"
 
         x_flat = x.reshape(B, N, C * D)  # (B, N, C, D) -> (B, N, C*D)
@@ -210,9 +204,7 @@ def create_codebook_fusion(
         hidden_ratio = kwargs.get("hidden_ratio", 4)
         return CodebookFusionMLP(dim_tokens, num_codebooks, hidden_ratio)
     else:
-        raise ValueError(
-            f"Unknown fusion_type: {fusion_type}. Must be one of: 'attention', 'weighted', 'mlp'"
-        )
+        raise ValueError(f"Unknown fusion_type: {fusion_type}. Must be one of: 'attention', 'weighted', 'mlp'")
 
 
 class UnifiedCodebookFusion(nn.Module):
@@ -261,18 +253,16 @@ class UnifiedCodebookFusion(nn.Module):
             self._forward_fn = self._forward_stacked
 
         else:
-            raise ValueError(
-                f"Unknown fusion_type: {fusion_type}. Must be: 'linear', 'attention', 'weighted' or 'mlp'"
-            )
+            raise ValueError(f"Unknown fusion_type: {fusion_type}. Must be: 'linear', 'attention', 'weighted' or 'mlp'")
 
     def _forward_linear(self, codebook_embeddings: list[torch.Tensor]) -> torch.Tensor:
         """Forward for linear fusion."""
-        x_concat = torch.cat(codebook_embeddings, dim=-1)  # (B, N, C*D)
+        x_concat = torch.cat(codebook_embeddings, dim=-1)   # (B, N, C*D)
         return self.fusion(x_concat)
 
     def _forward_stacked(self, codebook_embeddings: list[torch.Tensor]) -> torch.Tensor:
         """Forward for attention/weighted/mlp fusion."""
-        x_stacked = torch.stack(codebook_embeddings, dim=2)  # (B, N, C, D)
+        x_stacked = torch.stack(codebook_embeddings, dim=2)   # (B, N, C, D)
         return self.fusion(x_stacked)
 
     def forward(self, codebook_embeddings: list[torch.Tensor]) -> torch.Tensor:
@@ -289,21 +279,17 @@ class ProjectionFusionLinear(nn.Module):
         share_weights: Whether to share weights with embedding layer
     """
 
-    def __init__(
-        self, dim_tokens: int, vocab_sizes: list[int], share_weights: bool = False
-    ):
+    def __init__(self, dim_tokens: int, vocab_sizes: list[int], share_weights: bool = False):
         super().__init__()
         self.dim_tokens = dim_tokens
         self.vocab_sizes = vocab_sizes
         self.num_codebooks = len(vocab_sizes)
         self.share_weights = share_weights
 
-        self.heads = nn.ModuleList(
-            [
-                nn.Linear(dim_tokens, vocab_size, bias=False)
-                for vocab_size in vocab_sizes
-            ]
-        )
+        self.heads = nn.ModuleList([
+            nn.Linear(dim_tokens, vocab_size, bias=False)
+            for vocab_size in vocab_sizes
+        ])
 
     def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
         """Project embeddings to logits for each codebook.
@@ -334,13 +320,7 @@ class ProjectionFusionMLP(nn.Module):
         dropout: Dropout probability (default: 0.1)
     """
 
-    def __init__(
-        self,
-        dim_tokens: int,
-        vocab_sizes: list[int],
-        hidden_ratio: float = 2.0,
-        dropout: float = 0.1,
-    ):
+    def __init__(self, dim_tokens: int, vocab_sizes: list[int], hidden_ratio: float = 2.0, dropout: float = 0.1):
         super().__init__()
         self.dim_tokens = dim_tokens
         self.vocab_sizes = vocab_sizes
@@ -351,16 +331,12 @@ class ProjectionFusionMLP(nn.Module):
             hidden_ratio = min(hidden_ratio, 0.5)
 
         # Create MLP head for each codebook
-        self.heads = nn.ModuleList(
-            [
-                self._create_mlp_head(dim_tokens, vocab_size, hidden_ratio, dropout)
-                for vocab_size in vocab_sizes
-            ]
-        )
+        self.heads = nn.ModuleList([
+            self._create_mlp_head(dim_tokens, vocab_size, hidden_ratio, dropout)
+            for vocab_size in vocab_sizes
+        ])
 
-    def _create_mlp_head(
-        self, dim_tokens: int, vocab_size: int, hidden_ratio: float, dropout: float
-    ) -> nn.Module:
+    def _create_mlp_head(self, dim_tokens: int, vocab_size: int, hidden_ratio: float, dropout: float) -> nn.Module:
         """Create a single MLP projection head."""
         hidden_dim = int(dim_tokens * hidden_ratio)
 
@@ -368,7 +344,7 @@ class ProjectionFusionMLP(nn.Module):
             nn.Linear(dim_tokens, hidden_dim),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim, vocab_size, bias=False),
+            nn.Linear(hidden_dim, vocab_size, bias=False)
         )
 
     def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
@@ -428,16 +404,14 @@ class ProjectionFusionTrunkMLP(nn.Module):
         )
 
         # Lightweight per-codebook heads
-        self.heads = nn.ModuleList(
-            [
-                nn.Sequential(
-                    nn.Linear(dim_tokens, head_hidden),
-                    nn.GELU(),
-                    nn.Linear(head_hidden, vocab_size, bias=False),
-                )
-                for vocab_size in vocab_sizes
-            ]
-        )
+        self.heads = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(dim_tokens, head_hidden),
+                nn.GELU(),
+                nn.Linear(head_hidden, vocab_size, bias=False),
+            )
+            for vocab_size in vocab_sizes
+        ])
 
     def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
         """Project embeddings to logits via shared trunk + separate heads.
@@ -516,32 +490,22 @@ class UnifiedProjectionFusion(nn.Module):
         # Multi-codebook case
         else:
             if projection_type == "linear":
-                self.projection = ProjectionFusionLinear(
-                    dim_tokens, vocab_sizes, share_weights
-                )
+                self.projection = ProjectionFusionLinear(dim_tokens, vocab_sizes, share_weights)
 
             elif projection_type == "mlp":
                 hidden_ratio = projection_kwargs.get("hidden_ratio", 2.0)
                 dropout = projection_kwargs.get("dropout", 0.1)
-                self.projection = ProjectionFusionMLP(
-                    dim_tokens, vocab_sizes, hidden_ratio, dropout
-                )
+                self.projection = ProjectionFusionMLP(dim_tokens, vocab_sizes, hidden_ratio, dropout)
 
             elif projection_type == "trunk_mlp":
                 trunk_hidden_ratio = projection_kwargs.get("trunk_hidden_ratio", 2.0)
                 head_hidden_ratio = projection_kwargs.get("head_hidden_ratio", 0.5)
                 dropout = projection_kwargs.get("dropout", 0.1)
                 self.projection = ProjectionFusionTrunkMLP(
-                    dim_tokens,
-                    vocab_sizes,
-                    trunk_hidden_ratio,
-                    head_hidden_ratio,
-                    dropout,
+                    dim_tokens, vocab_sizes, trunk_hidden_ratio, head_hidden_ratio, dropout,
                 )
             else:
-                raise ValueError(
-                    f"Unknown projection_type: {projection_type}. Must be: 'linear', 'mlp' or 'trunk_mlp'"
-                )
+                raise ValueError(f"Unknown projection_type: {projection_type}. Must be: 'linear', 'mlp' or 'trunk_mlp'")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor | list[torch.Tensor]:
         """Project hidden states to vocabulary logits.

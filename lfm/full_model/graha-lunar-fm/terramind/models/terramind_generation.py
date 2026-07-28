@@ -69,31 +69,31 @@ class TerraMindGeneration(nn.Module):
     """
 
     def __init__(
-        self,
-        input_modalities: list[str],
-        output_modalities: list[str],
-        modality_info: dict[str, dict[str, Any]],
-        tokenizers: torch.nn.ModuleDict,
-        cfg: Any,
-        text_tokenizer: Any | None = None,
-        decoding_steps: list[int] | int = 1,
-        temps: list[float] | float = 1.0,
-        top_p: float = 0.8,
-        top_k: int = 0,
-        timesteps: int = 50,
-        dim: int = 768,
-        encoder_depth: int = 12,
-        decoder_depth: int = 12,
-        num_heads: int = 12,
-        mlp_ratio: float = 4.0,
-        qkv_bias: bool = True,
-        proj_bias: bool = True,
-        mlp_bias: bool = True,
-        num_register_tokens: int = 0,
-        act_layer: type[nn.Module] = nn.GELU,
-        norm_layer: partial | nn.Module = partial(LayerNorm, eps=1e-6),
-        gated_mlp: bool = False,
-        qk_norm: bool = False,
+            self,
+            input_modalities: list[str],
+            output_modalities: list[str],
+            modality_info: dict[str, dict[str, Any]],
+            tokenizers: torch.nn.ModuleDict,
+            cfg: Any,
+            text_tokenizer: Any | None = None,
+            decoding_steps: list[int] | int = 1,
+            temps: list[float] | float = 1.0,
+            top_p: float = 0.8,
+            top_k: int = 0,
+            timesteps: int = 50,
+            dim: int = 768,
+            encoder_depth: int = 12,
+            decoder_depth: int = 12,
+            num_heads: int = 12,
+            mlp_ratio: float = 4.0,
+            qkv_bias: bool = True,
+            proj_bias: bool = True,
+            mlp_bias: bool = True,
+            num_register_tokens: int = 0,
+            act_layer: type[nn.Module] = nn.GELU,
+            norm_layer: partial | nn.Module = partial(LayerNorm, eps=1e-6),
+            gated_mlp: bool = False,
+            qk_norm: bool = False,
     ):
         super().__init__()
 
@@ -122,19 +122,14 @@ class TerraMindGeneration(nn.Module):
 
         self.input_modalities = input_modalities
         self.output_modalities = output_modalities
-        self.all_modalities = list(
-            set(self.input_modalities + self.output_modalities)
-        )  # modalities appear only once
+        self.all_modalities = list(set(self.input_modalities + self.output_modalities))  # modalities appear only once
 
         self.image_modalities = [
-            k
-            for k, v in self.encoder_embeddings.items()
+            k for k, v in self.encoder_embeddings.items()
             if isinstance(v, (ImageEncoderEmbedding, ImageTokenEncoderEmbedding))
         ]
         self.output_image_modalities = [
-            k
-            for k, v in self.decoder_embeddings.items()
-            if isinstance(v, ImageTokenDecoderEmbedding)
+            k for k, v in self.decoder_embeddings.items() if isinstance(v, ImageTokenDecoderEmbedding)
         ]
 
         # Build MAE model
@@ -161,21 +156,15 @@ class TerraMindGeneration(nn.Module):
 
         self.tokenizers = tokenizers
         self.text_tokenizer = text_tokenizer
-        self.eos_id = (
-            text_tokenizer.token_to_id(EOS_TOKEN) if text_tokenizer is not None else 3
-        )
-        self.s1_id = (
-            text_tokenizer.token_to_id(S1_TOKEN)
-            if text_tokenizer is not None
-            else 36153
-        )
+        self.eos_id = text_tokenizer.token_to_id(EOS_TOKEN) if text_tokenizer is not None else 3
+        self.s1_id = text_tokenizer.token_to_id(S1_TOKEN) if text_tokenizer is not None else 36153
 
     def forward(
-        self,
-        d: dict[str, torch.Tensor],
-        timesteps: int | None = None,
-        verbose: bool = False,
-        **kwargs,
+            self,
+            d: dict[str, torch.Tensor],
+            timesteps: int | None = None,
+            verbose: bool = False,
+            **kwargs,
     ) -> dict[str, torch.Tensor]:
         """Forward pass of the model.
 
@@ -204,9 +193,7 @@ class TerraMindGeneration(nn.Module):
         for mod, value in d.items():
             if mod in self.image_modalities:
                 # Only run the tokenizer encode path for raw (untokenized) image inputs.
-                is_pretokenized = self.modality_info.get(mod, {}).get(
-                    "pretokenized", False
-                )
+                is_pretokenized = self.modality_info.get(mod, {}).get("pretokenized", False)
 
                 if is_pretokenized:
                     enc_emb = self.encoder_embeddings[mod]
@@ -221,20 +208,12 @@ class TerraMindGeneration(nn.Module):
                             value = value[-1]  # Select tokens from img tokenizer
 
                     patch_size = self.encoder_embeddings[mod].patch_size
-                    img_num_tokens = int(
-                        (input_shape[-1] / patch_size[-1])
-                        * (input_shape[-2] / patch_size[-2])
-                    )
+                    img_num_tokens = int((input_shape[-1] / patch_size[-1]) * (input_shape[-2] / patch_size[-2]))
                     image_size = (input_shape[-2], input_shape[-1])  # (H, W)
 
             # Encode input and provide expected format
             input_dict[mod] = init_full_input_modality(
-                value,
-                self.modality_info,
-                mod,
-                device,
-                eos_id=self.eos_id,
-                num_tokens=img_num_tokens,
+                value, self.modality_info, mod, device, eos_id=self.eos_id, num_tokens=img_num_tokens,
             )
 
         # Initialize output modalities
@@ -266,21 +245,11 @@ class TerraMindGeneration(nn.Module):
             if mod in input_dict:
                 # Modality in input and target
                 input_dict[mod] = init_cond_target_modality(
-                    input_dict[mod],
-                    self.modality_info,
-                    mod,
-                    mod_num_tokens,
-                    eos_id=self.eos_id,
-                    s1_id=self.s1_id,
+                    input_dict[mod], self.modality_info, mod, mod_num_tokens, eos_id=self.eos_id, s1_id=self.s1_id,
                 )
             else:
                 input_dict[mod] = init_empty_target_modality(
-                    self.modality_info,
-                    mod,
-                    batch_size,
-                    mod_num_tokens,
-                    device,
-                    s1_id=self.s1_id,
+                    self.modality_info, mod, batch_size, mod_num_tokens, device, s1_id=self.s1_id,
                 )
 
         # Predict tokens of output modalities
@@ -291,11 +260,8 @@ class TerraMindGeneration(nn.Module):
             autoregression_schemes=autoregression_schemes,
             decoding_steps=token_decoding_steps,
             token_decoding_schedules=token_decoding_schedules,
-            temps=(
-                [self.temps] * len(self.output_modalities)
-                if isinstance(self.temps, (float, int))
-                else list(self.temps) if isinstance(self.temps, list) else [self.temps]
-            ),
+            temps=([self.temps] * len(self.output_modalities) if isinstance(self.temps, (float, int))
+                   else list(self.temps) if isinstance(self.temps, list) else [self.temps]),
             temp_schedules=["constant"] * len(self.output_modalities),
             cfg_scales=[1.0] * len(self.output_modalities),
             cfg_schedules=["constant"] * len(self.output_modalities),
@@ -306,7 +272,7 @@ class TerraMindGeneration(nn.Module):
             input_dict,
             schedule,
             verbose=False,
-            seed=random.randint(-(2**31), 2**31 - 1),
+            seed=random.randint(-(2 ** 31), 2 ** 31 - 1),
             top_p=self.top_p,
             top_k=self.top_k,
             text_tokenizer=self.text_tokenizer,
@@ -320,10 +286,8 @@ class TerraMindGeneration(nn.Module):
             tok = mod_out["tensor"] if isinstance(mod_out, dict) else mod_out
             if mod in self.output_image_modalities:
                 if image_size is None:
-                    raise ValueError(
-                        f"Cannot decode output image modality '{mod}' without image_size. "
-                        "Ensure at least one input modality is an image modality."
-                    )
+                    raise ValueError(f"Cannot decode output image modality '{mod}' without image_size. "
+                                      "Ensure at least one input modality is an image modality.")
                 patch_size = int(self.tokenizers[mod].patch_size)
                 nh = image_size[0] // patch_size
                 nw = image_size[1] // patch_size
@@ -343,12 +307,7 @@ class TerraMindGeneration(nn.Module):
                     verbose=verbose,
                 )
 
-            elif mod in self.output_modalities and mod in [
-                "metadata",
-                "coords",
-                "crater_bboxes",
-                "static_maps",
-            ]:
+            elif mod in self.output_modalities and mod in ["metadata", "coords", "crater_bboxes", "static_maps"]:
                 # Preserve raw generated token ids for sequence modalities to be decoded later instead of per-token.
                 # This handles all non-image output modalities (sequences like metadata, static_maps, crater_bboxes, etc.)
                 out[mod] = tok
@@ -357,7 +316,7 @@ class TerraMindGeneration(nn.Module):
 
 
 def get_terramind_generation_model(variant, **kwargs):
-    """Returns a TerraMind generation model instance based on the specified variant.
+    """ Returns a TerraMind generation model instance based on the specified variant.
 
     Args:
         variant: A string identifier for the model variant. Supported values include:
@@ -416,9 +375,7 @@ def terramind_v1_large_generate(**kwargs):
     return build_terrammind_generate(**config)
 
 
-def build_terrammind_generate(
-    pretrained_tokenizers: torch.nn.ModuleDict, cfg: Any | None, **kwargs
-):
+def build_terrammind_generate(pretrained_tokenizers: torch.nn.ModuleDict, cfg: Any | None, **kwargs):
     """Build TerraMind generation model with specified configuration.
 
     Args:
@@ -446,10 +403,8 @@ def checkpoint_filter_fn_generate(state_dict: dict, model: TerraMindGeneration) 
             if v.shape == model_state_dict[encdec_k].shape:
                 clean_dict[encdec_k] = v
             else:
-                print(
-                    f"Shape for {k} ({list(v.shape)}) does not match model weights "
-                    f"({list(model_state_dict[encdec_k].shape)}), skipping weights."
-                )
+                print(f"Shape for {k} ({list(v.shape)}) does not match model weights "
+                      f"({list(model_state_dict[encdec_k].shape)}), skipping weights.")
 
     missing_params = set(model_state_dict.keys()) - set(clean_dict.keys())
     tok_keys_preserved = []
@@ -458,15 +413,11 @@ def checkpoint_filter_fn_generate(state_dict: dict, model: TerraMindGeneration) 
             # Tokenizer weights are loaded separately; use model state dict to preserve them through strict load.
             tok_keys_preserved.append(k)
         else:
-            print(
-                f"Weights for {k} are missing in state dict, using random initialization."
-            )
+            print(f"Weights for {k} are missing in state dict, using random initialization.")
         clean_dict[k] = model_state_dict[k]
 
     if tok_keys_preserved:
-        print(
-            f"Preserved {len(tok_keys_preserved)} pretrained tokenizer weight tensors through checkpoint filter."
-        )
+        print(f"Preserved {len(tok_keys_preserved)} pretrained tokenizer weight tensors through checkpoint filter.")
 
     state_dict = clean_dict
 

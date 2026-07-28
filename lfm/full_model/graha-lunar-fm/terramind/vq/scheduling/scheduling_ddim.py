@@ -20,16 +20,13 @@ import torch
 
 from diffusers.configuration_utils import register_to_config
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler as DDIMS
-from diffusers.schedulers.scheduling_ddim import (
-    betas_for_alpha_bar,
-    rescale_zero_terminal_snr,
-)
+from diffusers.schedulers.scheduling_ddim import betas_for_alpha_bar, rescale_zero_terminal_snr
 
 from .scheduling_utils import scaled_cosine_alphas
 
 
 class DDIMScheduler(DDIMS):
-    """Denoising diffusion implicit models is a scheduler that extends the denoising procedure introduced in denoising
+    """ Denoising diffusion implicit models is a scheduler that extends the denoising procedure introduced in denoising
     diffusion probabilistic models (DDPMs) with non-Markovian guidance.
 
     [`~ConfigMixin`] takes care of storing all config attributes that are passed in the scheduler's `__init__`
@@ -101,9 +98,7 @@ class DDIMScheduler(DDIMS):
             if trained_betas is not None:
                 self.betas = torch.tensor(trained_betas, dtype=torch.float32)
             elif beta_schedule == "linear":
-                self.betas = torch.linspace(
-                    beta_start, beta_end, num_train_timesteps, dtype=torch.float32
-                )
+                self.betas = torch.linspace(beta_start, beta_end, num_train_timesteps, dtype=torch.float32)
             elif beta_schedule == "scaled_linear":
                 # this schedule is very specific to the latent diffusion model.
                 self.betas = (
@@ -119,9 +114,7 @@ class DDIMScheduler(DDIMS):
                 # Glide cosine schedule
                 self.betas = betas_for_alpha_bar(num_train_timesteps)
             else:
-                raise NotImplementedError(
-                    f"{beta_schedule} does is not implemented for {self.__class__}"
-                )
+                raise NotImplementedError(f"{beta_schedule} does is not implemented for {self.__class__}")
 
             # Rescale for zero SNR
             if rescale_betas_zero_snr:
@@ -134,22 +127,16 @@ class DDIMScheduler(DDIMS):
         # For the final step, there is no previous alphas_cumprod because we are already at 0
         # `set_alpha_to_one` decides whether we set this parameter simply to one or
         # whether we use the final alpha of the "non-previous" one.
-        self.final_alpha_cumprod = (
-            torch.tensor(1.0) if set_alpha_to_one else self.alphas_cumprod[0]
-        )
+        self.final_alpha_cumprod = torch.tensor(1.0) if set_alpha_to_one else self.alphas_cumprod[0]
 
         # standard deviation of the initial noise distribution
         self.init_noise_sigma = 1.0
 
         # setable values
         self.num_inference_steps = None
-        self.timesteps = torch.from_numpy(
-            np.arange(0, num_train_timesteps)[::-1].copy().astype(np.int64)
-        )
+        self.timesteps = torch.from_numpy(np.arange(0, num_train_timesteps)[::-1].copy().astype(np.int64))
 
-    def get_alpha_sigma_sqrts(
-        self, timesteps, device, dtype, shape
-    ) -> torch.FloatTensor:
+    def get_alpha_sigma_sqrts(self, timesteps, device, dtype, shape) -> torch.FloatTensor:
         # Make sure alphas_cumprod and timestep have same device and dtype as original_samples
         alphas_cumprod = self.alphas_cumprod.to(device=device, dtype=dtype)
         timesteps = timesteps.to(device)
