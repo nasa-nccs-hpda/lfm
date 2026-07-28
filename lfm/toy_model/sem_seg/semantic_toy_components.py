@@ -13,7 +13,7 @@ from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 from lfm.all_models.all_tasks.data.normalization import (
     load_terramind_pretraining_stats,
 )
-from lfm.full_model.all_tasks.utils import (
+from lfm.all_models.all_tasks.utils import (
     ValidationPlotCallback,
 )
 from lfm.toy_model.sem_seg.lightning_wrappers.toy_sem_seg_datamodule import (

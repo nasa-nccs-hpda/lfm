@@ -1,8 +1,8 @@
-﻿"""Prediction-cache helpers shared through the all-tasks utility API.
+"""Prediction-cache helpers shared through the all-tasks utility API.
 
 Semantic cache implementation lives here. Instance cache implementation lives
-under ``lfm.full_model.inst_seg.instance_prediction_cache`` and is re-exported lazily for
-backward-compatible imports from ``lfm.full_model.all_tasks.utils``.
+under ``lfm.all_models.inst_seg.instance_prediction_cache`` and is exposed lazily
+through this shared utility API.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from lfm.full_model.all_tasks.utils.common import (
+from lfm.all_models.all_tasks.utils.common import (
     _extract_image_and_mask,
     _extract_logits,
     _extract_paths,
@@ -25,7 +25,7 @@ from lfm.full_model.all_tasks.utils.common import (
 
 
 def save_toy_instance_prediction_cache(*args, **kwargs):
-    from lfm.full_model.inst_seg.instance_prediction_cache import (
+    from lfm.all_models.inst_seg.instance_prediction_cache import (
         save_toy_instance_prediction_cache,
     )
 
@@ -33,7 +33,7 @@ def save_toy_instance_prediction_cache(*args, **kwargs):
 
 
 def save_graha_instance_prediction_cache(*args, **kwargs):
-    from lfm.full_model.inst_seg.instance_prediction_cache import (
+    from lfm.all_models.inst_seg.instance_prediction_cache import (
         save_graha_instance_prediction_cache,
     )
 
@@ -41,7 +41,7 @@ def save_graha_instance_prediction_cache(*args, **kwargs):
 
 
 def _load_instance_prediction_cache(*args, **kwargs):
-    from lfm.full_model.inst_seg.instance_prediction_cache import (
+    from lfm.all_models.inst_seg.instance_prediction_cache import (
         _load_instance_prediction_cache,
     )
 

@@ -17,7 +17,7 @@ from lfm.all_models.all_tasks import SingleModelExperiment
 from lfm.all_models.sem_seg.semantic_test_suite_callback import (
     SemanticEpochTestSuiteCallback,
 )
-from lfm.full_model.all_tasks.utils import ensure_data_symlink
+from lfm.all_models.all_tasks.utils import ensure_data_symlink
 from lfm.all_models.sem_seg.workflows import (
     semantic_graha_workflow,
     semantic_toy_workflow,

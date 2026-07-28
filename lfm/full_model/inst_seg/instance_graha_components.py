@@ -19,7 +19,7 @@ import torch
 from lightning.pytorch import Trainer
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 
-from lfm.full_model.all_tasks.utils import (
+from lfm.all_models.all_tasks.utils import (
     plot_instance_predictions,
 )
 from lfm.all_models.all_tasks.data.normalization import (

@@ -12,7 +12,7 @@ import torch
 from lightning.pytorch import seed_everything
 from lightning.pytorch.callbacks import Callback
 
-from lfm.full_model.all_tasks.utils import save_prediction_cache
+from lfm.all_models.all_tasks.utils import save_prediction_cache
 from lfm.toy_model.sem_seg import semantic_toy_components
 
 

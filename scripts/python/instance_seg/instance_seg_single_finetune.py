@@ -17,7 +17,7 @@ from lfm.all_models.inst_seg.instance_test_suite_callback import (
     GrahaInstancePlotCallback,
     InstanceEpochTestSuiteCallback,
 )
-from lfm.full_model.all_tasks.utils import ensure_data_symlink
+from lfm.all_models.all_tasks.utils import ensure_data_symlink
 from scripts.python.instance_seg import instance_seg_comparison as comparison
 
 

@@ -751,7 +751,7 @@ Sub-steps:
      `lfm/all_models/inst_seg/instance_test_suite.py` for checkpoint output and
      metrics.
 
-9. Move shared plotting/prediction-cache/evaluation utilities out of the
+9. [Completed] Move shared plotting/prediction-cache/evaluation utilities out of the
    misleading `lfm/full_model/all_tasks/utils` namespace when they are used by
    both Toy and Graha paths.
 
@@ -773,6 +773,20 @@ Sub-steps:
    - Keep Toy-only utilities under `lfm/toy_model`.
    - Preserve existing behavior by updating imports directly; do not create
      compatibility-only modules.
+
+   Progress:
+
+   - Shared all-task utility modules moved to
+     `lfm/all_models/all_tasks/utils`.
+   - Shared semantic plotting moved to
+     `lfm/all_models/sem_seg/semantic_plotting.py`.
+   - Shared instance plotting and prediction-cache modules moved to
+     `lfm/all_models/inst_seg`.
+   - The semantic prediction-cache compatibility-only file was removed because
+     semantic cache behavior is already covered by the shared all-task cache
+     implementation.
+   - Scripts, workflows, components, and notebooks were updated to import the
+     new package locations directly.
 
 10. Validate the script cleanup without changing behavior.
 

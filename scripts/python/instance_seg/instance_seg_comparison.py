@@ -27,11 +27,11 @@ from lfm.all_models.inst_seg.instance_test_suite_callback import (
     InstanceEpochTestSuiteCallback,
 )
 from lfm.full_model.inst_seg.instance_model_adapter import GrahaInstanceModelAdapter
-from lfm.full_model.all_tasks.utils import (
+from lfm.all_models.all_tasks.utils import (
     create_timestamped_output_dir,
     plot_instance_cache_comparison,
 )
-from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
+from lfm.all_models.all_tasks.utils.utils import ensure_data_symlink
 
 GRAHA_ADAPTER = GrahaInstanceModelAdapter()
 

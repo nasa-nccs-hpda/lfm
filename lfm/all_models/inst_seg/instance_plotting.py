@@ -16,16 +16,16 @@ from lfm.all_models.all_tasks.data.image_io import (
     read_tif,
 )
 from lfm.all_models.all_tasks.data.tensor_utils import image_to_chw_float
-from lfm.full_model.all_tasks.utils.common import (
+from lfm.all_models.all_tasks.utils.common import (
     _display_sample_key,
     _extract_paths,
     _get_split_dataloader,
     _model_display_name,
     _sample_key,
 )
-from lfm.full_model.all_tasks.utils.display import prepare_image_for_display
-from lfm.full_model.all_tasks.utils.metrics import _instance_metrics, calculate_f1_score
-from lfm.full_model.inst_seg.instance_prediction_cache import (
+from lfm.all_models.all_tasks.utils.display import prepare_image_for_display
+from lfm.all_models.all_tasks.utils.metrics import _instance_metrics, calculate_f1_score
+from lfm.all_models.inst_seg.instance_prediction_cache import (
     _load_instance_prediction_cache,
 )
 

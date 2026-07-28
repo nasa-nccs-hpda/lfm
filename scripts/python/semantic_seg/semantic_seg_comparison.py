@@ -18,12 +18,12 @@ if str(LFM_ROOT) not in sys.path:
     sys.path.insert(0, str(LFM_ROOT))
 
 from lfm.all_models.all_tasks import ComparisonExperiment, save_config_json
-from lfm.full_model.all_tasks.utils import (
+from lfm.all_models.all_tasks.utils import (
     create_timestamped_output_dir,
     evaluate_prediction_caches,
     plot_prediction_cache_comparison,
 )
-from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
+from lfm.all_models.all_tasks.utils.utils import ensure_data_symlink
 from lfm.full_model.sem_seg.semantic_model_adapter import GrahaSemanticModelAdapter
 from lfm.all_models.sem_seg.semantic_test_suite_callback import (
     SemanticEpochTestSuiteCallback,

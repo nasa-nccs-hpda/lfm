@@ -9,13 +9,13 @@ import numpy as np
 from tqdm.auto import tqdm
 
 from lfm.all_models.all_tasks import CheckpointRecord
-from lfm.full_model.all_tasks.utils import (
+from lfm.all_models.all_tasks.utils import (
     plot_instance_cache_predictions,
     save_graha_instance_prediction_cache,
     save_toy_instance_prediction_cache,
 )
-from lfm.full_model.all_tasks.utils.metrics import _instance_metrics
-from lfm.full_model.inst_seg.instance_prediction_cache import (
+from lfm.all_models.all_tasks.utils.metrics import _instance_metrics
+from lfm.all_models.inst_seg.instance_prediction_cache import (
     _load_instance_prediction_cache,
 )
 

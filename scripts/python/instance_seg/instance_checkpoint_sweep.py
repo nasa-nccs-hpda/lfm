@@ -52,8 +52,8 @@ from lfm.all_models.inst_seg.instance_test_suite import (
     write_instance_test_suite_outputs,
 )
 from lfm.full_model.inst_seg.instance_model_adapter import GrahaInstanceModelAdapter
-from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
-from lfm.full_model.all_tasks.utils import (
+from lfm.all_models.all_tasks.utils.utils import ensure_data_symlink
+from lfm.all_models.all_tasks.utils import (
     save_graha_instance_prediction_cache,
     save_toy_instance_prediction_cache,
 )

@@ -254,12 +254,12 @@ def import_project_dependencies() -> dict[str, Any]:
         LunarSemanticFromInstanceDatamodule,
         LunarSemanticMaskSegmentationDatamodule,
     )
-    from lfm.full_model.all_tasks.utils import ValidationPlotCallback
+    from lfm.all_models.all_tasks.utils import ValidationPlotCallback
     from terratorch_integration.lunar_segmentation_task import (
         LunarShapeSegmentationTask,
     )
-    from lfm.full_model.all_tasks.utils import create_timestamped_output_dir
-    from lfm.full_model.all_tasks.utils import save_prediction_cache
+    from lfm.all_models.all_tasks.utils import create_timestamped_output_dir
+    from lfm.all_models.all_tasks.utils import save_prediction_cache
 
     return {
         "LunarSemanticFromInstanceDatamodule": LunarSemanticFromInstanceDatamodule,

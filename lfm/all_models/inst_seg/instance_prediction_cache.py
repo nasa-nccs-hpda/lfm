@@ -1,4 +1,4 @@
-﻿"""Instance prediction-cache helpers."""
+"""Instance prediction-cache helpers."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from lfm.full_model.all_tasks.utils.common import (
+from lfm.all_models.all_tasks.utils.common import (
     _extract_paths,
     _get_split_dataloader,
     _sample_key,

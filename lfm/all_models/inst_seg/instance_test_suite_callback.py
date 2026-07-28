@@ -7,7 +7,7 @@ from pathlib import Path
 from lightning.pytorch.callbacks import Callback
 
 from lfm.all_models.inst_seg.instance_test_suite import run_instance_test_suite
-from lfm.full_model.all_tasks.utils import (
+from lfm.all_models.all_tasks.utils import (
     plot_instance_cache_predictions,
     save_graha_instance_prediction_cache,
 )

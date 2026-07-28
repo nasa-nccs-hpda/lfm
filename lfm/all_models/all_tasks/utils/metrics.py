@@ -1,4 +1,4 @@
-﻿"""Metric helpers for segmentation plots and prediction caches."""
+"""Metric helpers for segmentation plots and prediction caches."""
 
 from __future__ import annotations
 
@@ -8,11 +8,11 @@ from pathlib import Path
 
 import numpy as np
 
-from lfm.full_model.all_tasks.utils.common import (
+from lfm.all_models.all_tasks.utils.common import (
     _display_sample_key,
     _model_display_name,
 )
-from lfm.full_model.all_tasks.utils.prediction_cache import _load_prediction_cache
+from lfm.all_models.all_tasks.utils.prediction_cache import _load_prediction_cache
 
 
 def calculate_f1_score(pred: np.ndarray, label: np.ndarray) -> float:

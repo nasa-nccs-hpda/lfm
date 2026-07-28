@@ -1,4 +1,4 @@
-﻿"""Lightning callbacks used by full-model plotting workflows."""
+"""Lightning callbacks used by shared plotting workflows."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 from lightning.pytorch.callbacks import Callback
 
-from lfm.full_model.sem_seg.semantic_plotting import plot_validation_predictions
+from lfm.all_models.sem_seg.semantic_plotting import plot_validation_predictions
 
 
 class ValidationPlotCallback(Callback):

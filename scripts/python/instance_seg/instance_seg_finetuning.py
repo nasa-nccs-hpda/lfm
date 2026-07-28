@@ -15,8 +15,8 @@ LFM_ROOT = Path(__file__).resolve().parents[3]
 if str(LFM_ROOT) not in sys.path:
     sys.path.insert(0, str(LFM_ROOT))
 
-from lfm.full_model.all_tasks.utils import create_timestamped_output_dir
-from lfm.full_model.all_tasks.utils.utils import ensure_data_symlink
+from lfm.all_models.all_tasks.utils import create_timestamped_output_dir
+from lfm.all_models.all_tasks.utils.utils import ensure_data_symlink
 from lfm.full_model.inst_seg import instance_graha_components as components
 
 

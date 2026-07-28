@@ -1,4 +1,4 @@
-﻿"""Semantic segmentation plotting helpers."""
+"""Semantic segmentation plotting helpers."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from matplotlib.colors import ListedColormap
 
-from lfm.full_model.all_tasks.utils.common import (
+from lfm.all_models.all_tasks.utils.common import (
     _display_sample_key,
     _extract_image_and_mask,
     _extract_logits,
@@ -17,13 +17,13 @@ from lfm.full_model.all_tasks.utils.common import (
     _model_display_name,
     _move_batch_to_device,
 )
-from lfm.full_model.all_tasks.utils.display import (
+from lfm.all_models.all_tasks.utils.display import (
     create_colored_overlay_image,
     create_overlay_image,
     prepare_image_for_display,
 )
-from lfm.full_model.all_tasks.utils.metrics import calculate_f1_score
-from lfm.full_model.all_tasks.utils.prediction_cache import _load_prediction_cache
+from lfm.all_models.all_tasks.utils.metrics import calculate_f1_score
+from lfm.all_models.all_tasks.utils.prediction_cache import _load_prediction_cache
 
 
 def plot_validation_predictions(

@@ -11,7 +11,7 @@ import torch
 from lightning.pytorch import seed_everything
 from lightning.pytorch.callbacks import Callback
 
-from lfm.full_model.all_tasks.utils import (
+from lfm.all_models.all_tasks.utils import (
     plot_instance_cache_predictions,
     save_graha_instance_prediction_cache,
 )
