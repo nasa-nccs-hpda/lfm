@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from lfm.all_models.all_tasks import config_defaults as defaults
-from lfm.all_models.all_tasks.cli_args import create_semantic_comparison_parser
+from lfm.all_models.all_tasks.cli_args import create_semantic_experiment_parser
 
 
 @dataclass(frozen=True)
@@ -220,7 +220,7 @@ def build_config(
     **overrides: Any,
 ) -> SemanticSegmentationExperimentConfig:
     """Build a semantic segmentation experiment config from explicit values."""
-    args = create_semantic_comparison_parser().parse_args([])
+    args = create_semantic_experiment_parser().parse_args([])
     path_values = {
         "data_root": data_root,
         "base_output_dir": base_output_dir,

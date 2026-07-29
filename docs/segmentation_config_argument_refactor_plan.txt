@@ -199,12 +199,13 @@ Steps:
 
 1. Rename parser factories from comparison-specific names to experiment names:
    - `create_instance_comparison_parser` ->
-     `create_instance_experiment_parser`
+     `create_instance_experiment_parser`. Done.
    - `create_semantic_comparison_parser` ->
-     `create_semantic_experiment_parser`
-2. Update all script and notebook references.
+     `create_semantic_experiment_parser`. Done.
+2. Update all script and notebook references. Done.
 3. Keep comparison-specific parser additions only where they truly belong to
-   comparison orchestration.
+   comparison orchestration. Done; comparison scripts still use experiment
+   parsers because they launch ordinary task experiments.
 
 Phase F: Revisit Sweep and Plot Configs
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -212,10 +213,15 @@ Phase F: Revisit Sweep and Plot Configs
 Steps:
 
 1. Create smaller checkpoint sweep config classes that compose the base task
-   experiment config plus sweep-specific options.
+   experiment config plus sweep-specific options. Done:
+   `SemanticCheckpointSweepConfig` and `InstanceCheckpointSweepConfig`.
 2. Avoid duplicating task/model defaults between training, sweep, and plotting
-   scripts.
+   scripts. Done for checkpoint sweep and instance checkpoint comparison plot
+   config construction. Semantic checkpoint comparison plot config was added
+   afterward to restore task symmetry.
 3. Keep checkpoint/plot-only settings separate from model training settings.
+   Done for sweep configs, `InstanceCheckpointComparisonPlotConfig`, and
+   `SemanticCheckpointComparisonPlotConfig`.
 
 Phase G: Notebook Config Helpers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

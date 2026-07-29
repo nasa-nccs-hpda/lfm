@@ -17,7 +17,7 @@ if str(LFM_ROOT) not in sys.path:
     sys.path.insert(0, str(LFM_ROOT))
 
 from lfm.all_models.all_tasks import ComparisonExperiment
-from lfm.all_models.all_tasks.cli_args import parse_semantic_comparison_args
+from lfm.all_models.all_tasks.cli_args import parse_semantic_experiment_args
 from lfm.all_models.all_tasks.utils import (
     create_timestamped_output_dir,
     evaluate_prediction_caches,
@@ -126,7 +126,7 @@ def get_toy_normalization_modality_info(
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    return parse_semantic_comparison_args(argv, description=__doc__)
+    return parse_semantic_experiment_args(argv, description=__doc__)
 
 
 def main() -> None:

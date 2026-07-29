@@ -27,7 +27,6 @@ import contextlib
 import gc
 import os
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +52,10 @@ from lfm.all_models.inst_seg.testing.instance_test_suite import (
     write_instance_test_suite_outputs,
 )
 from lfm.all_models.inst_seg.config import build_config_from_args
+from lfm.all_models.inst_seg.sweep_config import (
+    InstanceCheckpointSweepConfig,
+    build_checkpoint_sweep_config_from_args,
+)
 from lfm.full_model.inst_seg.instance_model_adapter import GrahaInstanceModelAdapter
 from lfm.all_models.all_tasks.utils.utils import ensure_data_symlink
 from lfm.all_models.all_tasks.utils import (
@@ -61,124 +64,6 @@ from lfm.all_models.all_tasks.utils import (
 )
 
 GRAHA_ADAPTER = GrahaInstanceModelAdapter()
-
-
-@dataclass(frozen=True)
-class InstanceSweepConfig:
-    notebook_dir: Path
-    data_root: Path
-    output_root: Path
-    toy_checkpoint_dir: Path | None
-    graha_checkpoint_dir: Path | None
-    models: list[str]
-    target_size: int
-    band_filter: list[int]
-    image_glob: str
-    label_glob: str
-    image_suffix: str
-    label_suffix: str
-    max_samples: int | None
-    toy_batch_size: int
-    toy_num_workers: int
-    toy_normalize_inputs: bool
-    normalization_source: str
-    normalization_modality: str
-    toy_architecture: str
-    dino_checkpoint: Path | None
-    graha_pretrain_dir: Path | None
-    graha_input_modality_mode: str
-    graha_vis_uv_merge_method: str
-    graha_stats_batch_size: int
-    graha_batch_size: int
-    graha_num_workers: int
-    graha_backbone_lr: float
-    graha_head_lr: float
-    graha_layer_decay: float
-    graha_weight_decay: float
-    graha_warmup_steps: int
-    graha_anchor_sizes: list[list[int]]
-    graha_anchor_aspect_ratios: list[float]
-    graha_score_threshold: float
-    prediction_split: str
-    prediction_score_threshold: float
-    mask_shift: tuple[int, int]
-    ignore_nodata_in_loss: bool
-    nodata_ignore_index: int
-    max_checkpoints: int | None
-    seed: int
-    verbose: bool
-
-
-def build_config(args: argparse.Namespace) -> InstanceSweepConfig:
-    script_dir = Path(__file__).resolve().parent
-    lfm_root = script_dir.parents[2]
-    notebook_dir = lfm_root / "notebooks" / "full_model"
-    scripts_output_dir = lfm_root / "scripts" / "outputs"
-    models = [model.lower() for model in args.models]
-    unknown = sorted(set(models) - {"toy", "graha"})
-    if unknown:
-        raise ValueError(f"Unknown model name(s): {unknown}")
-
-    return InstanceSweepConfig(
-        notebook_dir=notebook_dir,
-        data_root=(
-            Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
-        ),
-        output_root=(
-            Path(args.output_root).resolve()
-            if args.output_root
-            else scripts_output_dir / "instance_checkpoint_sweep"
-        ),
-        toy_checkpoint_dir=(
-            Path(args.toy_checkpoint_dir).resolve() if args.toy_checkpoint_dir else None
-        ),
-        graha_checkpoint_dir=(
-            Path(args.graha_checkpoint_dir).resolve()
-            if args.graha_checkpoint_dir
-            else None
-        ),
-        models=models,
-        target_size=args.target_size,
-        band_filter=args.band_filter,
-        image_glob=args.image_glob,
-        label_glob=args.label_glob,
-        image_suffix=args.image_suffix,
-        label_suffix=args.label_suffix,
-        max_samples=args.max_samples,
-        toy_batch_size=args.toy_batch_size,
-        toy_num_workers=args.toy_num_workers,
-        toy_normalize_inputs=args.toy_normalize_inputs,
-        normalization_source=getattr(args, "normalization_source", "pretrain"),
-        normalization_modality=getattr(args, "normalization_modality", "vis_uv"),
-        toy_architecture=args.toy_architecture,
-        dino_checkpoint=(
-            Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None
-        ),
-        graha_pretrain_dir=(
-            Path(args.graha_pretrain_dir).resolve() if args.graha_pretrain_dir else None
-        ),
-        graha_input_modality_mode=args.graha_input_modality_mode,
-        graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
-        graha_stats_batch_size=args.graha_stats_batch_size,
-        graha_batch_size=args.graha_batch_size,
-        graha_num_workers=args.graha_num_workers,
-        graha_backbone_lr=args.graha_backbone_lr,
-        graha_head_lr=args.graha_head_lr,
-        graha_layer_decay=args.graha_layer_decay,
-        graha_weight_decay=args.graha_weight_decay,
-        graha_warmup_steps=args.graha_warmup_steps,
-        graha_anchor_sizes=args.graha_anchor_sizes,
-        graha_anchor_aspect_ratios=args.graha_anchor_aspect_ratios,
-        graha_score_threshold=args.graha_score_threshold,
-        prediction_split=args.prediction_split,
-        prediction_score_threshold=args.prediction_score_threshold,
-        mask_shift=tuple(args.mask_shift),
-        ignore_nodata_in_loss=getattr(args, "ignore_nodata_in_loss", False),
-        nodata_ignore_index=getattr(args, "nodata_ignore_index", -1),
-        max_checkpoints=args.max_checkpoints,
-        seed=args.seed,
-        verbose=args.verbose,
-    )
 
 
 @contextlib.contextmanager
@@ -191,11 +76,11 @@ def _quiet(enabled: bool):
             yield
 
 
-def _prediction_count(config: InstanceSweepConfig) -> int:
+def _prediction_count(config: InstanceCheckpointSweepConfig) -> int:
     return config.max_samples if config.max_samples is not None else 10**9
 
 
-def _make_comparison_args(config: InstanceSweepConfig) -> argparse.Namespace:
+def _make_comparison_args(config: InstanceCheckpointSweepConfig) -> argparse.Namespace:
     return argparse.Namespace(
         data_root=str(config.data_root),
         base_output_dir=str(config.output_root / "_setup"),
@@ -259,7 +144,7 @@ def _make_comparison_args(config: InstanceSweepConfig) -> argparse.Namespace:
     )
 
 
-def _setup_toy(config: InstanceSweepConfig):
+def _setup_toy(config: InstanceCheckpointSweepConfig):
     from lfm.toy_model.inst_seg.instance_model_adapter import ToyInstanceModelAdapter
 
     toy_adapter = ToyInstanceModelAdapter()
@@ -280,7 +165,7 @@ def _setup_toy(config: InstanceSweepConfig):
     return comparison_config, datamodule, task, image_processor
 
 
-def _setup_graha(config: InstanceSweepConfig):
+def _setup_graha(config: InstanceCheckpointSweepConfig):
     comparison_config = build_config_from_args(_make_comparison_args(config))
     graha_config = GRAHA_ADAPTER.build_comparison_config(
         comparison_config,
@@ -310,7 +195,8 @@ def _setup_graha(config: InstanceSweepConfig):
 
 
 def run_toy_sweep(
-    config: InstanceSweepConfig, checkpoints: list[CheckpointRecord] | None = None
+    config: InstanceCheckpointSweepConfig,
+    checkpoints: list[CheckpointRecord] | None = None,
 ) -> list[dict[str, Any]]:
     if checkpoints is None:
         if config.toy_checkpoint_dir is None:
@@ -373,7 +259,8 @@ def run_toy_sweep(
 
 
 def run_graha_sweep(
-    config: InstanceSweepConfig, checkpoints: list[CheckpointRecord] | None = None
+    config: InstanceCheckpointSweepConfig,
+    checkpoints: list[CheckpointRecord] | None = None,
 ) -> list[dict[str, Any]]:
     if checkpoints is None:
         if config.graha_checkpoint_dir is None:
@@ -425,7 +312,9 @@ def run_graha_sweep(
     return rows
 
 
-def run_sweep(config: InstanceSweepConfig) -> dict[str, list[dict[str, Any]]]:
+def run_sweep(
+    config: InstanceCheckpointSweepConfig,
+) -> dict[str, list[dict[str, Any]]]:
     def run_model_sweep(
         model: str, checkpoints: list[CheckpointRecord]
     ) -> list[dict[str, Any]]:
@@ -457,7 +346,7 @@ def main() -> None:
     args = parse_args()
     notebook_dir = Path(__file__).resolve().parents[2] / "notebooks" / "full_model"
     ensure_data_symlink(args.simlink_dest, notebook_dir / "data")
-    config = build_config(args)
+    config = build_checkpoint_sweep_config_from_args(args)
     print("Output root:", config.output_root)
     print("Data root:", config.data_root)
     run_sweep(config)

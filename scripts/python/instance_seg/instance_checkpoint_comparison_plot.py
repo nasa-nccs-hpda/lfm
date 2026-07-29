@@ -14,7 +14,6 @@ import argparse
 import itertools
 import json
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 
 import torch
@@ -26,11 +25,14 @@ if str(LFM_ROOT) not in sys.path:
 
 import instance_seg_comparison as comparison_workflow
 from lfm.all_models.all_tasks import (
-    CheckpointRecord,
-    discover_checkpoints,
     load_lightning_checkpoint_state,
 )
 from lfm.all_models.inst_seg.config import build_config_from_args
+from lfm.all_models.inst_seg.plot_config import (
+    InstanceCheckpointComparisonPlotConfig,
+    ModelPlotSpec,
+    build_checkpoint_comparison_plot_config_from_args,
+)
 from lfm.all_models.all_tasks.cli_args import (
     parse_instance_checkpoint_comparison_plot_args,
 )
@@ -41,123 +43,8 @@ from lfm.all_models.all_tasks.utils import (
 )
 
 
-@dataclass(frozen=True)
-class ModelPlotSpec:
-    key: str
-    display_name: str
-    model_family: str
-    toy_architecture: str | None
-    checkpoint_path: Path
-
-
-def _final_checkpoint_from_dir(checkpoint_dir: Path) -> CheckpointRecord:
-    checkpoints = discover_checkpoints(checkpoint_dir)
-    return checkpoints[-1]
-
-
-def _resolve_checkpoint(
-    *,
-    checkpoint_path: Path | None,
-    checkpoint_dir: Path | None,
-    label: str,
-) -> Path | None:
-    if checkpoint_path is not None and checkpoint_dir is not None:
-        raise ValueError(
-            f"Pass either --{label}-checkpoint or --{label}-checkpoint-dir, not both."
-        )
-    if checkpoint_path is not None:
-        checkpoint_path = checkpoint_path.resolve()
-        if not checkpoint_path.exists():
-            raise FileNotFoundError(
-                f"{label} checkpoint does not exist: {checkpoint_path}"
-            )
-        return checkpoint_path
-    if checkpoint_dir is None:
-        return None
-    record = _final_checkpoint_from_dir(checkpoint_dir)
-    print(f"[{label}] selected final checkpoint: {record.path}", flush=True)
-    return record.path
-
-
-def _apply_run_root_defaults(args: argparse.Namespace) -> None:
-    if args.run_root is None:
-        return
-    run_root = args.run_root.resolve()
-    if args.mask2former_checkpoint_dir is None and args.mask2former_checkpoint is None:
-        args.mask2former_checkpoint_dir = (
-            run_root / "toy_mask2former" / "checkpoints" / "toy_model"
-        )
-    if (
-        args.toy_terratorch_checkpoint_dir is None
-        and args.toy_terratorch_checkpoint is None
-    ):
-        args.toy_terratorch_checkpoint_dir = (
-            run_root / "toy_dino_terratorch_mask_rcnn" / "checkpoints" / "toy_model"
-        )
-    if args.graha_checkpoint_dir is None and args.graha_checkpoint is None:
-        args.graha_checkpoint_dir = (
-            run_root / "graha_mask_rcnn" / "checkpoints" / "full_model"
-        )
-
-
-def build_model_specs(args: argparse.Namespace) -> list[ModelPlotSpec]:
-    _apply_run_root_defaults(args)
-    specs = []
-    mask2former = _resolve_checkpoint(
-        checkpoint_path=args.mask2former_checkpoint,
-        checkpoint_dir=args.mask2former_checkpoint_dir,
-        label="mask2former",
-    )
-    if mask2former is not None:
-        specs.append(
-            ModelPlotSpec(
-                key="toy_mask2former",
-                display_name="Toy Mask2Former",
-                model_family="toy",
-                toy_architecture="mask2former",
-                checkpoint_path=mask2former,
-            )
-        )
-
-    toy_terratorch = _resolve_checkpoint(
-        checkpoint_path=args.toy_terratorch_checkpoint,
-        checkpoint_dir=args.toy_terratorch_checkpoint_dir,
-        label="toy-terratorch",
-    )
-    if toy_terratorch is not None:
-        specs.append(
-            ModelPlotSpec(
-                key="toy_dino_terratorch_mask_rcnn",
-                display_name="Toy DINO TerraTorch Mask R-CNN",
-                model_family="toy",
-                toy_architecture="dino-terratorch-mask-rcnn",
-                checkpoint_path=toy_terratorch,
-            )
-        )
-
-    graha = _resolve_checkpoint(
-        checkpoint_path=args.graha_checkpoint,
-        checkpoint_dir=args.graha_checkpoint_dir,
-        label="graha",
-    )
-    if graha is not None:
-        specs.append(
-            ModelPlotSpec(
-                key="graha_mask_rcnn",
-                display_name="Graha Mask R-CNN",
-                model_family="graha",
-                toy_architecture=None,
-                checkpoint_path=graha,
-            )
-        )
-
-    if len(specs) < 2:
-        raise ValueError("At least two model checkpoints are required for comparison.")
-    return specs
-
-
 def _comparison_namespace(
-    args: argparse.Namespace, toy_architecture: str
+    args: InstanceCheckpointComparisonPlotConfig, toy_architecture: str
 ) -> argparse.Namespace:
     max_train = args.max_samples if args.prediction_split == "train" else None
     max_val = args.max_samples if args.prediction_split == "val" else None
@@ -226,7 +113,7 @@ def _comparison_namespace(
 
 
 def _setup_toy(
-    args: argparse.Namespace,
+    args: InstanceCheckpointComparisonPlotConfig,
     spec: ModelPlotSpec,
 ):
     from lfm.toy_model.inst_seg.instance_model_adapter import ToyInstanceModelAdapter
@@ -249,7 +136,10 @@ def _setup_toy(
     return datamodule, task, image_processor
 
 
-def _setup_graha(args: argparse.Namespace):
+def _setup_graha(
+    args: InstanceCheckpointComparisonPlotConfig,
+    spec: ModelPlotSpec,
+):
     from lfm.full_model.inst_seg.instance_model_adapter import GrahaInstanceModelAdapter
 
     graha_adapter = GrahaInstanceModelAdapter()
@@ -275,21 +165,20 @@ def _setup_graha(args: argparse.Namespace):
     )
     datamodule.setup(args.prediction_split)
     task = graha_adapter.create_model_or_task(graha_config, datamodule, task_cls)
-    load_lightning_checkpoint_state(task, args._active_checkpoint_path)
+    load_lightning_checkpoint_state(task, spec.checkpoint_path)
     task.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
     return datamodule, task, None
 
 
 def write_prediction_cache(
-    args: argparse.Namespace,
+    args: InstanceCheckpointComparisonPlotConfig,
     spec: ModelPlotSpec,
 ) -> Path:
     print(f"[{spec.key}] loading checkpoint: {spec.checkpoint_path}", flush=True)
     if spec.model_family == "toy":
         datamodule, task, image_processor = _setup_toy(args, spec)
     elif spec.model_family == "graha":
-        args._active_checkpoint_path = spec.checkpoint_path
-        datamodule, task, image_processor = _setup_graha(args)
+        datamodule, task, image_processor = _setup_graha(args, spec)
     else:
         raise ValueError(f"Unknown model family: {spec.model_family}")
 
@@ -356,15 +245,16 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    args.output_dir = args.output_dir.resolve()
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    seed_everything(args.seed)
-    specs = build_model_specs(args)
-    cache_dirs = {spec.key: write_prediction_cache(args, spec) for spec in specs}
+    config = build_checkpoint_comparison_plot_config_from_args(args)
+    config.output_dir.mkdir(parents=True, exist_ok=True)
+    seed_everything(config.seed)
+    cache_dirs = {
+        spec.key: write_prediction_cache(config, spec) for spec in config.model_specs
+    }
     plots = create_comparison_plots(
         cache_dirs=cache_dirs,
-        output_dir=args.output_dir,
-        n_samples=args.n_samples,
+        output_dir=config.output_dir,
+        n_samples=config.n_samples,
     )
     manifest = {
         "models": [
@@ -376,17 +266,18 @@ def main() -> None:
                 "checkpoint_path": str(spec.checkpoint_path),
                 "cache_dir": str(cache_dirs[spec.key]),
             }
-            for spec in specs
+            for spec in config.model_specs
         ],
         "plots": plots,
     }
-    with (args.output_dir / "comparison_plot_manifest.json").open(
+    with (config.output_dir / "comparison_plot_manifest.json").open(
         "w",
         encoding="utf-8",
     ) as f:
         json.dump(manifest, f, indent=2)
     print(
-        f"Wrote comparison plot manifest to {args.output_dir / 'comparison_plot_manifest.json'}"
+        "Wrote comparison plot manifest to "
+        f"{config.output_dir / 'comparison_plot_manifest.json'}"
     )
 
 

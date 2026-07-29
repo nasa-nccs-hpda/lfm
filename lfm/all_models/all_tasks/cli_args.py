@@ -257,7 +257,7 @@ def _add_graha_anchor_args(
         )
 
 
-def create_semantic_comparison_parser(
+def create_semantic_experiment_parser(
     description: str | None = None,
 ) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=description)
@@ -400,15 +400,15 @@ def create_semantic_comparison_parser(
     return parser
 
 
-def parse_semantic_comparison_args(
+def parse_semantic_experiment_args(
     argv: list[str] | None = None,
     *,
     description: str | None = None,
 ) -> argparse.Namespace:
-    return create_semantic_comparison_parser(description).parse_args(argv)
+    return create_semantic_experiment_parser(description).parse_args(argv)
 
 
-def create_instance_comparison_parser(
+def create_instance_experiment_parser(
     description: str | None = None,
 ) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=description)
@@ -554,12 +554,12 @@ def create_instance_comparison_parser(
     return parser
 
 
-def parse_instance_comparison_args(
+def parse_instance_experiment_args(
     argv: list[str] | None = None,
     *,
     description: str | None = None,
 ) -> argparse.Namespace:
-    return create_instance_comparison_parser(description).parse_args(argv)
+    return create_instance_experiment_parser(description).parse_args(argv)
 
 
 def create_single_model_parser() -> argparse.ArgumentParser:
@@ -1017,3 +1017,77 @@ def parse_instance_checkpoint_comparison_plot_args(
     description: str | None = None,
 ) -> argparse.Namespace:
     return create_instance_checkpoint_comparison_plot_parser(description).parse_args()
+
+
+def create_semantic_checkpoint_comparison_plot_parser(
+    description: str | None = None,
+) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument("--run-root", type=Path, default=None)
+    parser.add_argument("--data-root", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--toy-checkpoint", type=Path, default=None)
+    parser.add_argument("--toy-checkpoint-dir", type=Path, default=None)
+    parser.add_argument("--graha-checkpoint", type=Path, default=None)
+    parser.add_argument("--graha-checkpoint-dir", type=Path, default=None)
+    parser.add_argument("--dino-checkpoint", type=Path, default=None)
+    _add_graha_input_args(parser, path_type=Path)
+    parser.add_argument("--target-size", type=int, default=defaults.DEFAULT_TARGET_SIZE)
+    _add_band_filter_arg(parser)
+    _add_semantic_label_source_arg(parser, detailed_help=False)
+    _add_matching_args(parser, image_suffix_default=defaults.DEFAULT_IMAGE_SUFFIX)
+    parser.add_argument("--max-samples", type=int, default=None)
+    parser.add_argument(
+        "--batch-size", type=int, default=defaults.DEFAULT_SEMANTIC_BATCH_SIZE
+    )
+    parser.add_argument(
+        "--num-workers", type=int, default=defaults.DEFAULT_SEMANTIC_NUM_WORKERS
+    )
+    parser.add_argument("--normalize-inputs", action="store_true")
+    _add_normalization_args_without_help(parser)
+    parser.add_argument(
+        "--graha-shape-loss-weight",
+        type=float,
+        default=defaults.DEFAULT_GRAHA_SHAPE_LOSS_WEIGHT,
+    )
+    parser.add_argument(
+        "--graha-shape-loss-pad-frac",
+        type=float,
+        default=defaults.DEFAULT_GRAHA_SHAPE_LOSS_PAD_FRAC,
+    )
+    parser.add_argument(
+        "--graha-stats-batch-size",
+        type=int,
+        default=defaults.DEFAULT_GRAHA_STATS_BATCH_SIZE,
+    )
+    parser.add_argument(
+        "--graha-batch-size",
+        type=int,
+        default=defaults.DEFAULT_GRAHA_SEMANTIC_BATCH_SIZE,
+    )
+    parser.add_argument(
+        "--graha-num-workers", type=int, default=defaults.DEFAULT_GRAHA_NUM_WORKERS
+    )
+    parser.add_argument(
+        "--prediction-split",
+        choices=defaults.SPLIT_CHOICES,
+        default=defaults.DEFAULT_PREDICTION_SPLIT,
+    )
+    parser.add_argument(
+        "--n-samples", type=int, default=defaults.DEFAULT_SEMANTIC_PREDICTION_N_SAMPLES
+    )
+    parser.add_argument("--ignore-nodata-in-loss", action="store_true")
+    parser.add_argument(
+        "--nodata-ignore-index",
+        type=int,
+        default=defaults.DEFAULT_NODATA_IGNORE_INDEX,
+    )
+    parser.add_argument("--seed", type=int, default=defaults.DEFAULT_SEED)
+    return parser
+
+
+def parse_semantic_checkpoint_comparison_plot_args(
+    *,
+    description: str | None = None,
+) -> argparse.Namespace:
+    return create_semantic_checkpoint_comparison_plot_parser(description).parse_args()

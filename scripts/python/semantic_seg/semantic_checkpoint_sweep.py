@@ -24,7 +24,6 @@ import contextlib
 import gc
 import os
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -50,6 +49,10 @@ from lfm.all_models.sem_seg.testing.semantic_test_suite import (
     run_semantic_checkpoint,
 )
 from lfm.all_models.sem_seg.config import build_config_from_args as build_toy_config
+from lfm.all_models.sem_seg.sweep_config import (
+    SemanticCheckpointSweepConfig,
+    build_checkpoint_sweep_config_from_args,
+)
 from lfm.all_models.all_tasks.utils.utils import ensure_data_symlink
 from lfm.full_model.sem_seg.semantic_model_adapter import GrahaSemanticModelAdapter
 from lfm.toy_model.sem_seg.semantic_model_adapter import ToySemanticModelAdapter
@@ -59,110 +62,6 @@ from semantic_seg_comparison import (
 
 TOY_ADAPTER = ToySemanticModelAdapter()
 GRAHA_ADAPTER = GrahaSemanticModelAdapter()
-
-
-@dataclass(frozen=True)
-class SweepConfig:
-    notebook_dir: Path
-    data_root: Path
-    output_root: Path
-    toy_checkpoint_dir: Path | None
-    graha_checkpoint_dir: Path | None
-    models: list[str]
-    band_filter: list[int]
-    target_size: int
-    spatial_transform: str
-    semantic_label_source: str
-    image_glob: str
-    label_glob: str
-    image_suffix: str
-    label_suffix: str
-    batch_size: int
-    num_workers: int
-    normalize_inputs: bool
-    normalization_source: str
-    normalization_modality: str
-    max_test_samples: int | None
-    ignore_nodata_in_loss: bool
-    nodata_ignore_index: int
-    dino_checkpoint: Path | None
-    graha_pretrain_dir: Path | None
-    graha_input_modality_mode: str
-    graha_vis_uv_merge_method: str
-    graha_stats_batch_size: int
-    graha_batch_size: int
-    graha_num_workers: int
-    max_checkpoints: int | None
-    seed: int
-    verbose: bool
-    preload_test_batches: bool
-
-
-def build_config(args: argparse.Namespace) -> SweepConfig:
-    script_dir = Path(__file__).resolve().parent
-    notebook_dir = script_dir.parents[2] / "notebooks" / "full_model"
-    scripts_output_dir = script_dir.parents[2] / "scripts" / "outputs"
-    data_root = (
-        Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
-    )
-    output_root = (
-        Path(args.output_root).resolve()
-        if args.output_root
-        else scripts_output_dir / "semantic_checkpoint_sweep"
-    )
-    toy_checkpoint_dir = (
-        Path(args.toy_checkpoint_dir).resolve() if args.toy_checkpoint_dir else None
-    )
-    graha_checkpoint_dir = (
-        Path(args.graha_checkpoint_dir).resolve() if args.graha_checkpoint_dir else None
-    )
-    dino_checkpoint = (
-        Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None
-    )
-    graha_pretrain_dir = (
-        Path(args.graha_pretrain_dir).resolve() if args.graha_pretrain_dir else None
-    )
-
-    models = [model.lower() for model in args.models]
-    unknown = sorted(set(models) - {"toy", "graha"})
-    if unknown:
-        raise ValueError(f"Unknown model name(s): {unknown}")
-
-    return SweepConfig(
-        notebook_dir=notebook_dir,
-        data_root=data_root,
-        output_root=output_root,
-        toy_checkpoint_dir=toy_checkpoint_dir,
-        graha_checkpoint_dir=graha_checkpoint_dir,
-        models=models,
-        band_filter=args.band_filter,
-        target_size=args.target_size,
-        spatial_transform="crop",
-        semantic_label_source=getattr(args, "semantic_label_source", "semantic"),
-        image_glob=args.image_glob,
-        label_glob=args.label_glob,
-        image_suffix=args.image_suffix,
-        label_suffix=args.label_suffix,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        normalize_inputs=args.normalize_inputs,
-        normalization_source=getattr(args, "normalization_source", "pretrain"),
-        normalization_modality=getattr(args, "normalization_modality", "vis_uv"),
-        max_test_samples=args.max_test_samples,
-        ignore_nodata_in_loss=getattr(args, "ignore_nodata_in_loss", False),
-        nodata_ignore_index=getattr(args, "nodata_ignore_index", -1),
-        dino_checkpoint=dino_checkpoint,
-        graha_pretrain_dir=graha_pretrain_dir,
-        graha_input_modality_mode=args.graha_input_modality_mode,
-        graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
-        graha_stats_batch_size=args.graha_stats_batch_size,
-        graha_batch_size=args.graha_batch_size,
-        graha_num_workers=args.graha_num_workers,
-        max_checkpoints=args.max_checkpoints,
-        seed=args.seed,
-        verbose=getattr(args, "verbose", False),
-        preload_test_batches=getattr(args, "preload_test_batches", True),
-    )
 
 
 @contextlib.contextmanager
@@ -224,7 +123,7 @@ def preload_test_batches(dataloader, *, model_name: str) -> list[Any]:
     return cached_batches
 
 
-def _make_toy_args(config: SweepConfig) -> argparse.Namespace:
+def _make_toy_args(config: SemanticCheckpointSweepConfig) -> argparse.Namespace:
     return SimpleNamespace(
         data_root=str(config.data_root),
         base_output_dir=str(config.output_root / "_toy_setup"),
@@ -287,7 +186,8 @@ def _make_toy_args(config: SweepConfig) -> argparse.Namespace:
 
 
 def run_toy_sweep(
-    config: SweepConfig, checkpoints: list[CheckpointRecord] | None = None
+    config: SemanticCheckpointSweepConfig,
+    checkpoints: list[CheckpointRecord] | None = None,
 ) -> list[dict[str, Any]]:
     if checkpoints is None:
         if config.toy_checkpoint_dir is None:
@@ -360,7 +260,7 @@ def run_toy_sweep(
     return rows
 
 
-def _make_graha_args(config: SweepConfig) -> argparse.Namespace:
+def _make_graha_args(config: SemanticCheckpointSweepConfig) -> argparse.Namespace:
     return SimpleNamespace(
         data_root=str(config.data_root),
         base_output_dir=str(config.output_root / "_graha_setup"),
@@ -397,7 +297,8 @@ def _make_graha_args(config: SweepConfig) -> argparse.Namespace:
 
 
 def run_graha_sweep(
-    config: SweepConfig, checkpoints: list[CheckpointRecord] | None = None
+    config: SemanticCheckpointSweepConfig,
+    checkpoints: list[CheckpointRecord] | None = None,
 ) -> list[dict[str, Any]]:
     if checkpoints is None:
         if config.graha_checkpoint_dir is None:
@@ -494,7 +395,9 @@ def run_graha_sweep(
     return rows
 
 
-def run_sweep(config: SweepConfig) -> dict[str, list[dict[str, Any]]]:
+def run_sweep(
+    config: SemanticCheckpointSweepConfig,
+) -> dict[str, list[dict[str, Any]]]:
     def run_model_sweep(
         model: str, checkpoints: list[CheckpointRecord]
     ) -> list[dict[str, Any]]:
@@ -526,7 +429,7 @@ def main() -> None:
     args = parse_args()
     notebook_dir = Path(__file__).resolve().parents[2] / "notebooks" / "full_model"
     ensure_data_symlink(args.simlink_dest, notebook_dir / "data")
-    config = build_config(args)
+    config = build_checkpoint_sweep_config_from_args(args)
     print(
         "REMINDER: after rerunning training, confirm checkpoint directory structure before large sweeps."
     )
