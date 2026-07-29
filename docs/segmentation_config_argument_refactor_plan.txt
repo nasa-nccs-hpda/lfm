@@ -229,13 +229,17 @@ Phase G: Notebook Config Helpers
 Steps:
 
 1. Add notebook-facing helpers that build both the neutral task experiment
-   config and the Graha-specific config for Graha notebook workflows.
+   config and the Graha-specific config for Graha notebook workflows. Done for
+   semantic and instance segmentation.
 2. Use names that describe the workflow accurately, such as
    `build_graha_notebook_configs(...)` or
-   `build_graha_experiment_configs(...)`.
+   `build_graha_experiment_configs(...)`. Done:
+   `build_graha_notebook_configs(...)`.
 3. Update the active instance notebook to use the helper once datamodule/task
-   creation is modernized.
-4. Apply the same structure to the future active semantic notebook.
+   creation is modernized. Done for the config creation path.
+4. Apply the same structure to the future active semantic notebook. The
+   semantic helper exists now; the future active semantic notebook can adopt it
+   when that notebook is created or modernized.
 
 Validation Plan
 ---------------
