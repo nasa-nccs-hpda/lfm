@@ -49,11 +49,11 @@ from lfm.all_models.sem_seg.testing.semantic_test_suite import (
     SEMANTIC_CHECKPOINT_METRICS as METRIC_NAMES,
     run_semantic_checkpoint,
 )
+from lfm.all_models.sem_seg.config import build_config_from_args as build_toy_config
 from lfm.all_models.all_tasks.utils.utils import ensure_data_symlink
 from lfm.full_model.sem_seg.semantic_model_adapter import GrahaSemanticModelAdapter
 from lfm.toy_model.sem_seg.semantic_model_adapter import ToySemanticModelAdapter
 from semantic_seg_comparison import (
-    build_config as build_toy_config,
     get_toy_normalization_modality_info,
 )
 

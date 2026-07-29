@@ -18,6 +18,7 @@ from lfm.all_models.all_tasks.cli_args import parse_single_model_args
 from lfm.all_models.sem_seg.testing.semantic_test_suite_callback import (
     SemanticEpochTestSuiteCallback,
 )
+from lfm.all_models.sem_seg.config import build_config_from_args
 from lfm.all_models.all_tasks.utils import ensure_data_symlink
 from lfm.all_models.sem_seg.workflows import (
     semantic_graha_workflow,
@@ -35,7 +36,7 @@ def main() -> None:
     model, args = parse_args()
     notebook_dir = LFM_ROOT / "notebooks" / "full_model"
     ensure_data_symlink(args.simlink_dest, notebook_dir / "data")
-    config = comparison.build_config(args)
+    config = build_config_from_args(args)
     comparison.validate_data_paths(config)
 
     output_dir = config.base_output_dir

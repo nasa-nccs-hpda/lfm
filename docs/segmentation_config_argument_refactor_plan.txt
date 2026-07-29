@@ -1,0 +1,250 @@
+Segmentation Config and Argument Refactor Plan
+==============================================
+
+Purpose
+-------
+
+The current segmentation workflows have CLI parsing, experiment defaults, config
+object construction, and comparison orchestration too tightly coupled. This is
+especially visible in notebooks, where creating a simple Graha or Toy run still
+goes through parser/default machinery and config names that imply a comparison
+experiment.
+
+The goal is to separate these concerns cleanly:
+
+- CLI parsing translates shell arguments into typed values.
+- Config objects represent task/model run settings independent of caller.
+- Workflow orchestration consumes config objects and should not own defaults.
+- Notebooks should construct configs directly from named values, without
+  manually building argparse Namespace objects.
+
+Design Principles
+-----------------
+
+- Keep semantic segmentation and instance segmentation structurally symmetric
+  where practical.
+- Keep Toy and Graha model-family structure symmetric where practical.
+- Prefer neutral names such as "experiment", "run", or "segmentation" when code
+  supports single-model, comparison, notebook, and sweep workflows.
+- Do not add compatibility-only files or aliases. Update references and remove
+  obsolete names directly.
+- Keep scripts thin: parse args, build config, call workflow/runner.
+- Keep notebooks readable: define user constants, build config from keyword
+  values, run explicit notebook steps.
+
+Settled Decisions
+-----------------
+
+- "Experiment config" is the preferred final naming convention.
+- CLI defaults should live in a shared `config_defaults.py`.
+- Checkpoint sweeps should use smaller sweep-specific configs composed with the
+  base task experiment config.
+- Active notebooks should not need to manually call low-level Graha config
+  adapters. Notebook-facing helpers should build the neutral experiment config
+  and the Graha-specific config together, using accurate names such as
+  `build_graha_notebook_configs(...)` or `build_graha_experiment_configs(...)`
+  rather than "comparison" names when no comparison is being run.
+
+Current Issues
+--------------
+
+1. Config names implied comparison too broadly.
+
+   Previously, instance segmentation used a comparison-specific config name even
+   when the same config drove Graha-only notebook workflows or single-model runs.
+
+2. Config builders accept argparse-style objects.
+
+   `build_config(args)` works for scripts, but it forces notebooks/tests to
+   create artificial Namespace objects or use parser defaults indirectly.
+
+3. Defaults currently live in CLI parser definitions.
+
+   The centralized parser file is an improvement over scattered parser blocks,
+   but defaults conceptually belong near the config object or a dedicated
+   defaults module, not only in argparse definitions.
+
+4. Script modules still own some backend concepts.
+
+   Some config classes and config builders still live under `scripts/python/...`.
+   Long term, reusable config and workflow logic should live under `lfm/...`,
+   while scripts remain entrypoints.
+
+5. Naming is inconsistent across use cases.
+
+   Names such as "comparison config" blur whether an object configures a model
+   run, an experiment, a comparison, or a checkpoint sweep.
+
+Proposed End State
+------------------
+
+Suggested module structure:
+
+lfm/all_models/
+  all_tasks/
+    cli_args.py
+    config_defaults.py
+  sem_seg/
+    config.py
+    workflows/
+  inst_seg/
+    config.py
+    workflows/
+
+Suggested naming:
+
+- `SemanticSegmentationExperimentConfig`
+- `InstanceSegmentationExperimentConfig`
+- `build_config(...)`
+  - Keyword-only public constructor for Python/notebook callers.
+- `build_config_from_args(args)`
+  - CLI adapter from argparse Namespace to the same config object.
+- `create_semantic_experiment_parser(...)`
+- `create_instance_experiment_parser(...)`
+
+Comparison-specific objects should only use "comparison" in their names when
+they actually orchestrate or store comparison-specific behavior, such as:
+
+- `ComparisonExperiment`
+- `run_comparison`
+- `plot_comparison`
+- `comparison_output_dir`
+
+Phased Refactor
+---------------
+
+Phase A: Stabilize Notebook-Friendly Config Construction
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Status: complete for the current active notebook scope.
+
+Steps:
+
+1. Add keyword-only config builders that do not expose argparse Namespace objects. Done.
+2. Keep CLI builders working through an explicit args adapter. Done.
+3. Update active notebooks to use keyword config construction. Done for
+   `notebooks/full_model/instance_seg_train.ipynb`; semantic equivalent is
+   pending because the active notebook is not in scope yet.
+4. Validate notebook code-cell syntax and run lightweight config smoke tests.
+   Done.
+
+Target user-facing pattern:
+
+```
+config = build_config(
+    data_root=DATA_ROOT,
+    base_output_dir=BASE_OUTPUT_DIR,
+    graha_pretrain_dir=PRETRAIN_DIR,
+    max_epochs=MAX_EPOCHS,
+)
+```
+
+Phase B: Rename Config Objects and Builders
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Steps:
+
+1. Rename `InstanceComparisonConfig` to
+   `InstanceSegmentationExperimentConfig`. Done.
+2. Rename semantic equivalent config classes to use neutral experiment/run
+   naming. Done: `SemanticSegmentationExperimentConfig`.
+3. Rename current args-based builders from `build_config(args)` to
+   `build_config_from_args(args)`. Done in Phase A.2.
+4. Rename keyword builders to `build_config(...)`. Done.
+5. Update all call sites directly. Done.
+6. Run ruff, compileall, parser smoke tests, notebook syntax checks, and the
+   dataset audit notebook/script. Done for format/lint/compile, parser/config
+   smoke tests, and active notebook syntax. Dataset audit was not rerun because
+   Phase B changed naming/API wiring only, not data behavior.
+
+Phase C: Move Config Ownership Out of Scripts
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Steps:
+
+1. Create `lfm/all_models/inst_seg/config.py`. Done.
+2. Move the instance config dataclass and builders there. Done.
+3. Create `lfm/all_models/sem_seg/config.py`. Done.
+4. Move the semantic config dataclass and builders there. Done.
+5. Update scripts to import config builders from `lfm/...`. Done.
+6. Keep script modules focused on entrypoint orchestration. Done for the base
+   experiment configs; sweep-specific config cleanup is tracked in Phase F.
+
+Expected script shape:
+
+```
+args = parse_args()
+config = build_config_from_args(args)
+run_workflow(config)
+```
+
+Phase D: Move Defaults Closer to Configs
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Steps:
+
+1. Define CLI/config default values in shared `config_defaults.py`, with
+   task-specific groupings where needed. Done.
+2. Make CLI parsers consume these defaults instead of owning them. Done.
+3. Make notebook keyword builders consume the same defaults. Done through the
+   task config builders, which still use parser defaults as their construction
+   baseline.
+4. Add lightweight tests that assert key CLI defaults and keyword-builder
+   defaults stay aligned. Done.
+
+Phase E: Rename CLI Parser APIs
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Steps:
+
+1. Rename parser factories from comparison-specific names to experiment names:
+   - `create_instance_comparison_parser` ->
+     `create_instance_experiment_parser`
+   - `create_semantic_comparison_parser` ->
+     `create_semantic_experiment_parser`
+2. Update all script and notebook references.
+3. Keep comparison-specific parser additions only where they truly belong to
+   comparison orchestration.
+
+Phase F: Revisit Sweep and Plot Configs
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Steps:
+
+1. Create smaller checkpoint sweep config classes that compose the base task
+   experiment config plus sweep-specific options.
+2. Avoid duplicating task/model defaults between training, sweep, and plotting
+   scripts.
+3. Keep checkpoint/plot-only settings separate from model training settings.
+
+Phase G: Notebook Config Helpers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Steps:
+
+1. Add notebook-facing helpers that build both the neutral task experiment
+   config and the Graha-specific config for Graha notebook workflows.
+2. Use names that describe the workflow accurately, such as
+   `build_graha_notebook_configs(...)` or
+   `build_graha_experiment_configs(...)`.
+3. Update the active instance notebook to use the helper once datamodule/task
+   creation is modernized.
+4. Apply the same structure to the future active semantic notebook.
+
+Validation Plan
+---------------
+
+For each phase:
+
+- Run `black` on changed Python files.
+- Run `ruff check` on changed Python files.
+- Run `compileall` on changed Python modules.
+- Parse changed notebooks as JSON and AST-parse code cells.
+- Run parser/config smoke tests that cover:
+  - default construction
+  - keyword override construction
+  - CLI args construction
+  - alias behavior such as `--batch-size` and `--normalize-inputs`
+- Run the sem/inst dataset audit notebook/script when data behavior may be
+  affected.
+- Run the established sem/inst smoke tests after workflow-affecting phases.

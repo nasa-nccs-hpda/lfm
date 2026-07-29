@@ -30,6 +30,7 @@ from lfm.all_models.all_tasks import (
     discover_checkpoints,
     load_lightning_checkpoint_state,
 )
+from lfm.all_models.inst_seg.config import build_config_from_args
 from lfm.all_models.all_tasks.cli_args import (
     parse_instance_checkpoint_comparison_plot_args,
 )
@@ -231,7 +232,7 @@ def _setup_toy(
     from lfm.toy_model.inst_seg.instance_model_adapter import ToyInstanceModelAdapter
 
     toy_adapter = ToyInstanceModelAdapter()
-    comparison_config = comparison_workflow.build_config(
+    comparison_config = build_config_from_args(
         _comparison_namespace(args, spec.toy_architecture or "mask2former")
     )
     datamodule = toy_adapter.create_datamodule(
@@ -252,7 +253,7 @@ def _setup_graha(args: argparse.Namespace):
     from lfm.full_model.inst_seg.instance_model_adapter import GrahaInstanceModelAdapter
 
     graha_adapter = GrahaInstanceModelAdapter()
-    comparison_config = comparison_workflow.build_config(
+    comparison_config = build_config_from_args(
         _comparison_namespace(args, "mask2former")
     )
     graha_config = graha_adapter.build_comparison_config(

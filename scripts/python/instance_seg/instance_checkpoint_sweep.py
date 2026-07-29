@@ -52,6 +52,7 @@ from lfm.all_models.inst_seg.testing.instance_test_suite import (
     INSTANCE_TEST_SUITE_METRICS as METRIC_NAMES,
     write_instance_test_suite_outputs,
 )
+from lfm.all_models.inst_seg.config import build_config_from_args
 from lfm.full_model.inst_seg.instance_model_adapter import GrahaInstanceModelAdapter
 from lfm.all_models.all_tasks.utils.utils import ensure_data_symlink
 from lfm.all_models.all_tasks.utils import (
@@ -262,7 +263,7 @@ def _setup_toy(config: InstanceSweepConfig):
     from lfm.toy_model.inst_seg.instance_model_adapter import ToyInstanceModelAdapter
 
     toy_adapter = ToyInstanceModelAdapter()
-    comparison_config = comparison_workflow.build_config(_make_comparison_args(config))
+    comparison_config = build_config_from_args(_make_comparison_args(config))
     with _quiet(not config.verbose):
         datamodule = toy_adapter.create_datamodule(
             comparison_config,
@@ -280,7 +281,7 @@ def _setup_toy(config: InstanceSweepConfig):
 
 
 def _setup_graha(config: InstanceSweepConfig):
-    comparison_config = comparison_workflow.build_config(_make_comparison_args(config))
+    comparison_config = build_config_from_args(_make_comparison_args(config))
     graha_config = GRAHA_ADAPTER.build_comparison_config(
         comparison_config,
         config.output_root / "_graha_setup",

@@ -1,5 +1,10 @@
 """Shared instance segmentation helpers across Toy and Graha model families."""
 
+from lfm.all_models.inst_seg.config import (
+    InstanceSegmentationExperimentConfig,
+    build_config,
+    build_config_from_args,
+)
 from lfm.all_models.inst_seg.data import (
     InstanceMaskSegmentationDataModule,
     InstanceSegmentationDataModule,
@@ -15,6 +20,7 @@ from lfm.all_models.inst_seg.data import (
 )
 
 __all__ = [
+    "InstanceSegmentationExperimentConfig",
     "InstanceMaskSegmentationDataModule",
     "InstanceSegmentationDataset",
     "InstanceSegmentationDataModule",
@@ -22,6 +28,8 @@ __all__ = [
     "ObjectDetectionInstanceSegmentationDataModule",
     "ObjectDetectionInstanceSegmentationDataset",
     "boxes_to_tensor",
+    "build_config",
+    "build_config_from_args",
     "collate_mask2former_instance_segmentation",
     "instance_mask_to_object_detection_targets",
     "mask_to_binary_instance_targets",

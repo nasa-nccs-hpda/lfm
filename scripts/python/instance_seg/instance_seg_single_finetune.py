@@ -14,6 +14,7 @@ if str(LFM_ROOT) not in sys.path:
 
 from lfm.all_models.all_tasks import SingleModelExperiment
 from lfm.all_models.all_tasks.cli_args import parse_single_model_args
+from lfm.all_models.inst_seg.config import build_config_from_args
 from lfm.all_models.inst_seg.testing.instance_test_suite_callback import (
     GrahaInstancePlotCallback,
     InstanceEpochTestSuiteCallback,
@@ -31,7 +32,7 @@ def main() -> None:
     model, args = parse_args()
     notebook_dir = LFM_ROOT / "notebooks" / "full_model"
     ensure_data_symlink(args.simlink_dest, notebook_dir / "data")
-    config = comparison.build_config(args)
+    config = build_config_from_args(args)
     comparison.validate_paths(config)
 
     output_dir = config.base_output_dir

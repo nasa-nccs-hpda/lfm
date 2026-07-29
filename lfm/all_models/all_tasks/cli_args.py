@@ -5,20 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-MODEL_CHOICES = ["toy", "graha"]
-SPLIT_CHOICES = ["train", "val", "test"]
-GRAHA_INPUT_MODALITY_CHOICES = ["new-wac", "vis-uv"]
-GRAHA_VIS_UV_MERGE_CHOICES = ["mean", "max"]
-NORMALIZATION_SOURCE_CHOICES = ["pretrain", "finetune"]
-NORMALIZATION_MODALITY_CHOICES = ["vis_uv", "nac"]
-TOY_INSTANCE_ARCHITECTURE_CHOICES = [
-    "mask2former",
-    "dino-mask-rcnn",
-    "dino-terratorch-mask-rcnn",
-]
-DEFAULT_BAND_FILTER = [0, 1, 2, 3, 4, 5, 6]
-DEFAULT_GRAHA_ANCHOR_SIZES = [[8], [16], [32], [64]]
-DEFAULT_GRAHA_ANCHOR_ASPECT_RATIOS = [0.5, 1.0, 2.0]
+from lfm.all_models.all_tasks import config_defaults as defaults
 
 
 def _anchor_sizes(value: str) -> list[list[int]]:
@@ -45,7 +32,10 @@ def _add_symlink_arg(parser: argparse.ArgumentParser, *, semantic_help: bool) ->
 
 def _add_model_selection_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--models", nargs="+", default=["toy", "graha"], choices=MODEL_CHOICES
+        "--models",
+        nargs="+",
+        default=list(defaults.DEFAULT_MODELS),
+        choices=defaults.MODEL_CHOICES,
     )
 
 
@@ -67,27 +57,27 @@ def _add_graha_input_args(parser: argparse.ArgumentParser, *, path_type=str) -> 
     parser.add_argument("--graha-pretrain-dir", type=path_type, default=None)
     parser.add_argument(
         "--graha-input-modality-mode",
-        choices=GRAHA_INPUT_MODALITY_CHOICES,
-        default="new-wac",
+        choices=defaults.GRAHA_INPUT_MODALITY_CHOICES,
+        default=defaults.DEFAULT_GRAHA_INPUT_MODALITY_MODE,
     )
     parser.add_argument(
         "--graha-vis-uv-merge-method",
-        choices=GRAHA_VIS_UV_MERGE_CHOICES,
-        default="mean",
+        choices=defaults.GRAHA_VIS_UV_MERGE_CHOICES,
+        default=defaults.DEFAULT_GRAHA_VIS_UV_MERGE_METHOD,
     )
 
 
 def _add_normalization_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--normalization-source",
-        choices=NORMALIZATION_SOURCE_CHOICES,
-        default="pretrain",
+        choices=defaults.NORMALIZATION_SOURCE_CHOICES,
+        default=defaults.DEFAULT_NORMALIZATION_SOURCE,
         help="When normalizing inputs, use TerraMind pretraining stats or finetuning train-split stats.",
     )
     parser.add_argument(
         "--normalization-modality",
-        choices=NORMALIZATION_MODALITY_CHOICES,
-        default="vis_uv",
+        choices=defaults.NORMALIZATION_MODALITY_CHOICES,
+        default=defaults.DEFAULT_NORMALIZATION_MODALITY,
         help="Which modality family to use when --normalization-source=pretrain.",
     )
 
@@ -95,19 +85,22 @@ def _add_normalization_args(parser: argparse.ArgumentParser) -> None:
 def _add_normalization_args_without_help(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--normalization-source",
-        choices=NORMALIZATION_SOURCE_CHOICES,
-        default="pretrain",
+        choices=defaults.NORMALIZATION_SOURCE_CHOICES,
+        default=defaults.DEFAULT_NORMALIZATION_SOURCE,
     )
     parser.add_argument(
         "--normalization-modality",
-        choices=NORMALIZATION_MODALITY_CHOICES,
-        default="vis_uv",
+        choices=defaults.NORMALIZATION_MODALITY_CHOICES,
+        default=defaults.DEFAULT_NORMALIZATION_MODALITY,
     )
 
 
 def _add_band_filter_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--band-filter", type=int, nargs="+", default=DEFAULT_BAND_FILTER
+        "--band-filter",
+        type=int,
+        nargs="+",
+        default=list(defaults.DEFAULT_BAND_FILTER),
     )
 
 
@@ -123,8 +116,8 @@ def _add_semantic_label_source_arg(
     )
     parser.add_argument(
         "--semantic-label-source",
-        choices=["semantic", "instance"],
-        default="semantic",
+        choices=defaults.SEMANTIC_LABEL_SOURCE_CHOICES,
+        default=defaults.DEFAULT_SEMANTIC_LABEL_SOURCE,
         help=help_text,
     )
 
@@ -133,8 +126,8 @@ def _add_matching_args(
     parser: argparse.ArgumentParser,
     *,
     image_suffix_default: str,
-    label_glob_default: str = "*_label.*",
-    image_glob_default: str = "*.tif",
+    label_glob_default: str = defaults.DEFAULT_LABEL_GLOB,
+    image_glob_default: str = defaults.DEFAULT_IMAGE_GLOB,
     path_defaults: bool = False,
 ) -> None:
     parser.add_argument(
@@ -158,7 +151,7 @@ def _add_matching_args(
     )
     parser.add_argument(
         "--label-suffix",
-        default="_label",
+        default=defaults.DEFAULT_LABEL_SUFFIX,
         help=(
             "Suffix stripped from label stems before matching chips."
             if not path_defaults
@@ -190,7 +183,7 @@ def _add_nodata_args(
     parser.add_argument(
         "--nodata-ignore-index",
         type=int,
-        default=-1,
+        default=defaults.DEFAULT_NODATA_IGNORE_INDEX,
         help="Target label value used for ignored nodata pixels.",
     )
 
@@ -203,18 +196,36 @@ def _add_prediction_args(
     include_score_threshold: bool,
 ) -> None:
     parser.add_argument(
-        "--prediction-split", choices=SPLIT_CHOICES, default=prediction_default
+        "--prediction-split",
+        choices=defaults.SPLIT_CHOICES,
+        default=prediction_default,
     )
     parser.add_argument("--prediction-n-samples", type=int, default=n_samples_default)
     if include_score_threshold:
-        parser.add_argument("--prediction-score-threshold", type=float, default=0.5)
+        parser.add_argument(
+            "--prediction-score-threshold",
+            type=float,
+            default=defaults.DEFAULT_PREDICTION_SCORE_THRESHOLD,
+        )
 
 
 def _add_epoch_test_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--run-epoch-test-suite", action="store_true")
-    parser.add_argument("--epoch-test-split", choices=SPLIT_CHOICES, default="test")
-    parser.add_argument("--epoch-test-n-samples", type=int, default=100)
-    parser.add_argument("--epoch-test-every-n-epochs", type=int, default=1)
+    parser.add_argument(
+        "--epoch-test-split",
+        choices=defaults.SPLIT_CHOICES,
+        default=defaults.DEFAULT_EPOCH_TEST_SPLIT,
+    )
+    parser.add_argument(
+        "--epoch-test-n-samples",
+        type=int,
+        default=defaults.DEFAULT_EPOCH_TEST_N_SAMPLES,
+    )
+    parser.add_argument(
+        "--epoch-test-every-n-epochs",
+        type=int,
+        default=defaults.DEFAULT_EPOCH_TEST_EVERY_N_EPOCHS,
+    )
 
 
 def _add_graha_anchor_args(
@@ -226,19 +237,23 @@ def _add_graha_anchor_args(
         parser.add_argument(
             "--graha-anchor-sizes",
             type=_anchor_sizes,
-            default=DEFAULT_GRAHA_ANCHOR_SIZES,
+            default=[list(size) for size in defaults.DEFAULT_GRAHA_ANCHOR_SIZES],
         )
         parser.add_argument(
             "--graha-anchor-aspect-ratios",
             type=_anchor_aspect_ratios,
-            default=DEFAULT_GRAHA_ANCHOR_ASPECT_RATIOS,
+            default=list(defaults.DEFAULT_GRAHA_ANCHOR_ASPECT_RATIOS),
         )
     else:
-        parser.add_argument("--graha-anchor-sizes", type=str, default="8,16,32,64")
+        parser.add_argument(
+            "--graha-anchor-sizes",
+            type=str,
+            default=defaults.DEFAULT_GRAHA_ANCHOR_SIZES_CSV,
+        )
         parser.add_argument(
             "--graha-anchor-aspect-ratios",
             type=str,
-            default="0.5,1.0,2.0",
+            default=defaults.DEFAULT_GRAHA_ANCHOR_ASPECT_RATIOS_CSV,
         )
 
 
@@ -257,25 +272,41 @@ def create_semantic_comparison_parser(
         help="Optional Toy Lightning .ckpt. Resumes fit, or loads weights when Toy fit is skipped.",
     )
     _add_band_filter_arg(parser)
-    parser.add_argument("--target-size", type=int, default=256)
+    parser.add_argument("--target-size", type=int, default=defaults.DEFAULT_TARGET_SIZE)
     _add_semantic_label_source_arg(parser, detailed_help=True)
-    _add_matching_args(parser, image_suffix_default="_input_wac_static_chip")
+    _add_matching_args(parser, image_suffix_default=defaults.DEFAULT_IMAGE_SUFFIX)
     _add_sample_limit_args(parser)
     _add_nodata_args(parser, semantic_help=True)
-    parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--num-workers", type=int, default=10)
-    parser.add_argument("--max-epochs", type=int, default=100)
-    parser.add_argument("--learning-rate", type=float, default=5e-5)
-    parser.add_argument("--weight-decay", type=float, default=1e-3)
+    parser.add_argument(
+        "--batch-size", type=int, default=defaults.DEFAULT_SEMANTIC_BATCH_SIZE
+    )
+    parser.add_argument(
+        "--num-workers", type=int, default=defaults.DEFAULT_SEMANTIC_NUM_WORKERS
+    )
+    parser.add_argument("--max-epochs", type=int, default=defaults.DEFAULT_MAX_EPOCHS)
+    parser.add_argument(
+        "--learning-rate", type=float, default=defaults.DEFAULT_SEMANTIC_LEARNING_RATE
+    )
+    parser.add_argument(
+        "--weight-decay", type=float, default=defaults.DEFAULT_SEMANTIC_WEIGHT_DECAY
+    )
     parser.add_argument(
         "--toy-loss-type",
         type=str,
-        default="focal_dice",
+        default=defaults.DEFAULT_TOY_SEMANTIC_LOSS_TYPE,
         help="Loss function for the Toy semantic model. Graha semantic currently uses its own Dice loss path.",
     )
     parser.add_argument("--use-toy-shape-loss", action="store_true")
-    parser.add_argument("--toy-shape-loss-weight", type=float, default=0.05)
-    parser.add_argument("--toy-shape-loss-pad-frac", type=float, default=0.3)
+    parser.add_argument(
+        "--toy-shape-loss-weight",
+        type=float,
+        default=defaults.DEFAULT_TOY_SHAPE_LOSS_WEIGHT,
+    )
+    parser.add_argument(
+        "--toy-shape-loss-pad-frac",
+        type=float,
+        default=defaults.DEFAULT_TOY_SHAPE_LOSS_PAD_FRAC,
+    )
     parser.add_argument("--freeze-encoder", action="store_true")
     parser.add_argument(
         "--normalize-inputs",
@@ -283,19 +314,29 @@ def create_semantic_comparison_parser(
         help="Enable Toy z-score normalization.",
     )
     _add_normalization_args(parser)
-    parser.add_argument("--toy-gradient-clip-val", type=float, default=1.0)
+    parser.add_argument(
+        "--toy-gradient-clip-val",
+        type=float,
+        default=defaults.DEFAULT_TOY_GRADIENT_CLIP_VAL,
+    )
     parser.add_argument(
         "--disable-toy-gradient-clipping",
         action="store_true",
         help="Disable Toy gradient clipping to match Graha's current trainer path.",
     )
-    parser.add_argument("--plot-every-n-epochs", type=int, default=1)
-    parser.add_argument("--plot-n-samples", type=int, default=5)
+    parser.add_argument(
+        "--plot-every-n-epochs",
+        type=int,
+        default=defaults.DEFAULT_PLOT_EVERY_N_EPOCHS,
+    )
+    parser.add_argument(
+        "--plot-n-samples", type=int, default=defaults.DEFAULT_PLOT_N_SAMPLES
+    )
     parser.add_argument("--cache-predictions", action="store_true")
     _add_prediction_args(
         parser,
-        prediction_default="val",
-        n_samples_default=20,
+        prediction_default=defaults.DEFAULT_PREDICTION_SPLIT,
+        n_samples_default=defaults.DEFAULT_SEMANTIC_PREDICTION_N_SAMPLES,
         include_score_threshold=False,
     )
     parser.add_argument("--graha-base-output-dir", type=str, default=None)
@@ -308,26 +349,44 @@ def create_semantic_comparison_parser(
     )
     parser.add_argument(
         "--graha-input-modality-mode",
-        choices=GRAHA_INPUT_MODALITY_CHOICES,
-        default="new-wac",
+        choices=defaults.GRAHA_INPUT_MODALITY_CHOICES,
+        default=defaults.DEFAULT_GRAHA_INPUT_MODALITY_MODE,
     )
     parser.add_argument(
         "--graha-vis-uv-merge-method",
-        choices=GRAHA_VIS_UV_MERGE_CHOICES,
-        default="mean",
+        choices=defaults.GRAHA_VIS_UV_MERGE_CHOICES,
+        default=defaults.DEFAULT_GRAHA_VIS_UV_MERGE_METHOD,
     )
-    parser.add_argument("--graha-shape-loss-weight", type=float, default=0.05)
-    parser.add_argument("--graha-shape-loss-pad-frac", type=float, default=0.3)
-    parser.add_argument("--graha-stats-batch-size", type=int, default=16)
-    parser.add_argument("--graha-batch-size", type=int, default=16)
-    parser.add_argument("--graha-num-workers", type=int, default=10)
+    parser.add_argument(
+        "--graha-shape-loss-weight",
+        type=float,
+        default=defaults.DEFAULT_GRAHA_SHAPE_LOSS_WEIGHT,
+    )
+    parser.add_argument(
+        "--graha-shape-loss-pad-frac",
+        type=float,
+        default=defaults.DEFAULT_GRAHA_SHAPE_LOSS_PAD_FRAC,
+    )
+    parser.add_argument(
+        "--graha-stats-batch-size",
+        type=int,
+        default=defaults.DEFAULT_GRAHA_STATS_BATCH_SIZE,
+    )
+    parser.add_argument(
+        "--graha-batch-size",
+        type=int,
+        default=defaults.DEFAULT_GRAHA_SEMANTIC_BATCH_SIZE,
+    )
+    parser.add_argument(
+        "--graha-num-workers", type=int, default=defaults.DEFAULT_GRAHA_NUM_WORKERS
+    )
     parser.add_argument(
         "--progress-log-every-n-batches",
         type=int,
-        default=25,
+        default=defaults.DEFAULT_PROGRESS_LOG_EVERY_N_BATCHES,
         help="Flush train-batch progress every N batches in sbatch logs.",
     )
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=defaults.DEFAULT_SEED)
     parser.add_argument(
         "--no-fit", action="store_true", help="Build data/model/trainer but skip fit."
     )
@@ -367,26 +426,26 @@ def create_instance_comparison_parser(
     parser.add_argument("--graha-lightning-checkpoint", type=str, default=None)
     parser.add_argument(
         "--graha-input-modality-mode",
-        choices=GRAHA_INPUT_MODALITY_CHOICES,
-        default="new-wac",
+        choices=defaults.GRAHA_INPUT_MODALITY_CHOICES,
+        default=defaults.DEFAULT_GRAHA_INPUT_MODALITY_MODE,
     )
     parser.add_argument(
         "--graha-vis-uv-merge-method",
-        choices=GRAHA_VIS_UV_MERGE_CHOICES,
-        default="mean",
+        choices=defaults.GRAHA_VIS_UV_MERGE_CHOICES,
+        default=defaults.DEFAULT_GRAHA_VIS_UV_MERGE_METHOD,
     )
     _add_normalization_args(parser)
-    _add_matching_args(parser, image_suffix_default="_input_wac_static_chip")
+    _add_matching_args(parser, image_suffix_default=defaults.DEFAULT_IMAGE_SUFFIX)
     parser.add_argument(
         "--toy-architecture",
-        choices=TOY_INSTANCE_ARCHITECTURE_CHOICES,
-        default="mask2former",
+        choices=defaults.TOY_INSTANCE_ARCHITECTURE_CHOICES,
+        default=defaults.DEFAULT_INSTANCE_TOY_ARCHITECTURE,
         help=(
             "Toy instance head to train. Use dino-mask-rcnn for TorchVision "
             "Mask R-CNN or dino-terratorch-mask-rcnn for TerraTorch Mask R-CNN."
         ),
     )
-    parser.add_argument("--target-size", type=int, default=256)
+    parser.add_argument("--target-size", type=int, default=defaults.DEFAULT_TARGET_SIZE)
     _add_band_filter_arg(parser)
     _add_sample_limit_args(parser)
     parser.add_argument(
@@ -394,16 +453,38 @@ def create_instance_comparison_parser(
         "--batch-size",
         dest="toy_batch_size",
         type=int,
-        default=2,
+        default=defaults.DEFAULT_INSTANCE_TOY_BATCH_SIZE,
         help="Toy instance batch size. --batch-size is accepted for parity with semantic scripts.",
     )
-    parser.add_argument("--toy-num-workers", type=int, default=10)
-    parser.add_argument("--graha-stats-batch-size", type=int, default=16)
-    parser.add_argument("--graha-batch-size", type=int, default=2)
-    parser.add_argument("--graha-num-workers", type=int, default=10)
-    parser.add_argument("--max-epochs", type=int, default=100)
-    parser.add_argument("--toy-learning-rate", type=float, default=5.0e-5)
-    parser.add_argument("--toy-weight-decay", type=float, default=1.0e-3)
+    parser.add_argument(
+        "--toy-num-workers",
+        type=int,
+        default=defaults.DEFAULT_INSTANCE_TOY_NUM_WORKERS,
+    )
+    parser.add_argument(
+        "--graha-stats-batch-size",
+        type=int,
+        default=defaults.DEFAULT_GRAHA_STATS_BATCH_SIZE,
+    )
+    parser.add_argument(
+        "--graha-batch-size",
+        type=int,
+        default=defaults.DEFAULT_GRAHA_INSTANCE_BATCH_SIZE,
+    )
+    parser.add_argument(
+        "--graha-num-workers", type=int, default=defaults.DEFAULT_GRAHA_NUM_WORKERS
+    )
+    parser.add_argument("--max-epochs", type=int, default=defaults.DEFAULT_MAX_EPOCHS)
+    parser.add_argument(
+        "--toy-learning-rate",
+        type=float,
+        default=defaults.DEFAULT_INSTANCE_LEARNING_RATE,
+    )
+    parser.add_argument(
+        "--toy-weight-decay",
+        type=float,
+        default=defaults.DEFAULT_INSTANCE_WEIGHT_DECAY,
+    )
     parser.add_argument("--toy-freeze-backbone", action="store_true")
     parser.add_argument(
         "--toy-normalize-inputs",
@@ -412,30 +493,56 @@ def create_instance_comparison_parser(
         action="store_true",
         help="Enable Toy instance z-score normalization. --normalize-inputs is accepted for parity with semantic scripts.",
     )
-    parser.add_argument("--toy-gradient-clip-val", type=float, default=1.0)
+    parser.add_argument(
+        "--toy-gradient-clip-val",
+        type=float,
+        default=defaults.DEFAULT_TOY_GRADIENT_CLIP_VAL,
+    )
     parser.add_argument("--disable-toy-gradient-clipping", action="store_true")
-    parser.add_argument("--graha-backbone-lr", type=float, default=5.0e-5)
-    parser.add_argument("--graha-head-lr", type=float, default=2.0e-4)
-    parser.add_argument("--graha-layer-decay", type=float, default=0.75)
-    parser.add_argument("--graha-weight-decay", type=float, default=0.05)
-    parser.add_argument("--graha-warmup-steps", type=int, default=500)
+    parser.add_argument(
+        "--graha-backbone-lr", type=float, default=defaults.DEFAULT_GRAHA_BACKBONE_LR
+    )
+    parser.add_argument(
+        "--graha-head-lr", type=float, default=defaults.DEFAULT_GRAHA_HEAD_LR
+    )
+    parser.add_argument(
+        "--graha-layer-decay", type=float, default=defaults.DEFAULT_GRAHA_LAYER_DECAY
+    )
+    parser.add_argument(
+        "--graha-weight-decay", type=float, default=defaults.DEFAULT_GRAHA_WEIGHT_DECAY
+    )
+    parser.add_argument(
+        "--graha-warmup-steps", type=int, default=defaults.DEFAULT_GRAHA_WARMUP_STEPS
+    )
     _add_graha_anchor_args(parser, parsed_defaults=True)
-    parser.add_argument("--graha-score-threshold", type=float, default=0.5)
-    parser.add_argument("--plot-every-n-epochs", type=int, default=1)
-    parser.add_argument("--plot-n-samples", type=int, default=5)
+    parser.add_argument(
+        "--graha-score-threshold",
+        type=float,
+        default=defaults.DEFAULT_GRAHA_SCORE_THRESHOLD,
+    )
+    parser.add_argument(
+        "--plot-every-n-epochs",
+        type=int,
+        default=defaults.DEFAULT_PLOT_EVERY_N_EPOCHS,
+    )
+    parser.add_argument(
+        "--plot-n-samples", type=int, default=defaults.DEFAULT_PLOT_N_SAMPLES
+    )
     parser.add_argument(
         "--progress-log-every-n-batches",
         type=int,
-        default=25,
+        default=defaults.DEFAULT_PROGRESS_LOG_EVERY_N_BATCHES,
         help="Flush train-batch progress every N batches in sbatch logs.",
     )
     _add_prediction_args(
         parser,
-        prediction_default="val",
-        n_samples_default=5,
+        prediction_default=defaults.DEFAULT_PREDICTION_SPLIT,
+        n_samples_default=defaults.DEFAULT_INSTANCE_PREDICTION_N_SAMPLES,
         include_score_threshold=True,
     )
-    parser.add_argument("--mask-shift", type=int, nargs=2, default=(0, 0))
+    parser.add_argument(
+        "--mask-shift", type=int, nargs=2, default=defaults.DEFAULT_MASK_SHIFT
+    )
     _add_nodata_args(parser, semantic_help=False)
     parser.add_argument(
         "--skip-toy-fit", action="store_true", help="Skip only Toy fitting."
@@ -443,7 +550,7 @@ def create_instance_comparison_parser(
     parser.add_argument("--skip-graha-fit", action="store_true")
     parser.add_argument("--no-fit", action="store_true")
     _add_epoch_test_args(parser)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=defaults.DEFAULT_SEED)
     return parser
 
 
@@ -457,7 +564,7 @@ def parse_instance_comparison_args(
 
 def create_single_model_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--model", choices=MODEL_CHOICES, required=True)
+    parser.add_argument("--model", choices=defaults.MODEL_CHOICES, required=True)
     return parser
 
 
@@ -472,7 +579,7 @@ def create_checkpoint_pipeline_parser(
     description: str | None = None,
 ) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=description)
-    parser.add_argument("--task", choices=["semantic", "instance"], required=True)
+    parser.add_argument("--task", choices=defaults.TASK_CHOICES, required=True)
     _add_symlink_arg(parser, semantic_help=False)
     parser.add_argument("--data-root", type=str, default=None)
     parser.add_argument("--base-output-dir", type=str, default=None)
@@ -482,66 +589,152 @@ def create_checkpoint_pipeline_parser(
     _add_model_selection_arg(parser)
     parser.add_argument("--dino-checkpoint", type=str, default=None)
     _add_graha_input_args(parser)
-    parser.add_argument("--target-size", type=int, default=256)
+    parser.add_argument("--target-size", type=int, default=defaults.DEFAULT_TARGET_SIZE)
     _add_band_filter_arg(parser)
     _add_semantic_label_source_arg(parser, detailed_help=True)
-    _add_matching_args(parser, image_suffix_default="_input_wac_static_chip")
+    _add_matching_args(parser, image_suffix_default=defaults.DEFAULT_IMAGE_SUFFIX)
     _add_sample_limit_args(parser)
     _add_nodata_args(parser, semantic_help=True)
-    parser.add_argument("--max-epochs", type=int, default=100)
-    parser.add_argument("--plot-every-n-epochs", type=int, default=1)
-    parser.add_argument("--plot-n-samples", type=int, default=5)
+    parser.add_argument("--max-epochs", type=int, default=defaults.DEFAULT_MAX_EPOCHS)
+    parser.add_argument(
+        "--plot-every-n-epochs",
+        type=int,
+        default=defaults.DEFAULT_PLOT_EVERY_N_EPOCHS,
+    )
+    parser.add_argument(
+        "--plot-n-samples", type=int, default=defaults.DEFAULT_PLOT_N_SAMPLES
+    )
     _add_prediction_args(
         parser,
-        prediction_default="val",
-        n_samples_default=5,
+        prediction_default=defaults.DEFAULT_PREDICTION_SPLIT,
+        n_samples_default=defaults.DEFAULT_INSTANCE_PREDICTION_N_SAMPLES,
         include_score_threshold=False,
     )
     _add_epoch_test_args(parser)
-    parser.add_argument("--sweep-split", choices=SPLIT_CHOICES, default="test")
+    parser.add_argument(
+        "--sweep-split",
+        choices=defaults.SPLIT_CHOICES,
+        default=defaults.DEFAULT_SWEEP_SPLIT,
+    )
     parser.add_argument("--sweep-max-samples", type=int, default=None)
     parser.add_argument("--max-checkpoints", type=int, default=None)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=defaults.DEFAULT_SEED)
     parser.add_argument("--verbose", action="store_true")
 
-    parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--num-workers", type=int, default=10)
-    parser.add_argument("--learning-rate", type=float, default=5.0e-5)
-    parser.add_argument("--weight-decay", type=float, default=1.0e-3)
-    parser.add_argument("--toy-loss-type", type=str, default="focal_dice")
+    parser.add_argument(
+        "--batch-size", type=int, default=defaults.DEFAULT_SEMANTIC_BATCH_SIZE
+    )
+    parser.add_argument(
+        "--num-workers", type=int, default=defaults.DEFAULT_SEMANTIC_NUM_WORKERS
+    )
+    parser.add_argument(
+        "--learning-rate", type=float, default=defaults.DEFAULT_SEMANTIC_LEARNING_RATE
+    )
+    parser.add_argument(
+        "--weight-decay", type=float, default=defaults.DEFAULT_SEMANTIC_WEIGHT_DECAY
+    )
+    parser.add_argument(
+        "--toy-loss-type", type=str, default=defaults.DEFAULT_TOY_SEMANTIC_LOSS_TYPE
+    )
     parser.add_argument("--use-toy-shape-loss", action="store_true")
-    parser.add_argument("--toy-shape-loss-weight", type=float, default=0.05)
-    parser.add_argument("--toy-shape-loss-pad-frac", type=float, default=0.3)
-    parser.add_argument("--graha-shape-loss-weight", type=float, default=0.05)
-    parser.add_argument("--graha-shape-loss-pad-frac", type=float, default=0.3)
+    parser.add_argument(
+        "--toy-shape-loss-weight",
+        type=float,
+        default=defaults.DEFAULT_TOY_SHAPE_LOSS_WEIGHT,
+    )
+    parser.add_argument(
+        "--toy-shape-loss-pad-frac",
+        type=float,
+        default=defaults.DEFAULT_TOY_SHAPE_LOSS_PAD_FRAC,
+    )
+    parser.add_argument(
+        "--graha-shape-loss-weight",
+        type=float,
+        default=defaults.DEFAULT_GRAHA_SHAPE_LOSS_WEIGHT,
+    )
+    parser.add_argument(
+        "--graha-shape-loss-pad-frac",
+        type=float,
+        default=defaults.DEFAULT_GRAHA_SHAPE_LOSS_PAD_FRAC,
+    )
     parser.add_argument("--normalize-inputs", action="store_true")
     _add_normalization_args(parser)
 
-    parser.add_argument("--toy-batch-size", type=int, default=2)
-    parser.add_argument("--toy-num-workers", type=int, default=10)
-    parser.add_argument("--toy-learning-rate", type=float, default=5.0e-5)
-    parser.add_argument("--toy-weight-decay", type=float, default=1.0e-3)
+    parser.add_argument(
+        "--toy-batch-size",
+        type=int,
+        default=defaults.DEFAULT_INSTANCE_TOY_BATCH_SIZE,
+    )
+    parser.add_argument(
+        "--toy-num-workers",
+        type=int,
+        default=defaults.DEFAULT_INSTANCE_TOY_NUM_WORKERS,
+    )
+    parser.add_argument(
+        "--toy-learning-rate",
+        type=float,
+        default=defaults.DEFAULT_INSTANCE_LEARNING_RATE,
+    )
+    parser.add_argument(
+        "--toy-weight-decay",
+        type=float,
+        default=defaults.DEFAULT_INSTANCE_WEIGHT_DECAY,
+    )
     parser.add_argument("--toy-normalize-inputs", action="store_true")
     parser.add_argument(
         "--toy-architecture",
-        choices=TOY_INSTANCE_ARCHITECTURE_CHOICES,
-        default="mask2former",
+        choices=defaults.TOY_INSTANCE_ARCHITECTURE_CHOICES,
+        default=defaults.DEFAULT_INSTANCE_TOY_ARCHITECTURE,
     )
     parser.add_argument("--disable-toy-gradient-clipping", action="store_true")
 
-    parser.add_argument("--graha-stats-batch-size", type=int, default=16)
-    parser.add_argument("--graha-batch-size", type=int, default=2)
-    parser.add_argument("--graha-num-workers", type=int, default=10)
-    parser.add_argument("--graha-backbone-lr", type=float, default=5.0e-5)
-    parser.add_argument("--graha-head-lr", type=float, default=2.0e-4)
-    parser.add_argument("--graha-layer-decay", type=float, default=0.75)
-    parser.add_argument("--graha-weight-decay", type=float, default=0.05)
-    parser.add_argument("--graha-warmup-steps", type=int, default=500)
+    parser.add_argument(
+        "--graha-stats-batch-size",
+        type=int,
+        default=defaults.DEFAULT_GRAHA_STATS_BATCH_SIZE,
+    )
+    parser.add_argument(
+        "--graha-batch-size",
+        type=int,
+        default=defaults.DEFAULT_GRAHA_INSTANCE_BATCH_SIZE,
+    )
+    parser.add_argument(
+        "--graha-num-workers", type=int, default=defaults.DEFAULT_GRAHA_NUM_WORKERS
+    )
+    parser.add_argument(
+        "--graha-backbone-lr", type=float, default=defaults.DEFAULT_GRAHA_BACKBONE_LR
+    )
+    parser.add_argument(
+        "--graha-head-lr", type=float, default=defaults.DEFAULT_GRAHA_HEAD_LR
+    )
+    parser.add_argument(
+        "--graha-layer-decay", type=float, default=defaults.DEFAULT_GRAHA_LAYER_DECAY
+    )
+    parser.add_argument(
+        "--graha-weight-decay", type=float, default=defaults.DEFAULT_GRAHA_WEIGHT_DECAY
+    )
+    parser.add_argument(
+        "--graha-warmup-steps", type=int, default=defaults.DEFAULT_GRAHA_WARMUP_STEPS
+    )
     _add_graha_anchor_args(parser, parsed_defaults=False)
-    parser.add_argument("--graha-score-threshold", type=float, default=0.5)
-    parser.add_argument("--prediction-score-threshold", type=float, default=0.5)
-    parser.add_argument("--progress-log-every-n-batches", type=int, default=20)
-    parser.add_argument("--mask-shift", type=int, nargs=2, default=(0, 0))
+    parser.add_argument(
+        "--graha-score-threshold",
+        type=float,
+        default=defaults.DEFAULT_GRAHA_SCORE_THRESHOLD,
+    )
+    parser.add_argument(
+        "--prediction-score-threshold",
+        type=float,
+        default=defaults.DEFAULT_PREDICTION_SCORE_THRESHOLD,
+    )
+    parser.add_argument(
+        "--progress-log-every-n-batches",
+        type=int,
+        default=defaults.DEFAULT_PIPELINE_PROGRESS_LOG_EVERY_N_BATCHES,
+    )
+    parser.add_argument(
+        "--mask-shift", type=int, nargs=2, default=defaults.DEFAULT_MASK_SHIFT
+    )
 
     parser.add_argument(
         "--comparison-extra-arg",
@@ -573,22 +766,36 @@ def create_semantic_checkpoint_sweep_parser(
     _add_data_root_args(parser, output_arg="--output-root", checkpoint_dirs=True)
     _add_model_selection_arg(parser)
     _add_band_filter_arg(parser)
-    parser.add_argument("--target-size", type=int, default=256)
+    parser.add_argument("--target-size", type=int, default=defaults.DEFAULT_TARGET_SIZE)
     _add_semantic_label_source_arg(parser, detailed_help=False)
-    _add_matching_args(parser, image_suffix_default="_input_wac_static_chip")
-    parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--num-workers", type=int, default=10)
+    _add_matching_args(parser, image_suffix_default=defaults.DEFAULT_IMAGE_SUFFIX)
+    parser.add_argument(
+        "--batch-size", type=int, default=defaults.DEFAULT_SEMANTIC_BATCH_SIZE
+    )
+    parser.add_argument(
+        "--num-workers", type=int, default=defaults.DEFAULT_SEMANTIC_NUM_WORKERS
+    )
     parser.add_argument("--normalize-inputs", action="store_true")
     _add_normalization_args_without_help(parser)
     parser.add_argument("--max-test-samples", type=int, default=None)
     _add_nodata_args(parser, semantic_help=True)
     parser.add_argument("--dino-checkpoint", type=str, default=None)
     _add_graha_input_args(parser)
-    parser.add_argument("--graha-stats-batch-size", type=int, default=16)
-    parser.add_argument("--graha-batch-size", type=int, default=16)
-    parser.add_argument("--graha-num-workers", type=int, default=10)
+    parser.add_argument(
+        "--graha-stats-batch-size",
+        type=int,
+        default=defaults.DEFAULT_GRAHA_STATS_BATCH_SIZE,
+    )
+    parser.add_argument(
+        "--graha-batch-size",
+        type=int,
+        default=defaults.DEFAULT_GRAHA_SEMANTIC_BATCH_SIZE,
+    )
+    parser.add_argument(
+        "--graha-num-workers", type=int, default=defaults.DEFAULT_GRAHA_NUM_WORKERS
+    )
     parser.add_argument("--max-checkpoints", type=int, default=None)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=defaults.DEFAULT_SEED)
     parser.add_argument(
         "--verbose", action="store_true", help="Show model/datamodule setup output."
     )
@@ -616,19 +823,23 @@ def create_instance_checkpoint_sweep_parser(
     _add_symlink_arg(parser, semantic_help=False)
     _add_data_root_args(parser, output_arg="--output-root", checkpoint_dirs=True)
     _add_model_selection_arg(parser)
-    parser.add_argument("--target-size", type=int, default=256)
+    parser.add_argument("--target-size", type=int, default=defaults.DEFAULT_TARGET_SIZE)
     _add_band_filter_arg(parser)
-    _add_matching_args(parser, image_suffix_default="_input_wac_static_chip")
+    _add_matching_args(parser, image_suffix_default=defaults.DEFAULT_IMAGE_SUFFIX)
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument(
         "--toy-batch-size",
         "--batch-size",
         dest="toy_batch_size",
         type=int,
-        default=2,
+        default=defaults.DEFAULT_INSTANCE_TOY_BATCH_SIZE,
         help="Toy instance batch size. --batch-size is accepted for parity with semantic scripts.",
     )
-    parser.add_argument("--toy-num-workers", type=int, default=4)
+    parser.add_argument(
+        "--toy-num-workers",
+        type=int,
+        default=defaults.DEFAULT_INSTANCE_SWEEP_NUM_WORKERS,
+    )
     parser.add_argument(
         "--toy-normalize-inputs",
         "--normalize-inputs",
@@ -639,27 +850,63 @@ def create_instance_checkpoint_sweep_parser(
     _add_normalization_args_without_help(parser)
     parser.add_argument(
         "--toy-architecture",
-        choices=TOY_INSTANCE_ARCHITECTURE_CHOICES,
-        default="mask2former",
+        choices=defaults.TOY_INSTANCE_ARCHITECTURE_CHOICES,
+        default=defaults.DEFAULT_INSTANCE_TOY_ARCHITECTURE,
     )
     parser.add_argument("--dino-checkpoint", type=str, default=None)
     _add_graha_input_args(parser)
-    parser.add_argument("--graha-stats-batch-size", type=int, default=16)
-    parser.add_argument("--graha-batch-size", type=int, default=2)
-    parser.add_argument("--graha-num-workers", type=int, default=4)
-    parser.add_argument("--graha-backbone-lr", type=float, default=5.0e-5)
-    parser.add_argument("--graha-head-lr", type=float, default=2.0e-4)
-    parser.add_argument("--graha-layer-decay", type=float, default=0.75)
-    parser.add_argument("--graha-weight-decay", type=float, default=0.05)
-    parser.add_argument("--graha-warmup-steps", type=int, default=500)
+    parser.add_argument(
+        "--graha-stats-batch-size",
+        type=int,
+        default=defaults.DEFAULT_GRAHA_STATS_BATCH_SIZE,
+    )
+    parser.add_argument(
+        "--graha-batch-size",
+        type=int,
+        default=defaults.DEFAULT_GRAHA_INSTANCE_BATCH_SIZE,
+    )
+    parser.add_argument(
+        "--graha-num-workers",
+        type=int,
+        default=defaults.DEFAULT_GRAHA_SWEEP_NUM_WORKERS,
+    )
+    parser.add_argument(
+        "--graha-backbone-lr", type=float, default=defaults.DEFAULT_GRAHA_BACKBONE_LR
+    )
+    parser.add_argument(
+        "--graha-head-lr", type=float, default=defaults.DEFAULT_GRAHA_HEAD_LR
+    )
+    parser.add_argument(
+        "--graha-layer-decay", type=float, default=defaults.DEFAULT_GRAHA_LAYER_DECAY
+    )
+    parser.add_argument(
+        "--graha-weight-decay", type=float, default=defaults.DEFAULT_GRAHA_WEIGHT_DECAY
+    )
+    parser.add_argument(
+        "--graha-warmup-steps", type=int, default=defaults.DEFAULT_GRAHA_WARMUP_STEPS
+    )
     _add_graha_anchor_args(parser, parsed_defaults=True)
-    parser.add_argument("--graha-score-threshold", type=float, default=0.5)
-    parser.add_argument("--prediction-split", choices=SPLIT_CHOICES, default="test")
-    parser.add_argument("--prediction-score-threshold", type=float, default=0.5)
-    parser.add_argument("--mask-shift", type=int, nargs=2, default=(0, 0))
+    parser.add_argument(
+        "--graha-score-threshold",
+        type=float,
+        default=defaults.DEFAULT_GRAHA_SCORE_THRESHOLD,
+    )
+    parser.add_argument(
+        "--prediction-split",
+        choices=defaults.SPLIT_CHOICES,
+        default=defaults.DEFAULT_SWEEP_SPLIT,
+    )
+    parser.add_argument(
+        "--prediction-score-threshold",
+        type=float,
+        default=defaults.DEFAULT_PREDICTION_SCORE_THRESHOLD,
+    )
+    parser.add_argument(
+        "--mask-shift", type=int, nargs=2, default=defaults.DEFAULT_MASK_SHIFT
+    )
     _add_nodata_args(parser, semantic_help=False)
     parser.add_argument("--max-checkpoints", type=int, default=None)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=defaults.DEFAULT_SEED)
     parser.add_argument("--verbose", action="store_true")
     return parser
 
@@ -686,36 +933,82 @@ def create_instance_checkpoint_comparison_plot_parser(
     parser.add_argument("--graha-checkpoint-dir", type=Path, default=None)
     parser.add_argument("--dino-checkpoint", type=Path, default=None)
     _add_graha_input_args(parser, path_type=Path)
-    parser.add_argument("--target-size", type=int, default=256)
+    parser.add_argument("--target-size", type=int, default=defaults.DEFAULT_TARGET_SIZE)
     _add_band_filter_arg(parser)
     _add_matching_args(
         parser,
-        image_suffix_default="_input_wac_chip",
-        label_glob_default="*_label.npz",
+        image_suffix_default=defaults.DEFAULT_WAC_IMAGE_SUFFIX,
+        label_glob_default=defaults.DEFAULT_INSTANCE_LABEL_GLOB,
         path_defaults=True,
     )
     parser.add_argument("--max-samples", type=int, default=None)
-    parser.add_argument("--batch-size", type=int, default=2)
-    parser.add_argument("--num-workers", type=int, default=4)
-    parser.add_argument("--graha-stats-batch-size", type=int, default=16)
-    parser.add_argument("--graha-batch-size", type=int, default=2)
-    parser.add_argument("--graha-num-workers", type=int, default=4)
+    parser.add_argument(
+        "--batch-size", type=int, default=defaults.DEFAULT_INSTANCE_TOY_BATCH_SIZE
+    )
+    parser.add_argument(
+        "--num-workers", type=int, default=defaults.DEFAULT_INSTANCE_SWEEP_NUM_WORKERS
+    )
+    parser.add_argument(
+        "--graha-stats-batch-size",
+        type=int,
+        default=defaults.DEFAULT_GRAHA_STATS_BATCH_SIZE,
+    )
+    parser.add_argument(
+        "--graha-batch-size",
+        type=int,
+        default=defaults.DEFAULT_GRAHA_INSTANCE_BATCH_SIZE,
+    )
+    parser.add_argument(
+        "--graha-num-workers",
+        type=int,
+        default=defaults.DEFAULT_GRAHA_SWEEP_NUM_WORKERS,
+    )
     parser.add_argument("--normalize-inputs", action="store_true")
     _add_normalization_args_without_help(parser)
-    parser.add_argument("--graha-backbone-lr", type=float, default=5.0e-5)
-    parser.add_argument("--graha-head-lr", type=float, default=2.0e-4)
-    parser.add_argument("--graha-layer-decay", type=float, default=0.75)
-    parser.add_argument("--graha-weight-decay", type=float, default=0.05)
-    parser.add_argument("--graha-warmup-steps", type=int, default=500)
+    parser.add_argument(
+        "--graha-backbone-lr", type=float, default=defaults.DEFAULT_GRAHA_BACKBONE_LR
+    )
+    parser.add_argument(
+        "--graha-head-lr", type=float, default=defaults.DEFAULT_GRAHA_HEAD_LR
+    )
+    parser.add_argument(
+        "--graha-layer-decay", type=float, default=defaults.DEFAULT_GRAHA_LAYER_DECAY
+    )
+    parser.add_argument(
+        "--graha-weight-decay", type=float, default=defaults.DEFAULT_GRAHA_WEIGHT_DECAY
+    )
+    parser.add_argument(
+        "--graha-warmup-steps", type=int, default=defaults.DEFAULT_GRAHA_WARMUP_STEPS
+    )
     _add_graha_anchor_args(parser, parsed_defaults=True)
-    parser.add_argument("--graha-score-threshold", type=float, default=0.5)
-    parser.add_argument("--prediction-split", choices=SPLIT_CHOICES, default="val")
-    parser.add_argument("--n-samples", type=int, default=5)
-    parser.add_argument("--score-threshold", type=float, default=0.5)
-    parser.add_argument("--mask-shift", type=int, nargs=2, default=(0, 0))
+    parser.add_argument(
+        "--graha-score-threshold",
+        type=float,
+        default=defaults.DEFAULT_GRAHA_SCORE_THRESHOLD,
+    )
+    parser.add_argument(
+        "--prediction-split",
+        choices=defaults.SPLIT_CHOICES,
+        default=defaults.DEFAULT_PREDICTION_SPLIT,
+    )
+    parser.add_argument(
+        "--n-samples", type=int, default=defaults.DEFAULT_INSTANCE_PREDICTION_N_SAMPLES
+    )
+    parser.add_argument(
+        "--score-threshold",
+        type=float,
+        default=defaults.DEFAULT_PREDICTION_SCORE_THRESHOLD,
+    )
+    parser.add_argument(
+        "--mask-shift", type=int, nargs=2, default=defaults.DEFAULT_MASK_SHIFT
+    )
     parser.add_argument("--ignore-nodata-in-loss", action="store_true")
-    parser.add_argument("--nodata-ignore-index", type=int, default=-1)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--nodata-ignore-index",
+        type=int,
+        default=defaults.DEFAULT_NODATA_IGNORE_INDEX,
+    )
+    parser.add_argument("--seed", type=int, default=defaults.DEFAULT_SEED)
     return parser
 
 

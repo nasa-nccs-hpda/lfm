@@ -9,7 +9,6 @@ import csv
 import json
 import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +16,7 @@ LFM_ROOT = Path(__file__).resolve().parents[3]
 if str(LFM_ROOT) not in sys.path:
     sys.path.insert(0, str(LFM_ROOT))
 
-from lfm.all_models.all_tasks import ComparisonExperiment, save_config_json
+from lfm.all_models.all_tasks import ComparisonExperiment
 from lfm.all_models.all_tasks.cli_args import parse_semantic_comparison_args
 from lfm.all_models.all_tasks.utils import (
     create_timestamped_output_dir,
@@ -29,6 +28,10 @@ from lfm.full_model.sem_seg.semantic_model_adapter import GrahaSemanticModelAdap
 from lfm.all_models.sem_seg.testing.semantic_test_suite_callback import (
     SemanticEpochTestSuiteCallback,
 )
+from lfm.all_models.sem_seg.config import (
+    SemanticSegmentationExperimentConfig,
+    build_config_from_args as _build_config_from_args,
+)
 from lfm.all_models.sem_seg.workflows import (
     semantic_graha_workflow,
     semantic_toy_workflow,
@@ -37,175 +40,7 @@ from lfm.all_models.sem_seg.workflows import (
 GRAHA_ADAPTER = GrahaSemanticModelAdapter()
 
 
-@dataclass(frozen=True)
-class ToyComparisonConfig:
-    repo_root: Path
-    notebook_dir: Path
-    data_root: Path
-    base_output_dir: Path
-    dino_checkpoint: Path | None
-    toy_lightning_checkpoint: Path | None
-    band_filter: list[int]
-    target_size: tuple[int, int]
-    spatial_transform: str
-    semantic_label_source: str
-    image_glob: str
-    label_glob: str
-    image_suffix: str
-    label_suffix: str
-    image_file_type: str
-    max_train_samples: int | None
-    max_val_samples: int | None
-    max_test_samples: int | None
-    ignore_nodata_in_loss: bool
-    nodata_ignore_index: int
-    batch_size: int
-    num_workers: int
-    max_epochs: int
-    learning_rate: float
-    weight_decay: float
-    toy_loss_type: str
-    use_toy_shape_loss: bool
-    toy_shape_loss_weight: float
-    toy_shape_loss_pad_frac: float
-    freeze_encoder: bool
-    normalize_inputs: bool
-    normalization_source: str
-    normalization_modality: str
-    toy_gradient_clip_val: float | None
-    plot_every_n_epochs: int
-    plot_n_samples: int
-    cache_predictions: bool
-    prediction_split: str
-    prediction_n_samples: int
-    graha_base_output_dir: Path
-    graha_pretrain_dir: Path | None
-    graha_lightning_checkpoint: Path | None
-    graha_input_modality_mode: str
-    graha_vis_uv_merge_method: str
-    graha_shape_loss_weight: float
-    graha_shape_loss_pad_frac: float
-    graha_stats_batch_size: int
-    graha_batch_size: int
-    graha_num_workers: int
-    progress_log_every_n_batches: int
-    skip_toy_fit: bool
-    skip_graha_fit: bool
-    run_epoch_test_suite: bool
-    epoch_test_split: str
-    epoch_test_n_samples: int
-    epoch_test_every_n_epochs: int
-    seed: int
-
-
-def _file_type_from_glob(pattern: str) -> str:
-    stripped = pattern.replace("*", "")
-    if stripped.startswith(".") and stripped.count(".") == 1:
-        return stripped
-    suffix = Path(stripped).suffix
-    return suffix or ".tif"
-
-
-def build_config(args: argparse.Namespace) -> ToyComparisonConfig:
-    script_dir = Path(__file__).resolve().parent
-    repo_root = script_dir.parents[2]
-    notebook_dir = repo_root / "notebooks" / "full_model"
-    scripts_output_dir = repo_root / "scripts" / "outputs"
-    data_root = (
-        Path(args.data_root).resolve() if args.data_root else notebook_dir / "data"
-    )
-    base_output_dir = (
-        Path(args.base_output_dir).resolve()
-        if args.base_output_dir
-        else scripts_output_dir / "semantic_seg_comparison"
-    )
-    dino_checkpoint = (
-        Path(args.dino_checkpoint).resolve() if args.dino_checkpoint else None
-    )
-    toy_lightning_checkpoint_arg = args.toy_lightning_checkpoint
-    toy_lightning_checkpoint = (
-        Path(toy_lightning_checkpoint_arg).resolve()
-        if toy_lightning_checkpoint_arg
-        else None
-    )
-    graha_base_output_dir = (
-        Path(args.graha_base_output_dir).resolve()
-        if args.graha_base_output_dir
-        else scripts_output_dir / "graha_finetuning"
-    )
-    graha_pretrain_dir = (
-        Path(args.graha_pretrain_dir).resolve() if args.graha_pretrain_dir else None
-    )
-    graha_lightning_checkpoint = (
-        Path(args.graha_lightning_checkpoint).resolve()
-        if args.graha_lightning_checkpoint
-        else None
-    )
-
-    return ToyComparisonConfig(
-        repo_root=repo_root,
-        notebook_dir=notebook_dir,
-        data_root=data_root,
-        base_output_dir=base_output_dir,
-        dino_checkpoint=dino_checkpoint,
-        toy_lightning_checkpoint=toy_lightning_checkpoint,
-        band_filter=args.band_filter,
-        target_size=(args.target_size, args.target_size),
-        spatial_transform="crop",
-        semantic_label_source=args.semantic_label_source,
-        image_glob=args.image_glob,
-        label_glob=args.label_glob,
-        image_suffix=args.image_suffix,
-        label_suffix=args.label_suffix,
-        image_file_type=_file_type_from_glob(args.image_glob),
-        max_train_samples=args.max_train_samples,
-        max_val_samples=args.max_val_samples,
-        max_test_samples=args.max_test_samples,
-        ignore_nodata_in_loss=getattr(args, "ignore_nodata_in_loss", False),
-        nodata_ignore_index=getattr(args, "nodata_ignore_index", -1),
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        max_epochs=args.max_epochs,
-        learning_rate=args.learning_rate,
-        weight_decay=args.weight_decay,
-        toy_loss_type=args.toy_loss_type,
-        use_toy_shape_loss=args.use_toy_shape_loss,
-        toy_shape_loss_weight=args.toy_shape_loss_weight,
-        toy_shape_loss_pad_frac=args.toy_shape_loss_pad_frac,
-        freeze_encoder=args.freeze_encoder,
-        normalize_inputs=args.normalize_inputs,
-        normalization_source=getattr(args, "normalization_source", "pretrain"),
-        normalization_modality=getattr(args, "normalization_modality", "vis_uv"),
-        toy_gradient_clip_val=(
-            None if args.disable_toy_gradient_clipping else args.toy_gradient_clip_val
-        ),
-        plot_every_n_epochs=args.plot_every_n_epochs,
-        plot_n_samples=args.plot_n_samples,
-        cache_predictions=args.cache_predictions,
-        prediction_split=args.prediction_split,
-        prediction_n_samples=args.prediction_n_samples,
-        graha_base_output_dir=graha_base_output_dir,
-        graha_pretrain_dir=graha_pretrain_dir,
-        graha_lightning_checkpoint=graha_lightning_checkpoint,
-        graha_input_modality_mode=args.graha_input_modality_mode,
-        graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
-        graha_shape_loss_weight=getattr(args, "graha_shape_loss_weight", 0.05),
-        graha_shape_loss_pad_frac=getattr(args, "graha_shape_loss_pad_frac", 0.3),
-        graha_stats_batch_size=args.graha_stats_batch_size,
-        graha_batch_size=args.graha_batch_size,
-        graha_num_workers=args.graha_num_workers,
-        progress_log_every_n_batches=getattr(args, "progress_log_every_n_batches", 25),
-        skip_toy_fit=args.no_fit or args.skip_toy_fit,
-        skip_graha_fit=args.no_fit or args.skip_graha_fit,
-        run_epoch_test_suite=args.run_epoch_test_suite,
-        epoch_test_split=args.epoch_test_split,
-        epoch_test_n_samples=args.epoch_test_n_samples,
-        epoch_test_every_n_epochs=args.epoch_test_every_n_epochs,
-        seed=args.seed,
-    )
-
-
-def validate_data_paths(config: ToyComparisonConfig) -> None:
+def validate_data_paths(config: SemanticSegmentationExperimentConfig) -> None:
     required = []
     for split in ["train", "val", "test"]:
         required.extend(
@@ -228,10 +63,6 @@ def validate_data_paths(config: ToyComparisonConfig) -> None:
             "Missing required split data paths:\n"
             + "\n".join(str(path) for path in missing)
         )
-
-
-def save_config(config: ToyComparisonConfig, output_dir: Path) -> None:
-    save_config_json(config, output_dir / "config.json")
 
 
 def _format_seconds(seconds: float) -> str:
@@ -282,7 +113,9 @@ def record_timing(
     )
 
 
-def get_toy_normalization_modality_info(config: ToyComparisonConfig) -> Path | None:
+def get_toy_normalization_modality_info(
+    config: SemanticSegmentationExperimentConfig,
+) -> Path | None:
     if not config.normalize_inputs or config.normalization_source != "pretrain":
         return None
     normalization_config = GRAHA_ADAPTER.build_comparison_config(
@@ -300,7 +133,7 @@ def main() -> None:
     args = parse_args()
     notebook_dir = Path(__file__).resolve().parents[2] / "notebooks" / "full_model"
     ensure_data_symlink(args.simlink_dest, notebook_dir / "data")
-    config = build_config(args)
+    config = _build_config_from_args(args)
     validate_data_paths(config)
     output_dir = create_timestamped_output_dir(config.base_output_dir)
     timing_rows: list[dict[str, Any]] = []
