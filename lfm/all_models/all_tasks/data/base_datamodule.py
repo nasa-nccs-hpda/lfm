@@ -64,7 +64,7 @@ class SplitFolderDataLayout:
 InputMetadataFn = Callable[[str, list[int] | None], list[str]]
 
 
-class SplitSegmentationDataModule(LightningDataModule):
+class LunarSegmentationDataModule(LightningDataModule):
     """Shared LightningDataModule lifecycle for pre-split segmentation data.
 
     Subclasses provide task-specific dataset construction and, when needed,

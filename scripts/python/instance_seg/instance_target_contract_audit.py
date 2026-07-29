@@ -22,11 +22,11 @@ LFM_ROOT = Path(__file__).resolve().parents[3]
 if str(LFM_ROOT) not in sys.path:
     sys.path.insert(0, str(LFM_ROOT))
 
-from lfm.all_models.inst_seg.instance_data_utils import (
+from lfm.all_models.inst_seg.data.instance_data_utils import (
     instance_mask_to_object_detection_targets,
 )
-from lfm.full_model.inst_seg.instance_mask_datamodule import (
-    LunarObjectDetectionInstanceMaskDatamodule,
+from lfm.full_model.inst_seg.graha_instance_datamodule import (
+    GrahaObjectDetectionInstanceDataModule,
 )
 from lfm.toy_model.inst_seg.lightning_wrappers import (
     ToyDinoMaskRCNNSplitDataModule,
@@ -228,7 +228,7 @@ def make_datamodules(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "toy_mask2former": ToyInstanceSegSplitDataModule(**common_toy),
         "toy_dino_mask_rcnn": ToyDinoMaskRCNNSplitDataModule(**common_toy),
-        "graha_mask_rcnn": LunarObjectDetectionInstanceMaskDatamodule(**common_graha),
+        "graha_mask_rcnn": GrahaObjectDetectionInstanceDataModule(**common_graha),
     }
 
 

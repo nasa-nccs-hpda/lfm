@@ -313,8 +313,8 @@ def build_audit_cases(
             "enabled": True,
             "base_module": "lfm.full_model.inst_seg.instance_mask_datamodule",
             "base_class": "LunarObjectDetectionInstanceMaskDatamodule",
-            "oop_module": "lfm.full_model.inst_seg.instance_mask_datamodule",
-            "oop_class": "LunarObjectDetectionInstanceMaskDatamodule",
+            "oop_module": "lfm.full_model.inst_seg.graha_instance_datamodule",
+            "oop_class": "GrahaObjectDetectionInstanceDataModule",
             "kwargs": {
                 "batch_size": 2,
                 "num_workers": 0,

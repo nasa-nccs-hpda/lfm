@@ -292,7 +292,7 @@ Sub-steps:
 
 6. [Completed] Extract shared Toy instance datamodule mechanics.
 
-   `lfm.all_models.inst_seg.instance_datamodule.InstanceSegmentationDataModule`
+   `lfm.all_models.inst_seg.data.instance_datamodule.InstanceSegmentationDataModule`
    now owns the duplicated split setup, dataset construction, optional train
    statistics, and dataloader creation used by the Toy Mask2Former and Toy
    Mask R-CNN instance datamodules. The Toy classes remain real
@@ -632,10 +632,14 @@ Sub-steps:
    - `lfm/toy_model/sem_seg/semantic_toy_components.py`
    - `lfm/toy_model/inst_seg/instance_toy_components.py`
 
-   The executable Graha fine-tuning entry points now live in:
+   The legacy Graha-only `*_finetuning.py` script entry points were removed.
+   Use the maintained single-model entry points with `--model graha` for
+   Graha-only fine-tuning:
 
-   - `scripts/python/semantic_seg/semantic_seg_finetuning.py`
-   - `scripts/python/instance_seg/instance_seg_finetuning.py`
+   - `scripts/python/semantic_seg/semantic_seg_single_finetune.py`
+   - `scripts/python/instance_seg/instance_seg_single_finetune.py`
+   - `scripts/shell/semantic_seg/sbatch_semantic_seg_single_finetune.sh`
+   - `scripts/shell/instance_seg/sbatch_instance_seg_single_finetune.sh`
 
 6. [Completed] Move script-level Toy and Graha workflow orchestration under
    `scripts/python/{task}`.
@@ -912,10 +916,10 @@ Sub-steps:
 
 Progress:
 
-- Added `SplitSegmentationDataModule` under
+- Added `LunarSegmentationDataModule` under
   `lfm/all_models/all_tasks/data/base_datamodule.py` as the shared
   pre-split LightningDataModule lifecycle for active Toy/shared data paths.
-- `SplitSegmentationDataModule` now owns:
+- `LunarSegmentationDataModule` now owns:
 
   - `train/val/test/{chips,labels}` validation
   - optional input metadata setup
@@ -925,10 +929,10 @@ Progress:
   - hook points for task-specific file-list/sanity output
 
 - `lfm/all_models/inst_seg/instance_datamodule.py` now inherits from
-  `SplitSegmentationDataModule` and keeps only instance-specific dataset
+  `LunarSegmentationDataModule` and keeps only instance-specific dataset
   construction, collate policy, and normalization-stat storage.
 - `lfm/toy_model/sem_seg/lightning_wrappers/toy_sem_seg_datamodule.py` now
-  inherits from `SplitSegmentationDataModule` and keeps Toy semantic-specific
+  inherits from `LunarSegmentationDataModule` and keeps Toy semantic-specific
   dataset construction, tuple-output behavior, file-list output, and sanity
   summaries.
 - `lfm/toy_model/sem_seg/lightning_wrappers/toy_sem_seg_from_instance_datamodule.py`
@@ -942,8 +946,366 @@ Progress:
   split datamodule base should wait until phase 9 decides whether flat-layout
   support is deprecated.
 - Local validation completed for the touched modules with compile and lint
-  checks. Dataset audits and semantic/instance smoke tests passed, so phase 8
-  is complete.
+  checks. Dataset audits and semantic/instance smoke tests passed, so the first
+  phase 8 inheritance cleanup slice is complete.
+
+Next Phase 8 Slice: Unify Graha Dataset/Datamodule Inheritance
+
+Reason:
+
+- The current tree is cleaner internally, but still transitional. Toy/shared
+  paths use `lfm/all_models/all_tasks/data.LunarSegmentationDataModule` and
+  `lfm/all_models/all_tasks/data.LunarSegmentationDataset`, while Graha paths
+  still use a separate repo-owned base line under
+  `lfm/full_model/all_tasks/datamodules`.
+- This creates two competing base names and two datamodule lifecycles:
+
+  - `lfm/all_models/all_tasks/data/base_dataset.py::LunarSegmentationDataset`
+  - `lfm/full_model/all_tasks/datamodules/lunar_segmentation_dataset.py::LunarSegmentationDataset`
+  - `lfm/all_models/all_tasks/data/base_datamodule.py::LunarSegmentationDataModule`
+  - `lfm/full_model/all_tasks/datamodules/lunar_segmentation_datamodule.py::LunarSegmentationDatamodule`
+
+- The target design is one shared dataset/datamodule inheritance tree, with
+  Toy and Graha represented as model-family-specific specializations only where
+  they genuinely need different output contracts.
+
+Target inheritance shape:
+
+```text
+Dataset
+└── LunarSegmentationDataset
+    ├── SemanticSegmentationDataset
+    │   ├── ToySemanticSegmentationDataset
+    │   ├── GrahaSemanticSegmentationDataset
+    │   └── GrahaSemanticFromInstanceDataset
+    └── InstanceSegmentationDataset
+        ├── ToyInstanceSegmentationDataset
+        ├── ToyObjectDetectionInstanceDataset
+        ├── GrahaInstanceSegmentationDataset
+        └── GrahaObjectDetectionInstanceDataset
+
+LightningDataModule
+└── LunarSegmentationDataModule
+    ├── SemanticSegmentationDataModule
+    │   ├── ToySemanticSegmentationDataModule
+    │   ├── GrahaSemanticSegmentationDataModule
+    │   └── GrahaSemanticFromInstanceDataModule
+    └── InstanceSegmentationDataModule
+        ├── ToyInstanceSegmentationDataModule
+        ├── ToyObjectDetectionInstanceDataModule
+        ├── GrahaInstanceSegmentationDataModule
+        └── GrahaObjectDetectionInstanceDataModule
+```
+
+Naming target:
+
+- Use `LunarSegmentationDataset` and `LunarSegmentationDataModule` for the
+  shared all-model base classes.
+- Use `SemanticSegmentationDataset` / `SemanticSegmentationDataModule` and
+  `InstanceSegmentationDataset` / `InstanceSegmentationDataModule` for
+  task-level shared bases.
+- Use `Toy*` and `Graha*` only at model-family specialization boundaries.
+- Avoid `full_model` in new class/file names when the behavior is specifically
+  Graha behavior. Existing package paths may remain until phase 10 naming
+  cleanup decides whether to rename package directories.
+
+Sub-steps for this slice:
+
+7. [Completed] Create the shared semantic datamodule base.
+
+   Add `lfm/all_models/sem_seg/semantic_datamodule.py` with a real
+   `SemanticSegmentationDataModule` subclass of the shared all-task
+   datamodule lifecycle.
+
+   Responsibilities:
+
+   - own semantic-specific dataset construction
+   - set semantic collate policy
+   - set semantic train-stat image key/log label
+   - support semantic-from-instance as a real subclass hook, not as a
+     compatibility file
+
+   Do not create this file as a no-op mirror. It must own shared semantic
+   datamodule behavior used by at least Toy and/or Graha code after this slice.
+
+   Completed:
+
+   - added `lfm/all_models/sem_seg/semantic_datamodule.py`
+   - added `SemanticSegmentationDataModule` as the shared semantic split
+     datamodule subclass of `LunarSegmentationDataModule`
+   - moved Toy semantic split lifecycle, dataset construction, train-stat
+     handling, file-list writing, and sanity-summary behavior into the shared
+     semantic datamodule
+   - reduced
+     `lfm/toy_model/sem_seg/lightning_wrappers/toy_sem_seg_datamodule.py` to
+     Toy-specific dataset and metadata specialization
+   - kept
+     `lfm/toy_model/sem_seg/lightning_wrappers/toy_sem_seg_from_instance_datamodule.py`
+     inheriting through the Toy semantic datamodule while preserving its
+     instance-label sanity summary override
+
+8. [Completed] Move Graha semantic dataset/datamodule classes onto the shared
+   semantic base.
+
+   Convert the current Graha semantic classes from:
+
+   - `lfm/full_model/sem_seg/semantic_mask_datamodule.py`
+   - `lfm/full_model/sem_seg/semantic_from_instance_datamodule.py`
+
+   into Graha-specific specializations that inherit from the shared semantic
+   dataset/datamodule classes.
+
+   Preserve:
+
+   - output dictionary keys expected by TerraTorch tasks
+   - semantic mask behavior
+   - semantic-from-instance binarization behavior
+   - nodata policy behavior
+   - normalization behavior
+   - split-folder data layout
+
+   Decide explicitly whether flat-layout support remains. If it is no longer
+   needed for active experiments, move flat-layout removal into phase 9
+   deprecation rather than preserving it awkwardly in the new base.
+
+   Completed:
+
+   - `LunarSemanticMaskSegmentationDataset` now inherits from
+     `lfm.all_models.sem_seg.SemanticSegmentationDataset`
+   - `LunarSemanticMaskSegmentationDatamodule` now inherits from
+     `lfm.all_models.sem_seg.SemanticSegmentationDataModule`
+   - `LunarSemanticFromInstanceDataset` now inherits through the Graha semantic
+     mask dataset and preserves crater box / crater count metadata
+   - `LunarSemanticFromInstanceDatamodule` now inherits through the Graha
+     semantic mask datamodule and keeps its instance-aware collate policy
+   - semantic Graha datamodule code no longer imports the removed full-model
+     all-task datamodule base package
+
+   Deliberate deferral:
+
+   - The Graha semantic classes still live under `lfm/full_model/sem_seg` for
+     this slice to avoid a broad import-path churn in the same change. Later
+     substeps update active imports and remove the obsolete full-model
+     datamodule modules with no compatibility-only re-export files.
+   - The new shared split lifecycle requires `train/val/test` split folders.
+     This matches current active experiment datasets. Any remaining flat-layout
+     support should be handled as a phase 9 deprecation decision rather than
+     preserved in the unified base.
+
+9. [Completed] Split shared instance behavior from Toy Mask2Former-specific
+   behavior.
+
+   The current `lfm/all_models/inst_seg/instance_dataset.py` and
+   `lfm/all_models/inst_seg/instance_datamodule.py` are useful shared pieces,
+   but their default output contract is still strongly Toy Mask2Former-shaped:
+
+   - `pixel_values`
+   - `mask_labels`
+   - `class_labels`
+   - `instance_mask`
+
+   Refactor the instance task layer so the shared base owns image/label loading
+   and instance-mask preparation, while target-format subclasses own:
+
+   - Mask2Former target formatting
+   - object-detection target formatting
+   - Graha/TerraTorch object-detection dictionary shape
+
+   Completed:
+
+   - `lfm/all_models/inst_seg/instance_dataset.py` now separates:
+
+     - `LunarInstanceMaskDataset`: shared instance-id mask loading,
+       image preprocessing, nodata handling, normalization, crop, optional
+       crater-box metadata, and mask shifting
+     - `InstanceSegmentationDataset`: Mask2Former-specific output formatting
+       for the Toy Mask2Former path
+     - `ObjectDetectionInstanceSegmentationDataset`: object-detection target
+       formatting with `boxes`, `labels`, `masks`, and `target_box_format`
+
+   - `lfm/all_models/inst_seg/instance_datamodule.py` now separates:
+
+     - `InstanceSegmentationDataModule`: existing Mask2Former-oriented default
+       used by Toy instance datamodules
+     - `InstanceMaskSegmentationDataModule`: image/mask instance-label output
+     - `ObjectDetectionInstanceSegmentationDataModule`: object-detection output
+       with object-detection collate policy
+
+   - Existing Toy instance datamodules still import the same class names and
+     preserve their current output contracts.
+
+10. [Completed] Move Graha instance dataset/datamodule classes onto the shared
+    instance base.
+
+    Convert the current Graha instance classes from:
+
+    - the old Graha instance datamodule file
+
+    into Graha-specific specializations under the shared instance structure.
+
+    Preserve:
+
+    - TerraTorch ObjectDetectionTask target contract
+    - crater box extraction from `.npz` metadata when present
+    - fallback box/mask/label generation from instance-id masks
+    - `target_box_format`
+    - score-threshold-compatible prediction/cache behavior
+    - nodata and normalization behavior
+
+    Completed:
+
+    - added `lfm/full_model/inst_seg/graha_instance_datamodule.py`
+    - added `GrahaInstanceSegmentationDataModule` for Graha image/mask instance
+      samples
+    - added `GrahaObjectDetectionInstanceDataModule` for TerraTorch
+      ObjectDetectionTask targets
+    - preserved Graha constructor conventions such as `crop_size`, `means`,
+      `stds`, `target_box_format`, `no_data_replace`, `mask_shift`, and
+      split-folder limits while reusing the shared instance datamodule lifecycle
+    - updated metadata crater boxes to apply `mask_shift` before crop, matching
+      the old Graha `_finalize_sample` behavior
+
+11. [Completed] Update adapters, workflows, scripts, notebooks, and audits to the
+    new import paths.
+
+    Active code should import the new all-model/task/model-family classes
+    directly. Do not leave compatibility-only modules in
+    `lfm/full_model/<task>`.
+
+    Update references in:
+
+    - Graha model adapters/components
+    - Toy model adapters/components if class names move
+    - workflow modules under `lfm/all_models/<task>/workflows`
+    - checkpoint sweep and comparison plotting scripts
+    - data behavior audit notebook/script utilities
+    - active notebooks only when they are still maintained
+
+    Completed:
+
+    - Graha instance dependency loading now imports
+      `GrahaObjectDetectionInstanceDataModule` from
+      `lfm.full_model.inst_seg.graha_instance_datamodule`
+    - instance Graha workflow, checkpoint sweep, checkpoint comparison plotting,
+      and target-contract audit now use the new dependency key/import path
+    - the maintained instance fine-tuning notebook dependency key was updated
+    - data behavior audit utilities now compare the old base-branch
+      `LunarObjectDetectionInstanceMaskDatamodule` against the new OOP-branch
+      `GrahaObjectDetectionInstanceDataModule`
+    - `lfm/full_model/inst_seg/__init__.py` no longer eagerly imports the old
+      datamodule module
+
+    Notes:
+
+    - The old Graha instance datamodule file was deleted in substep 12 after
+      active imports moved to the new Graha-specific module.
+    - Scratch notebook references to the old module are left for notebook/archive
+      cleanup rather than adding broad notebook churn to this implementation
+      slice.
+
+    Follow-up structural cleanup completed:
+
+    - `lfm/all_models/sem_seg` now keeps model-neutral code under:
+
+      - `data/`
+      - `plotting/`
+      - `testing/`
+      - `workflows/`
+
+    - `lfm/all_models/inst_seg` now keeps model-neutral code under:
+
+      - `data/`
+      - `plotting/`
+      - `prediction/`
+      - `testing/`
+      - `workflows/`
+
+    - Active imports were updated to the new subpackage paths. Top-level
+      `lfm.all_models.sem_seg` and `lfm.all_models.inst_seg` package exports
+      remain only for stable class/function API access, not as compatibility
+      modules for old file paths.
+
+12. [Completed] Delete obsolete full-model datamodule modules after the reference
+    scan is clean.
+
+    Deleted modules:
+
+    - the old Graha instance datamodule module
+    - the removed full-model all-task datamodule package files
+
+    These were deleted only after active code stopped importing them. They were
+    not replaced with compatibility-only re-export files.
+
+    Completed:
+
+    - active code now uses
+      `lfm.full_model.inst_seg.graha_instance_datamodule.GrahaObjectDetectionInstanceDataModule`
+      for Graha instance data
+    - removed the obsolete Graha instance datamodule module
+    - removed the unused full-model all-task datamodule base line:
+
+      - `lfm/full_model/all_tasks/datamodules/lunar_segmentation_dataset.py`
+      - `lfm/full_model/all_tasks/datamodules/lunar_segmentation_datamodule.py`
+      - `lfm/full_model/all_tasks/datamodules/__init__.py`
+
+    Deliberate retention:
+
+    - `lfm/full_model/sem_seg/semantic_mask_datamodule.py` and
+      `lfm/full_model/sem_seg/semantic_from_instance_datamodule.py` remain
+      because they are Graha-specific semantic specializations that now inherit
+      from the shared all-model semantic base. They should be considered for a
+      clearer Graha-specific filename in phase 10 naming cleanup, not deleted
+      as obsolete compatibility files.
+
+13. [Completed] Rename confusing base classes once behavior is unified.
+
+    The previous shared split datamodule base became the single active lunar
+    split datamodule base and has been renamed to
+    `LunarSegmentationDataModule`.
+
+    Completed:
+
+    - renamed
+      the base class in
+      `lfm/all_models/all_tasks/data/base_datamodule.py` to
+      `LunarSegmentationDataModule`
+    - updated semantic and instance shared datamodule inheritance
+    - updated package exports from `lfm.all_models.all_tasks.data`
+    - no compatibility alias was left behind
+
+14. [In progress] Validate behavior preservation.
+
+    Local checks completed for substeps 12-13 and the all-models subpackage
+    cleanup:
+
+    - formatted changed Python modules with the micromamba dev Python
+    - ran Ruff on changed Python modules
+    - compiled changed Python modules with the micromamba dev Python
+    - verified key public imports for the shared lunar datamodule, semantic
+      datamodule, instance datamodule, and Graha object-detection datamodule
+    - validated edited notebook JSON
+    - ran `git diff --check`
+
+    No active shell wrapper remains in this substep's changed shell surface
+    after deleting the obsolete legacy fine-tuning wrappers.
+
+    Required behavior checks before closing phase 8:
+
+    - semantic data behavior audit
+    - instance data behavior audit
+    - semantic smoke test
+    - instance smoke test
+    - checkpoint/prediction cache smoke check if imports moved there
+
+Exit criteria for completing phase 8:
+
+- There is one active shared dataset/datamodule base line under
+  `lfm/all_models`.
+- Toy and Graha task datamodules inherit from the same shared task bases unless
+  a documented architecture constraint makes composition clearer.
+- `full_model/<task>/*_datamodule.py` modules are removed or documented as
+  temporary blockers with specific remaining references.
+- Active imports do not depend on compatibility-only re-export modules.
 
 Phase 9: Deprecation
 

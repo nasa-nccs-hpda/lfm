@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from lfm.all_models.inst_seg.instance_datamodule import InstanceSegmentationDataModule
+from lfm.all_models.inst_seg.data.instance_datamodule import (
+    InstanceSegmentationDataModule,
+)
 from lfm.toy_model.inst_seg.iseg_dataset import get_input_metadata
 
 

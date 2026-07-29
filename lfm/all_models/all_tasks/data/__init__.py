@@ -1,10 +1,16 @@
 """Shared data loading and preprocessing utilities for LFM tasks."""
 
 from lfm.all_models.all_tasks.data.base_datamodule import (
+    LunarSegmentationDataModule,
     SplitFolderDataLayout,
-    SplitSegmentationDataModule,
 )
 from lfm.all_models.all_tasks.data.base_dataset import LunarSegmentationDataset
+from lfm.all_models.all_tasks.data.collate import (
+    collate_instance_segmentation,
+    collate_mask2former_instance_segmentation,
+    collate_object_detection_instance_segmentation,
+    collate_semantic_segmentation,
+)
 from lfm.all_models.all_tasks.data.image_io import (
     PairRecord,
     find_pair_records,
@@ -30,6 +36,7 @@ from lfm.all_models.all_tasks.data.normalization import (
 
 __all__ = [
     "FinetuneStatsNormalization",
+    "LunarSegmentationDataModule",
     "LunarSegmentationDataset",
     "NoDataPolicy",
     "NoNormalization",
@@ -37,10 +44,13 @@ __all__ = [
     "PairRecord",
     "PretrainYamlNormalization",
     "SplitFolderDataLayout",
-    "SplitSegmentationDataModule",
     "ZScoreNormalization",
     "build_nodata_policy",
     "build_normalization_strategy",
+    "collate_instance_segmentation",
+    "collate_mask2former_instance_segmentation",
+    "collate_object_detection_instance_segmentation",
+    "collate_semantic_segmentation",
     "find_pair_records",
     "image_to_hwc_float",
     "load_terramind_nac_pretraining_stats",

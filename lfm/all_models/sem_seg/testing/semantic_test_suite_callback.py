@@ -6,7 +6,7 @@ from pathlib import Path
 
 from lightning.pytorch.callbacks import Callback
 
-from lfm.all_models.sem_seg.semantic_test_suite import run_semantic_test_suite
+from lfm.all_models.sem_seg.testing.semantic_test_suite import run_semantic_test_suite
 
 
 class SemanticEpochTestSuiteCallback(Callback):

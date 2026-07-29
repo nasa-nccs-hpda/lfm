@@ -210,7 +210,7 @@ Why they fit:
 
 Suggested extraction:
 
-- A shared `SplitSegmentationDataModule` base with hooks:
+- A shared `LunarSegmentationDataModule` base with hooks:
   - `dataset_cls`
   - `collate_fn`
   - `make_targets(sample)`

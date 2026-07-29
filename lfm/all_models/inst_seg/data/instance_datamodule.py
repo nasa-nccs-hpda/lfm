@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from lfm.all_models.all_tasks.data.base_datamodule import (
-    SplitSegmentationDataModule,
+    LunarSegmentationDataModule,
 )
 from lfm.all_models.all_tasks.data.normalization import (
     NormalizationStrategy,
@@ -17,16 +17,22 @@ from lfm.all_models.all_tasks.data.nodata import (
     NoDataPolicy,
     build_nodata_policy,
 )
-from lfm.all_models.inst_seg.instance_data_utils import (
+from lfm.all_models.all_tasks.data.collate import (
+    collate_instance_segmentation,
     collate_mask2former_instance_segmentation,
+    collate_object_detection_instance_segmentation,
 )
-from lfm.all_models.inst_seg.instance_dataset import InstanceSegmentationDataset
+from lfm.all_models.inst_seg.data.instance_dataset import (
+    InstanceSegmentationDataset,
+    LunarInstanceMaskDataset,
+    ObjectDetectionInstanceSegmentationDataset,
+)
 
 InputMetadataFn = Callable[[str, list[int] | None], list[str]]
 InstanceCollateFn = Callable[[list[dict[str, Any]]], dict[str, Any]]
 
 
-class InstanceSegmentationDataModule(SplitSegmentationDataModule):
+class InstanceSegmentationDataModule(LunarSegmentationDataModule):
     """Shared split datamodule for lunar instance segmentation datasets."""
 
     dataset_cls: type[InstanceSegmentationDataset] = InstanceSegmentationDataset
@@ -116,7 +122,7 @@ class InstanceSegmentationDataModule(SplitSegmentationDataModule):
         super()._validate_split_dirs()
         if self.chips_subdir != "chips" or self.labels_subdir != "labels":
             raise ValueError(
-                "Toy instance input metadata currently expects split folders named "
+                "Instance datamodules currently expect split folders named "
                 "'chips' and 'labels'."
             )
 
@@ -146,7 +152,11 @@ class InstanceSegmentationDataModule(SplitSegmentationDataModule):
             nodata_policy=self.nodata_policy,
             max_samples=max_samples,
             split_name=split,
+            **self._dataset_kwargs(),
         )
+
+    def _dataset_kwargs(self) -> dict[str, object]:
+        return {}
 
     def _make_stats_dataset(self) -> InstanceSegmentationDataset:
         return self.dataset_cls(
@@ -168,6 +178,7 @@ class InstanceSegmentationDataModule(SplitSegmentationDataModule):
             nodata_policy=self.nodata_policy,
             max_samples=self.max_samples_by_split["train"],
             split_name="train-stats",
+            **self._dataset_kwargs(),
         )
 
     def _set_train_stats(self, means: list[float], stds: list[float]) -> None:
@@ -178,3 +189,35 @@ class InstanceSegmentationDataModule(SplitSegmentationDataModule):
             means=self.means,
             stds=self.stds,
         )
+
+
+class InstanceMaskSegmentationDataModule(InstanceSegmentationDataModule):
+    """Shared datamodule emitting image/mask instance-label samples."""
+
+    dataset_cls: type[LunarInstanceMaskDataset] = LunarInstanceMaskDataset
+    collate_fn = staticmethod(collate_instance_segmentation)
+    stats_image_key = "image"
+
+
+class ObjectDetectionInstanceSegmentationDataModule(InstanceSegmentationDataModule):
+    """Shared datamodule emitting object-detection instance targets."""
+
+    dataset_cls: type[ObjectDetectionInstanceSegmentationDataset] = (
+        ObjectDetectionInstanceSegmentationDataset
+    )
+    collate_fn = staticmethod(collate_object_detection_instance_segmentation)
+    stats_image_key = "image"
+
+    def __init__(
+        self,
+        *args,
+        target_box_format: str = "xyxy",
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        if target_box_format not in {"xyxy", "cxcywh"}:
+            raise ValueError(f"Unsupported target_box_format: {target_box_format}")
+        self.target_box_format = target_box_format
+
+    def _dataset_kwargs(self) -> dict[str, object]:
+        return {"target_box_format": self.target_box_format}

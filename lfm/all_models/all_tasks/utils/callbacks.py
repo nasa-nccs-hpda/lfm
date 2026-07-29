@@ -6,7 +6,9 @@ from pathlib import Path
 
 from lightning.pytorch.callbacks import Callback
 
-from lfm.all_models.sem_seg.semantic_plotting import plot_validation_predictions
+from lfm.all_models.sem_seg.plotting.semantic_plotting import (
+    plot_validation_predictions,
+)
 
 
 class ValidationPlotCallback(Callback):

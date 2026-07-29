@@ -47,7 +47,7 @@ from lfm.all_models.all_tasks import (
     load_lightning_checkpoint_state,
     write_checkpoint_metrics_summary,
 )
-from lfm.all_models.inst_seg.instance_test_suite import (
+from lfm.all_models.inst_seg.testing.instance_test_suite import (
     INSTANCE_TEST_SUITE_METRICS as METRIC_NAMES,
     write_instance_test_suite_outputs,
 )
@@ -289,7 +289,7 @@ def _setup_graha(config: InstanceSweepConfig):
         GRAHA_ADAPTER.configure_python_paths(graha_config)
         GRAHA_ADAPTER.validate_required_paths(graha_config)
         deps = GRAHA_ADAPTER.import_project_dependencies()
-        datamodule_cls = deps["LunarObjectDetectionInstanceMaskDatamodule"]
+        datamodule_cls = deps["GrahaObjectDetectionInstanceDataModule"]
         task_cls = GRAHA_ADAPTER.make_task_class(deps["LunarObjectDetectionTask"])
         means, stds = GRAHA_ADAPTER.get_normalization_stats(
             graha_config,

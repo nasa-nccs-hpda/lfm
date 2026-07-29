@@ -26,7 +26,11 @@ from lfm.all_models.all_tasks.data.tensor_utils import (
     mask_to_hw_long,
     shift_mask,
 )
-from lfm.all_models.inst_seg.instance_data_utils import mask_to_binary_instance_targets
+from lfm.all_models.inst_seg.data.instance_data_utils import (
+    boxes_to_tensor,
+    instance_mask_to_object_detection_targets,
+    mask_to_binary_instance_targets,
+)
 
 
 def minmax_scale_per_band(
@@ -52,8 +56,8 @@ def minmax_scale_per_band(
     return scaled
 
 
-class InstanceSegmentationDataset(LunarSegmentationDataset):
-    """Dataset for split lunar instance labels in Mask2Former format."""
+class LunarInstanceMaskDataset(LunarSegmentationDataset):
+    """Dataset for split lunar instance-id masks with shared preprocessing."""
 
     def __init__(
         self,
@@ -126,7 +130,10 @@ class InstanceSegmentationDataset(LunarSegmentationDataset):
         self.nodata_ignore_index = int(nodata_ignore_index)
         self.nodata_policy = nodata_strategy
 
-    def __getitem__(self, index: int) -> dict[str, Any]:
+    def _load_instance_sample(
+        self,
+        index: int,
+    ) -> tuple[dict[str, Any], torch.Tensor | None, int | None]:
         record = self.records[index]
         image_array, nodata_mask_array = read_image_file_with_nodata_mask(
             record.image_path
@@ -139,6 +146,14 @@ class InstanceSegmentationDataset(LunarSegmentationDataset):
         label = read_label_file_with_metadata(record.label_path)
         label_mask = label["mask"] if isinstance(label, dict) else label
         mask = mask_to_hw_long(label_mask)
+        crater_boxes = None
+        num_craters = None
+        if isinstance(label, dict):
+            crater_boxes = boxes_to_tensor(label.get("bboxes"))
+            raw_num_craters = label.get("num_craters")
+            if raw_num_craters is not None:
+                num_craters = int(torch.as_tensor(raw_num_craters).item())
+
         image = self.nodata_policy.apply_to_image_tensor(image, nodata_mask)
         mask = self.nodata_policy.apply_to_mask_tensor(
             mask,
@@ -146,6 +161,12 @@ class InstanceSegmentationDataset(LunarSegmentationDataset):
             ignore_nodata=False,
         )
         mask = shift_mask(mask, self.mask_shift)
+        if crater_boxes is not None and self.mask_shift is not None:
+            shift_x, shift_y = int(self.mask_shift[0]), int(self.mask_shift[1])
+            if shift_x != 0 or shift_y != 0:
+                crater_boxes = crater_boxes.clone()
+                crater_boxes[:, 0] += float(shift_x)
+                crater_boxes[:, 1] += float(shift_y)
         mask = self.nodata_policy.apply_to_mask_tensor(
             mask,
             nodata_mask,
@@ -160,18 +181,69 @@ class InstanceSegmentationDataset(LunarSegmentationDataset):
             image = minmax_scale_per_band(image, scale_nodata_mask)
         image = self.normalization.apply_tensor(image)
 
-        image, mask, _ = center_crop(
+        image, mask, crater_boxes = center_crop(
             image,
             mask,
             self.target_size,
+            boxes=crater_boxes,
             sample_name=record.image_path.name,
         )
-        mask_labels, class_labels = mask_to_binary_instance_targets(mask)
-        return {
-            "pixel_values": image.float(),
-            "mask_labels": mask_labels,
-            "class_labels": class_labels,
-            "instance_mask": mask.long(),
+        sample = {
+            "image": image.float(),
+            "mask": mask.long(),
             "filename": record.image_path.name,
             "original_size": original_size,
         }
+        if crater_boxes is not None:
+            sample["crater_boxes"] = crater_boxes
+            num_craters = int(crater_boxes.shape[0])
+        return sample, crater_boxes, num_craters
+
+    def __getitem__(self, index: int) -> dict[str, Any]:
+        sample, _, num_craters = self._load_instance_sample(index)
+        if num_craters is not None:
+            sample["num_craters"] = torch.tensor(num_craters, dtype=torch.long)
+        return sample
+
+
+class InstanceSegmentationDataset(LunarInstanceMaskDataset):
+    """Dataset for split lunar instance labels in Mask2Former format."""
+
+    def __getitem__(self, index: int) -> dict[str, Any]:
+        sample, _, _ = self._load_instance_sample(index)
+        mask_labels, class_labels = mask_to_binary_instance_targets(sample["mask"])
+        return {
+            "pixel_values": sample["image"].float(),
+            "mask_labels": mask_labels,
+            "class_labels": class_labels,
+            "instance_mask": sample["mask"].long(),
+            "filename": sample["filename"],
+            "original_size": sample["original_size"],
+        }
+
+
+class ObjectDetectionInstanceSegmentationDataset(LunarInstanceMaskDataset):
+    """Dataset emitting object-detection targets from instance-id masks."""
+
+    def __init__(
+        self,
+        *args,
+        target_box_format: str = "xyxy",
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        if target_box_format not in {"xyxy", "cxcywh"}:
+            raise ValueError(f"Unsupported target_box_format: {target_box_format}")
+        self.target_box_format = target_box_format
+
+    def __getitem__(self, index: int) -> dict[str, Any]:
+        sample, _, _ = self._load_instance_sample(index)
+        boxes, labels, masks = instance_mask_to_object_detection_targets(
+            sample["mask"],
+            box_format=self.target_box_format,
+        )
+        sample["boxes"] = boxes
+        sample["labels"] = labels
+        sample["masks"] = masks
+        sample["num_craters"] = torch.tensor(labels.shape[0], dtype=torch.long)
+        return sample

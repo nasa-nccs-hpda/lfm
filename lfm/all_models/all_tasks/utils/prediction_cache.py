@@ -1,7 +1,7 @@
 """Prediction-cache helpers shared through the all-tasks utility API.
 
 Semantic cache implementation lives here. Instance cache implementation lives
-under ``lfm.all_models.inst_seg.instance_prediction_cache`` and is exposed lazily
+under ``lfm.all_models.inst_seg.prediction.instance_prediction_cache`` and is exposed lazily
 through this shared utility API.
 """
 
@@ -25,7 +25,7 @@ from lfm.all_models.all_tasks.utils.common import (
 
 
 def save_toy_instance_prediction_cache(*args, **kwargs):
-    from lfm.all_models.inst_seg.instance_prediction_cache import (
+    from lfm.all_models.inst_seg.prediction.instance_prediction_cache import (
         save_toy_instance_prediction_cache,
     )
 
@@ -33,7 +33,7 @@ def save_toy_instance_prediction_cache(*args, **kwargs):
 
 
 def save_graha_instance_prediction_cache(*args, **kwargs):
-    from lfm.all_models.inst_seg.instance_prediction_cache import (
+    from lfm.all_models.inst_seg.prediction.instance_prediction_cache import (
         save_graha_instance_prediction_cache,
     )
 
@@ -41,7 +41,7 @@ def save_graha_instance_prediction_cache(*args, **kwargs):
 
 
 def _load_instance_prediction_cache(*args, **kwargs):
-    from lfm.all_models.inst_seg.instance_prediction_cache import (
+    from lfm.all_models.inst_seg.prediction.instance_prediction_cache import (
         _load_instance_prediction_cache,
     )
 

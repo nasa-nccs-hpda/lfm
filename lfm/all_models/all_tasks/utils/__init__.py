@@ -60,7 +60,7 @@ def __getattr__(name: str):
 
         return getattr(prediction_cache, name)
     if name in {"plot_prediction_cache_comparison", "plot_validation_predictions"}:
-        from lfm.all_models.sem_seg import semantic_plotting as plotting
+        from lfm.all_models.sem_seg.plotting import semantic_plotting as plotting
 
         return getattr(plotting, name)
     if name in {
@@ -70,7 +70,7 @@ def __getattr__(name: str):
         "plot_instance_label_comparison",
         "plot_instance_predictions",
     }:
-        from lfm.all_models.inst_seg import instance_plotting as plotting
+        from lfm.all_models.inst_seg.plotting import instance_plotting as plotting
 
         return getattr(plotting, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

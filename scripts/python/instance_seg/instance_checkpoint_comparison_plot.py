@@ -260,7 +260,7 @@ def _setup_graha(args: argparse.Namespace):
     graha_adapter.configure_python_paths(graha_config)
     graha_adapter.validate_required_paths(graha_config)
     deps = graha_adapter.import_project_dependencies()
-    datamodule_cls = deps["LunarObjectDetectionInstanceMaskDatamodule"]
+    datamodule_cls = deps["GrahaObjectDetectionInstanceDataModule"]
     task_cls = graha_adapter.make_task_class(deps["LunarObjectDetectionTask"])
     means, stds = graha_adapter.get_normalization_stats(graha_config, datamodule_cls)
     datamodule = graha_adapter.create_datamodule(

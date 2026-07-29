@@ -13,7 +13,7 @@ if str(LFM_ROOT) not in sys.path:
     sys.path.insert(0, str(LFM_ROOT))
 
 from lfm.all_models.all_tasks import SingleModelExperiment
-from lfm.all_models.inst_seg.instance_test_suite_callback import (
+from lfm.all_models.inst_seg.testing.instance_test_suite_callback import (
     GrahaInstancePlotCallback,
     InstanceEpochTestSuiteCallback,
 )

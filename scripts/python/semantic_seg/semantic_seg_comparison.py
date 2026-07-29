@@ -25,7 +25,7 @@ from lfm.all_models.all_tasks.utils import (
 )
 from lfm.all_models.all_tasks.utils.utils import ensure_data_symlink
 from lfm.full_model.sem_seg.semantic_model_adapter import GrahaSemanticModelAdapter
-from lfm.all_models.sem_seg.semantic_test_suite_callback import (
+from lfm.all_models.sem_seg.testing.semantic_test_suite_callback import (
     SemanticEpochTestSuiteCallback,
 )
 from lfm.all_models.sem_seg.workflows import (

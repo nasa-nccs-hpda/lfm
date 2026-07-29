@@ -265,15 +265,13 @@ def import_project_dependencies() -> dict[str, Any]:
         LunarObjectDetectionTask,
     )
 
-    from lfm.full_model.inst_seg.instance_mask_datamodule import (
-        LunarObjectDetectionInstanceMaskDatamodule,
+    from lfm.full_model.inst_seg.graha_instance_datamodule import (
+        GrahaObjectDetectionInstanceDataModule,
     )
 
     return {
         "LunarObjectDetectionTask": LunarObjectDetectionTask,
-        "LunarObjectDetectionInstanceMaskDatamodule": (
-            LunarObjectDetectionInstanceMaskDatamodule
-        ),
+        "GrahaObjectDetectionInstanceDataModule": GrahaObjectDetectionInstanceDataModule,
     }
 
 

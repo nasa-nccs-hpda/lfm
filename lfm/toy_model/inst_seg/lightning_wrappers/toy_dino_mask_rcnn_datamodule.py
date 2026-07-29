@@ -11,8 +11,10 @@ from lfm.all_models.all_tasks.data.collate import (
     collate_object_detection_instance_segmentation,
 )
 from lfm.all_models.inst_seg import InstanceSegmentationDataset
-from lfm.all_models.inst_seg.instance_datamodule import InstanceSegmentationDataModule
-from lfm.all_models.inst_seg.instance_data_utils import (
+from lfm.all_models.inst_seg.data.instance_datamodule import (
+    InstanceSegmentationDataModule,
+)
+from lfm.all_models.inst_seg.data.instance_data_utils import (
     instance_mask_to_object_detection_targets,
 )
 from lfm.toy_model.inst_seg.iseg_dataset import get_input_metadata

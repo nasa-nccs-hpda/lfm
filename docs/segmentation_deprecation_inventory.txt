@@ -102,7 +102,7 @@ Keep Temporarily
    Status: keep temporarily.
 
    Reason: phase 8 intentionally left repo-owned Graha datamodules composing
-   shared helpers rather than inheriting from `SplitSegmentationDataModule`
+   shared helpers rather than inheriting from `LunarSegmentationDataModule`
    because this class still preserves TerraTorch output dictionaries and flat
    layout support.
 

@@ -34,7 +34,7 @@ def run_graha_workflow(
     instance_graha_components.validate_required_paths(graha_config)
 
     deps = instance_graha_components.import_project_dependencies()
-    datamodule_cls = deps["LunarObjectDetectionInstanceMaskDatamodule"]
+    datamodule_cls = deps["GrahaObjectDetectionInstanceDataModule"]
     task_cls = instance_graha_components.make_downstream_object_detection_task_class(
         deps["LunarObjectDetectionTask"]
     )

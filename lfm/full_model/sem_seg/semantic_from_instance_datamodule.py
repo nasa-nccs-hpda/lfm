@@ -5,17 +5,19 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from lfm.full_model.all_tasks.datamodules import (
-    LunarSegmentationDatamodule,
-    LunarSegmentationDataset,
+from lfm.all_models.all_tasks.data.collate import collate_instance_segmentation
+from lfm.all_models.all_tasks.data.image_crop_resize import (
+    crop_boxes_xywh_to_xyxy,
 )
-from lfm.all_models.all_tasks.data.collate import (
-    collate_instance_segmentation,
+from lfm.all_models.all_tasks.data.image_io import read_label_file_with_metadata
+from lfm.all_models.inst_seg.data.instance_data_utils import boxes_to_tensor
+from lfm.full_model.sem_seg.semantic_mask_datamodule import (
+    LunarSemanticMaskSegmentationDatamodule,
+    LunarSemanticMaskSegmentationDataset,
 )
-from lfm.all_models.inst_seg.instance_data_utils import boxes_to_tensor
 
 
-class LunarSemanticFromInstanceDataset(LunarSegmentationDataset):
+class LunarSemanticFromInstanceDataset(LunarSemanticMaskSegmentationDataset):
     """Use instance ``.npz`` labels as semantic masks plus crater boxes."""
 
     def __init__(self, *args, **kwargs) -> None:
@@ -29,7 +31,9 @@ class LunarSemanticFromInstanceDataset(LunarSegmentationDataset):
         )
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor | str]:
-        sample, label = self._load_common(index)
+        sample = self.prepare_sample(index)
+        record = self.records[index]
+        label = read_label_file_with_metadata(record.label_path)
         crater_boxes = None
         num_craters = None
 
@@ -39,7 +43,14 @@ class LunarSemanticFromInstanceDataset(LunarSegmentationDataset):
             if raw_num_craters is not None:
                 num_craters = int(np.asarray(raw_num_craters).item())
 
-        sample, crater_boxes = self._finalize_sample(sample, boxes=crater_boxes)
+        sample = self.format_output(sample)
+        if crater_boxes is not None and self.spatial_transform == "crop":
+            original_size = tuple(label["mask"].shape[-2:])
+            crater_boxes = _center_crop_boxes(
+                crater_boxes,
+                original_size=original_size,
+                target_size=self.target_size,
+            )
         if crater_boxes is not None:
             sample["crater_boxes"] = crater_boxes
             num_craters = int(crater_boxes.shape[0])
@@ -48,7 +59,30 @@ class LunarSemanticFromInstanceDataset(LunarSegmentationDataset):
         return sample
 
 
-class LunarSemanticFromInstanceDatamodule(LunarSegmentationDatamodule):
+def _center_crop_boxes(
+    boxes: torch.Tensor,
+    *,
+    original_size: tuple[int, int],
+    target_size: int | tuple[int, int],
+) -> torch.Tensor:
+    height, width = int(original_size[0]), int(original_size[1])
+    crop_h, crop_w = (
+        (int(target_size), int(target_size))
+        if isinstance(target_size, int)
+        else (int(target_size[0]), int(target_size[1]))
+    )
+    top = max((height - crop_h) // 2, 0)
+    left = max((width - crop_w) // 2, 0)
+    return crop_boxes_xywh_to_xyxy(
+        boxes,
+        left=left,
+        top=top,
+        crop_w=crop_w,
+        crop_h=crop_h,
+    )
+
+
+class LunarSemanticFromInstanceDatamodule(LunarSemanticMaskSegmentationDatamodule):
     """Semantic datamodule that preserves instance boxes for shape loss."""
 
     dataset_cls = LunarSemanticFromInstanceDataset

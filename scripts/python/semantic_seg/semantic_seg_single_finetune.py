@@ -14,7 +14,7 @@ if str(LFM_ROOT) not in sys.path:
     sys.path.insert(0, str(LFM_ROOT))
 
 from lfm.all_models.all_tasks import SingleModelExperiment
-from lfm.all_models.sem_seg.semantic_test_suite_callback import (
+from lfm.all_models.sem_seg.testing.semantic_test_suite_callback import (
     SemanticEpochTestSuiteCallback,
 )
 from lfm.all_models.all_tasks.utils import ensure_data_symlink

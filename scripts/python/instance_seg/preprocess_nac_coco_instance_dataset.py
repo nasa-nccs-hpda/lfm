@@ -412,7 +412,9 @@ def main() -> None:
     print(f"\nSaved preprocessed NAC dataset to: {output_root}")
     print(f"Elapsed seconds: {elapsed:.1f}")
     print("\nTraining args for this output:")
-    print("--image-glob '*.npy' --image-suffix '_input_nac_chip' --label-suffix '_label'")
+    print(
+        "--image-glob '*.npy' --image-suffix '_input_nac_chip' --label-suffix '_label'"
+    )
 
 
 if __name__ == "__main__":

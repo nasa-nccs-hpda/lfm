@@ -6,19 +6,6 @@ import numpy as np
 import torch
 
 
-def collate_mask2former_instance_segmentation(
-    batch: list[dict],
-) -> dict:
-    return {
-        "pixel_values": torch.stack([item["pixel_values"] for item in batch]),
-        "mask_labels": [item["mask_labels"] for item in batch],
-        "class_labels": [item["class_labels"] for item in batch],
-        "instance_mask": torch.stack([item["instance_mask"] for item in batch]),
-        "filename": [item["filename"] for item in batch],
-        "original_size": [item["original_size"] for item in batch],
-    }
-
-
 def boxes_to_tensor(arr: np.ndarray | None) -> torch.Tensor:
     if arr is None:
         return torch.zeros((0, 4), dtype=torch.float32)

@@ -66,18 +66,20 @@ These run both toy DINO and Graha/full model training, then optionally run check
 - Four semantic experiment launcher:
   `scripts/shell/semantic_seg/sbatch_4_sem_seg_exp.sh`
 
-### Graha-Only Fine-Tuning
+### Single-Model Fine-Tuning
 
-These run only the Graha/full model path.
+These run one selected model path. Use `--model graha` for Graha-only
+fine-tuning or `--model toy` for Toy-only fine-tuning.
 
-- Semantic Graha fine-tuning:
-  `scripts/shell/semantic_seg/sbatch_semantic_seg_finetuning.sh`
-- Instance Graha fine-tuning:
-  `scripts/shell/instance_seg/sbatch_instance_seg_finetuning.sh`
+- Semantic single-model fine-tuning:
+  `scripts/shell/semantic_seg/sbatch_semantic_seg_single_finetune.sh`
+- Instance single-model fine-tuning:
+  `scripts/shell/instance_seg/sbatch_instance_seg_single_finetune.sh`
 
 ### DINO/Toy-Only Fine-Tuning
 
-There is not a separate dedicated toy-only sbatch wrapper for every task. Use the comparison scripts with Graha skipped where available, or keep toy-only work in the notebooks/wrappers until a dedicated launcher is added.
+The single-model fine-tuning wrappers are the preferred toy-only entrypoints.
+Comparison scripts can still skip one side when that is useful for debugging.
 
 - Semantic toy/comparison script:
   `scripts/python/semantic_seg/semantic_seg_comparison.py`

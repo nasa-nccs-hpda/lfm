@@ -72,7 +72,7 @@ Active Graha instance workflow:
 - Current implementation:
 
   - `lfm/full_model/inst_seg/instance_graha_components.py`
-  - `lfm/full_model/inst_seg/instance_mask_datamodule.py`
+  - `lfm/full_model/inst_seg/graha_instance_datamodule.py`
   - `lfm/full_model/inst_seg/instance_model_adapter.py`
 
 Current comparison entrypoints:

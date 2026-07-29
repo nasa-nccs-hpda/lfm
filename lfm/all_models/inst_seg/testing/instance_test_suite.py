@@ -15,7 +15,7 @@ from lfm.all_models.all_tasks.utils import (
     save_toy_instance_prediction_cache,
 )
 from lfm.all_models.all_tasks.utils.metrics import _instance_metrics
-from lfm.all_models.inst_seg.instance_prediction_cache import (
+from lfm.all_models.inst_seg.prediction.instance_prediction_cache import (
     _load_instance_prediction_cache,
 )
 
