@@ -47,6 +47,7 @@ from lfm.all_models.all_tasks import (
     load_lightning_checkpoint_state,
     write_checkpoint_metrics_summary,
 )
+from lfm.all_models.all_tasks.cli_args import parse_instance_checkpoint_sweep_args
 from lfm.all_models.inst_seg.testing.instance_test_suite import (
     INSTANCE_TEST_SUITE_METRICS as METRIC_NAMES,
     write_instance_test_suite_outputs,
@@ -448,120 +449,7 @@ def run_sweep(config: InstanceSweepConfig) -> dict[str, list[dict[str, Any]]]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--simlink-dest", "--symlink-dest", dest="simlink_dest", type=str, default=None
-    )
-    parser.add_argument("--data-root", type=str, default=None)
-    parser.add_argument("--output-root", type=str, default=None)
-    parser.add_argument("--toy-checkpoint-dir", type=str, default=None)
-    parser.add_argument("--graha-checkpoint-dir", type=str, default=None)
-    parser.add_argument(
-        "--models", nargs="+", default=["toy", "graha"], choices=["toy", "graha"]
-    )
-    parser.add_argument("--target-size", type=int, default=256)
-    parser.add_argument(
-        "--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6]
-    )
-    parser.add_argument(
-        "--image-glob",
-        default="*.tif",
-        help="Chip filename glob inside each split/chips directory.",
-    )
-    parser.add_argument(
-        "--label-glob",
-        default="*_label.*",
-        help="Label filename glob inside each split/labels directory.",
-    )
-    parser.add_argument(
-        "--image-suffix",
-        default="_input_wac_static_chip",
-        help="Suffix stripped from chip stems before matching labels.",
-    )
-    parser.add_argument(
-        "--label-suffix",
-        default="_label",
-        help="Suffix stripped from label stems before matching chips.",
-    )
-    parser.add_argument("--max-samples", type=int, default=None)
-    parser.add_argument(
-        "--toy-batch-size",
-        "--batch-size",
-        dest="toy_batch_size",
-        type=int,
-        default=2,
-        help="Toy instance batch size. --batch-size is accepted for parity with semantic scripts.",
-    )
-    parser.add_argument("--toy-num-workers", type=int, default=4)
-    parser.add_argument(
-        "--toy-normalize-inputs",
-        "--normalize-inputs",
-        dest="toy_normalize_inputs",
-        action="store_true",
-        help="Enable Toy instance z-score normalization. --normalize-inputs is accepted for parity with semantic scripts.",
-    )
-    parser.add_argument(
-        "--normalization-source",
-        choices=["pretrain", "finetune"],
-        default="pretrain",
-    )
-    parser.add_argument(
-        "--normalization-modality",
-        choices=["vis_uv", "nac"],
-        default="vis_uv",
-    )
-    parser.add_argument(
-        "--toy-architecture",
-        choices=["mask2former", "dino-mask-rcnn", "dino-terratorch-mask-rcnn"],
-        default="mask2former",
-    )
-    parser.add_argument("--dino-checkpoint", type=str, default=None)
-    parser.add_argument("--graha-pretrain-dir", type=str, default=None)
-    parser.add_argument(
-        "--graha-input-modality-mode", choices=["new-wac", "vis-uv"], default="new-wac"
-    )
-    parser.add_argument(
-        "--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean"
-    )
-    parser.add_argument("--graha-stats-batch-size", type=int, default=16)
-    parser.add_argument("--graha-batch-size", type=int, default=2)
-    parser.add_argument("--graha-num-workers", type=int, default=4)
-    parser.add_argument("--graha-backbone-lr", type=float, default=5.0e-5)
-    parser.add_argument("--graha-head-lr", type=float, default=2.0e-4)
-    parser.add_argument("--graha-layer-decay", type=float, default=0.75)
-    parser.add_argument("--graha-weight-decay", type=float, default=0.05)
-    parser.add_argument("--graha-warmup-steps", type=int, default=500)
-    parser.add_argument(
-        "--graha-anchor-sizes",
-        type=lambda value: [[int(x)] for x in value.split(",")],
-        default=[[8], [16], [32], [64]],
-    )
-    parser.add_argument(
-        "--graha-anchor-aspect-ratios",
-        type=lambda value: [float(x) for x in value.split(",")],
-        default=[0.5, 1.0, 2.0],
-    )
-    parser.add_argument("--graha-score-threshold", type=float, default=0.5)
-    parser.add_argument(
-        "--prediction-split", choices=["train", "val", "test"], default="test"
-    )
-    parser.add_argument("--prediction-score-threshold", type=float, default=0.5)
-    parser.add_argument("--mask-shift", type=int, nargs=2, default=(0, 0))
-    parser.add_argument(
-        "--ignore-nodata-in-loss",
-        action="store_true",
-        help="Thread TIFF nodata pixels through instance target preprocessing.",
-    )
-    parser.add_argument(
-        "--nodata-ignore-index",
-        type=int,
-        default=-1,
-        help="Target label value used for ignored nodata pixels.",
-    )
-    parser.add_argument("--max-checkpoints", type=int, default=None)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--verbose", action="store_true")
-    return parser.parse_args()
+    return parse_instance_checkpoint_sweep_args(description=__doc__)
 
 
 def main() -> None:

@@ -30,6 +30,9 @@ from lfm.all_models.all_tasks import (
     discover_checkpoints,
     load_lightning_checkpoint_state,
 )
+from lfm.all_models.all_tasks.cli_args import (
+    parse_instance_checkpoint_comparison_plot_args,
+)
 from lfm.all_models.all_tasks.utils import (
     plot_instance_cache_comparison,
     save_graha_instance_prediction_cache,
@@ -347,75 +350,7 @@ def create_comparison_plots(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run-root", type=Path, default=None)
-    parser.add_argument("--data-root", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--mask2former-checkpoint", type=Path, default=None)
-    parser.add_argument("--mask2former-checkpoint-dir", type=Path, default=None)
-    parser.add_argument("--toy-terratorch-checkpoint", type=Path, default=None)
-    parser.add_argument("--toy-terratorch-checkpoint-dir", type=Path, default=None)
-    parser.add_argument("--graha-checkpoint", type=Path, default=None)
-    parser.add_argument("--graha-checkpoint-dir", type=Path, default=None)
-    parser.add_argument("--dino-checkpoint", type=Path, default=None)
-    parser.add_argument("--graha-pretrain-dir", type=Path, default=None)
-    parser.add_argument(
-        "--graha-input-modality-mode", choices=["new-wac", "vis-uv"], default="new-wac"
-    )
-    parser.add_argument(
-        "--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean"
-    )
-    parser.add_argument("--target-size", type=int, default=256)
-    parser.add_argument(
-        "--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6]
-    )
-    parser.add_argument("--image-glob", default="*.tif")
-    parser.add_argument("--label-glob", default="*_label.npz")
-    parser.add_argument("--image-suffix", default="_input_wac_chip")
-    parser.add_argument("--label-suffix", default="_label")
-    parser.add_argument("--max-samples", type=int, default=None)
-    parser.add_argument("--batch-size", type=int, default=2)
-    parser.add_argument("--num-workers", type=int, default=4)
-    parser.add_argument("--graha-stats-batch-size", type=int, default=16)
-    parser.add_argument("--graha-batch-size", type=int, default=2)
-    parser.add_argument("--graha-num-workers", type=int, default=4)
-    parser.add_argument("--normalize-inputs", action="store_true")
-    parser.add_argument(
-        "--normalization-source",
-        choices=["pretrain", "finetune"],
-        default="pretrain",
-    )
-    parser.add_argument(
-        "--normalization-modality",
-        choices=["vis_uv", "nac"],
-        default="vis_uv",
-    )
-    parser.add_argument("--graha-backbone-lr", type=float, default=5.0e-5)
-    parser.add_argument("--graha-head-lr", type=float, default=2.0e-4)
-    parser.add_argument("--graha-layer-decay", type=float, default=0.75)
-    parser.add_argument("--graha-weight-decay", type=float, default=0.05)
-    parser.add_argument("--graha-warmup-steps", type=int, default=500)
-    parser.add_argument(
-        "--graha-anchor-sizes",
-        type=lambda value: [[int(x)] for x in value.split(",")],
-        default=[[8], [16], [32], [64]],
-    )
-    parser.add_argument(
-        "--graha-anchor-aspect-ratios",
-        type=lambda value: [float(x) for x in value.split(",")],
-        default=[0.5, 1.0, 2.0],
-    )
-    parser.add_argument("--graha-score-threshold", type=float, default=0.5)
-    parser.add_argument(
-        "--prediction-split", choices=["train", "val", "test"], default="val"
-    )
-    parser.add_argument("--n-samples", type=int, default=5)
-    parser.add_argument("--score-threshold", type=float, default=0.5)
-    parser.add_argument("--mask-shift", type=int, nargs=2, default=(0, 0))
-    parser.add_argument("--ignore-nodata-in-loss", action="store_true")
-    parser.add_argument("--nodata-ignore-index", type=int, default=-1)
-    parser.add_argument("--seed", type=int, default=42)
-    return parser.parse_args()
+    return parse_instance_checkpoint_comparison_plot_args(description=__doc__)
 
 
 def main() -> None:

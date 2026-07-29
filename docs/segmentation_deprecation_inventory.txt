@@ -106,25 +106,24 @@ Already Removed
    Reason: current references were legacy notebooks only. Active model code uses
    `dino_patch_embed` and shared `lfm/all_models/all_tasks` utilities.
 
-Remove Now Candidates
----------------------
+7. Legacy Toy notebook imports of deleted backend utilities
 
-These are good phase 9 deletion candidates after a final reference scan. Do not
-replace them with compatibility-only files.
+   Updated notebooks:
 
-1. Additional legacy toy notebook utility references
-
-   Current known references:
-
+   - `notebooks/toy_model/semantic_seg_train.ipynb`
+   - `notebooks/toy_model/instance_seg_train.ipynb`
+   - `notebooks/toy_model/inference_sseg.ipynb`
    - `notebooks/toy_model/chip_example.ipynb`
    - `notebooks/toy_model/chip_NAC.ipynb`
    - `notebooks/toy_model/chip_NAC_v2.ipynb`
    - `notebooks/toy_model/tiling_example.ipynb`
-   - `notebooks/toy_model/inference_sseg.ipynb`
 
-   Reason: these notebooks still import the deleted legacy Toy utility file and
-   should be migrated to `lfm/all_models/all_tasks` utilities when notebooks are
-   updated.
+   Reason: these notebooks imported deleted legacy Toy drivers, legacy
+   dataloader/statistics helpers, or the deleted Toy `all_utils.py` file.
+   Training notebooks now use the Lightning/OOP Toy component factories.
+   Inference uses the shared timestamped output helper. Chip/tiling notebooks
+   define a local output-directory helper instead of depending on Toy training
+   backend utilities.
 
 Keep Temporarily
 ----------------
@@ -155,9 +154,9 @@ Keep Temporarily
    - `notebooks/toy_model/semantic_seg_train.ipynb`
    - `notebooks/toy_model/instance_seg_train.ipynb`
 
-   Reason: the user wants to keep these notebooks and update them to the
-   Lightning/OOP wrappers later. They currently reference removed backend legacy
-   code and are not expected to run until migrated.
+   Reason: the user wants to keep these notebooks. They have been migrated to
+   the Lightning/OOP Toy component factories and no longer import the deleted
+   Toy backend drivers or non-Lightning dataloader helpers.
 
 4. `lfm/toy_model/sem_seg/sseg_model.py`
 
@@ -250,12 +249,7 @@ Keep As Active Supported Behavior
 Next Cleanup Steps
 ------------------
 
-1. Migrate legacy toy notebooks to Lightning/OOP wrappers.
-
-2. Update notebook utility imports to shared `lfm/all_models/all_tasks`
-   utilities where equivalent behavior exists.
-
-3. Re-scan `lfm/toy_model/inst_seg/iseg_utils.py` before deciding whether it is
+1. Re-scan `lfm/toy_model/inst_seg/iseg_utils.py` before deciding whether it is
    active or legacy.
 
-4. Keep phase 10 separate for the `full_model` to Graha naming cleanup.
+2. Keep phase 10 separate for the `full_model` to Graha naming cleanup.

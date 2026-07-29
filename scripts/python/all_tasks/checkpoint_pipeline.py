@@ -1,5 +1,7 @@
 """Run comparison training, then sweep the checkpoints from that run."""
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import argparse
@@ -10,6 +12,12 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Sequence
+
+LFM_ROOT = Path(__file__).resolve().parents[3]
+if str(LFM_ROOT) not in sys.path:
+    sys.path.insert(0, str(LFM_ROOT))
+
+from lfm.all_models.all_tasks.cli_args import parse_checkpoint_pipeline_args
 
 
 @dataclass(frozen=True)
@@ -373,156 +381,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--task", choices=["semantic", "instance"], required=True)
-    parser.add_argument(
-        "--simlink-dest", "--symlink-dest", dest="simlink_dest", type=str, default=None
-    )
-    parser.add_argument("--data-root", type=str, default=None)
-    parser.add_argument("--base-output-dir", type=str, default=None)
-    parser.add_argument("--existing-training-output-dir", type=str, default=None)
-    parser.add_argument("--sweep-output-root", type=str, default=None)
-    parser.add_argument("--skip-sweep", action="store_true")
-    parser.add_argument(
-        "--models", nargs="+", default=["toy", "graha"], choices=["toy", "graha"]
-    )
-    parser.add_argument("--dino-checkpoint", type=str, default=None)
-    parser.add_argument("--graha-pretrain-dir", type=str, default=None)
-    parser.add_argument(
-        "--graha-input-modality-mode", choices=["new-wac", "vis-uv"], default="new-wac"
-    )
-    parser.add_argument(
-        "--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean"
-    )
-    parser.add_argument("--target-size", type=int, default=256)
-    parser.add_argument(
-        "--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6]
-    )
-    parser.add_argument(
-        "--semantic-label-source",
-        choices=["semantic", "instance"],
-        default="semantic",
-        help="Semantic task label format: .npy semantic masks or .npz instance labels converted to semantic masks.",
-    )
-    parser.add_argument(
-        "--image-glob",
-        default="*.tif",
-        help="Semantic chip filename glob inside each split/chips directory.",
-    )
-    parser.add_argument(
-        "--label-glob",
-        default="*_label.*",
-        help="Semantic label filename glob inside each split/labels directory.",
-    )
-    parser.add_argument(
-        "--image-suffix",
-        default="_input_wac_static_chip",
-        help="Semantic suffix stripped from chip stems before matching labels.",
-    )
-    parser.add_argument(
-        "--label-suffix",
-        default="_label",
-        help="Semantic suffix stripped from label stems before matching chips.",
-    )
-    parser.add_argument("--max-train-samples", type=int, default=None)
-    parser.add_argument("--max-val-samples", type=int, default=None)
-    parser.add_argument("--max-test-samples", type=int, default=None)
-    parser.add_argument(
-        "--ignore-nodata-in-loss",
-        action="store_true",
-        help="Ignore TIFF nodata pixels in semantic segmentation loss and metrics.",
-    )
-    parser.add_argument(
-        "--nodata-ignore-index",
-        type=int,
-        default=-1,
-        help="Target label value used for ignored nodata pixels.",
-    )
-    parser.add_argument("--max-epochs", type=int, default=100)
-    parser.add_argument("--plot-every-n-epochs", type=int, default=1)
-    parser.add_argument("--plot-n-samples", type=int, default=5)
-    parser.add_argument(
-        "--prediction-split", choices=["train", "val", "test"], default="val"
-    )
-    parser.add_argument("--prediction-n-samples", type=int, default=5)
-    parser.add_argument("--run-epoch-test-suite", action="store_true")
-    parser.add_argument(
-        "--epoch-test-split", choices=["train", "val", "test"], default="test"
-    )
-    parser.add_argument("--epoch-test-n-samples", type=int, default=100)
-    parser.add_argument("--epoch-test-every-n-epochs", type=int, default=1)
-    parser.add_argument(
-        "--sweep-split", choices=["train", "val", "test"], default="test"
-    )
-    parser.add_argument("--sweep-max-samples", type=int, default=None)
-    parser.add_argument("--max-checkpoints", type=int, default=None)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--verbose", action="store_true")
-
-    parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--num-workers", type=int, default=10)
-    parser.add_argument("--learning-rate", type=float, default=5.0e-5)
-    parser.add_argument("--weight-decay", type=float, default=1.0e-3)
-    parser.add_argument("--toy-loss-type", type=str, default="focal_dice")
-    parser.add_argument("--use-toy-shape-loss", action="store_true")
-    parser.add_argument("--toy-shape-loss-weight", type=float, default=0.05)
-    parser.add_argument("--toy-shape-loss-pad-frac", type=float, default=0.3)
-    parser.add_argument("--graha-shape-loss-weight", type=float, default=0.05)
-    parser.add_argument("--graha-shape-loss-pad-frac", type=float, default=0.3)
-    parser.add_argument("--normalize-inputs", action="store_true")
-    parser.add_argument(
-        "--normalization-source",
-        choices=["pretrain", "finetune"],
-        default="pretrain",
-        help="When normalizing inputs, use TerraMind pretraining stats or finetuning train-split stats.",
-    )
-    parser.add_argument(
-        "--normalization-modality",
-        choices=["vis_uv", "nac"],
-        default="vis_uv",
-        help="Which modality family to use when --normalization-source=pretrain.",
-    )
-
-    parser.add_argument("--toy-batch-size", type=int, default=2)
-    parser.add_argument("--toy-num-workers", type=int, default=10)
-    parser.add_argument("--toy-learning-rate", type=float, default=5.0e-5)
-    parser.add_argument("--toy-weight-decay", type=float, default=1.0e-3)
-    parser.add_argument("--toy-normalize-inputs", action="store_true")
-    parser.add_argument(
-        "--toy-architecture",
-        choices=["mask2former", "dino-mask-rcnn", "dino-terratorch-mask-rcnn"],
-        default="mask2former",
-    )
-    parser.add_argument("--disable-toy-gradient-clipping", action="store_true")
-
-    parser.add_argument("--graha-stats-batch-size", type=int, default=16)
-    parser.add_argument("--graha-batch-size", type=int, default=2)
-    parser.add_argument("--graha-num-workers", type=int, default=10)
-    parser.add_argument("--graha-backbone-lr", type=float, default=5.0e-5)
-    parser.add_argument("--graha-head-lr", type=float, default=2.0e-4)
-    parser.add_argument("--graha-layer-decay", type=float, default=0.75)
-    parser.add_argument("--graha-weight-decay", type=float, default=0.05)
-    parser.add_argument("--graha-warmup-steps", type=int, default=500)
-    parser.add_argument("--graha-anchor-sizes", type=str, default="8,16,32,64")
-    parser.add_argument("--graha-anchor-aspect-ratios", type=str, default="0.5,1.0,2.0")
-    parser.add_argument("--graha-score-threshold", type=float, default=0.5)
-    parser.add_argument("--prediction-score-threshold", type=float, default=0.5)
-    parser.add_argument("--progress-log-every-n-batches", type=int, default=20)
-    parser.add_argument("--mask-shift", type=int, nargs=2, default=(0, 0))
-
-    parser.add_argument(
-        "--comparison-extra-arg",
-        action="append",
-        default=[],
-        help="Extra raw argument token for the comparison command. Repeat for multiple tokens.",
-    )
-    parser.add_argument(
-        "--sweep-extra-arg",
-        action="append",
-        default=[],
-        help="Extra raw argument token for the checkpoint sweep command. Repeat for multiple tokens.",
-    )
-    return parser.parse_args()
+    return parse_checkpoint_pipeline_args(description=__doc__)
 
 
 def main() -> None:

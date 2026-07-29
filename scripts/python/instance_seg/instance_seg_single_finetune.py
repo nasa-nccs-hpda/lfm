@@ -13,6 +13,7 @@ if str(LFM_ROOT) not in sys.path:
     sys.path.insert(0, str(LFM_ROOT))
 
 from lfm.all_models.all_tasks import SingleModelExperiment
+from lfm.all_models.all_tasks.cli_args import parse_single_model_args
 from lfm.all_models.inst_seg.testing.instance_test_suite_callback import (
     GrahaInstancePlotCallback,
     InstanceEpochTestSuiteCallback,
@@ -22,10 +23,8 @@ from scripts.python.instance_seg import instance_seg_comparison as comparison
 
 
 def parse_args() -> tuple[str, argparse.Namespace]:
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--model", choices=["toy", "graha"], required=True)
-    model_args, remaining = parser.parse_known_args()
-    return model_args.model, comparison.parse_args(remaining)
+    model, remaining = parse_single_model_args()
+    return model, comparison.parse_args(remaining)
 
 
 def main() -> None:

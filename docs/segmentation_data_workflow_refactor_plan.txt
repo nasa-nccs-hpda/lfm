@@ -1376,14 +1376,18 @@ Progress:
   - old Mask2Former dataset/loader/statistics helpers from
     `lfm/toy_model/inst_seg/iseg_dataset.py`
 
-- Kept the old toy notebooks for later migration to the Lightning/OOP wrappers.
-  They currently reference removed backend legacy code and are not expected to
-  run until migrated.
+- Migrated Toy notebooks away from removed backend legacy code:
+
+  - semantic and instance Toy training notebooks now use Lightning/OOP Toy
+    component factories
+  - semantic inference imports current package paths and shared timestamped
+    output utilities
+  - chip/tiling notebooks no longer import the deleted Toy `all_utils.py`
 - Deferred Graha flat-layout support removal until there is an explicit
   decision that pre-split `train/val/test/{chips,labels}` is the only supported
   data contract.
-- Remaining phase 9 cleanup should focus on migrating stale notebook imports
-  and deciding whether `lfm/toy_model/inst_seg/iseg_utils.py` is still active.
+- Remaining phase 9 cleanup should focus on deciding whether
+  `lfm/toy_model/inst_seg/iseg_utils.py` is still active.
 
 Phase 10: Naming Cleanup
 

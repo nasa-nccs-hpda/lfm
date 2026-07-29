@@ -44,6 +44,7 @@ from lfm.all_models.all_tasks import (
     discover_checkpoints,
     write_checkpoint_metrics_summary,
 )
+from lfm.all_models.all_tasks.cli_args import parse_semantic_checkpoint_sweep_args
 from lfm.all_models.sem_seg.testing.semantic_test_suite import (
     SEMANTIC_CHECKPOINT_METRICS as METRIC_NAMES,
     run_semantic_checkpoint,
@@ -518,95 +519,7 @@ def run_sweep(config: SweepConfig) -> dict[str, list[dict[str, Any]]]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--simlink-dest", "--symlink-dest", dest="simlink_dest", type=str, default=None
-    )
-    parser.add_argument("--data-root", type=str, default=None)
-    parser.add_argument("--output-root", type=str, default=None)
-    parser.add_argument("--toy-checkpoint-dir", type=str, default=None)
-    parser.add_argument("--graha-checkpoint-dir", type=str, default=None)
-    parser.add_argument(
-        "--models", nargs="+", default=["toy", "graha"], choices=["toy", "graha"]
-    )
-    parser.add_argument(
-        "--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6]
-    )
-    parser.add_argument("--target-size", type=int, default=256)
-    parser.add_argument(
-        "--semantic-label-source",
-        choices=["semantic", "instance"],
-        default="semantic",
-    )
-    parser.add_argument(
-        "--image-glob",
-        default="*.tif",
-        help="Chip filename glob inside each split/chips directory.",
-    )
-    parser.add_argument(
-        "--label-glob",
-        default="*_label.*",
-        help="Label filename glob inside each split/labels directory.",
-    )
-    parser.add_argument(
-        "--image-suffix",
-        default="_input_wac_static_chip",
-        help="Suffix stripped from chip stems before matching labels.",
-    )
-    parser.add_argument(
-        "--label-suffix",
-        default="_label",
-        help="Suffix stripped from label stems before matching chips.",
-    )
-    parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--num-workers", type=int, default=10)
-    parser.add_argument("--normalize-inputs", action="store_true")
-    parser.add_argument(
-        "--normalization-source",
-        choices=["pretrain", "finetune"],
-        default="pretrain",
-    )
-    parser.add_argument(
-        "--normalization-modality",
-        choices=["vis_uv", "nac"],
-        default="vis_uv",
-    )
-    parser.add_argument("--max-test-samples", type=int, default=None)
-    parser.add_argument(
-        "--ignore-nodata-in-loss",
-        action="store_true",
-        help="Ignore TIFF nodata pixels in semantic segmentation metrics.",
-    )
-    parser.add_argument(
-        "--nodata-ignore-index",
-        type=int,
-        default=-1,
-        help="Target label value used for ignored nodata pixels.",
-    )
-    parser.add_argument("--dino-checkpoint", type=str, default=None)
-    parser.add_argument("--graha-pretrain-dir", type=str, default=None)
-    parser.add_argument(
-        "--graha-input-modality-mode", choices=["new-wac", "vis-uv"], default="new-wac"
-    )
-    parser.add_argument(
-        "--graha-vis-uv-merge-method", choices=["mean", "max"], default="mean"
-    )
-    parser.add_argument("--graha-stats-batch-size", type=int, default=16)
-    parser.add_argument("--graha-batch-size", type=int, default=16)
-    parser.add_argument("--graha-num-workers", type=int, default=10)
-    parser.add_argument("--max-checkpoints", type=int, default=None)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument(
-        "--verbose", action="store_true", help="Show model/datamodule setup output."
-    )
-    parser.add_argument(
-        "--no-preload-test-batches",
-        dest="preload_test_batches",
-        action="store_false",
-        help="Disable one-time test dataloader preload and iterate the dataloader for every checkpoint.",
-    )
-    parser.set_defaults(preload_test_batches=True)
-    return parser.parse_args()
+    return parse_semantic_checkpoint_sweep_args(description=__doc__)
 
 
 def main() -> None:
