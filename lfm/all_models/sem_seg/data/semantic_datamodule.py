@@ -39,8 +39,8 @@ class SemanticSegmentationDataModule(LunarSegmentationDataModule):
         pin_memory: bool = True,
         image_file_type: str = ".tif",
         label_file_type: str = ".npy",
-        image_suffix: str = "_input_wac_static_chip",
-        label_suffix: str = "_label",
+        image_suffix: str | None = None,
+        label_suffix: str | None = None,
         label_npz_key: str = "mask",
         binarize_label: bool = False,
         means: list[float] | np.ndarray | None = None,
@@ -109,8 +109,8 @@ class SemanticSegmentationDataModule(LunarSegmentationDataModule):
 
     def _dataset_kwargs(self) -> dict[str, object]:
         return {
-            "image_file_type": self.image_file_type,
-            "label_file_type": self.label_file_type,
+            "image_glob": f"*chip*{self.image_file_type}",
+            "label_glob": f"*label*{self.label_file_type}",
             "label_npz_key": self.label_npz_key,
             "binarize_label": self.binarize_label,
         }

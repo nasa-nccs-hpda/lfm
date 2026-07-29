@@ -14,6 +14,12 @@ from lfm.all_models.all_tasks.experiments import (
     save_single_timing_json,
     write_checkpoint_metrics_summary,
 )
+from lfm.all_models.all_tasks.checkpoint_pipeline_config import (
+    CheckpointPipelineConfig,
+    CheckpointPipelineResult,
+    build_checkpoint_pipeline_config_from_args,
+    build_sweep_command,
+)
 from lfm.all_models.all_tasks.model_adapters import (
     InstanceModelAdapter,
     ModelAdapter,
@@ -36,4 +42,8 @@ __all__ = [
     "save_config_json",
     "save_single_timing_json",
     "write_checkpoint_metrics_summary",
+    "CheckpointPipelineConfig",
+    "CheckpointPipelineResult",
+    "build_checkpoint_pipeline_config_from_args",
+    "build_sweep_command",
 ]

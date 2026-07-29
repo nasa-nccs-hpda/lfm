@@ -12,7 +12,7 @@ Current State
 - WAC VIS+UV workflows are supported through `--graha-input-modality-mode vis-uv` and `--normalization-modality vis_uv`.
 - NAC workflows currently work, but still use some WAC-era plumbing:
   - `--normalization-modality nac` controls NAC/DTM pretraining normalization stats.
-  - `--graha-input-modality-mode new-wac` registers the NAC tensor as a new image modality in the Graha/Lunar-FM backbone.
+  - `--graha-input-modality-mode single` registers the selected tensor as one image modality in the Graha/Lunar-FM backbone.
   - `--band-filter 0` selects PHO/NAC only.
   - `--band-filter 0 1` should select PHO/NAC + DTM when the dataset was created with DTM.
 - A 100 epoch semantic segmentation experiment is currently being run on the non-DTM NAC dataset with TerraMind-style NAC normalization and spatial + Dice loss.
@@ -20,13 +20,13 @@ Current State
 Planned Steps
 -------------
 
-1. [Pending] Add a high-level `--modality` CLI argument.
-   - Supported values should initially be `vis_uv` and `nac`.
-   - `--modality vis_uv` should imply:
+1. [Completed] Add a high-level `--dataset-modality` CLI argument.
+   - Supported values are initially `wac` and `nac`.
+   - `--dataset-modality wac` implies:
      - `normalization_modality = vis_uv`
      - Graha modality registration through the existing VIS+UV path
      - expected channel count of 7
-   - `--modality nac` should imply:
+   - `--dataset-modality nac` implies:
      - `normalization_modality = nac`
      - Graha modality registration through the current new-image/new-modality path
      - expected channel count of 1 or 2
@@ -35,7 +35,7 @@ Planned Steps
 2. [Completed] Rename WAC-specific internal argument names.
    - The external CLI flag is now `--graha-input-modality-mode`.
    - The matching Python/config field is now `graha_input_modality_mode`.
-   - The lower-level mode values remain `new-wac` and `vis-uv` until the
+   - The lower-level mode values are `single` and `vis-uv`.
      higher-level `--modality` argument is introduced.
 
 3. [Pending] Add explicit NAC channel-layout validation.

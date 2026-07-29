@@ -222,6 +222,11 @@ Steps:
 3. Keep checkpoint/plot-only settings separate from model training settings.
    Done for sweep configs, `InstanceCheckpointComparisonPlotConfig`, and
    `SemanticCheckpointComparisonPlotConfig`.
+4. Move train-then-checkpoint-sweep pipeline command construction out of
+   `scripts/python/all_tasks/checkpoint_pipeline.py` into reusable config code.
+   Done: `lfm/all_models/all_tasks/checkpoint_pipeline_config.py` now owns
+   `CheckpointPipelineConfig`, `CheckpointPipelineResult`, and the task-specific
+   training/sweep command builders. The script remains the entrypoint/runner.
 
 Phase G: Notebook Config Helpers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

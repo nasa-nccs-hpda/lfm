@@ -45,7 +45,7 @@ COMMON_ARGS=(
   --normalization-source pretrain
   --normalization-modality vis_uv
   --disable-toy-gradient-clipping
-  --graha-input-modality-mode new-wac
+  --graha-input-modality-mode single
   --prediction-split val
   --prediction-n-samples 5
   --prediction-score-threshold 0.5
@@ -177,7 +177,7 @@ sbatch scripts/shell/instance_seg/sbatch_instance_checkpoint_comparison_plot.sh 
   --normalize-inputs \
   --normalization-source pretrain \
   --normalization-modality vis_uv \
-  --graha-input-modality-mode new-wac \
+  --graha-input-modality-mode single \
   --prediction-split val \
   --n-samples 5 \
   --score-threshold 0.5
@@ -202,7 +202,7 @@ sbatch scripts/shell/instance_seg/sbatch_instance_checkpoint_comparison_plot.sh 
   --normalize-inputs \
   --normalization-source pretrain \
   --normalization-modality vis_uv \
-  --graha-input-modality-mode new-wac \
+  --graha-input-modality-mode single \
   --prediction-split val \
   --n-samples 5
 ```

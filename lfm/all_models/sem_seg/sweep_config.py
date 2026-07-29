@@ -53,6 +53,7 @@ def build_checkpoint_sweep_config_from_args(
         dino_checkpoint=args.dino_checkpoint,
         graha_base_output_dir=output_root / "_graha_setup",
         graha_pretrain_dir=args.graha_pretrain_dir,
+        dataset_modality=args.dataset_modality,
         band_filter=args.band_filter,
         target_size=args.target_size,
         semantic_label_source=getattr(
@@ -76,11 +77,7 @@ def build_checkpoint_sweep_config_from_args(
             "normalization_source",
             defaults.DEFAULT_NORMALIZATION_SOURCE,
         ),
-        normalization_modality=getattr(
-            args,
-            "normalization_modality",
-            defaults.DEFAULT_NORMALIZATION_MODALITY,
-        ),
+        normalization_modality=args.normalization_modality,
         prediction_split=defaults.DEFAULT_SWEEP_SPLIT,
         prediction_n_samples=defaults.DEFAULT_SEMANTIC_PREDICTION_N_SAMPLES,
         graha_input_modality_mode=args.graha_input_modality_mode,

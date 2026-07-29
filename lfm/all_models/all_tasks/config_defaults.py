@@ -7,7 +7,8 @@ TASK_CHOICES = ["semantic", "instance"]
 SPLIT_CHOICES = ["train", "val", "test"]
 SEMANTIC_LABEL_SOURCE_CHOICES = ["semantic", "instance"]
 
-GRAHA_INPUT_MODALITY_CHOICES = ["new-wac", "vis-uv"]
+DATASET_MODALITY_CHOICES = ["wac", "nac"]
+GRAHA_INPUT_MODALITY_CHOICES = ["single", "vis-uv"]
 GRAHA_VIS_UV_MERGE_CHOICES = ["mean", "max"]
 NORMALIZATION_SOURCE_CHOICES = ["pretrain", "finetune"]
 NORMALIZATION_MODALITY_CHOICES = ["vis_uv", "nac"]
@@ -24,12 +25,12 @@ DEFAULT_GRAHA_ANCHOR_ASPECT_RATIOS = [0.5, 1.0, 2.0]
 DEFAULT_GRAHA_ANCHOR_SIZES_CSV = "8,16,32,64"
 DEFAULT_GRAHA_ANCHOR_ASPECT_RATIOS_CSV = "0.5,1.0,2.0"
 
-DEFAULT_IMAGE_GLOB = "*.tif"
-DEFAULT_LABEL_GLOB = "*_label.*"
-DEFAULT_INSTANCE_LABEL_GLOB = "*_label.npz"
-DEFAULT_IMAGE_SUFFIX = "_input_wac_static_chip"
-DEFAULT_WAC_IMAGE_SUFFIX = "_input_wac_chip"
-DEFAULT_LABEL_SUFFIX = "_label"
+DEFAULT_IMAGE_GLOB = "*chip*.tif"
+DEFAULT_LABEL_GLOB = "*label.*"
+DEFAULT_INSTANCE_LABEL_GLOB = "*label*.npz"
+DEFAULT_IMAGE_SUFFIX = None
+DEFAULT_WAC_IMAGE_SUFFIX = None
+DEFAULT_LABEL_SUFFIX = None
 DEFAULT_SEMANTIC_LABEL_SOURCE = "semantic"
 
 DEFAULT_TARGET_SIZE = 256
@@ -41,6 +42,7 @@ DEFAULT_MASK_SHIFT = (0, 0)
 
 DEFAULT_GRAHA_INPUT_MODALITY_MODE = "vis-uv"
 DEFAULT_GRAHA_VIS_UV_MERGE_METHOD = "mean"
+DEFAULT_DATASET_MODALITY = "wac"
 DEFAULT_NORMALIZATION_SOURCE = "pretrain"
 DEFAULT_NORMALIZATION_MODALITY = "vis_uv"
 
@@ -87,3 +89,49 @@ DEFAULT_EPOCH_TEST_N_SAMPLES = 100
 DEFAULT_EPOCH_TEST_EVERY_N_EPOCHS = 1
 DEFAULT_PROGRESS_LOG_EVERY_N_BATCHES = 25
 DEFAULT_PIPELINE_PROGRESS_LOG_EVERY_N_BATCHES = 20
+
+
+def normalization_modality_for_dataset(dataset_modality: str) -> str:
+    if dataset_modality == "wac":
+        return "vis_uv"
+    if dataset_modality == "nac":
+        return "nac"
+    raise ValueError(
+        f"dataset_modality must be one of {DATASET_MODALITY_CHOICES}, "
+        f"got {dataset_modality!r}."
+    )
+
+
+def graha_input_modality_mode_for_dataset(dataset_modality: str) -> str:
+    if dataset_modality == "wac":
+        return "vis-uv"
+    if dataset_modality == "nac":
+        return "single"
+    raise ValueError(
+        f"dataset_modality must be one of {DATASET_MODALITY_CHOICES}, "
+        f"got {dataset_modality!r}."
+    )
+
+
+def resolve_normalization_modality(
+    *,
+    dataset_modality: str | None,
+    normalization_modality: str | None,
+) -> str:
+    if normalization_modality is not None:
+        return normalization_modality
+    return normalization_modality_for_dataset(
+        dataset_modality or DEFAULT_DATASET_MODALITY
+    )
+
+
+def resolve_graha_input_modality_mode(
+    *,
+    dataset_modality: str | None,
+    graha_input_modality_mode: str | None,
+) -> str:
+    if graha_input_modality_mode is not None:
+        return graha_input_modality_mode
+    return graha_input_modality_mode_for_dataset(
+        dataset_modality or DEFAULT_DATASET_MODALITY
+    )

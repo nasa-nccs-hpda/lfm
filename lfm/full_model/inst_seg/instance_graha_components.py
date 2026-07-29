@@ -19,6 +19,7 @@ import torch
 from lightning.pytorch import Trainer
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 
+from lfm.all_models.all_tasks import config_defaults as defaults
 from lfm.all_models.all_tasks.utils import (
     plot_instance_predictions,
 )
@@ -168,6 +169,11 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
     lightning_checkpoint = (
         Path(args.lightning_checkpoint).resolve() if args.lightning_checkpoint else None
     )
+    dataset_modality = getattr(
+        args,
+        "dataset_modality",
+        defaults.DEFAULT_DATASET_MODALITY,
+    )
 
     return InstanceFineTuningConfig(
         package_dir=package_dir,
@@ -182,10 +188,20 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         base_output_dir=base_output_dir,
         lightning_checkpoint=lightning_checkpoint,
         normalized_wac_data_range=[-1.0, 1.0],
-        graha_input_modality_mode=args.graha_input_modality_mode,
+        graha_input_modality_mode=defaults.resolve_graha_input_modality_mode(
+            dataset_modality=dataset_modality,
+            graha_input_modality_mode=getattr(
+                args,
+                "graha_input_modality_mode",
+                None,
+            ),
+        ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=getattr(args, "normalization_source", "pretrain"),
-        normalization_modality=getattr(args, "normalization_modality", "vis_uv"),
+        normalization_modality=defaults.resolve_normalization_modality(
+            dataset_modality=dataset_modality,
+            normalization_modality=getattr(args, "normalization_modality", None),
+        ),
         band_filter=getattr(args, "band_filter", None),
         image_glob=args.image_glob,
         label_glob=args.label_glob,
@@ -480,7 +496,7 @@ def create_task(
 def _graha_modality_args(
     config: InstanceFineTuningConfig, wac_num_channels: int
 ) -> dict[str, Any]:
-    if config.graha_input_modality_mode == "new-wac":
+    if config.graha_input_modality_mode == "single":
         return {
             "backbone_modalities": ["wac"],
             "backbone_new_modalities": {

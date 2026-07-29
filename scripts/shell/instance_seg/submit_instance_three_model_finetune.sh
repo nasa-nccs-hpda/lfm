@@ -119,7 +119,7 @@ for ((i = 0; i < ${#ARGS[@]}; i++)); do
       fi
       PLOT_ARGS+=("${arg}" "${ARGS[$((i + 1))]}" "${ARGS[$((i + 2))]}")
       ;;
-    --data-root|--dino-checkpoint|--graha-pretrain-dir|--graha-input-modality-mode|\
+    --data-root|--dataset-modality|--dino-checkpoint|--graha-pretrain-dir|--graha-input-modality-mode|\
     --graha-vis-uv-merge-method|--target-size|--image-glob|--label-glob|\
     --image-suffix|--label-suffix|--batch-size|--num-workers|\
     --graha-stats-batch-size|--graha-batch-size|--graha-num-workers|\

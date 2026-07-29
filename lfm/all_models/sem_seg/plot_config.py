@@ -117,6 +117,7 @@ def build_checkpoint_comparison_plot_config_from_args(
         dino_checkpoint=args.dino_checkpoint,
         graha_base_output_dir=output_dir / "_graha_setup",
         graha_pretrain_dir=args.graha_pretrain_dir,
+        dataset_modality=args.dataset_modality,
         band_filter=args.band_filter,
         target_size=args.target_size,
         semantic_label_source=args.semantic_label_source,

@@ -83,7 +83,7 @@ for ((i = 0; i < ${#ARGS[@]}; i++)); do
         exit 2
       fi
       ;;
-    --data-root|--dino-checkpoint|--graha-pretrain-dir|--graha-input-modality-mode|\
+    --data-root|--dataset-modality|--dino-checkpoint|--graha-pretrain-dir|--graha-input-modality-mode|\
     --graha-vis-uv-merge-method|--target-size|--semantic-label-source|\
     --image-glob|--label-glob|--image-suffix|--label-suffix|--batch-size|\
     --num-workers|--graha-stats-batch-size|--graha-batch-size|\

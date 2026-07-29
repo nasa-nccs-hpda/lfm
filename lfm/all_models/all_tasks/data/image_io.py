@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,21 +15,43 @@ class PairRecord:
     label_path: Path
 
 
-def path_key(path: Path, suffix: str) -> str:
+IMAGE_ROLE_TOKENS = {"chip", "chips"}
+LABEL_ROLE_TOKENS = {"label", "labels"}
+IMAGE_DESCRIPTOR_TOKENS = {"input", "wac", "nac", "static"}
+
+
+def path_key(path: Path, suffix: str | None) -> str:
     stem = path.stem
-    if suffix and stem.endswith(suffix):
-        return stem[: -len(suffix)]
-    return stem
+    if suffix and stem.lower().endswith(suffix.lower()):
+        return stem[: -len(suffix)].lower()
+    return stem.lower()
+
+
+def inferred_path_key(path: Path, *, role_tokens: set[str]) -> str:
+    tokens = [token for token in re.split(r"[^A-Za-z0-9]+", path.stem) if token]
+    lowered_tokens = [token.lower() for token in tokens]
+    try:
+        marker_index = next(
+            index for index, token in enumerate(lowered_tokens) if token in role_tokens
+        )
+    except StopIteration:
+        return path.stem.lower()
+
+    key_tokens = lowered_tokens[:marker_index]
+    if role_tokens == IMAGE_ROLE_TOKENS:
+        while key_tokens and key_tokens[-1] in IMAGE_DESCRIPTOR_TOKENS:
+            key_tokens.pop()
+    return "\0".join(key_tokens)
 
 
 def find_pair_records(
     chips_dir: str | Path,
     labels_dir: str | Path,
     *,
-    image_glob: str = "*.tif",
-    label_glob: str = "*_label.*",
-    image_suffix: str = "_input_wac_static_chip",
-    label_suffix: str = "_label",
+    image_glob: str = "*chip*.tif",
+    label_glob: str = "*label.*",
+    image_suffix: str | None = None,
+    label_suffix: str | None = None,
     require_all_labels: bool = False,
 ) -> list[PairRecord]:
     chips_dir = Path(chips_dir)
@@ -38,14 +61,40 @@ def find_pair_records(
     if not labels_dir.exists():
         raise FileNotFoundError(f"labels_dir does not exist: {labels_dir}")
 
-    labels_by_key = {
-        path_key(path, label_suffix): path
-        for path in sorted(labels_dir.glob(label_glob))
-    }
+    labels_by_key: dict[str, Path] = {}
+    duplicate_label_keys: dict[str, list[Path]] = {}
+    for label_path in sorted(labels_dir.glob(label_glob)):
+        key = (
+            path_key(label_path, label_suffix)
+            if label_suffix
+            else inferred_path_key(label_path, role_tokens=LABEL_ROLE_TOKENS)
+        )
+        if key in labels_by_key:
+            duplicate_label_keys.setdefault(key, [labels_by_key[key]]).append(
+                label_path
+            )
+            continue
+        labels_by_key[key] = label_path
+    if duplicate_label_keys:
+        examples = "\n".join(
+            f"{key!r}: {paths[0]} and {paths[1]}"
+            for key, paths in list(duplicate_label_keys.items())[:5]
+        )
+        raise ValueError(
+            "Multiple label files map to the same inferred key. "
+            "Pass --label-suffix or a narrower --label-glob to disambiguate. "
+            f"First duplicate examples:\n{examples}"
+        )
+
     records: list[PairRecord] = []
     missing_labels: list[Path] = []
     for image_path in sorted(chips_dir.glob(image_glob)):
-        label_path = labels_by_key.get(path_key(image_path, image_suffix))
+        image_key = (
+            path_key(image_path, image_suffix)
+            if image_suffix
+            else inferred_path_key(image_path, role_tokens=IMAGE_ROLE_TOKENS)
+        )
+        label_path = labels_by_key.get(image_key)
         if label_path is None:
             missing_labels.append(image_path)
             continue

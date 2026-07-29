@@ -21,6 +21,7 @@ class InstanceSegmentationExperimentConfig:
     toy_lightning_checkpoint: Path | None
     graha_pretrain_dir: Path | None
     graha_lightning_checkpoint: Path | None
+    dataset_modality: str
     graha_input_modality_mode: str
     graha_vis_uv_merge_method: str
     normalization_source: str
@@ -86,6 +87,11 @@ def build_config_from_args(
     lfm_root = Path(__file__).resolve().parents[3]
     notebook_dir = lfm_root / "notebooks" / "full_model"
     scripts_output_dir = lfm_root / "scripts" / "outputs"
+    dataset_modality = getattr(
+        args,
+        "dataset_modality",
+        defaults.DEFAULT_DATASET_MODALITY,
+    )
     return InstanceSegmentationExperimentConfig(
         notebook_dir=notebook_dir,
         lfm_root=lfm_root,
@@ -109,17 +115,24 @@ def build_config_from_args(
             if args.graha_lightning_checkpoint
             else None
         ),
-        graha_input_modality_mode=args.graha_input_modality_mode,
+        dataset_modality=dataset_modality,
+        graha_input_modality_mode=defaults.resolve_graha_input_modality_mode(
+            dataset_modality=dataset_modality,
+            graha_input_modality_mode=getattr(
+                args,
+                "graha_input_modality_mode",
+                None,
+            ),
+        ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=getattr(
             args,
             "normalization_source",
             defaults.DEFAULT_NORMALIZATION_SOURCE,
         ),
-        normalization_modality=getattr(
-            args,
-            "normalization_modality",
-            defaults.DEFAULT_NORMALIZATION_MODALITY,
+        normalization_modality=defaults.resolve_normalization_modality(
+            dataset_modality=dataset_modality,
+            normalization_modality=getattr(args, "normalization_modality", None),
         ),
         image_glob=args.image_glob,
         label_glob=args.label_glob,

@@ -237,10 +237,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--output-json", type=Path, default=None)
     parser.add_argument("--target-size", type=int, default=256)
-    parser.add_argument("--image-glob", default="*.tif")
-    parser.add_argument("--label-glob", default="*_label.npz")
-    parser.add_argument("--image-suffix", default="_input_wac_chip")
-    parser.add_argument("--label-suffix", default="_label")
+    parser.add_argument("--image-glob", default="*chip*.tif")
+    parser.add_argument("--label-glob", default="*label*.npz")
+    parser.add_argument("--image-suffix", default=None)
+    parser.add_argument("--label-suffix", default=None)
     parser.add_argument(
         "--band-filter", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6]
     )

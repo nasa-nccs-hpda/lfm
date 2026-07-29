@@ -39,6 +39,19 @@ def _add_model_selection_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_dataset_modality_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--dataset-modality",
+        choices=defaults.DATASET_MODALITY_CHOICES,
+        default=defaults.DEFAULT_DATASET_MODALITY,
+        help=(
+            "Input dataset modality. Defaults drive Graha input modality mode "
+            "and pretrain normalization modality unless those lower-level "
+            "options are supplied explicitly."
+        ),
+    )
+
+
 def _add_data_root_args(
     parser: argparse.ArgumentParser,
     *,
@@ -58,7 +71,11 @@ def _add_graha_input_args(parser: argparse.ArgumentParser, *, path_type=str) -> 
     parser.add_argument(
         "--graha-input-modality-mode",
         choices=defaults.GRAHA_INPUT_MODALITY_CHOICES,
-        default=defaults.DEFAULT_GRAHA_INPUT_MODALITY_MODE,
+        default=None,
+        help=(
+            "Low-level Graha modality registration override. If omitted, it is "
+            "derived from --dataset-modality."
+        ),
     )
     parser.add_argument(
         "--graha-vis-uv-merge-method",
@@ -77,8 +94,11 @@ def _add_normalization_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--normalization-modality",
         choices=defaults.NORMALIZATION_MODALITY_CHOICES,
-        default=defaults.DEFAULT_NORMALIZATION_MODALITY,
-        help="Which modality family to use when --normalization-source=pretrain.",
+        default=None,
+        help=(
+            "Which modality family to use when --normalization-source=pretrain. "
+            "If omitted, it is derived from --dataset-modality."
+        ),
     )
 
 
@@ -91,7 +111,7 @@ def _add_normalization_args_without_help(parser: argparse.ArgumentParser) -> Non
     parser.add_argument(
         "--normalization-modality",
         choices=defaults.NORMALIZATION_MODALITY_CHOICES,
-        default=defaults.DEFAULT_NORMALIZATION_MODALITY,
+        default=None,
     )
 
 
@@ -144,7 +164,8 @@ def _add_matching_args(
         "--image-suffix",
         default=image_suffix_default,
         help=(
-            "Suffix stripped from chip stems before matching labels."
+            "Optional suffix stripped from chip stems before matching labels. "
+            "If omitted, matching is inferred from chip/label filename tokens."
             if not path_defaults
             else None
         ),
@@ -153,7 +174,8 @@ def _add_matching_args(
         "--label-suffix",
         default=defaults.DEFAULT_LABEL_SUFFIX,
         help=(
-            "Suffix stripped from label stems before matching chips."
+            "Optional suffix stripped from label stems before matching chips. "
+            "If omitted, matching is inferred from chip/label filename tokens."
             if not path_defaults
             else None
         ),
@@ -265,6 +287,7 @@ def create_semantic_experiment_parser(
     parser.add_argument("--data-root", type=str, default=None)
     parser.add_argument("--base-output-dir", type=str, default=None)
     parser.add_argument("--dino-checkpoint", type=str, default=None)
+    _add_dataset_modality_arg(parser)
     parser.add_argument(
         "--toy-lightning-checkpoint",
         type=str,
@@ -350,7 +373,11 @@ def create_semantic_experiment_parser(
     parser.add_argument(
         "--graha-input-modality-mode",
         choices=defaults.GRAHA_INPUT_MODALITY_CHOICES,
-        default=defaults.DEFAULT_GRAHA_INPUT_MODALITY_MODE,
+        default=None,
+        help=(
+            "Low-level Graha modality registration override. If omitted, it is "
+            "derived from --dataset-modality."
+        ),
     )
     parser.add_argument(
         "--graha-vis-uv-merge-method",
@@ -416,6 +443,7 @@ def create_instance_experiment_parser(
     parser.add_argument("--data-root", type=str, default=None)
     parser.add_argument("--base-output-dir", type=str, default=None)
     parser.add_argument("--dino-checkpoint", type=str, default=None)
+    _add_dataset_modality_arg(parser)
     parser.add_argument(
         "--toy-lightning-checkpoint",
         type=str,
@@ -427,7 +455,11 @@ def create_instance_experiment_parser(
     parser.add_argument(
         "--graha-input-modality-mode",
         choices=defaults.GRAHA_INPUT_MODALITY_CHOICES,
-        default=defaults.DEFAULT_GRAHA_INPUT_MODALITY_MODE,
+        default=None,
+        help=(
+            "Low-level Graha modality registration override. If omitted, it is "
+            "derived from --dataset-modality."
+        ),
     )
     parser.add_argument(
         "--graha-vis-uv-merge-method",
@@ -587,6 +619,7 @@ def create_checkpoint_pipeline_parser(
     parser.add_argument("--sweep-output-root", type=str, default=None)
     parser.add_argument("--skip-sweep", action="store_true")
     _add_model_selection_arg(parser)
+    _add_dataset_modality_arg(parser)
     parser.add_argument("--dino-checkpoint", type=str, default=None)
     _add_graha_input_args(parser)
     parser.add_argument("--target-size", type=int, default=defaults.DEFAULT_TARGET_SIZE)
@@ -765,6 +798,7 @@ def create_semantic_checkpoint_sweep_parser(
     _add_symlink_arg(parser, semantic_help=False)
     _add_data_root_args(parser, output_arg="--output-root", checkpoint_dirs=True)
     _add_model_selection_arg(parser)
+    _add_dataset_modality_arg(parser)
     _add_band_filter_arg(parser)
     parser.add_argument("--target-size", type=int, default=defaults.DEFAULT_TARGET_SIZE)
     _add_semantic_label_source_arg(parser, detailed_help=False)
@@ -823,6 +857,7 @@ def create_instance_checkpoint_sweep_parser(
     _add_symlink_arg(parser, semantic_help=False)
     _add_data_root_args(parser, output_arg="--output-root", checkpoint_dirs=True)
     _add_model_selection_arg(parser)
+    _add_dataset_modality_arg(parser)
     parser.add_argument("--target-size", type=int, default=defaults.DEFAULT_TARGET_SIZE)
     _add_band_filter_arg(parser)
     _add_matching_args(parser, image_suffix_default=defaults.DEFAULT_IMAGE_SUFFIX)
@@ -932,6 +967,7 @@ def create_instance_checkpoint_comparison_plot_parser(
     parser.add_argument("--graha-checkpoint", type=Path, default=None)
     parser.add_argument("--graha-checkpoint-dir", type=Path, default=None)
     parser.add_argument("--dino-checkpoint", type=Path, default=None)
+    _add_dataset_modality_arg(parser)
     _add_graha_input_args(parser, path_type=Path)
     parser.add_argument("--target-size", type=int, default=defaults.DEFAULT_TARGET_SIZE)
     _add_band_filter_arg(parser)
@@ -1031,6 +1067,7 @@ def create_semantic_checkpoint_comparison_plot_parser(
     parser.add_argument("--graha-checkpoint", type=Path, default=None)
     parser.add_argument("--graha-checkpoint-dir", type=Path, default=None)
     parser.add_argument("--dino-checkpoint", type=Path, default=None)
+    _add_dataset_modality_arg(parser)
     _add_graha_input_args(parser, path_type=Path)
     parser.add_argument("--target-size", type=int, default=defaults.DEFAULT_TARGET_SIZE)
     _add_band_filter_arg(parser)

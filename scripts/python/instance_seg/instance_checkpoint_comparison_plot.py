@@ -58,6 +58,7 @@ def _comparison_namespace(
             str(args.graha_pretrain_dir) if args.graha_pretrain_dir else None
         ),
         graha_lightning_checkpoint=None,
+        dataset_modality=args.dataset_modality,
         graha_input_modality_mode=args.graha_input_modality_mode,
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=args.normalization_source,

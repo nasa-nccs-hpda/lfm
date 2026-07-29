@@ -12,7 +12,7 @@ from matplotlib.colors import ListedColormap
 from matplotlib.patches import Rectangle
 
 from lfm.all_models.all_tasks.data.image_io import (
-    path_key,
+    find_pair_records,
     read_tif,
 )
 from lfm.all_models.all_tasks.data.tensor_utils import image_to_chw_float
@@ -206,17 +206,16 @@ def _xywh_to_xyxy_np(boxes: np.ndarray | None) -> torch.Tensor:
 
 def _find_unsplit_instance_pairs(root: str | Path) -> dict[str, tuple[Path, Path]]:
     root = Path(root)
-    chips_dir = root / "chips"
-    labels_dir = root / "labels"
-    chips = {
-        path_key(path, "_input_wac_static_chip"): path
-        for path in sorted(chips_dir.glob("*.tif"))
+    records = find_pair_records(
+        root / "chips",
+        root / "labels",
+        image_glob="*chip*.tif",
+        label_glob="*label*.npz",
+    )
+    return {
+        record.image_path.stem: (record.image_path, record.label_path)
+        for record in records
     }
-    labels = {
-        path_key(path, "_label"): path
-        for path in sorted(labels_dir.glob("*_label.npz"))
-    }
-    return {key: (chips[key], labels[key]) for key in sorted(set(chips) & set(labels))}
 
 
 def _find_split_instance_pairs(root: str | Path) -> dict[str, tuple[Path, Path]]:

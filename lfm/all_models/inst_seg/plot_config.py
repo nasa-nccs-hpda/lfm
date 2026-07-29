@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lfm.all_models.all_tasks import CheckpointRecord, discover_checkpoints
+from lfm.all_models.all_tasks import config_defaults as defaults
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,7 @@ class InstanceCheckpointComparisonPlotConfig:
     model_specs: list[ModelPlotSpec]
     dino_checkpoint: Path | None
     graha_pretrain_dir: Path | None
+    dataset_modality: str
     graha_input_modality_mode: str
     graha_vis_uv_merge_method: str
     normalization_source: str
@@ -168,16 +170,24 @@ def _build_model_specs(args: argparse.Namespace) -> list[ModelPlotSpec]:
 def build_checkpoint_comparison_plot_config_from_args(
     args: argparse.Namespace,
 ) -> InstanceCheckpointComparisonPlotConfig:
+    dataset_modality = args.dataset_modality
     return InstanceCheckpointComparisonPlotConfig(
         data_root=args.data_root.resolve(),
         output_dir=args.output_dir.resolve(),
         model_specs=_build_model_specs(args),
         dino_checkpoint=args.dino_checkpoint,
         graha_pretrain_dir=args.graha_pretrain_dir,
-        graha_input_modality_mode=args.graha_input_modality_mode,
+        dataset_modality=dataset_modality,
+        graha_input_modality_mode=defaults.resolve_graha_input_modality_mode(
+            dataset_modality=dataset_modality,
+            graha_input_modality_mode=args.graha_input_modality_mode,
+        ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=args.normalization_source,
-        normalization_modality=args.normalization_modality,
+        normalization_modality=defaults.resolve_normalization_modality(
+            dataset_modality=dataset_modality,
+            normalization_modality=args.normalization_modality,
+        ),
         target_size=args.target_size,
         band_filter=args.band_filter,
         image_glob=args.image_glob,

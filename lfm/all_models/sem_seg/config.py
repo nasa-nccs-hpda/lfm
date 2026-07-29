@@ -28,6 +28,7 @@ class SemanticSegmentationExperimentConfig:
     image_suffix: str
     label_suffix: str
     image_file_type: str
+    dataset_modality: str
     max_train_samples: int | None
     max_val_samples: int | None
     max_test_samples: int | None
@@ -116,6 +117,11 @@ def build_config_from_args(
         if args.graha_lightning_checkpoint
         else None
     )
+    dataset_modality = getattr(
+        args,
+        "dataset_modality",
+        defaults.DEFAULT_DATASET_MODALITY,
+    )
 
     return SemanticSegmentationExperimentConfig(
         repo_root=repo_root,
@@ -133,6 +139,7 @@ def build_config_from_args(
         image_suffix=args.image_suffix,
         label_suffix=args.label_suffix,
         image_file_type=_file_type_from_glob(args.image_glob),
+        dataset_modality=dataset_modality,
         max_train_samples=args.max_train_samples,
         max_val_samples=args.max_val_samples,
         max_test_samples=args.max_test_samples,
@@ -162,10 +169,9 @@ def build_config_from_args(
             "normalization_source",
             defaults.DEFAULT_NORMALIZATION_SOURCE,
         ),
-        normalization_modality=getattr(
-            args,
-            "normalization_modality",
-            defaults.DEFAULT_NORMALIZATION_MODALITY,
+        normalization_modality=defaults.resolve_normalization_modality(
+            dataset_modality=dataset_modality,
+            normalization_modality=getattr(args, "normalization_modality", None),
         ),
         toy_gradient_clip_val=(
             None if args.disable_toy_gradient_clipping else args.toy_gradient_clip_val
@@ -178,7 +184,14 @@ def build_config_from_args(
         graha_base_output_dir=graha_base_output_dir,
         graha_pretrain_dir=graha_pretrain_dir,
         graha_lightning_checkpoint=graha_lightning_checkpoint,
-        graha_input_modality_mode=args.graha_input_modality_mode,
+        graha_input_modality_mode=defaults.resolve_graha_input_modality_mode(
+            dataset_modality=dataset_modality,
+            graha_input_modality_mode=getattr(
+                args,
+                "graha_input_modality_mode",
+                None,
+            ),
+        ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         graha_shape_loss_weight=getattr(
             args,
