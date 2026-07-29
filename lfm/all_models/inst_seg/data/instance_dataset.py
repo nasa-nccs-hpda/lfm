@@ -242,6 +242,7 @@ class ObjectDetectionInstanceSegmentationDataset(LunarInstanceMaskDataset):
             sample["mask"],
             box_format=self.target_box_format,
         )
+        sample.pop("original_size", None)
         sample["boxes"] = boxes
         sample["labels"] = labels
         sample["masks"] = masks
