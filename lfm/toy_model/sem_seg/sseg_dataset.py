@@ -1,20 +1,16 @@
-"""
-dataset.py
-Dataset class for Toy semantic segmentation on lunar crater detection.
-Supports images with any number of channels (grayscale, RGB, multispectral, etc.).
-"""
+"""Toy semantic segmentation dataset helpers used by Lightning wrappers."""
+
+from __future__ import annotations
 
 import os
 import warnings
 from glob import glob
 from pathlib import Path
-from typing import Tuple, Optional, List
+from typing import Optional
 
 import numpy as np
-import torch
-from torch.utils.data import random_split, DataLoader
-from tqdm import tqdm
 import rasterio
+import torch
 
 from lfm.all_models.all_tasks.data import (
     FinetuneStatsNormalization,
@@ -32,36 +28,20 @@ warnings.filterwarnings("ignore", message=".*unauthenticated.*")
 
 
 class LunarCraterDataset(SemanticSegmentationDataset):
-    """
-    Dataset for multi-channel images and segmentation masks.
-    Images are expected to be .tif files in <base_dir>/chips/
-    Labels are expected to be .npy files in <base_dir>/labels/
-
-    Args:
-        base_dir: Base directory containing 'chips' and 'labels' subdirectories
-        mean: Mean values per channel for normalization (shape: [num_channels])
-        std: Standard deviation per channel for normalization
-            (shape: [num_channels])
-        target_size: Target size for model input. Default: (304, 304)
-        spatial_transform: How to match target_size. Options are "resize" and
-            "crop". Crop uses a deterministic center crop.
-        max_samples: Max samples to use. None uses all samples.
-        band_filter: List of band indices to use. None uses all bands.
-        normalize_inputs: Whether to normalize inputs using mean/std.
-    """
+    """Toy semantic dataset preserving the historical tuple output contract."""
 
     def __init__(
         self,
         base_dir: str,
         mean: np.ndarray,
         std: np.ndarray,
-        target_size: Tuple[int, int] = (304, 304),
-        max_samples: Optional[int] = None,
-        band_filter: List[int] = None,
+        target_size: tuple[int, int] = (304, 304),
+        max_samples: int | None = None,
+        band_filter: list[int] | None = None,
         normalize_inputs: bool = True,
         scale_inputs: bool = True,
         spatial_transform: str = "resize",
-        split_name: Optional[str] = None,
+        split_name: str | None = None,
         image_file_type: str = ".tif",
         label_file_type: str = ".npy",
         image_suffix: str = "_input_wac_static_chip",
@@ -70,7 +50,7 @@ class LunarCraterDataset(SemanticSegmentationDataset):
         binarize_label: bool = False,
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
-    ):
+    ) -> None:
         self.mean = mean.astype(np.float32) if mean is not None else None
         self.std = std.astype(np.float32) if std is not None else None
         self.normalize_inputs = normalize_inputs
@@ -108,14 +88,8 @@ class LunarCraterDataset(SemanticSegmentationDataset):
     def format_output(
         self,
         sample: dict,
-    ) -> Tuple[torch.Tensor, torch.Tensor, str, str]:
-        """
-        Returns:
-            image (torch.Tensor): Transformed image (C, H, W)
-            label (torch.Tensor): Transformed label mask (H, W)
-            img_path (str): Path to the image file
-            label_path (str): Path to the label file
-        """
+    ) -> tuple[torch.Tensor, torch.Tensor, str, str]:
+        """Return the tuple shape expected by the Toy semantic Lightning module."""
         return (
             sample["image"],
             sample["mask"],
@@ -124,304 +98,13 @@ class LunarCraterDataset(SemanticSegmentationDataset):
         )
 
 
-def calculate_dataset_statistics(
-    image_dir: str, input_file_type: str, debug: bool = False
-):
-    """
-    Calculate mean and standard deviation for a dataset. Used in normalization.
-    """
-    if input_file_type not in [".npy", ".npz", ".tif"]:
-        raise ValueError(
-            "Calculating dataset statistics expects .npy, .npz, or .tif " "filetypes."
-        )
-
-    input_paths = glob(os.path.join(image_dir, f"*{input_file_type}"))
-
-    if len(input_paths) == 0:
-        raise ValueError(f"No files found in {image_dir}")
-
-    pixel_sum = None
-    pixel_sq_sum = None
-    pixel_count = 0
-    valid_images = 0
-    num_channels = None
-
-    # Initialize list to track problematic files
-    problematic_files = []
-
-    for image_path in tqdm(input_paths, desc="Computing dataset statistics"):
-        if not os.path.exists(image_path):
-            tqdm.write(f"Warning: File not found: {image_path}")
-            problematic_files.append((image_path, "file_not_found"))
-            continue
-
-        try:
-            if input_file_type in [".npy", ".npz"]:
-                img = np.load(image_path).astype(np.float32)
-            else:  # .tif
-                img = rasterio.open(image_path).read().astype(np.float32)
-
-            # Handle different shapes: (H, W, C), (C, H, W), or (H, W)
-            if img.ndim == 3:
-                if img.shape[0] < min(img.shape[1], img.shape[2]):
-                    img = img.transpose(1, 2, 0)  # Convert to (H, W, C)
-            elif img.ndim == 2:
-                img = img[:, :, np.newaxis]
-            else:
-                tqdm.write(
-                    f"Warning: Image has {img.ndim} dimensions, skipping {image_path}"
-                )
-                problematic_files.append((image_path, f"invalid_dimensions_{img.ndim}"))
-                continue
-
-            # === CHECK FOR PROBLEMATIC VALUES ===
-            has_issues = False
-            issue_reasons = []
-
-            # Check 1: NaN or Inf in raw data
-            if np.isnan(img).any():
-                has_issues = True
-                issue_reasons.append(f"nan_count_{np.isnan(img).sum()}")
-                tqdm.write(f"⚠️ Found NaN in: {image_path}")
-                for band_idx in range(img.shape[2]):
-                    band = img[:, :, band_idx]
-                    nan_count = np.isnan(band).sum()
-                    if nan_count > 0:
-                        tqdm.write(f"  Band {band_idx}: NaN={nan_count}")
-
-            if np.isinf(img).any():
-                has_issues = True
-                issue_reasons.append(f"inf_count_{np.isinf(img).sum()}")
-                tqdm.write(f"⚠️ Found inf in: {image_path}")
-                for band_idx in range(img.shape[2]):
-                    band = img[:, :, band_idx]
-                    inf_count = np.isinf(band).sum()
-                    if inf_count > 0:
-                        tqdm.write(f"  Band {band_idx}: inf={inf_count}")
-
-            # Check 2: Constant bands (min == max)
-            for band_idx in range(img.shape[2]):
-                band = img[:, :, band_idx]
-                band_min, band_max = band.min(), band.max()
-
-                if band_max == band_min:
-                    has_issues = True
-                    issue_reasons.append(f"constant_band_{band_idx}_value_{band_min}")
-                    tqdm.write(
-                        f"⚠️ Constant band {band_idx} in {image_path}: value={band_min}"
-                    )
-
-            # Check 3: Extremely large or small values
-            img_min, img_max = img.min(), img.max()
-            if abs(img_min) > 1e10 or abs(img_max) > 1e10:
-                has_issues = True
-                issue_reasons.append(
-                    f"extreme_values_min_{img_min:.2e}_max_{img_max:.2e}"
-                )
-                tqdm.write(
-                    f"⚠️ Extreme values in {image_path}: min={img_min:.6e}, max={img_max:.6e}"
-                )
-
-            # Check 4: Very large range (potential scaling issues)
-            for band_idx in range(img.shape[2]):
-                band = img[:, :, band_idx]
-                band_range = band.max() - band.min()
-                if band_range > 1e10:
-                    has_issues = True
-                    issue_reasons.append(
-                        f"huge_range_band_{band_idx}_range_{band_range:.2e}"
-                    )
-                    tqdm.write(
-                        f"⚠️ Huge range in band {band_idx} of {image_path}: {band_range:.6e}"
-                    )
-
-            # Check 5: All zeros or near-zero variance
-            if np.allclose(img, 0, atol=1e-10):
-                has_issues = True
-                issue_reasons.append("all_zeros")
-                tqdm.write(f"⚠️ All zeros in {image_path}")
-
-            # If file has issues, add to problematic list and skip statistics
-            if has_issues:
-                problematic_files.append((image_path, "; ".join(issue_reasons)))
-                tqdm.write(f"❌ SKIPPING {image_path} from statistics due to issues")
-                continue
-
-            # Initialize tracking arrays
-            if valid_images == 0:
-                num_channels = img.shape[2]
-                pixel_sum = np.zeros(num_channels, dtype=np.float64)
-                pixel_sq_sum = np.zeros(num_channels, dtype=np.float64)
-                band_min_vals = np.full(num_channels, np.inf)
-                band_max_vals = np.full(num_channels, -np.inf)
-                tqdm.write(f"First valid image shape: {img.shape}, dtype: {img.dtype}")
-                tqdm.write(f"Detected {num_channels} channel(s)")
-                tqdm.write(f"Value range: min={img.min()}, max={img.max()}")
-
-            # Verify consistent number of channels
-            if img.shape[2] != num_channels:
-                tqdm.write(
-                    f"Warning: Inconsistent channels. Expected {num_channels}, "
-                    f"got {img.shape[2]} for {image_path}. Skipping."
-                )
-                problematic_files.append(
-                    (image_path, f"channel_mismatch_{img.shape[2]}_vs_{num_channels}")
-                )
-                continue
-
-            # Track min/max per band across all images
-            for band_idx in range(img.shape[2]):
-                band = img[:, :, band_idx]
-                band_min_vals[band_idx] = min(band_min_vals[band_idx], band.min())
-                band_max_vals[band_idx] = max(band_max_vals[band_idx], band.max())
-
-            # For .tif files, apply min-max scaling per band
-            if input_file_type == ".tif":
-                for band_idx in range(img.shape[2]):
-                    band = img[:, :, band_idx]
-                    band_min, band_max = band.min(), band.max()
-
-                    if band_max != band_min:
-                        img[:, :, band_idx] = (band - band_min) / (band_max - band_min)
-                    else:
-                        img[:, :, band_idx] = 0
-
-                # Final check after scaling for any NaN
-                if np.isnan(img).any() or np.isinf(img).any():
-                    tqdm.write(f"⚠️ NaN/inf appeared AFTER scaling in {image_path}")
-                    problematic_files.append((image_path, "nan_inf_after_scaling"))
-                    continue
-
-            # Accumulate statistics
-            pixel_sum += img.sum(axis=(0, 1))
-            pixel_sq_sum += (img.astype(np.float64) ** 2).sum(axis=(0, 1))
-            pixel_count += img.shape[0] * img.shape[1]
-            valid_images += 1
-
-        except Exception as e:
-            tqdm.write(f"Error loading {image_path}: {e}")
-            problematic_files.append((image_path, f"exception_{str(e)[:50]}"))
-            if debug:
-                import traceback
-
-                traceback.print_exc()
-            continue
-
-    # After the loop, save problematic files list
-    print(f"\n{'='*60}")
-    print(f"Total problematic files found: {len(problematic_files)}")
-    print(f"Valid images processed: {valid_images}")
-
-    # Save to file for review/deletion
-    if problematic_files:
-        output_file = "problematic_files.txt"
-        with open(output_file, "w") as f:
-            f.write("# Problematic files found during statistics computation\n")
-            f.write("# Format: filepath | reason\n\n")
-            for filepath, reason in problematic_files:
-                f.write(f"{filepath} | {reason}\n")
-
-        print(f"Problematic files list saved to: {output_file}")
-
-    if valid_images == 0:
-        raise ValueError("No valid images were processed.")
-
-    # Calculate mean and std
-    mean = pixel_sum / pixel_count
-    std = np.sqrt((pixel_sq_sum / pixel_count) - (mean**2))
-
-    print(f"\nProcessed {valid_images} valid images out of {len(input_paths)} total")
-    print(f"Mean per channel: {mean}")
-    print(f"Std per channel: {std}")
-
-    # Sanity checks
-    print("\n" + "=" * 70)
-    print("SANITY CHECKS:")
-    print("=" * 70)
-    if input_file_type == ".tif":
-        print("✓ Min-max scaling was applied (expected for .tif)")
-        print("✓ Mean should be ~0.3-0.7 (middle of [0,1] range)")
-        print("✓ Std should be ~0.1-0.3")
-    else:
-        print("✓ No min-max scaling applied (for .npy/.npz)")
-
-    for i, (m, s) in enumerate(zip(mean, std)):
-        status = "✓" if 0 <= m <= 1 and s > 0 else "⚠️"
-        print(f"{status} Band {i}: mean={m:.4f}, std={s:.4f}")
-
-    print("\nGlobal value ranges per band (before scaling):")
-    for band_idx in range(num_channels):
-        print(
-            f"  Band {band_idx}: min={band_min_vals[band_idx]:.6e}, max={band_max_vals[band_idx]:.6e}"
-        )
-
-    return mean, std
-
-
-def save_val_paths(val_dataset, output_dir, filename="val_paths.txt"):
-    """
-    Save all validation dataset file paths to a text file.
-
-    Args:
-        val_dataset: Subset object from torch.utils.data.random_split
-        output_dir (str): Directory to save the text file
-        filename (str): Name of output text file (default: "val_paths.txt")
-    """
-
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Get the original dataset
-    original_dataset = val_dataset.dataset
-
-    # Get all validation indices
-    val_indices = val_dataset.indices
-
-    # Extract file paths
-    paths = []
-    for idx in val_indices:
-        # Try common dataset attributes
-        if hasattr(original_dataset, "image_paths"):
-            path = original_dataset.image_paths[idx]
-        elif hasattr(original_dataset, "samples"):
-            path = original_dataset.samples[idx][0]  # ImageFolder format
-        elif hasattr(original_dataset, "imgs"):
-            path = original_dataset.imgs[idx][0]
-        else:
-            raise AttributeError(
-                "Dataset does not have 'image_paths', 'samples', or 'imgs' attribute. "
-                "Cannot extract file paths."
-            )
-        paths.append(path)
-
-    # Write to file
-    output_path = os.path.join(output_dir, filename)
-    with open(output_path, "w") as f:
-        for path in paths:
-            f.write(f"{path}\n")
-
-    print(f"Saved {len(paths)} validation paths to {output_path}")
-
-    return output_path
-
-
 def get_input_metadata(
-    base_dir: str, band_filter: Optional[List[int]] = None
-) -> List[str]:
-    """
-    Extract band metadata and return RGB weight assignments for each band.
-
-    Args:
-        base_dir: Base directory containing 'chips' subdirectory
-        band_filter: Optional list of band indices to use. None uses all bands.
-
-    Returns:
-        List of weight assignment strings (e.g., ["blue", "green", "0.7*red+0.3*green"])
-        Index corresponds to band position after filtering.
-    """
-
+    base_dir: str,
+    band_filter: Optional[list[int]] = None,
+) -> list[str]:
+    """Extract band metadata and return DINO RGB weight assignments per band."""
     image_dir = f"{base_dir}/chips"
-    all_image_paths = []
+    all_image_paths: list[str] = []
     for pattern in ("*.tif", "*.tiff", "*.npy", "*.npz", "*.nc"):
         all_image_paths.extend(glob(os.path.join(image_dir, pattern)))
     all_image_paths = sorted(all_image_paths)
@@ -431,41 +114,28 @@ def get_input_metadata(
         )
     image_path = all_image_paths[0]
 
-    # Known wavelengths for visible bands (indices 0-4)
     wavelengths = {0: 415, 1: 566, 2: 604, 3: 643, 4: 689}
 
     def _get_weight_assignment(description: str, band_idx: int) -> str:
-        """Determine RGB weight assignment for a band."""
         desc_lower = description.lower()
-
-        # Check wavelength-based assignment for visible bands
         if band_idx in wavelengths:
             wl = wavelengths[band_idx]
             if wl < 500:
                 return "blue"
-            elif wl < 580:
+            if wl < 580:
                 return "green"
-            elif wl < 620:  # Orange range - blend
+            if wl < 620:
                 return "0.7*red+0.3*green"
-            elif wl < 680:
-                return "red"
-            else:  # NIR
-                return "red"
-
-        # UV bands -> blue
+            return "red"
         if "uv" in desc_lower:
             return "blue"
-
-        # Everything else (static data) -> red
         return "red"
 
-    # Read band descriptions when available. Array-backed formats do not carry
-    # wavelength metadata here, so fall back to band-index conventions.
     if Path(image_path).suffix.lower() in {".tif", ".tiff"}:
         with rasterio.open(image_path) as src:
             num_bands = src.count
             descriptions = [
-                src.descriptions[i] or f"Band {i+1}" for i in range(num_bands)
+                src.descriptions[i] or f"Band {i + 1}" for i in range(num_bands)
             ]
     else:
         image = np.asarray(read_image_file(Path(image_path)))
@@ -479,131 +149,7 @@ def get_input_metadata(
             raise ValueError(f"Expected 2D or 3D image array, got {image.shape}")
         descriptions = [f"Band {i + 1}" for i in range(num_bands)]
 
-    # Apply band filter
     if band_filter is None:
         band_filter = list(range(num_bands))
 
-    # Get weight assignments for filtered bands
-    weight_assignments = [
-        _get_weight_assignment(descriptions[idx], idx) for idx in band_filter
-    ]
-
-    return weight_assignments
-
-
-def get_dataloaders(
-    base_dir: str,
-    batch_size: int = 8,
-    train_split: float = 0.8,
-    num_workers: int = 8,
-    target_size: Tuple[int, int] = (304, 304),
-    max_samples: Optional[int] = None,
-    seed: int = 42,
-    stats_save_dir: Optional[str] = None,
-    input_file_type: str = ".npy",
-    label_file_type: str = ".npy",
-    debug: bool = False,
-    band_filter: List[int] = None,
-    output_dir: str = "output",
-    normalize_inputs: bool = False,
-    spatial_transform: str = "resize",
-):
-    """
-    Create train/val dataloaders with automatic statistics calculation.
-    Statistics are used to z-score normalize inputs upon dataloader creation.
-    Automatically handles images with any number of channels.
-
-    Args:
-        image_dir: Directory with multi-channel images
-        label_dir: Directory with label masks
-        batch_size: Batch size for dataloaders
-        train_split: Fraction of data for training
-        num_workers: Workers for data loading
-        target_size: Target image size
-        max_samples: Max samples to use. None uses all.
-        seed: Random seed for reproducibility
-        stats_save_dir: Directory to save/load stats. None skips saving.
-
-    Returns:
-        Tuple of (train_loader, val_loader, mean, std)
-    """
-    # Check if statistics already exist
-    mean_path = None
-    std_path = None
-    mean = None
-    std = None
-
-    if stats_save_dir is not None and normalize_inputs:
-        os.makedirs(stats_save_dir, exist_ok=True)
-        mean_path = os.path.join(stats_save_dir, "dataset_mean.npy")
-        std_path = os.path.join(stats_save_dir, "dataset_std.npy")
-
-        if os.path.exists(mean_path) and os.path.exists(std_path):
-            print("Loading existing dataset statistics...")
-            mean = np.load(mean_path)
-            std = np.load(std_path)
-            print(f"Mean per channel: {mean}")
-            print(f"Std per channel: {std}")
-
-    # Calculate statistics if not loaded, or if we are doing a new filtering
-    if (mean is None or std is None) and normalize_inputs:
-        print("Computing dataset statistics...")
-        image_dir = os.path.join(base_dir, "chips")
-        mean, std = calculate_dataset_statistics(image_dir, input_file_type, debug)
-
-        # Save statistics if directory provided
-        if stats_save_dir is not None:
-            np.save(mean_path, mean)
-            np.save(std_path, std)
-            print(f"✓ Saved statistics to {stats_save_dir}")
-
-    weight_assignments = get_input_metadata(base_dir, band_filter)
-
-    # Create full dataset, normalize using mean/std of loaded data
-    full_dataset = LunarCraterDataset(
-        base_dir=base_dir,
-        mean=mean,
-        std=std,
-        target_size=target_size,
-        max_samples=max_samples,
-        band_filter=band_filter,
-        normalize_inputs=normalize_inputs,
-        spatial_transform=spatial_transform,
-    )
-
-    # Split into train/val
-    dataset_size = len(full_dataset)
-    train_size = int(train_split * dataset_size)
-    val_size = dataset_size - train_size
-
-    train_dataset, val_dataset = random_split(
-        full_dataset,
-        [train_size, val_size],
-        generator=torch.Generator().manual_seed(seed),
-    )
-
-    # For debugging, saves a .txt file
-    save_val_paths(val_dataset, output_dir)
-
-    # Create train dataloader
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-        pin_memory=True,
-    )
-
-    # Create val dataloader
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True,
-    )
-
-    print(f"Train samples: {len(train_dataset)}")
-    print(f"Val samples: {len(val_dataset)}")
-
-    return train_loader, val_loader, weight_assignments
+    return [_get_weight_assignment(descriptions[idx], idx) for idx in band_filter]

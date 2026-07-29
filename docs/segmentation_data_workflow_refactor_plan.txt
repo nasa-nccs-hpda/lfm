@@ -1312,10 +1312,10 @@ Phase 9: Deprecation
 Create and execute a deprecation plan for legacy features, scripts, modules, and
 classes that no longer fit the OOP/Lightning workflow direction.
 
-Status: partially complete and deferred. The deprecation inventory has been
-created, one compatibility-only wrapper has been removed, and the remaining
-cleanup candidates are lower priority than implementing the TerraTorch /
-Mask R-CNN instance segmentation path.
+Status: in progress. The deprecation inventory has been updated, obsolete
+compatibility/fine-tuning entrypoints have been removed, and legacy Toy
+non-Lightning backend code has been removed while preserving the active
+Lightning/OOP implementation.
 
 Goal:
 
@@ -1366,14 +1366,24 @@ Progress:
 
   `scripts/shell/semantic_seg/sbatch_semantic_seg_comparison.sh`
 
-- Deferred removal of old non-Lightning Toy dataloader/stat helpers because the
-  old toy training notebooks still reference them.
+- Removed old non-Lightning Toy backend code:
+
+  - `lfm/toy_model/sem_seg/sseg_driver.py`
+  - `lfm/toy_model/inst_seg/iseg_driver.py`
+  - `lfm/toy_model/all_tasks/all_utils.py`
+  - non-Lightning loader/statistics helpers from
+    `lfm/toy_model/sem_seg/sseg_dataset.py`
+  - old Mask2Former dataset/loader/statistics helpers from
+    `lfm/toy_model/inst_seg/iseg_dataset.py`
+
+- Kept the old toy notebooks for later migration to the Lightning/OOP wrappers.
+  They currently reference removed backend legacy code and are not expected to
+  run until migrated.
 - Deferred Graha flat-layout support removal until there is an explicit
   decision that pre-split `train/val/test/{chips,labels}` is the only supported
   data contract.
-- Remaining phase 9 cleanup is intentionally paused. Revisit it after the
-  higher-priority instance segmentation architecture work, or when old Toy
-  notebooks / flat-layout support become active blockers.
+- Remaining phase 9 cleanup should focus on migrating stale notebook imports
+  and deciding whether `lfm/toy_model/inst_seg/iseg_utils.py` is still active.
 
 Phase 10: Naming Cleanup
 

@@ -8,28 +8,123 @@ This inventory tracks legacy segmentation code after the OOP/data/workflow
 refactor. The goal is to remove obsolete paths without breaking active Toy vs
 Graha or semantic vs instance workflows.
 
-Status: this inventory is current as of phase 9. Remaining removals are
-deferred because they are lower priority than implementing the TerraTorch /
-Mask R-CNN instance segmentation path.
+Status: current at the start of phase 9, after phase 8 datamodule inheritance
+cleanup and the all-models subpackage reorganization.
 
 Reference Scan Scope
 --------------------
 
-Scans were run across `lfm`, `scripts`, `notebooks`, and `docs`, excluding the
-vendored `lfm/full_model/graha-lunar-fm` tree.
+Scans were run across `lfm`, `scripts`, `notebooks`, and `docs`, excluding
+functional conclusions from the vendored `lfm/full_model/graha-lunar-fm` tree.
 
-Remove Now
-----------
+High-Level Toy Model Conclusion
+-------------------------------
+
+A substantial amount of old Toy training code can now be removed or archived,
+but the Toy model package itself is still active.
+
+Keep active:
+
+- Toy model builders and DINO-specific code
+- Toy model adapters and component factories
+- Toy Lightning modules and Lightning datamodules
+- `get_input_metadata` helpers used by the active Lightning datamodules
+- semantic `LunarCraterDataset` for now, because active semantic Lightning
+  wrappers still subclass it
+
+Deprecate/remove candidates:
+
+- old non-Lightning Toy training drivers
+- old non-Lightning Toy `get_dataloaders` helpers
+- old Toy dataset statistics helpers that only support the non-Lightning path
+- old Toy training notebooks that import the legacy drivers/data loaders
+- old toy utility helpers used only by legacy notebooks
+
+Already Removed
+---------------
 
 1. `scripts/shell/semantic_seg/sbatch_toy_sem_seg_comparison.sh`
-
-   Status: removed.
 
    Reason: compatibility-only wrapper around
    `scripts/shell/semantic_seg/sbatch_semantic_seg_comparison.sh`.
 
-   Reference scan result: no active code references. Remaining mentions are in
-   historical changelog/docs only.
+2. Legacy fine-tuning entrypoint scripts and wrappers:
+
+   - `scripts/python/semantic_seg/semantic_seg_finetuning.py`
+   - `scripts/python/instance_seg/instance_seg_finetuning.py`
+   - `scripts/shell/semantic_seg/sbatch_semantic_seg_finetuning.sh`
+   - `scripts/shell/semantic_seg/sbatch_sem_seg_finetune.sh`
+   - `scripts/shell/instance_seg/sbatch_instance_seg_finetuning.sh`
+
+   Reason: superseded by the active comparison, single-model fine-tuning,
+   checkpoint sweep, and orchestrator entrypoints.
+
+3. Obsolete full-model datamodule files:
+
+   - old full-model all-task datamodule base package
+   - old Graha instance datamodule module
+
+   Reason: phase 8 moved active code to shared `lfm/all_models` bases and the
+   Graha-specific instance datamodule module.
+
+4. Legacy Toy backend training drivers:
+
+   - `lfm/toy_model/sem_seg/sseg_driver.py`
+   - `lfm/toy_model/inst_seg/iseg_driver.py`
+
+   Reason: old non-Lightning Toy training drivers. Active Toy workflows now go
+   through Toy model adapters, component factories, Lightning modules, and the
+   shared experiment/workflow layer.
+
+   Notes: legacy notebooks still reference these files and should be migrated
+   later. The backend files were removed rather than preserved as compatibility
+   shims.
+
+5. Legacy Toy non-Lightning data-loader/statistics helpers:
+
+   Removed from `lfm/toy_model/sem_seg/sseg_dataset.py`:
+
+   - `calculate_dataset_statistics`
+   - `save_val_paths`
+   - `get_dataloaders`
+
+   Removed from `lfm/toy_model/inst_seg/iseg_dataset.py`:
+
+   - `LunarCraterDatasetMask2Former`
+   - `collate_fn`
+   - `calculate_dataset_statistics`
+   - `get_dataloaders`
+
+   Reason: active Lightning datamodules now use the shared `lfm/all_models`
+   dataset/datamodule layer. The Toy dataset files now keep only the symbols
+   still imported by active Lightning wrappers.
+
+6. Legacy Toy notebook utility file:
+
+   - `lfm/toy_model/all_tasks/all_utils.py`
+
+   Reason: current references were legacy notebooks only. Active model code uses
+   `dino_patch_embed` and shared `lfm/all_models/all_tasks` utilities.
+
+Remove Now Candidates
+---------------------
+
+These are good phase 9 deletion candidates after a final reference scan. Do not
+replace them with compatibility-only files.
+
+1. Additional legacy toy notebook utility references
+
+   Current known references:
+
+   - `notebooks/toy_model/chip_example.ipynb`
+   - `notebooks/toy_model/chip_NAC.ipynb`
+   - `notebooks/toy_model/chip_NAC_v2.ipynb`
+   - `notebooks/toy_model/tiling_example.ipynb`
+   - `notebooks/toy_model/inference_sseg.ipynb`
+
+   Reason: these notebooks still import the deleted legacy Toy utility file and
+   should be migrated to `lfm/all_models/all_tasks` utilities when notebooks are
+   updated.
 
 Keep Temporarily
 ----------------
@@ -41,19 +136,8 @@ Keep Temporarily
    - `LunarCraterDataset`
    - `get_input_metadata`
 
-   Reason: active Toy semantic Lightning datamodules still use these symbols.
-   `LunarCraterDataset` preserves the historical tuple output contract while
-   inheriting the shared semantic dataset behavior.
-
-   Deprecation candidates inside the file:
-
-   - `calculate_dataset_statistics`
-   - `save_val_paths`
-   - `get_dataloaders`
-
-   Reason to defer removal: old toy semantic notebooks still import/use
-   `get_dataloaders`. Remove these after the notebook is either migrated to the
-   Lightning/OOP workflow or explicitly removed as legacy reference material.
+   Reason: active semantic Lightning datamodules still import these symbols.
+   The old non-Lightning loader/statistics helpers have been removed.
 
 2. `lfm/toy_model/inst_seg/iseg_dataset.py`
 
@@ -61,103 +145,117 @@ Keep Temporarily
 
    - `get_input_metadata`
 
-   Reason: active Toy instance Lightning datamodules import this symbol.
+   Reason: active instance Lightning datamodules import `get_input_metadata`.
+   The old non-Lightning dataset/loader/statistics helpers have been removed.
 
-   Deprecation candidates inside the file:
+3. Legacy toy training notebooks
 
-   - `LunarCraterDatasetMask2Former`
-   - `calculate_dataset_statistics`
-   - `get_dataloaders`
+   Keep:
 
-   Reason to defer removal: old toy instance notebooks still import/use
-   `get_dataloaders` and `calculate_dataset_statistics`. Remove these after the
-   notebook is migrated to the Lightning/OOP workflow or explicitly removed.
+   - `notebooks/toy_model/semantic_seg_train.ipynb`
+   - `notebooks/toy_model/instance_seg_train.ipynb`
 
-3. `notebooks/toy_model/semantic_seg_train.ipynb`
+   Reason: the user wants to keep these notebooks and update them to the
+   Lightning/OOP wrappers later. They currently reference removed backend legacy
+   code and are not expected to run until migrated.
 
-   Status: keep temporarily as legacy/reference.
+4. `lfm/toy_model/sem_seg/sseg_model.py`
 
-   Reason: imports old non-Lightning `get_dataloaders` from
-   `lfm.lfm.toy_model.sem_seg.sseg_dataset`. This notebook does not match the
-   active comparison/smoke-test workflow structure.
+   Reason: active semantic Toy component factories still build
+   `DINOSegmentation` and load the DINO encoder from this file. DINO-specific
+   names are appropriate here because this file actually builds/references the
+   DINO model.
 
-   Preferred future action: migrate to the active Lightning/OOP workflow or
-   delete if it is no longer useful as reference material.
+5. `lfm/toy_model/sem_seg/sseg_utils.py`
 
-4. `notebooks/toy_model/instance_seg_train.ipynb`
+   Reason: active Toy semantic Lightning modules still use `get_loss_function`.
 
-   Status: keep temporarily as legacy/reference.
+   Future cleanup: consider moving generic loss construction into the shared
+   OOP layer during phase 10 naming/structure cleanup if it becomes model
+   neutral.
 
-   Reason: imports old non-Lightning `get_dataloaders` and
-   `calculate_dataset_statistics` from
-   `lfm.lfm.toy_model.inst_seg.iseg_dataset`. This notebook does not match the
-   active comparison/smoke-test workflow structure.
+6. `lfm/toy_model/sem_seg/data_cube_inference.py`
 
-   Preferred future action: migrate to the active Lightning/OOP workflow or
-   delete if it is no longer useful as reference material.
+   Reason: not part of active comparison training, but it may still be a useful
+   inference workflow. Current references are legacy inference notebook paths.
 
-5. Graha flat-layout datamodule support in
-   `lfm/full_model/all_tasks/datamodules/lunar_segmentation_datamodule.py`
+   Preferred action: decide whether data-cube inference should be migrated to
+   the active OOP structure or archived/deleted as a legacy workflow.
 
-   Status: keep temporarily.
+7. `lfm/toy_model/inst_seg/iseg_model.py`
 
-   Reason: phase 8 intentionally left repo-owned Graha datamodules composing
-   shared helpers rather than inheriting from `LunarSegmentationDataModule`
-   because this class still preserves TerraTorch output dictionaries and flat
-   layout support.
+   Reason: active instance Toy component factories still use Mask2Former model
+   construction and DINO encoder loading from this file.
 
-   Preferred future action: decide whether pre-split
-   `train/val/test/{chips,labels}` is the only supported layout. If yes, remove
-   flat-layout support and reconsider Graha datamodule inheritance from the
-   shared all-model base.
+8. `lfm/toy_model/inst_seg/dino_mask_rcnn_model.py`
 
-6. Current `lfm/full_model/...` package name
+   Reason: active DINO + Mask R-CNN and TerraTorch registration work uses this
+   model/backbone code.
 
-   Status: keep until phase 10.
+9. `lfm/toy_model/inst_seg/terratorch_dino_backbone.py`
 
-   Reason: this is active Graha package code, but `full_model` is now considered
-   legacy naming. Renaming should happen in a dedicated phase 10 batch because
-   it will touch imports across `lfm`, `scripts`, notebooks, and docs.
+   Reason: active local TerraTorch DINO backbone registration path.
+
+10. `lfm/toy_model/inst_seg/toy_terratorch_object_detection_task.py`
+
+   Reason: active Toy TerraTorch object-detection task support.
+
+11. `lfm/toy_model/inst_seg/iseg_utils.py`
+
+   Reason: keep until a focused scan confirms whether all active instance
+   metrics/loss helpers have moved to Lightning modules or shared utilities.
+
+12. Current `lfm/full_model/...` package name
+
+   Reason: this is active Graha package code, but `full_model` is now
+   considered legacy naming. Renaming should happen in phase 10 because it will
+   touch imports across `lfm`, `scripts`, notebooks, and docs.
 
 Keep As Active Supported Behavior
 ---------------------------------
 
 1. `scripts/python/{semantic_seg,instance_seg}/*`
 
-   Reason: active CLI entrypoints for comparison, single-model fine-tuning, and
-   checkpoint sweeps.
+   Reason: active CLI entrypoints for comparison, single-model fine-tuning,
+   checkpoint sweeps, diagnostics, and plotting. Individual scripts may still
+   be reviewed, but the directory is not legacy as a whole.
 
-2. `lfm/all_models/{all_tasks,sem_seg,inst_seg}`
+2. `scripts/shell/{semantic_seg,instance_seg}/*`
+
+   Reason: active shell wrappers and orchestrators for HPC execution. Individual
+   stale wrappers should be removed only after script-level reference checks.
+
+3. `lfm/all_models/{all_tasks,sem_seg,inst_seg}`
 
    Reason: active shared data, utility, workflow, plotting, prediction-cache,
    test-suite, and callback code.
 
-3. `lfm/toy_model/{sem_seg,inst_seg}`
+4. `lfm/toy_model/{sem_seg,inst_seg}/lightning_wrappers`
 
-   Reason: active Toy model-family implementation. Some legacy helpers inside
-   the dataset files are candidates above, but the package itself is active.
+   Reason: active Toy Lightning implementation.
 
-4. `lfm/full_model/{sem_seg,inst_seg,all_tasks}`
+5. `lfm/toy_model/{sem_seg,inst_seg}/*_model_adapter.py`
+
+   Reason: active Toy model-family adapter boundary.
+
+6. `lfm/toy_model/{sem_seg,inst_seg}/*_toy_components.py`
+
+   Reason: active Toy model/datamodule/trainer component factories.
+
+7. `lfm/full_model/{sem_seg,inst_seg,all_tasks}`
 
    Reason: active Graha model-family implementation until the phase 10
-   `graha_model` rename.
+   `full_model` to Graha naming cleanup.
 
 Next Cleanup Steps
 ------------------
 
-These steps are intentionally deferred. Revisit them after the higher-priority
-instance segmentation architecture work, or when legacy notebooks / flat-layout
-support become active blockers.
+1. Migrate legacy toy notebooks to Lightning/OOP wrappers.
 
-1. Decide whether old toy training notebooks should be migrated or deleted.
+2. Update notebook utility imports to shared `lfm/all_models/all_tasks`
+   utilities where equivalent behavior exists.
 
-2. If deleting the old notebooks, remove the unused non-Lightning
-   `get_dataloaders` / statistics helpers from Toy semantic and instance
-   dataset files.
+3. Re-scan `lfm/toy_model/inst_seg/iseg_utils.py` before deciding whether it is
+   active or legacy.
 
-3. Decide whether Graha flat-layout data support is still needed.
-
-4. If flat-layout support is dropped, simplify Graha datamodules and revisit
-   whether they should inherit from the shared split datamodule base.
-
-5. Keep phase 10 separate for the `full_model` to `graha_model` naming cleanup.
+4. Keep phase 10 separate for the `full_model` to Graha naming cleanup.

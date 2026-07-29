@@ -103,6 +103,7 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
         label_glob: str = "*_label.*",
         image_suffix: str = "_input_wac_static_chip",
         label_suffix: str = "_label",
+        binarize_mask: bool = True,
         band_filter: list[int] | None = None,
         max_train_samples: int | None = None,
         max_val_samples: int | None = None,
@@ -144,6 +145,7 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
         self.crop_size = crop_size
         self.image_glob = image_glob
         self.label_glob = label_glob
+        self.binarize_mask = binarize_mask
         self.no_data_replace = no_data_replace
         self.no_label_replace = no_label_replace
 
@@ -163,6 +165,7 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
             label_glob=self.label_glob,
             image_suffix=self.image_suffix,
             label_suffix=self.label_suffix,
+            binarize_mask=self.binarize_mask,
             no_data_replace=self.no_data_replace,
             no_label_replace=self.no_label_replace,
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
@@ -182,6 +185,7 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
             label_glob=self.label_glob,
             image_suffix=self.image_suffix,
             label_suffix=self.label_suffix,
+            binarize_mask=self.binarize_mask,
             no_data_replace=self.no_data_replace,
             no_label_replace=self.no_label_replace,
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
