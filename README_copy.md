@@ -1,0 +1,69 @@
+# Lunar Foundation Model Working Repository
+
+Working repo for LFM project. Current workflows are found in the notebooks, listed in the quickstart section below.
+
+## Quickstart
+
+To run one of the notebooks:
+
+1. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov` using your NCCS LDAP credentials.
+2. Select the JupyterHub GPU profile: "ILAB ([x86] 1 V100, 10 CPU Cores, 190GB Memory, 6 Hour Session)" from the dropdown menu. Click on "Start" after the selection.
+3. As your session starts, your session should take you directly to a "Launcher" section. If, on the other hand, you are prompted to select a kernel, you can go ahead and click on "Select" within that window. If your session does not start, this could be related to waiting on available resources, and you will need to try again.
+4. Use the file explorer interface on the left to navigate to a directory where you would like to run the example workflow. We suggest you use a directory in your nobackup space, at /explore/nobackup/people/your_username/lfm. Feel free to create a new directory to run these workflows as well. To create a new directory, click on the directory icon in the upper left corner, and set the name of the new directory.
+5. Open a Terminal from JupyterHub using the "Launcher" screen (it is open by default in a new Jupyter session). The Terminal option is at the very bottom of this screen with a "$_" symbol under the "Other" section.
+
+6. From the newly opened Terminal:
+
+    a. Make sure you are in the directory you intend to locate the code on. You can verify with the pwd command:
+
+    ```
+    pwd
+    ```
+
+      Assuming I wanted to be in the directory `/explore/nobackup/people/my_username/lfm`, after running the `pwd` command, that directory should be the one shown in the terminal. If that is not the case, you will need to go to the intended directory using the `cd` command as shown below:
+
+    ```
+    cd /explore/nobackup/people/my_username/lfm
+    ```
+
+   b. Now, you can retrieve the LFM code with this command (**note: you do not need a GitHub account to run this**):
+
+      ```
+      git clone https://github.com/nasa-nccs-hpda/lfm.git
+      ```
+
+   c. With the terminal still open, run the following command to set up your environment:
+
+      ```bash
+      cd lfm && bash copy_kernel_full_model.sh
+      ```
+
+8. Close the terminal tab by clicking "x".
+9. Using the file explorer interface again, navigate to the folder at: `lfm/notebooks`. This contains Jupyter Notebooks for different steps of the toy model workflows, for the two machine learning tasks (instance/semantic segmentation)
+   - The two toy model notebooks are called `instance_seg_train.ipynb` and `semantic_seg_train.ipynb`, respectively. These are the notebooks to create/train the model for those tasks.
+   - The inference notebook, `inference_sseg.ipynb`, only works after running the **semantic segmentation training notebook**, which saves a model "checkpoint" file to disk. This checkpoint will be used to load the model, and perform inference on new data.
+   - The other two notebooks, `tiling_example.ipynb` and `chip_example.ipynb`, are used as examples for how we created the **semantic segmentation training dataset** used for the training notebooks. These will run limited examples of tiling/chip creation.
+10. After navigating to the `lfm/notebooks` folder, open your notebook of choice by double-clicking it. If this is your first time opening the notebook, you will get a box asking to select a kernel profile. **Select "lfm-full-env"**. If this box does not appear automatically, click the kernel name in the top-right corner (it might display "Python 3" or similar), and select "lfm-full-env" from the dropdown menu. **Verify that "lfm-full-env" now appears in the top-right corner**
+11. Run the notebook, using the button that looks like the fast-forward icon (>>). Click the red "Restart" button. This will execute all the cells from the notebook in order. One notebook should be run at a time.
+
+## FAQ
+
+### The outputs are too long/too short in the notebooks. How can I change this?
+Jupyter notebooks have a feature where you can collapse or expand the outputs, which helps manage information in long notebooks, or helps to see figures or text outputs. To collapse/expand a notebook output:
+
+1. Navigate to the cell whose output you're interested in.
+2. Ensure that you've run the cell and that it's generated an output. You can verify this by looking to the left of the cell; it should say `[1]` (for the first cell, for instance), or the corresponding cell number.
+3. Click to the left of the notebook cell, right where you see the cell number.
+4. You will see two blue bars; one will be right next to the cell itself, and one will be next to the output (image, text, etc)
+5. Hover to the right of the blue bar that's to the left of the output (this bar will be below the first blue bar).
+6. You should see a gray rectangle next to the blue bar; click this to either collapse the output (creating a scrollable view) or expand the output (showing the full contents).
+**Note**: clicking the blue bar next to the output will hide the output. You can reverse this by clicking on the blue bar again.
+
+### I did something and the code in the cell no longer works/looks different. How can I reverse this?
+You have likely changed the cell from code to markdown, or vice versa! Markdown is just another form of text that's easy to read and format, and can easily be converted back to code. To change the cell type, follow these steps:
+
+1. Navigate to the cell that you wish to change.
+2. Click to the left of the cell, where you see either `[ ]`, or the corresponding cell number in parentheses. For example, the first cell would have `[ ]` or `[1]`.
+3. After clicking this area, you should see the cell highlighted with a blue outline.
+4. At the top of the notebook, look for the dropdown that says either "Code" or "Markdown".
+5. Click this dropdown, and select the appropriate cell type. The appropriate cell type for plain english is markdown, while everything else should be code.
