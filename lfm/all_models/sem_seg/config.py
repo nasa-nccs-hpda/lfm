@@ -56,6 +56,7 @@ class SemanticSegmentationExperimentConfig:
     graha_base_output_dir: Path
     graha_pretrain_dir: Path | None
     graha_lightning_checkpoint: Path | None
+    gfft_backbone_checkpoint: Path | None
     graha_input_modality_mode: str
     graha_vis_uv_merge_method: str
     graha_shape_loss_weight: float
@@ -115,6 +116,11 @@ def build_config_from_args(
     graha_lightning_checkpoint = (
         Path(args.graha_lightning_checkpoint).resolve()
         if args.graha_lightning_checkpoint
+        else None
+    )
+    gfft_backbone_checkpoint = (
+        Path(args.gfft_backbone_checkpoint).resolve()
+        if getattr(args, "gfft_backbone_checkpoint", None)
         else None
     )
     dataset_modality = getattr(
@@ -184,6 +190,7 @@ def build_config_from_args(
         graha_base_output_dir=graha_base_output_dir,
         graha_pretrain_dir=graha_pretrain_dir,
         graha_lightning_checkpoint=graha_lightning_checkpoint,
+        gfft_backbone_checkpoint=gfft_backbone_checkpoint,
         graha_input_modality_mode=defaults.resolve_graha_input_modality_mode(
             dataset_modality=dataset_modality,
             graha_input_modality_mode=getattr(
@@ -230,6 +237,7 @@ def build_config(
     graha_base_output_dir: str | Path | None = None,
     graha_pretrain_dir: str | Path | None = None,
     graha_lightning_checkpoint: str | Path | None = None,
+    gfft_backbone_checkpoint: str | Path | None = None,
     **overrides: Any,
 ) -> SemanticSegmentationExperimentConfig:
     """Build a semantic segmentation experiment config from explicit values."""
@@ -242,6 +250,7 @@ def build_config(
         "graha_base_output_dir": graha_base_output_dir,
         "graha_pretrain_dir": graha_pretrain_dir,
         "graha_lightning_checkpoint": graha_lightning_checkpoint,
+        "gfft_backbone_checkpoint": gfft_backbone_checkpoint,
     }
     for name, value in path_values.items():
         if value is not None:
