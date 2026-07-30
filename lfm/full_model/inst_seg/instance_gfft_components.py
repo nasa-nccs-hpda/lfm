@@ -6,22 +6,38 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+import torch
+from lightning.pytorch import Trainer
+from lightning.pytorch.callbacks import ModelCheckpoint
+
+from lfm.full_model.all_tasks import load_gfft_config
 from lfm.full_model.inst_seg import instance_graha_components as graha
+
+
+def _resolve_gfft_backbone_checkpoint(config: Any) -> Path:
+    if getattr(config, "gfft_backbone_checkpoint", None) is not None:
+        return Path(config.gfft_backbone_checkpoint).resolve()
+
+    config_path = getattr(config, "gfft_config_path", None)
+    if config_path is not None:
+        gfft_config = load_gfft_config(config_path)
+        if gfft_config.backbone_checkpoint_path is not None:
+            return Path(str(gfft_config.backbone_checkpoint_path)).expanduser()
+
+    raise ValueError(
+        "GFFT instance workflow requires a backbone checkpoint. Pass "
+        "--gfft-backbone-checkpoint, or pass --gfft-config-path pointing to a "
+        "YAML with model.init_args.model_args.backbone_checkpoint_path."
+    )
 
 
 def build_comparison_config(config: Any, output_dir: Path):
     """Build a Graha-shaped config with GFFT backbone weights."""
-    gfft_checkpoint = getattr(config, "gfft_backbone_checkpoint", None)
-    if gfft_checkpoint is None:
-        raise ValueError(
-            "GFFT instance workflow requires config.gfft_backbone_checkpoint. "
-            "Pass --gfft-backbone-checkpoint or build_config(..., "
-            "gfft_backbone_checkpoint=...)."
-        )
+    gfft_checkpoint = _resolve_gfft_backbone_checkpoint(config)
     graha_config = graha.build_comparison_config(config, output_dir)
     return replace(
         graha_config,
-        backbone_weights=Path(gfft_checkpoint).resolve(),
+        backbone_weights=gfft_checkpoint,
     )
 
 
@@ -39,6 +55,10 @@ def configure_python_paths(config: Any) -> None:
 
 def validate_required_paths(config: Any) -> None:
     graha.validate_required_paths(config)
+
+
+def print_config(config: Any) -> None:
+    graha.print_config(config)
 
 
 def import_project_dependencies() -> dict[str, Any]:
@@ -69,6 +89,10 @@ def create_datamodule(
 
 def inspect_batch(datamodule) -> dict[str, Any]:
     return graha.inspect_batch(datamodule)
+
+
+def run_loss_smoke(task, sample_batch: dict[str, Any]) -> None:
+    graha.run_loss_smoke(task, sample_batch)
 
 
 def _gfft_modality_args(config: Any, num_channels: int) -> dict[str, Any]:
@@ -158,7 +182,32 @@ def create_task(config: Any, task_cls, sample_batch: dict[str, Any]):
 
 
 def create_trainer(config: Any, output_dir: Path):
-    return graha.create_trainer(config, output_dir)
+    return Trainer(
+        accelerator="gpu" if torch.cuda.is_available() else "cpu",
+        devices=1,
+        precision="32",
+        max_epochs=config.max_epochs,
+        check_val_every_n_epoch=1,
+        log_every_n_steps=5,
+        logger=False,
+        callbacks=[
+            graha.FitProgressLogger(
+                "GFFT",
+                log_every_n_batches=config.progress_log_every_n_batches,
+            ),
+            ModelCheckpoint(
+                dirpath=str(output_dir / "checkpoints" / "gfft_model"),
+                monitor="val_segm_map",
+                mode="max",
+                filename="model-epoch-{epoch:02d}-val-segm-map={val_segm_map:.3f}",
+                auto_insert_metric_name=False,
+                save_top_k=-1,
+                save_last=False,
+                save_weights_only=True,
+                every_n_epochs=1,
+            ),
+        ],
+    )
 
 
 def load_lightning_checkpoint_state(*args: Any, **kwargs: Any) -> None:

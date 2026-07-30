@@ -6,22 +6,34 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from lfm.full_model.all_tasks import load_gfft_config
 from lfm.full_model.sem_seg import semantic_graha_components as graha
+
+
+def _resolve_gfft_backbone_checkpoint(config: Any) -> Path:
+    if getattr(config, "gfft_backbone_checkpoint", None) is not None:
+        return Path(config.gfft_backbone_checkpoint).resolve()
+
+    config_path = getattr(config, "gfft_config_path", None)
+    if config_path is not None:
+        gfft_config = load_gfft_config(config_path)
+        if gfft_config.backbone_checkpoint_path is not None:
+            return Path(str(gfft_config.backbone_checkpoint_path)).expanduser()
+
+    raise ValueError(
+        "GFFT semantic workflow requires a backbone checkpoint. Pass "
+        "--gfft-backbone-checkpoint, or pass --gfft-config-path pointing to a "
+        "YAML with model.init_args.model_args.backbone_checkpoint_path."
+    )
 
 
 def build_comparison_config(config: Any, output_dir: Path):
     """Build a Graha-shaped config with GFFT backbone weights."""
-    gfft_checkpoint = getattr(config, "gfft_backbone_checkpoint", None)
-    if gfft_checkpoint is None:
-        raise ValueError(
-            "GFFT semantic workflow requires config.gfft_backbone_checkpoint. "
-            "Pass --gfft-backbone-checkpoint or build_config(..., "
-            "gfft_backbone_checkpoint=...)."
-        )
+    gfft_checkpoint = _resolve_gfft_backbone_checkpoint(config)
     graha_config = graha.build_comparison_config(config, output_dir)
     return replace(
         graha_config,
-        backbone_weights=Path(gfft_checkpoint).resolve(),
+        backbone_weights=gfft_checkpoint,
     )
 
 
@@ -39,6 +51,10 @@ def configure_python_paths(config: Any) -> None:
 
 def validate_required_paths(config: Any) -> None:
     graha.validate_required_paths(config)
+
+
+def print_config(config: Any) -> None:
+    graha.print_config(config)
 
 
 def import_project_dependencies() -> dict[str, Any]:

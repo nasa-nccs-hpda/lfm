@@ -69,6 +69,12 @@ def _add_data_root_args(
 def _add_graha_input_args(parser: argparse.ArgumentParser, *, path_type=str) -> None:
     parser.add_argument("--graha-pretrain-dir", type=path_type, default=None)
     parser.add_argument(
+        "--gfft-config-path",
+        type=path_type,
+        default=None,
+        help="Optional TerraTorch-style GFFT YAML config used by GFFT-only workflows.",
+    )
+    parser.add_argument(
         "--gfft-backbone-checkpoint",
         type=path_type,
         default=None,
@@ -370,6 +376,12 @@ def create_semantic_experiment_parser(
     )
     parser.add_argument("--graha-base-output-dir", type=str, default=None)
     parser.add_argument("--graha-pretrain-dir", type=str, default=None)
+    parser.add_argument(
+        "--gfft-config-path",
+        type=str,
+        default=None,
+        help="Optional TerraTorch-style GFFT YAML config used by GFFT-only workflows.",
+    )
     parser.add_argument("--gfft-backbone-checkpoint", type=str, default=None)
     parser.add_argument(
         "--graha-lightning-checkpoint",
@@ -458,6 +470,12 @@ def create_instance_experiment_parser(
         help="Optional Toy Lightning .ckpt. Resumes fit, or loads weights when Toy fit is skipped.",
     )
     parser.add_argument("--graha-pretrain-dir", type=str, default=None)
+    parser.add_argument(
+        "--gfft-config-path",
+        type=str,
+        default=None,
+        help="Optional TerraTorch-style GFFT YAML config used by GFFT-only workflows.",
+    )
     parser.add_argument("--gfft-backbone-checkpoint", type=str, default=None)
     parser.add_argument("--graha-lightning-checkpoint", type=str, default=None)
     parser.add_argument(
