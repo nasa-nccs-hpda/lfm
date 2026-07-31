@@ -272,6 +272,14 @@ def _optional_path(value: Any, *, base_dir: Path) -> PurePath | None:
     return path.resolve()
 
 
+def _gfft_project_root(config_path: Path) -> Path:
+    """Return the Graha/Lunar-FM root for TerraTorch integration config paths."""
+    for parent in config_path.parents:
+        if parent.name == "graha-lunar-fm":
+            return parent
+    return config_path.parent
+
+
 def _require_mapping(value: Any, section: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"GFFT config section {section!r} must be a mapping.")
@@ -281,6 +289,7 @@ def _require_mapping(value: Any, section: str) -> dict[str, Any]:
 def load_gfft_config(path: str | Path) -> GfftConfig:
     """Load a TerraTorch-style GFFT YAML and return extracted metadata."""
     config_path = Path(path).expanduser().resolve()
+    project_root = _gfft_project_root(config_path)
     with config_path.open("r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
     raw = _require_mapping(raw, "root")
@@ -329,7 +338,7 @@ def load_gfft_config(path: str | Path) -> GfftConfig:
         model_args=model_args,
         backbone_checkpoint_path=_optional_path(
             model_args.get("backbone_checkpoint_path"),
-            base_dir=config_path.parent,
+            base_dir=project_root,
         ),
         backbone_modalities=backbone_modalities,
         backbone_new_modalities=model_args.get("backbone_new_modalities"),
