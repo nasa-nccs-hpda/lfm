@@ -32,150 +32,67 @@ from terramind.models.tm_utils import init_enc_dec_embeddings
 class LunarBackbone(nn.Module):
     """TerraTorch-compatible wrapper for lunar TerraMind models.
 
-    This wrapper enables lunar models to work within TerraTorch's framework by:
-    1. Using schema-based embedding initialization via init_enc_dec_embeddings()
-    2. Supporting both training mode (with cfg) and generation mode (cfg=None)
-    3. Returning all encoder block outputs as a list (multi-scale features)
-    4. Supporting multi-modal feature aggregation with strict validation
-    5. Handling checkpoint loading with state dict key mapping
+    Requires the pretraining config + modality info bundle that ships with
+    each checkpoint (``weights/backbone/full_config.yaml`` and
+    ``weights/modality_info.yaml`` by convention). Both must be passed to
+    ``__init__`` — the wrapper raises ``ValueError`` otherwise.
 
-    The wrapper does NOT modify lunar-fm source code - it provides a thin
-    adapter layer that bridges the interfaces.
+    What the wrapper does:
+    1. Schema-based embedding init via ``init_enc_dec_embeddings()``.
+    2. Encoder-only forward pass, returning all encoder block outputs as a
+       list of ``(B, N, D)`` tensors (multi-scale features for TerraTorch necks).
+    3. Multi-modal feature aggregation controlled by ``merge_method``.
+    4. Checkpoint loading with state-dict key mapping.
 
-    **Multi-Modal Aggregation:**
+    **Multi-Modal Aggregation.** When multiple modalities are present,
+    ``merge_method`` controls how their encoded features are combined AFTER
+    the encoder forward pass:
 
-    When multiple modalities are present, the `merge_method` parameter controls
-    how their encoded features are combined AFTER the encoder forward pass:
+    - ``None`` (default): concatenated tokens from all modalities ``(B, N_total, D)``.
+    - ``"mean"``: average features across modalities ``(B, N_common, D)``.
+    - ``"max"``: max-pool features across modalities ``(B, N_common, D)``.
+    - ``"concat"``: concatenate features along feature dim ``(B, N_common, D*M)``.
+    - ``"dict"``: per-modality dict ``{modality: (B, N, D)}``.
 
-    - `None` (default): Return concatenated tokens from all modalities (B, N_total, D)
-    - `"mean"`: Average features across modalities (B, N_common, D)
-    - `"max"`: Max-pool features across modalities (B, N_common, D)
-    - `"concat"`: Concatenate features along dimension (B, N_common, D*M)
-    - `"dict"`: Return per-modality dict {modality: (B, N, D)}
-
-    **Token Count Validation:**
-
-    For aggregation methods ("mean", "max", "concat"), ALL image modalities must
-    have identical token counts (same spatial resolution and patch size). If token
-    counts differ, a ValueError is raised with guidance to use merge_method=None
-    or "dict" for mixed-resolution inputs.
-
-    **Future Enhancement Strategies (Not Yet Implemented):**
-
-    The following strategies are documented for future work to handle modalities
-    with different token counts:
-
-    1. **Spatial Interpolation**: Interpolate all modalities to a common resolution
-       (e.g., largest or specified target size) using bilinear interpolation
-
-    2. **Learned Projection**: Use learnable linear layers to project modalities
-       with different token counts to a common count
-
-    3. **Attention-Based Fusion**: Use cross-attention to fuse modalities with
-       different counts, where target tokens attend to all modality tokens
-
-    4. **Padding/Masking**: Pad shorter sequences to max length with masking
-       to ignore padded positions during aggregation
-
-    See WP7 documentation for detailed implementation guidance on these strategies.
+    For ``"mean" | "max" | "concat"``, all image modalities must have identical
+    token counts (same spatial resolution and patch size); otherwise a
+    ``ValueError`` is raised with guidance to use ``None`` or ``"dict"``.
 
     Args:
-        variant: Model variant name ("tiny", "small", "base", "large")
-        modalities: List of modality names (e.g., ["vis", "tok_vis@100m_phaedra"])
-        encoder_depth: Number of encoder layers (overrides variant default)
-        decoder_depth: Number of decoder layers (overrides variant default)
-        dim: Model embedding dimension (overrides variant default)
-        num_heads: Number of attention heads (overrides variant default)
-        mlp_ratio: MLP expansion ratio (default: 4.0)
-        merge_method: Multi-modal aggregation method (None, "mean", "max", "concat", "dict")
-        checkpoint_path: Optional path to pretrained checkpoint
-        cfg: Optional Hydra config for training mode (None for generation)
-        remove_register_tokens: Whether to remove register tokens before neck (default: False)
-        new_modalities: Optional dict defining new modalities not in MODALITY_INFO. Format:
-            {
-                "modality_name": {
-                    "type": "image" | "tokenized" | "metadata",
-                    "num_channels": 1,  # For image type
-                    "data_range": [0.0, 1.0],  # Optional
-                    # ... other modality-specific parameters
+        variant: Model variant name (``"tiny"``, ``"base"``, ``"large"``).
+        modalities: List of modality names (e.g. ``["vis", "dtm", "tok_vis"]``).
+        cfg: Path to the pretraining ``full_config.yaml`` (or a loaded
+            ``DictConfig``). **Required.**
+        modality_info_path: Path to the pretraining ``modality_info.yaml``.
+            **Required.**
+        mlp_ratio: MLP expansion ratio (default 4.0).
+        merge_method: Multi-modal aggregation method — see above.
+        checkpoint_path: Optional path to a pretrained checkpoint.
+        remove_register_tokens: Strip register tokens before the neck
+            (default False).
+        new_modalities: Optional dict defining new modalities not in
+            ``MODALITY_INFO``. Format::
+
+                {
+                    "modality_name": {
+                        "type": "image" | "tokenized" | "metadata",
+                        "num_channels": 1,        # for image type
+                        "data_range": [0.0, 1.0], # optional
+                    }
                 }
-            }
-        **kwargs: Additional model arguments passed to TerraMind
+
+        num_register_tokens: Override register-token count (auto-detected
+            from checkpoint when a ``checkpoint_path`` is given).
+        patch_size: Override patch size for all image modalities.
+        seed_new_modality_from: Optional ``{target: source}`` mapping to
+            copy encoder-embedding weights from a pretrained modality into
+            a freshly-added one (channel-inflated as needed).
+        **kwargs: Additional args passed to ``TerraMind``.
 
     Raises:
-        ValueError: If merge_method is invalid or modalities have mismatched token counts
-
-    Examples:
-        >>> # Single modality, no aggregation
-        >>> backbone = LunarBackbone(
-        ...     variant="tiny",
-        ...     modalities=["vis"],
-        ...     encoder_depth=12,
-        ...     decoder_depth=4,
-        ...     dim=192,
-        ...     num_heads=3,
-        ...     cfg=None
-        ... )
-        >>> x = {"vis": torch.randn(2, 5, 224, 224)}
-        >>> outputs = backbone(x)  # List of 12 tensors, each (2, 196, 192)
-
-        >>> # Multi-modality with mean aggregation (same resolution)
-        >>> backbone_mean = LunarBackbone(
-        ...     variant="tiny",
-        ...     modalities=["vis", "dtm"],
-        ...     encoder_depth=12,
-        ...     decoder_depth=4,
-        ...     dim=192,
-        ...     num_heads=3,
-        ...     merge_method="mean",
-        ...     cfg=None
-        ... )
-        >>> x_multi = {
-        ...     "vis": torch.randn(2, 5, 224, 224),  # 196 tokens
-        ...     "dtm": torch.randn(2, 1, 224, 224)   # 196 tokens
-        ... }
-        >>> outputs = backbone_mean(x_multi)  # List of 12 tensors, each (2, 196, 192)
-
-        >>> # Mixed resolutions - use dict merge method
-        >>> backbone_dict = LunarBackbone(
-        ...     variant="tiny",
-        ...     modalities=["vis", "dtm"],
-        ...     encoder_depth=12,
-        ...     decoder_depth=4,
-        ...     dim=192,
-        ...     num_heads=3,
-        ...     merge_method="dict",
-        ...     cfg=None
-        ... )
-        >>> x_mixed = {
-        ...     "vis": torch.randn(2, 5, 224, 224),  # 196 tokens
-        ...     "dtm": torch.randn(2, 1, 112, 112)   # 49 tokens
-        ... }
-        >>> outputs = backbone_dict(x_mixed)  # List of 12 dicts
-        >>> # outputs[0] = {"vis": (2, 196, 192), "dtm": (2, 49, 192)}
-
-    Example (Training mode with config):
-        >>> # Training mode with config
-        >>> backbone = LunarBackbone(
-        ...     variant="tiny",
-        ...     modalities=["vis", "tok_vis@100m_phaedra"],
-        ...     encoder_depth=12,
-        ...     decoder_depth=4,
-        ...     dim=192,
-        ...     num_heads=3,
-        ...     cfg=hydra_config
-        ... )
-        >>>
-        >>> # Generation mode without config
-        >>> backbone = LunarBackbone(
-        ...     variant="tiny",
-        ...     modalities=["vis"],
-        ...     encoder_depth=12,
-        ...     decoder_depth=4,
-        ...     dim=192,
-        ...     num_heads=3,
-        ...     cfg=None
-        ... )
+        ValueError: If ``cfg`` or ``modality_info_path`` is missing, if
+            ``merge_method`` is invalid, or if modalities have mismatched
+            token counts under an aggregating ``merge_method``.
     """
 
     def __init__(
@@ -190,11 +107,37 @@ class LunarBackbone(nn.Module):
         new_modalities: dict | None = None,
         num_register_tokens: int | None = None,
         patch_size: int | None = None,
-        modality_info: dict | None = None,  # ignored — built internally from `modalities`
-        modality_info_path: str | Path | None = None,
+        modality_info_path: str | None = None,
+        seed_new_modality_from: dict[str, str] | None = None,
         **kwargs,
     ):
         super().__init__()
+        # ``backbone_modality_info`` in TerraTorch configs becomes ``modality_info``
+        # after the factory strips the ``backbone_`` prefix. Accept it as an alias
+        # so it doesn't leak through **kwargs into TerraMind() later.
+        if modality_info_path is None and "modality_info" in kwargs:
+            modality_info_path = kwargs.pop("modality_info")
+        if seed_new_modality_from is None and "backbone_seed_new_modality_from" in kwargs:
+            seed_new_modality_from = kwargs.pop("backbone_seed_new_modality_from")
+
+        # Require both cfg and modality_info_path. LunarBackbone is only sensible
+        # when initialised with the pretraining config + modality info bundle
+        # published alongside each checkpoint (weights/backbone/full_config.yaml
+        # and weights/modality_info.yaml by convention). Running without either
+        # relies on undocumented heuristic fallbacks that silently disagree with
+        # what the checkpoint was trained on.
+        if cfg is None:
+            raise ValueError(
+                "LunarBackbone requires `cfg` (path to the pretraining "
+                "full_config.yaml, e.g. weights/backbone/full_config.yaml). "
+                "In TerraTorch YAML configs pass it as `backbone_cfg:`."
+            )
+        if modality_info_path is None:
+            raise ValueError(
+                "LunarBackbone requires `modality_info_path` (path to the "
+                "pretraining modality_info.yaml, e.g. weights/modality_info.yaml). "
+                "In TerraTorch YAML configs pass it as `backbone_modality_info_path:`."
+            )
 
         # Store metadata
         self.variant = variant
@@ -203,6 +146,7 @@ class LunarBackbone(nn.Module):
         self.merge_method = merge_method
         self.remove_register_tokens = remove_register_tokens
         self._new_modalities = new_modalities  # Store for checkpoint loading
+        self._seed_new_modality_from: dict[str, str] = seed_new_modality_from or {}
 
         # Optional pretraining modality_info.yaml. When provided, entries in this
         # file are the source of truth for each requested modality (num_channels,
@@ -241,6 +185,11 @@ class LunarBackbone(nn.Module):
                             importlib.import_module(module_name), cls_name,
                         )
             pretrained_modality_info = loaded
+            print(
+                f"LunarBackbone: using modality_info.yaml from '{mi_path}' "
+                f"({len(pretrained_modality_info)} modalities: "
+                f"{list(pretrained_modality_info.keys())})"
+            )
         self._pretrained_modality_info = pretrained_modality_info
 
         # Auto-detect num_register_tokens from checkpoint if not specified
@@ -260,7 +209,7 @@ class LunarBackbone(nn.Module):
             cfg = OmegaConf.load(str(cfg))
 
         # Validate merge_method
-        valid_merge_methods = [None, "mean", "max", "concat", "dict"]
+        valid_merge_methods = [None, "mean", "max", "concat", "dict", "masked_group_mean"]
         if merge_method not in valid_merge_methods:
             raise ValueError(f"Invalid merge_method: {merge_method}. Must be one of: {valid_merge_methods}")
 
@@ -270,6 +219,14 @@ class LunarBackbone(nn.Module):
         # than mirrored into a parallel flag list.
         self._present_modalities: list[str] = []
         self._num_tokens_per_mod: list[int] = []
+        # Per-forward per-sample availability of each image modality. Shape
+        # (B, M_img) with M_img the count of image modalities in
+        # ``_present_modalities`` in the same order as ``_unstack_modalities``
+        # returns them. Populated whenever we can compute it (image modalities
+        # only), and consumed by merge_method="masked_group_mean". A modality
+        # is considered available for a sample if the raw input has any
+        # non-zero value in its (C, H, W) tensor.
+        self._present_mod_availability: torch.Tensor | None = None
 
         # Get base model config for this variant
         if variant not in MODEL_CONFIGS:
@@ -411,6 +368,10 @@ class LunarBackbone(nn.Module):
         # Load checkpoint if provided
         if checkpoint_path is not None:
             self.load_checkpoint(checkpoint_path)
+        # AFTER pretrained weights land, copy source-modality embedding weights
+        # into each mapped new-modality embedding. See `_seed_new_modality_embeddings`.
+        if self._seed_new_modality_from:
+            self._seed_new_modality_embeddings()
 
     def forward(self, x: dict[str, torch.Tensor] | torch.Tensor) -> list[torch.Tensor] | list[dict[str, torch.Tensor]]:
         """Forward pass through encoder only.
@@ -461,6 +422,24 @@ class LunarBackbone(nn.Module):
         # depend on the caller's dict-insertion order.
         mod_dict: dict[str, dict[str, torch.Tensor]] = {}
         self._present_modalities = [mod for mod in self.modalities if mod in x]
+
+        # Compute per-sample availability of each image modality from the raw
+        # inputs (any non-zero pixel => available). Only masked_group_mean
+        # consumes this; skip the B×C×H×W reduce for every other merge_method.
+        # Shape: (B, M_img) in `_present_modalities` order, image-only.
+        self._present_mod_availability = None
+        if self.merge_method == "masked_group_mean":
+            mi_pre = self.model.modality_info if hasattr(self.model, "modality_info") else None
+            avail_cols: list[torch.Tensor] = []
+            for mod in self._present_modalities:
+                tensor = x[mod]
+                info = mi_pre[mod] if mi_pre is not None else {}
+                if info.get("type") != "img":
+                    continue
+                reduce_dims = tuple(range(1, tensor.dim()))
+                avail_cols.append((tensor.abs().amax(dim=reduce_dims) > 0).to(tensor.dtype))
+            if avail_cols:
+                self._present_mod_availability = torch.stack(avail_cols, dim=1)
 
         for mod in self._present_modalities:
             emb_dict = self.model.encoder_embeddings[mod](x[mod])
@@ -653,6 +632,33 @@ class LunarBackbone(nn.Module):
             out = [self._unstack_modalities(x) for x in out]
             out = [x.mean(dim=1) for x in out]
 
+        elif self.merge_method == "masked_group_mean":
+            # Per-modality spatial mean over tokens, then per-sample average
+            # across modalities that are actually present in that sample.
+            # Prevents all-zero "missing" inputs from dragging the pooled
+            # feature toward the modality embedder's bias.
+            #
+            # Output at each block: (B, 1, D) — a single token per sample so
+            # downstream AggregateTokens(pooling='mean') is a no-op and the
+            # ScalarHead reshape (B, D, N=1) collapses cleanly. Keeping N=1
+            # rather than returning (B, D) avoids surprising a neck that
+            # expects a token dim.
+            if self._present_mod_availability is None:
+                raise RuntimeError(
+                    "merge_method='masked_group_mean' requires at least one "
+                    "image modality in the input; none were present."
+                )
+            avail = self._present_mod_availability  # (B, M_img)
+            out_masked: list[torch.Tensor] = []
+            for x in out:
+                stacked = self._unstack_modalities(x)  # (B, M_img, N, D)
+                per_mod = stacked.mean(dim=2)  # (B, M_img, D) — spatial mean
+                w = avail.to(per_mod.dtype).unsqueeze(-1)  # (B, M_img, 1)
+                denom = w.sum(dim=1).clamp_min(1.0)  # (B, 1)
+                pooled = (per_mod * w).sum(dim=1) / denom  # (B, D)
+                out_masked.append(pooled.unsqueeze(1))  # (B, 1, D)
+            out = out_masked
+
         elif self.merge_method == "max":
             # Unstack and max-pool across modalities
             out = [self._unstack_modalities(x) for x in out]
@@ -794,6 +800,86 @@ class LunarBackbone(nn.Module):
             #     print(f"  ... and {len(result.unexpected_keys) - 5} more")
 
         print(f"Loaded checkpoint from {ckpt_path}")
+
+    # ---------------------------------------------------- embedding seeding
+
+    @staticmethod
+    def _inflate_linear_patch_weight(
+        src_w: torch.Tensor, c_src: int, c_tgt: int, patch_size: int, dim_tokens: int,
+    ) -> torch.Tensor:
+        """timm-style channel inflation for ImageEncoderEmbedding's Linear proj.
+
+        The linear projection flattens each patch as ``(patch_size**2 * C)`` in
+        pixel-major, channel-inner order (see the ``rearrange`` in
+        ``ImageEncoderEmbedding.forward``). Reshape to ``(dim_tokens, P*P, C)``,
+        inflate the channel axis exactly like a Conv2d inflation, then flatten
+        back to ``(dim_tokens, C_tgt * P * P)`` for ``nn.Linear.weight``.
+        """
+        w = src_w.detach().clone().float().reshape(dim_tokens, patch_size * patch_size, c_src)
+        if c_tgt == c_src:
+            out = w
+        elif c_tgt == 1:
+            out = w.sum(dim=2, keepdim=True)
+        elif c_tgt > c_src:
+            repeat = (c_tgt + c_src - 1) // c_src
+            out = w.repeat(1, 1, repeat)[:, :, :c_tgt] * (c_src / c_tgt)
+        else:  # 1 < c_tgt < c_src
+            out = w[:, :, :c_tgt] * (c_src / c_tgt)
+        return out.reshape(dim_tokens, c_tgt * patch_size * patch_size)
+
+    def _seed_new_modality_embeddings(self) -> None:
+        """Copy encoder-embedding weights from pretrained source modalities into new ones.
+
+        Copies ``proj.weight`` (channel-inflated for the target's ``num_channels``)
+        and ``pos_emb`` (only when shapes match). Skips ``mod_emb`` — the modality
+        identifier must stay unique per modality to preserve the multi-modal
+        attention pattern.
+        """
+        enc = self.model.encoder_embeddings
+        for target, source in self._seed_new_modality_from.items():
+            if target not in (self._new_modalities or {}):
+                print(
+                    f"LunarBackbone: seed_new_modality_from: skip {target!r} "
+                    f"— not in new_modalities."
+                )
+                continue
+            if source not in enc:
+                raise KeyError(
+                    f"seed_new_modality_from: source modality {source!r} not in "
+                    f"encoder_embeddings ({list(enc.keys())})."
+                )
+            src, tgt = enc[source], enc[target]
+            c_src = int(src.num_channels)
+            c_tgt = int(tgt.num_channels)
+            patch_h = int(src.patch_size[0])
+            if int(tgt.patch_size[0]) != patch_h or int(tgt.patch_size[1]) != int(src.patch_size[1]):
+                print(
+                    f"LunarBackbone: seed_new_modality_from: patch_size mismatch for "
+                    f"{target!r}<-{source!r} (src {tuple(src.patch_size)} vs tgt "
+                    f"{tuple(tgt.patch_size)}) — skipping."
+                )
+                continue
+            dim = int(src.dim_tokens)
+            with torch.no_grad():
+                tgt.proj.weight.copy_(
+                    self._inflate_linear_patch_weight(
+                        src.proj.weight, c_src=c_src, c_tgt=c_tgt,
+                        patch_size=patch_h, dim_tokens=dim,
+                    )
+                )
+                if hasattr(src, "pos_emb") and hasattr(tgt, "pos_emb"):
+                    if src.pos_emb.shape == tgt.pos_emb.shape:
+                        tgt.pos_emb.copy_(src.pos_emb.detach())
+                    else:
+                        print(
+                            f"LunarBackbone: pos_emb shape mismatch for "
+                            f"{target!r}<-{source!r} ({tuple(tgt.pos_emb.shape)} vs "
+                            f"{tuple(src.pos_emb.shape)}) — keeping target's own buffer."
+                        )
+            print(
+                f"LunarBackbone: seeded new-modality embedding {target!r} "
+                f"from pretrained {source!r} (C:{c_src}->{c_tgt}, patch={patch_h})"
+            )
 
     def get_num_params(self) -> int:
         """Get total number of parameters.

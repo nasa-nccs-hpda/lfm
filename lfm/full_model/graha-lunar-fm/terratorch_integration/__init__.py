@@ -28,10 +28,21 @@ from .data_adapter import LunarCraterDataModule
 from .data_adapter_imp import LunarImpSegDataset, LunarImpSegDataModule
 
 # Explicitly import the registration functions to ensure they're executed
-from .lunar_register import lunarmind_v1_tiny, lunarmind_v1_base, lunarmind_v1_large  # noqa: F401
-from .necks import LearnedTokenProjection
+from .lunar_register import (  # noqa: F401
+    lunarmind_v1_tiny,
+    lunarmind_v1_base,
+    lunarmind_v1_large,
+    lunar_fvqmultimae,
+)
+from .necks import LearnedTokenProjection, SimpleFeaturePyramid, MultilayerSimpleFeaturePyramid  # noqa: F401
+from .decoders import SumFuseDeepGNDecoder  # noqa: F401
 from .lunar_object_detection_task import LunarObjectDetectionTask  # noqa: F401
 from .lunar_segmentation_task import (  # noqa: F401
     LunarSegmentationTask,
     LunarShapeSegmentationTask,
+)
+from .lunar_regression_task import LunarPixelwiseRegressionTask  # noqa: F401
+from .lunar_classification_task import (  # noqa: F401
+    LunarClassificationTask,
+    LunarScalarRegressionTask,
 )

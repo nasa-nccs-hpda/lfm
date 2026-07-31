@@ -1,0 +1,172 @@
+# Single-stage LLRD fine-tune for the 8-modality prospectivity task, using
+# local data + local pretrained weights.
+#
+# Uses LunarPixelwiseRegressionTask, which places parameters into three LR
+# groups automatically:
+#   1. Randomly-initialised NEW-modality embedders (CUR, DICE, LPSR, LPSR_DEN,
+#      LPSR_DIS, TMAX) live inside the encoder but were just born → head_lr.
+#   2. Pretrained encoder blocks + encoder_norm + pretrained embedders
+#      (aspect, slope) → backbone_lr scaled by layer_decay ** depth_from_top.
+#   3. Decoder / necks / regression head → head_lr.
+#
+# This is the "no Stage A" path — the high head_lr and the warmup schedule
+# together give the fresh new-modality embedders room to converge without
+# needing a separate frozen-backbone phase. If pretraining still doesn't
+# beat scratch here, run the two-stage recipe
+# (prosp_lunarp8_sincos_stageA_frozen.yaml → prosp_lunarp8_sincos_stageB_finetune.yaml)
+# to isolate whether it's a warm-up problem or something else.
+#
+# RUN:
+#   terratorch fit -c terratorch_integration/configs/prosp_lunarp8_sincos_llrd.yaml
+
+seed_everything: 42
+custom_modules_path: terratorch_integration
+out_dtype: float32
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: '32'
+  max_epochs: 600
+  check_val_every_n_epoch: 1        # per-epoch val — LLRD often changes convergence speed more than final RMSE
+  log_every_n_steps: 2
+  gradient_clip_val: 1.0
+  gradient_clip_algorithm: norm
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/ice_prosp/
+      name: prosp-resnet-600ep
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: step
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/prosp-resnet-600ep
+        monitor: val/RMSE
+        mode: min
+        filename: best-{epoch:02d}-{val\RMSE:.4f}
+        save_top_k: 1
+        save_last: false
+    - class_path: EarlyStopping
+      init_args:
+        monitor: val/RMSE
+        patience: 15                # generous — LLRD-with-warmup shouldn't be stopped early while cosine is still descending
+  default_root_dir: tb_logs/
+
+data:
+  class_path: terratorch.datamodules.GenericMultiModalDataModule
+  init_args:
+    task: 'regression'
+    batch_size: 8
+    num_workers: 1
+    modalities:
+      - aspect
+      - CUR
+      - DICE
+      - LPSR
+      - LPSR_DEN
+      - LPSR_DIS
+      - slope
+      - TMAX
+    train_data_root: data/ice_prosp
+    train_label_data_root: data/ice_prosp
+    val_data_root: data/ice_prosp
+    val_label_data_root: data/ice_prosp
+    test_data_root: data/ice_prosp
+    test_label_data_root: data/ice_prosp
+    predict_data_root: data/ice_prosp
+    train_split: data/ice_prosp/train_filtered.txt
+    val_split: data/ice_prosp/val_filtered.txt
+    test_split: data/ice_prosp/test_filtered.txt
+
+    image_grep:
+      aspect: "*_ASP_SIN_COS.tif"
+      CUR: "*_CUR.tif"
+      DICE: "*_DICE.tif"
+      LPSR: "*_LPSR.tif"
+      LPSR_DEN: "*_LPSR_DEN.tif"
+      LPSR_DIS: "*_LPSR_DIS.tif"
+      slope: "*_SLOPE.tif"
+      TMAX: "*_TMAX.tif"
+    label_grep: "*_PRO.tif"
+    no_label_replace: -1
+    no_data_replace: 0
+    means:
+      aspect:   [-0.003915, 0.009272]
+      CUR:      [0]
+      DICE:     [0.429733]
+      LPSR:     [0.062075]
+      LPSR_DEN: [0.062062]
+      LPSR_DIS: [2115.858434]
+      slope:    [8.464441]
+      TMAX:     [228.021751]
+    stds:
+      aspect:   [0.668003, 0.669717]
+      CUR:      [0.000280]
+      DICE:     [0.454594]
+      LPSR:     [0.241292]
+      LPSR_DEN: [0.195937]
+      LPSR_DIS: [2115.858434]
+      slope:    [6.172140]
+      TMAX:     [47.689147]
+    concat_bands: true
+    train_transform:
+      - class_path: albumentations.D4
+      - class_path: albumentations.pytorch.transforms.ToTensorV2
+
+model:
+  class_path: terratorch_integration.LunarPixelwiseRegressionTask
+  init_args:
+    model_factory: EncoderDecoderFactory
+    model_args:
+      backbone: timm_resnet50
+      backbone_pretrained: true
+      backbone_in_chans: 9
+      backbone_out_indices: [0, 1, 2, 3, 4]
+
+      necks:
+        # Pick the 4 stages at strides 4/8/16/32 (skip stage 0 at stride 2).
+        # ResNet features_only already returns multi-scale maps — no reshape
+        # or interpolation needed (unlike the ViT).
+        - name: SelectIndices
+          indices: [1, 2, 3, 4]
+
+      decoder: UNetDecoder
+      decoder_channels: [512, 256, 128, 64]
+      head_channel_list: [256]
+      head_dropout: 0.1
+
+    freeze_backbone: false
+    freeze_decoder: false
+    loss: mse
+    ignore_index: -1
+
+    # ---- LLRD + split param groups ----
+    # Base LR at the TOP of the backbone (encoder_norm + last block). Every
+    # block below it is scaled by layer_decay ** depth_from_top. With 12
+    # blocks and layer_decay=0.75, block 0 sees ~0.75^12 ≈ 0.032× → ~1.6e-6.
+    #
+    # head_lr is 4x backbone_lr — the fresh weights (decoder, necks, regression
+    # head, AND the six random-init new-modality embedders) need to learn much
+    # faster than the pretrained encoder.
+    #
+    # If the pretrained encoder appears to drift too fast (train loss dips
+    # then val RMSE plateaus/worsens): lower layer_decay to 0.65 or drop
+    # backbone_lr to 3e-5. If the new-modality embedders look stuck (val
+    # RMSE flat from step 0): raise head_lr to 3e-4 or fall back to the
+    # two-stage recipe.
+    backbone_lr: 1.0e-4
+    head_lr: 1.0e-4
+    layer_decay: 1.0
+    weight_decay: 1.0e-4
+    head_weight_decay: 1.0e-4
+    betas: [0.9, 0.999]
+    warmup_steps: 100
+    eta_min: 1.0e-6
+
+# NOTE: intentionally NO top-level optimizer / lr_scheduler blocks —
+# LunarPixelwiseRegressionTask.configure_optimizers builds them from the
+# fields above. Adding an `optimizer:` block here would silently discard
+# the LLRD param groups.

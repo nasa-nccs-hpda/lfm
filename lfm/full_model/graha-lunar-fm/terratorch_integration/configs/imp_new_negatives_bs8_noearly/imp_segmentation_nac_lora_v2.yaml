@@ -1,0 +1,139 @@
+# Lunar IMP Semantic Segmentation — NAC only, LoRA PEFT variant (fused-qkv path)
+# Dataset: IMP_dataset_new_negatives (single split, no fractions).
+# Backbone: lunarmind_v1_base from 100k pretraining
+# (matrix_base_vit_4g_8w_128b_1r_250s_6pf).
+#
+# Frozen encoder + LoRA adapters (fused-qkv, single-GEMM fast path preserved)
+# + decoder / neck / head / new-modality embedders train.
+#
+# Requires: pip install terratorch[peft]
+#
+# RUN (from repo root):
+#   PYTHONPATH=. \
+#   terratorch fit --config terratorch_integration/configs/imp_new_negatives/imp_segmentation_nac_lora_v2.yaml
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 100
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 5
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/imp_new_negatives_bs8_noearly/
+      name: imp-newneg-bs8ne-segmentation-nac-full-lora-v2-ps16
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/imp-newneg-bs8ne-segmentation-nac-full-lora-v2-ps16
+        monitor: val/F1_Score
+        mode: max
+        filename: best-{epoch:02d}-{val/loss:.3f}
+        save_top_k: 1
+        save_last: false
+data:
+  class_path: terratorch.datamodules.GenericNonGeoSegmentationDataModule
+  init_args:
+    batch_size: 8
+    num_workers: 1
+    rgb_indices:
+      - 0
+      - 0
+      - 0
+    train_data_root: data/IMP_dataset_new_negatives/train_new
+    train_label_data_root: data/IMP_dataset_new_negatives/train_new
+    val_data_root: data/IMP_dataset_new_negatives/val_new
+    val_label_data_root: data/IMP_dataset_new_negatives/val_new
+    test_data_root: data/IMP_dataset_new_negatives/test_new
+    test_label_data_root: data/IMP_dataset_new_negatives/test_new
+    predict_data_root:  data/IMP_dataset_new_negatives/test_new
+    train_split: data/IMP_dataset_new_negatives/train.txt
+    val_split: data/IMP_dataset_new_negatives/val.txt
+    test_split: data/IMP_dataset_new_negatives/test.txt
+    num_classes: 2
+    ignore_split_file_extensions: false
+    img_grep: "*_img.tif"
+    label_grep: "*_mask.tif"
+    no_label_replace: -1
+    no_data_replace: 0
+    means:
+      - 0.029947
+    stds:
+      - 0.016554
+    train_transform:
+      - class_path: albumentations.D4
+      - class_path: albumentations.RandomBrightnessContrast
+        init_args:
+          brightness_limit: 0.15
+          contrast_limit: 0.15
+          p: 0.5
+      - class_path: albumentations.pytorch.transforms.ToTensorV2
+
+model:
+  class_path: terratorch_integration.LunarSegmentationTask
+  init_args:
+    # LoRA replaces LLRD: base encoder is frozen so there are no
+    # pretrained-block params to decay. Flat LR across backbone_lr and
+    # head_lr, layer_decay: 1.0 disables LLRD scaling on adapters,
+    # weight_decay: 0.0 on adapters (LoRA-paper default), head keeps a
+    # small WD.
+    backbone_lr: 1.0e-4
+    head_lr: 1.0e-4
+    layer_decay: 1.0
+    weight_decay: 0.0
+    head_weight_decay: 1.0e-3
+    warmup_steps: 200
+    eta_min: 1.0e-6
+    model_factory: EncoderDecoderFactory
+    model_args:
+      backbone: lunarmind_v1_base
+      backbone_checkpoint_path: weights/backbone/checkpoint_weights_final.pt
+      backbone_cfg: weights/backbone/full_config.yaml
+      backbone_modality_info_path: weights/modality_info.yaml
+      backbone_remove_register_tokens: false
+      backbone_modalities:
+        - nac
+      backbone_patch_size: 16
+      backbone_drop_path_rate_encoder: 0.1
+      necks:
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]
+        - name: ReshapeTokensToImage
+          remove_cls_token: false
+          h: 32
+        - name: LearnedInterpolateToPyramidal
+      decoder: UNetDecoder
+      decoder_channels: [512, 256, 128, 64]
+      head_channel_list: [256]
+      head_dropout: 0.1
+      num_classes: 2
+
+      # -------------------- PEFT / LoRA (fused-qkv path) --------------------
+      peft_config:
+        method: LORA
+        peft_config_kwargs:
+          r: 16
+          lora_alpha: 32
+          lora_dropout: 0.05
+          bias: none
+          target_modules:
+            - qkv
+            - mlp.fc1
+            - mlp.fc2
+            - mlp.fc3
+          exclude_modules: '.*decoder\..*'
+
+    loss: dice
+    aux_loss:
+      aux_head: 1.0
+    freeze_backbone: false
+    freeze_decoder: false
+    ignore_index: -1
+    plot_on_val: 10

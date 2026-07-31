@@ -5,6 +5,7 @@ WebDataset-based data loading infrastructure and crater detection datasets.
 """
 
 import json
+import os
 
 from collections.abc import Callable
 from pathlib import Path
@@ -16,10 +17,18 @@ import numpy as np
 import pandas as pd
 import torch
 
+os.environ.setdefault("HDF5_PLUGIN_PATH", "/tmp")
+try:
+    import hdf5plugin  # registers bitshuffle / blosc / lz4 / zstd filters
+except ImportError:
+    pass
+
+import rasterio
+
 from lightning.pytorch import LightningDataModule
 from matplotlib import patches
 from matplotlib.figure import Figure
-from PIL import Image
+from PIL import Image, ImageDraw
 from skimage import measure
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
@@ -85,11 +94,29 @@ class IdentityTransform(nn.Module):
         return x
 
 
+_LRO_OUTPUT_MODES = ("vis", "image")
+
+
 class LunarCraterDataset(Dataset):
     """Lunar crater detection dataset in COCO format.
 
     Similar to mVHR10 but adapted for lunar crater detection from LRO images.
     Supports bounding boxes and segmentation masks for crater detection.
+
+    Two ``output_mode`` values control the tensor emitted under ``"image"``:
+
+    * ``"vis"`` *(default)* — grayscale JPG scaled to ``[0, 1]``, normalized
+      with ``norm_mean`` / ``norm_std``, then replicated across
+      ``replicate_bands`` channels (default 5). Result:
+      ``image=(replicate_bands, H, W)``. This lets the WAC-pretrained
+      ``LunarBackbone`` (which expects ``vis`` of ``num_channels=5``) consume
+      the sample directly via its ``"packed"`` code path, reusing every
+      pretrained weight in the ``vis`` patch embedding. A duplicate ``"vis"``
+      key is also written so ``plot()`` and other helpers can access the
+      un-packed tensor the same way ``LunarWACCraterDataset`` does.
+    * ``"image"`` — grayscale ``(1, H, W)`` tensor in ``[0, 1]``, optionally
+      normalized with ``norm_mean`` / ``norm_std``. Use this for baseline
+      comparison methods that train a single-channel model from scratch.
     """
 
     def __init__(
@@ -102,6 +129,11 @@ class LunarCraterDataset(Dataset):
         masks_output_tag: str = "masks",
         scores_output_tag: str = "scores",
         image_size: int | None = None,
+        output_mode: str = "vis",
+        replicate_bands: int = 5,
+        norm_mean: float | None = None,
+        norm_std: float | None = None,
+        load_masks: bool = False,
     ):
         """Initialize crater dataset.
 
@@ -114,7 +146,41 @@ class LunarCraterDataset(Dataset):
             masks_output_tag: Key for masks in output
             scores_output_tag: Key for scores in output
             image_size: Target image size for resizing (optional)
+            output_mode: ``"vis"`` (default; 5-band replicated grayscale for
+                         the WAC-pretrained backbone) or ``"image"`` (raw
+                         single-channel tensor for baseline models).
+            replicate_bands: Number of channels to replicate the grayscale
+                             input across in ``"vis"`` mode. Must equal
+                             ``modality_info["vis"]["num_channels"]`` of the
+                             pretrained checkpoint (5 for the current WAC
+                             backbone). Ignored in ``"image"`` mode.
+            norm_mean: Scalar mean applied to the grayscale image after
+                       scaling to ``[0, 1]``. In ``"vis"`` mode the same
+                       value is used for all replicated bands, matching the
+                       fact that every band carries an identical signal.
+                       Compute from the training split with e.g.
+                       ``np.mean(np.stack([np.asarray(Image.open(f).convert("L"))/255. for f in files]))``.
+                       ``None`` disables normalization.
+            norm_std: Scalar std paired with ``norm_mean``. Must be set
+                      together with ``norm_mean`` or both left ``None``.
+            load_masks: When ``True``, rasterize each annotation's COCO
+                        ``segmentation`` polygon into a per-instance
+                        ``(H, W)`` uint8 binary mask, resized to
+                        ``image_size`` alongside the image.  Required for
+                        Mask R-CNN training (``framework: mask-rcnn``).
+                        When ``False`` (default, matches Faster R-CNN),
+                        each annotation gets a ``(0, 0)`` placeholder mask
+                        just to satisfy TerraTorch's collate.
         """
+        if output_mode not in _LRO_OUTPUT_MODES:
+            raise ValueError(
+                f"output_mode must be one of {_LRO_OUTPUT_MODES}, got '{output_mode}'"
+            )
+        if (norm_mean is None) != (norm_std is None):
+            raise ValueError("norm_mean and norm_std must both be set or both be None.")
+        if replicate_bands < 1:
+            raise ValueError(f"replicate_bands must be >= 1, got {replicate_bands}")
+
         self.root = Path(root)
         self.split = split
         self.transforms = transforms
@@ -123,6 +189,11 @@ class LunarCraterDataset(Dataset):
         self.labels_output_tag = labels_output_tag
         self.masks_output_tag = masks_output_tag
         self.scores_output_tag = scores_output_tag
+        self.output_mode = output_mode
+        self.replicate_bands = replicate_bands
+        self.norm_mean = norm_mean
+        self.norm_std = norm_std
+        self.load_masks = load_masks
 
         # Load COCO annotations
         split_name = f"{split}2017"
@@ -149,6 +220,43 @@ class LunarCraterDataset(Dataset):
 
     def __len__(self) -> int:
         return len(self.images)
+
+    @staticmethod
+    def _rasterize_polygons(
+        segmentation: Any,
+        orig_h: int,
+        orig_w: int,
+        out_size: int | None,
+    ) -> torch.Tensor:
+        """Rasterize one annotation's COCO polygon(s) into a binary mask.
+
+        Args:
+            segmentation: The ``ann["segmentation"]`` field.  Expected to be
+                a list of polygons, each a flat ``[x1, y1, x2, y2, ...]``
+                list in original-image pixel coordinates.  RLE-encoded
+                crowd masks are not supported (LRO_Craters has none;
+                ``iscrowd == 1`` annotations are also skipped by the caller).
+            orig_h: Height of the original image before any resize.
+            orig_w: Width of the original image before any resize.
+            out_size: If not ``None``, nearest-neighbour resize the mask to
+                ``(out_size, out_size)`` after rasterization.  Matches the
+                bilinear resize applied to the image itself.
+
+        Returns:
+            ``(H, W)`` uint8 tensor with values in ``{0, 1}``.
+        """
+        mask_img = Image.new("L", (orig_w, orig_h), 0)
+        if isinstance(segmentation, list):
+            draw = ImageDraw.Draw(mask_img)
+            for poly in segmentation:
+                if not isinstance(poly, (list, tuple)) or len(poly) < 6:
+                    continue  # need at least 3 (x, y) points
+                pts = [(float(poly[i]), float(poly[i + 1])) for i in range(0, len(poly) - 1, 2)]
+                draw.polygon(pts, outline=1, fill=1)
+        # RLE segmentation (dict) is skipped — LRO_Craters uses polygon format.
+        if out_size is not None:
+            mask_img = mask_img.resize((out_size, out_size), Image.Resampling.NEAREST)
+        return torch.from_numpy(np.array(mask_img, dtype=np.uint8))
 
     def __getitem__(self, index: int) -> dict[str, Any]:
         """Return an index within the dataset.
@@ -182,8 +290,10 @@ class LunarCraterDataset(Dataset):
             scale_x = 1.0
             scale_y = 1.0
 
-        # Convert to tensor: (1, H, W) for single-channel grayscale
-        image = torch.from_numpy(np.array(image)).unsqueeze(0).float()
+        # Convert to tensor: (1, H, W) grayscale float in [0, 1]
+        image = torch.from_numpy(np.array(image)).unsqueeze(0).float() / 255.0
+        if self.norm_mean is not None:
+            image = (image - self.norm_mean) / self.norm_std
 
         # Get annotations for this image
         anns = self.img_id_to_anns.get(img_id, [])
@@ -210,29 +320,63 @@ class LunarCraterDataset(Dataset):
             # arbitrary category IDs, so remap every crater annotation to 1.
             labels.append(1)
 
-            # TerraTorch's detection task expects a non-empty mask list per sample
-            # because it concatenates masks during batch reformatting. We therefore
-            # attach a placeholder mask for every annotation, even though Faster R-CNN
-            # only uses boxes and labels here.
-            masks.append(torch.zeros((0, 0), dtype=torch.uint8))
+            # Mask handling. Two modes:
+            # * load_masks=False (Faster R-CNN):  (0, 0) placeholder — the
+            #   task doesn't read masks, but TerraTorch's collate expects a
+            #   non-empty list per sample.
+            # * load_masks=True (Mask R-CNN):     rasterize the annotation's
+            #   COCO polygon into a (H, W) binary mask at the resized image
+            #   size, so torchvision's mask head has per-instance targets.
+            if self.load_masks:
+                masks.append(self._rasterize_polygons(
+                    ann.get("segmentation"), orig_h, orig_w, self.image_size,
+                ))
+            else:
+                masks.append(torch.zeros((0, 0), dtype=torch.uint8))
 
         if boxes:
             boxes_tensor = torch.tensor(boxes, dtype=torch.float32)
             labels_tensor = torch.tensor(labels, dtype=torch.int64)
             masks_list = masks
         else:
-            # Negative samples with no objects still need one placeholder mask so
-            # TerraTorch's torch.cat() over the per-sample mask list does not fail.
             boxes_tensor = torch.zeros((0, 4), dtype=torch.float32)
             labels_tensor = torch.zeros((0,), dtype=torch.int64)
-            masks_list = [torch.zeros((0, 0), dtype=torch.uint8)]
+            if self.load_masks:
+                # Mask R-CNN path: emit an empty list so len(masks) == len(labels).
+                # LunarObjectDetectionTask.reformat_batch handles the empty case
+                # and builds a (0, H, W) tensor without calling torch.cat([]).
+                masks_list = []
+            else:
+                # Faster R-CNN path: task doesn't read masks, but TerraTorch's
+                # reformat_batch still calls torch.cat over the list — keep one
+                # (0, 0) placeholder so that call doesn't blow up on negatives.
+                masks_list = [torch.zeros((0, 0), dtype=torch.uint8)]
 
-        sample = {
-            "image": image,
-            self.boxes_output_tag: boxes_tensor,
-            self.labels_output_tag: labels_tensor,
-            self.masks_output_tag: masks_list,
-        }
+        # ------------------------------------------------------------------
+        # Assemble packed "image" tensor.  In "vis" mode we replicate the
+        # single grayscale channel across `replicate_bands` channels so the
+        # WAC-pretrained backbone sees a (5, H, W) tensor that matches its
+        # vis patch embedding. LunarBackbone slices this out of "image" via
+        # its _unpack_modalities() helper, exactly as with the WAC dataset.
+        # A duplicate "vis" key is also written for plotting / downstream
+        # helpers that need the pre-packed tensor.
+        # ------------------------------------------------------------------
+        if self.output_mode == "vis":
+            packed_image = image.expand(self.replicate_bands, -1, -1).contiguous()
+            sample = {
+                "image": packed_image,
+                "vis": packed_image,
+                self.boxes_output_tag: boxes_tensor,
+                self.labels_output_tag: labels_tensor,
+                self.masks_output_tag: masks_list,
+            }
+        else:
+            sample = {
+                "image": image,
+                self.boxes_output_tag: boxes_tensor,
+                self.labels_output_tag: labels_tensor,
+                self.masks_output_tag: masks_list,
+            }
 
         if self.transforms is not None:
             sample = self.transforms(sample)
@@ -272,12 +416,15 @@ class LunarCraterDataset(Dataset):
         assert show_feats in {"boxes", "masks", "both"}, \
             f"show_feats must be 'boxes', 'masks', or 'both', got {show_feats}"
 
-        # Normalize image for display (handle single-channel grayscale)
-        image = sample["image"].squeeze().cpu().numpy()  # Remove channel dim for grayscale
-
-        # Normalize to [0, 1] for display
-        if image.max() > 1.0:
-            image = image / 255.0
+        # For display, pull the first channel (all channels are identical in
+        # "vis" mode) and re-scale to [0, 1] regardless of any prior
+        # normalization applied in __getitem__.
+        img_tensor = sample.get("vis", sample["image"]).cpu()
+        if img_tensor.ndim == 3:
+            img_tensor = img_tensor[0]
+        image = img_tensor.numpy()
+        lo, hi = float(image.min()), float(image.max())
+        image = (image - lo) / (hi - lo) if hi > lo else np.zeros_like(image)
 
         # Get ground truth annotations
         boxes = sample[self.boxes_output_tag].cpu().numpy()
@@ -432,10 +579,19 @@ class LunarCraterDataset(Dataset):
 
 
 class LunarCraterDataModule(LightningDataModule):
-    """TerraTorch-compatible data module for lunar crater detection.
+    """TerraTorch-compatible data module for lunar (LRO) crater detection.
 
-    Similar to mVHR10DataModule but adapted for lunar crater detection.
-    Includes normalization and transform support.
+    Wraps :class:`LunarCraterDataset` and exposes the two ``output_mode``
+    knobs directly:
+
+    * ``"vis"`` — grayscale JPG replicated across ``replicate_bands`` channels
+      and normalized in the dataset, ready to feed the WAC-pretrained
+      backbone via ``LunarBackbone``'s ``"packed"`` code path. This mode
+      also stacks ``"image"`` for backbone consumption *and* keeps a per-
+      sample ``"vis"`` tensor for plotting, matching the pattern used by
+      :class:`LunarWACCraterDataModule`.
+    * ``"image"`` — raw single-channel ``(1, H, W)`` tensor for baseline
+      comparison methods.
     """
 
     def __init__(
@@ -443,17 +599,25 @@ class LunarCraterDataModule(LightningDataModule):
         root: str = "../data/LRO_craters",
         batch_size: int = 4,
         num_workers: int = 0,
-        image_size: int = 512,
-        pad: bool = True,
+        image_size: int = 256,
         collate_fn: Callable | None = None,
         boxes_output_tag: str = "boxes",
         labels_output_tag: str = "labels",
         masks_output_tag: str = "masks",
         scores_output_tag: str = "scores",
-        apply_norm_in_datamodule: bool = True,
-        norm_means: list[float] | None = None,
-        norm_stds: list[float] | None = None,
-        max_pixel_value: float = 255.0,
+        # Normalization — applied at sample level inside the dataset.
+        # Training-split statistics (grayscale, values in [0, 1]) for
+        # LRO_Craters computed over train2017/ (538 JPGs, 512x512):
+        #   mean = 0.251561, std = 0.121082
+        norm_mean: float | None = 0.251561,
+        norm_std: float | None = 0.121082,
+        # Output-mode / band-replication knobs forwarded to the dataset.
+        output_mode: str = "vis",
+        replicate_bands: int = 5,
+        # When True, rasterize COCO polygons into per-instance masks for
+        # Mask R-CNN training.  Applies to every split (train/val/test) so
+        # validation mAP over segmentations is available too.
+        load_masks: bool = False,
         train_transforms: Callable | None = None,
         val_transforms: Callable | None = None,
         test_transforms: Callable | None = None,
@@ -461,50 +625,65 @@ class LunarCraterDataModule(LightningDataModule):
         """Initialize crater data module.
 
         Args:
-            root: Root directory containing train2017/val2017 and annotations
-            batch_size: Batch size for dataloaders
-            num_workers: Number of worker processes
-            image_size: Target image size
-            pad: Whether to pad images
-            collate_fn: Optional custom collate function
-            boxes_output_tag: Key for bounding boxes
-            labels_output_tag: Key for labels
-            masks_output_tag: Key for masks
-            scores_output_tag: Key for scores
-            apply_norm_in_datamodule: Whether to apply normalization
-            norm_means: Mean values for normalization (default: ImageNet means)
-            norm_stds: Std values for normalization (default: ImageNet stds)
-            max_pixel_value: Max pixel value for scaling
-            train_transforms: Optional training transforms
-            val_transforms: Optional validation transforms
-            test_transforms: Optional test transforms
+            root: Root directory containing ``train2017/``, ``val2017/``, and
+                  ``annotations/``.
+            batch_size: Samples per batch.
+            num_workers: DataLoader worker processes.
+            image_size: Resize images to this square size. Set to 256 to
+                        match the WAC-pretrained backbone's positional grid.
+            collate_fn: Optional custom collate function.
+            boxes_output_tag: Output key for bounding boxes.
+            labels_output_tag: Output key for labels.
+            masks_output_tag: Output key for masks.
+            scores_output_tag: Output key for scores.
+            norm_mean: Scalar mean applied after scaling the JPG to
+                       ``[0, 1]``.  Defaults to the training-split statistic;
+                       set to ``None`` (together with ``norm_std``) to skip
+                       normalization entirely.
+            norm_std: Scalar std paired with ``norm_mean``.
+            output_mode: ``"vis"`` (default; replicate grayscale into
+                         ``replicate_bands`` channels for the WAC-pretrained
+                         backbone) or ``"image"`` (raw single channel for
+                         baseline comparison methods).
+            replicate_bands: Number of channels to replicate the grayscale
+                             image across in ``"vis"`` mode.  Must equal the
+                             pretrained ``vis`` modality's ``num_channels``
+                             (5 for the current WAC backbone).
+            load_masks: Rasterize each annotation's COCO ``segmentation``
+                        polygon into a per-instance binary mask.  Required
+                        for Mask R-CNN training (``framework: mask-rcnn``);
+                        leave ``False`` for Faster R-CNN.
+            train_transforms: Optional training transforms.
+            val_transforms: Optional validation transforms.
+            test_transforms: Optional test transforms.
         """
+        if output_mode not in _LRO_OUTPUT_MODES:
+            raise ValueError(
+                f"output_mode must be one of {_LRO_OUTPUT_MODES}, got '{output_mode}'"
+            )
         super().__init__()
         self.root = root
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.image_size = image_size
-        self.pad = pad
         self.boxes_output_tag = boxes_output_tag
         self.labels_output_tag = labels_output_tag
         self.masks_output_tag = masks_output_tag
         self.scores_output_tag = scores_output_tag
-        self.apply_norm_in_datamodule = apply_norm_in_datamodule
+        self.norm_mean = norm_mean
+        self.norm_std = norm_std
+        self.output_mode = output_mode
+        self.replicate_bands = replicate_bands
+        self.load_masks = load_masks
+        self.train_transforms = train_transforms
+        self.val_transforms = val_transforms
+        self.test_transforms = test_transforms
 
-        # Set up normalization for single-channel grayscale
-        if apply_norm_in_datamodule:
-            # Use grayscale normalization (single channel)
-            # Default to generic grayscale values if not specified
-            means = norm_means or [0.5]  # Single channel mean
-            stds = norm_stds or [0.25]   # Single channel std
-            self.aug = Normalize(means, stds, max_pixel_value=max_pixel_value)
-        else:
-            # No normalization - just scale to [0, 1]
-            self.aug = Normalize([0], [1], max_pixel_value=max_pixel_value)
-
-        # Set up collate function
+        # collate_fn_detection_stacked stacks "image" for both output modes
+        # ("vis" or "image"); the sample keys are already tensors of matching
+        # shape, so a single collate handles both paths.
         if collate_fn is None:
-            self.collate_fn = lambda batch: collate_fn_detection(
+            self.collate_fn = lambda batch: collate_fn_detection_stacked(
                 batch,
                 boxes_tag=boxes_output_tag,
                 labels_tag=labels_output_tag,
@@ -513,80 +692,54 @@ class LunarCraterDataModule(LightningDataModule):
         else:
             self.collate_fn = collate_fn
 
-        # Store transforms
-        self.train_transforms = train_transforms
-        self.val_transforms = val_transforms
-        self.test_transforms = test_transforms
+        self.train_dataset: LunarCraterDataset | None = None
+        self.val_dataset: LunarCraterDataset | None = None
+        self.test_dataset: LunarCraterDataset | None = None
 
-        # Datasets will be created in setup()
-        self.train_dataset = None
-        self.val_dataset = None
-        self.test_dataset = None
+    def _make_dataset(self, split: str, transforms: Callable | None) -> LunarCraterDataset:
+        return LunarCraterDataset(
+            root=self.root,
+            split=split,
+            transforms=transforms,
+            boxes_output_tag=self.boxes_output_tag,
+            labels_output_tag=self.labels_output_tag,
+            masks_output_tag=self.masks_output_tag,
+            scores_output_tag=self.scores_output_tag,
+            image_size=self.image_size,
+            output_mode=self.output_mode,
+            replicate_bands=self.replicate_bands,
+            norm_mean=self.norm_mean,
+            norm_std=self.norm_std,
+            load_masks=self.load_masks,
+        )
 
     def setup(self, stage: str) -> None:
-        """Setup datasets for the given stage.
+        """Create datasets for the requested stage.
 
         Args:
-            stage: "fit", "validate", or "test"
+            stage: One of ``"fit"``, ``"validate"``, or ``"test"``.
         """
-        if stage in ["fit"]:
-            self.train_dataset = LunarCraterDataset(
-                root=self.root,
-                split="train",
-                transforms=self.train_transforms,
-                boxes_output_tag=self.boxes_output_tag,
-                labels_output_tag=self.labels_output_tag,
-                masks_output_tag=self.masks_output_tag,
-                scores_output_tag=self.scores_output_tag,
-                image_size=self.image_size,
-            )
-
-        if stage in ["fit", "validate"]:
-            self.val_dataset = LunarCraterDataset(
-                root=self.root,
-                split="val",
-                transforms=self.val_transforms,
-                boxes_output_tag=self.boxes_output_tag,
-                labels_output_tag=self.labels_output_tag,
-                masks_output_tag=self.masks_output_tag,
-                scores_output_tag=self.scores_output_tag,
-                image_size=self.image_size,
-            )
-
-        if stage in ["test"]:
-            self.test_dataset = LunarCraterDataset(
-                root=self.root,
-                split="val",  # Use val as test if no separate test set
-                transforms=self.test_transforms,
-                boxes_output_tag=self.boxes_output_tag,
-                labels_output_tag=self.labels_output_tag,
-                masks_output_tag=self.masks_output_tag,
-                scores_output_tag=self.scores_output_tag,
-                image_size=self.image_size,
-            )
+        if stage == "fit":
+            self.train_dataset = self._make_dataset("train", self.train_transforms)
+            self.val_dataset = self._make_dataset("val", self.val_transforms)
+        elif stage == "validate":
+            self.val_dataset = self._make_dataset("val", self.val_transforms)
+        elif stage == "test":
+            # LRO_Craters ships with train/val only; reuse val as test.
+            self.test_dataset = self._make_dataset("val", self.test_transforms)
 
     def _dataloader_factory(self, split: str) -> DataLoader:
-        """Create dataloader for given split.
-
-        Args:
-            split: "train", "val", or "test"
-
-        Returns:
-            Configured DataLoader
-        """
         dataset_attr = f"{split}_dataset"
-        if not hasattr(self, dataset_attr) or getattr(self, dataset_attr) is None:
+        if getattr(self, dataset_attr, None) is None:
             stage = "fit" if split == "train" else split
             self.setup(stage)
-
         dataset = getattr(self, dataset_attr)
-
         return DataLoader(
             dataset=dataset,
             batch_size=self.batch_size,
             shuffle=(split == "train"),
             num_workers=self.num_workers,
-            collate_fn=lambda batch: self.aug(self.collate_fn(batch)),
+            collate_fn=self.collate_fn,
         )
 
     def train_dataloader(self) -> DataLoader:
@@ -601,6 +754,13 @@ class LunarCraterDataModule(LightningDataModule):
         """Return test dataloader."""
         return self._dataloader_factory("test")
 
+    def plot(self, sample: dict[str, Any], **kwargs) -> "Figure":
+        """Delegate to the underlying dataset's plot method."""
+        dataset = self.val_dataset or self.train_dataset or self.test_dataset
+        if dataset is None:
+            raise RuntimeError("No dataset available; call setup() first.")
+        return dataset.plot(sample, **kwargs)
+
 
 def collate_fn_detection(
     batch: list[dict[str, Any]],
@@ -608,6 +768,7 @@ def collate_fn_detection(
     labels_tag: str = "labels",
     masks_tag: str = "masks",
     include_metadata: bool = False,
+    image_key: str = "image",
 ) -> dict[str, Any]:
     """Collate function for detection datasets.
 
@@ -618,12 +779,14 @@ def collate_fn_detection(
         masks_tag: Key for masks
         include_metadata: If ``True``, stack the ``"metadata"`` tensors into
                           a ``(B, _METADATA_MAX_TOKENS)`` LongTensor.
+        image_key: Sample dict key that holds the image tensor.  Defaults to
+                   ``"image"``; pass ``"vis"`` for WAC datasets.
 
     Returns:
         Collated batch
     """
     new_batch = {
-        "image": torch.stack([item["image"] for item in batch]),
+        image_key: torch.stack([item[image_key] for item in batch]),
         boxes_tag: [item[boxes_tag] for item in batch],
         labels_tag: [item[labels_tag] for item in batch],
         masks_tag: [item[masks_tag] for item in batch],
@@ -859,7 +1022,6 @@ class LunarNACDTMDataset(Dataset):
         task_mode: str = "detection",
         circle_diameter_mode: str = "min",
         keep_boxes: bool = False,
-        nac_scale_factor: float = 1.0,
         metadata_tokenizer_path: str = MetadataEncoder._DEFAULT_TOKENIZER,
         metadata_binning_config_path: str = MetadataEncoder._DEFAULT_BINNING,
         # Normalisation parameters — applied at sample level for all output modes.
@@ -913,14 +1075,6 @@ class LunarNACDTMDataset(Dataset):
                              discarded.  Set to 0 to disable filtering.
             output_mode: ``"stack"``, ``"separate"``, or ``"packed"``.
                          See class docstring.
-            nac_scale_factor: Scalar applied to raw NAC pixel values before
-                              any batch-level normalisation.  The handlabeled
-                              ``.nc`` files store raw DN values (1–253) while
-                              the pretraining shards store values in ``[0, 1]``.
-                              The default ``1/255`` brings the DN range into
-                              ``[0, 1]`` so that pretraining mean/std stats
-                              (``mean=0.0566, std=0.0395``) apply correctly.
-                              Set to ``1.0`` to disable scaling.
             metadata_tokenizer_path: Path to the HuggingFace ``*.json``
                                      tokenizer file.  Defaults to the bundled
                                      reindexed WordPiece tokenizer.
@@ -971,7 +1125,6 @@ class LunarNACDTMDataset(Dataset):
         self.image_size = image_size
         self.min_diameter_m = min_diameter_m
         self.output_mode = output_mode
-        self.nac_scale_factor = nac_scale_factor
         self.boxes_output_tag = boxes_output_tag
         self.labels_output_tag = labels_output_tag
         self.masks_output_tag = masks_output_tag
@@ -1141,7 +1294,7 @@ class LunarNACDTMDataset(Dataset):
             scale_y = 1.0
 
         nac_t = (
-            torch.from_numpy(nac_np.copy()).unsqueeze(0) * self.nac_scale_factor
+            torch.from_numpy(nac_np.copy()).unsqueeze(0)
             if nac_np is not None else None
         )
         dtm_t = (
@@ -1469,8 +1622,11 @@ class LunarNACDTMDataset(Dataset):
                 caption = self.categories.get(int(lbl_array[i]), f"cls {lbl_array[i]}")
                 if score_array is not None:
                     caption += f" {score_array[i]:.2f}"
-                # ax.text(x1, y1 - 4, caption,
-                #         color="white", size=9, backgroundcolor="black", alpha=0.75)
+                    ax.text(
+                        x1, max(0.0, y1 - 2), caption,
+                        color="white", size=6,
+                        bbox={"facecolor": "black", "alpha": 0.6, "pad": 0.5, "edgecolor": "none"},
+                    )
 
         # --- Ground-truth columns ---
         for i, (name, display, cmap) in enumerate(det_modalities):
@@ -1550,7 +1706,6 @@ class LunarNACDTMDataModule(LightningDataModule):
         val_transforms: Callable | None = None,
         test_transforms: Callable | None = None,
         # NAC preprocessing
-        nac_scale_factor: float = 1.0,
         nac_valid_min: float | None = None,
         nac_valid_max: float | None = None,
         nac_mask_threshold: float | None = None,
@@ -1599,10 +1754,6 @@ class LunarNACDTMDataModule(LightningDataModule):
             train_transforms: Per-sample transforms for training split.
             val_transforms: Per-sample transforms for validation split.
             test_transforms: Per-sample transforms for test split.
-            nac_scale_factor: Scalar applied to raw NAC DN values at load time.
-                              Default ``1/255`` brings raw DN (1–253) into
-                              ``[0, 1]``.  Set to ``1.0`` if already in
-                              ``[0, 1]``.
             nac_valid_min: Lower clip value for NAC min-max scaling.
             nac_valid_max: Upper clip value for NAC min-max scaling.
             nac_mask_threshold: Pixels <= this value in the NAC channel are
@@ -1659,7 +1810,6 @@ class LunarNACDTMDataModule(LightningDataModule):
         self.val_transforms = val_transforms
         self.test_transforms = test_transforms
         self.min_diameter_m = min_diameter_m
-        self.nac_scale_factor = nac_scale_factor
         self.metadata_file = metadata_file
         self.metadata_tokenizer_path = metadata_tokenizer_path
         self.metadata_binning_config_path = metadata_binning_config_path
@@ -1737,7 +1887,6 @@ class LunarNACDTMDataModule(LightningDataModule):
             task_mode=self.task_mode,
             circle_diameter_mode=self.circle_diameter_mode,
             keep_boxes=self.keep_boxes,
-            nac_scale_factor=self.nac_scale_factor,
             metadata_tokenizer_path=self.metadata_tokenizer_path,
             metadata_binning_config_path=self.metadata_binning_config_path,
             nac_valid_min=self._nac_valid_min,
@@ -1969,12 +2118,15 @@ def collate_fn_detection_stacked(
         Collated batch with ``"image"`` ``(B, C, H, W)`` and detection
         target lists.
     """
-    return {
+    result = {
         "image": torch.stack([item["image"] for item in batch]),
         boxes_tag: [item[boxes_tag] for item in batch],
         labels_tag: [item[labels_tag] for item in batch],
         masks_tag: [item[masks_tag] for item in batch],
     }
+    if "vis" in batch[0]:
+        result["vis"] = torch.stack([item["vis"] for item in batch])
+    return result
 
 
 def collate_fn_detection_multimodal(
@@ -2021,24 +2173,27 @@ def collate_fn_segmentation(
     batch: list[dict[str, Any]],
     output_mode: str = "stack",
     include_metadata: bool = False,
+    image_key: str = "image",
 ) -> dict[str, Any]:
     """Collate function for semantic-segmentation mode.
 
-    Stacks ``"image"`` and ``"mask"`` into dense batch tensors.  For the
+    Stacks the image tensor and ``"mask"`` into dense batch tensors.  For the
     ``"separate"`` output mode also stacks the per-modality tensors.
 
     Args:
-        batch: List of per-sample dicts from :class:`LunarNACDTMDataset` with
+        batch: List of per-sample dicts from a dataset with
                ``task_mode="segmentation"``.
         output_mode: Matches the dataset's ``output_mode``.
         include_metadata: If ``True``, stack the ``"metadata"`` tensors.
+        image_key: Sample dict key that holds the image tensor.  Defaults to
+                   ``"image"``; pass ``"vis"`` for WAC datasets.
 
     Returns:
-        Collated batch with ``"image"`` ``(B, C, H, W)`` and ``"mask"``
+        Collated batch with the image tensor ``(B, C, H, W)`` and ``"mask"``
         ``(B, H, W)`` LongTensor.
     """
     result: dict[str, Any] = {
-        "image": torch.stack([item["image"] for item in batch]),
+        image_key: torch.stack([item[image_key] for item in batch]),
         "mask": torch.stack([item["mask"] for item in batch]),
     }
     if output_mode == "separate":
@@ -2052,3 +2207,765 @@ def collate_fn_segmentation(
         # Variable-length per sample — keep as a list to avoid ragged stacks.
         result["crater_boxes"] = [item["crater_boxes"] for item in batch]
     return result
+
+
+# ---------------------------------------------------------------------------
+# WAC multi-spectral crater detection dataset
+# ---------------------------------------------------------------------------
+
+# Wavelength band names in the order stored by the stacked GeoTIFFs produced
+# by preprocessing/nc_to_tiff.py
+_WAC_BAND_NAMES: tuple[str, ...] = ("415", "566", "604", "643", "689")
+_WAC_N_BANDS: int = len(_WAC_BAND_NAMES)
+
+
+def _load_wac_tiff(path: "str | Path") -> np.ndarray:
+    """Load a 5-band WAC GeoTIFF → float32 ``(C, H, W)`` array.
+
+    Nodata is encoded as ``NaN`` in the file (written by
+    ``preprocessing/nc_to_tiff.py``).  The raw values are returned as-is;
+    masking and normalisation happen in :class:`LunarWACCraterDataset`.
+
+    Args:
+        path: Path to the ``.tif`` file.
+
+    Returns:
+        float32 ndarray of shape ``(_WAC_N_BANDS, H, W)``.
+    """
+    with rasterio.open(path) as src:
+        return src.read().astype(np.float32)
+
+
+class LunarWACCraterDataset(Dataset):
+    """Lunar crater detection dataset over WAC 5-band multi-spectral imagery.
+
+    Image paths are derived from the COCO JSON supplied via ``annotations_file``
+    (one file per split: ``train.json``, ``val.json``, ``test.json``).  Each
+    COCO ``file_name`` has the form ``"vis/{stem}.nc"``; the corresponding
+    GeoTIFF is resolved as ``data_dir / images_subdir / "{stem}.tif"``.
+
+    Optional geographic/solar metadata is loaded from ``metadata_file`` (same
+    ``metadata.parquet`` schema used by :class:`LunarNACDTMDataset`) and
+    encoded as a ``(10,)`` LongTensor under the ``"metadata"`` key.
+
+    The primary image tensor is returned under the key ``"vis"`` — matching
+    the modality name expected by :class:`LunarBackbone` (which auto-infers
+    ``num_channels=5`` for ``"vis"``).
+
+    **Output keys:**
+
+    * ``"vis"`` – ``(5, H, W)`` float32 tensor.
+    * ``"boxes"`` / ``"labels"`` / ``"masks"`` – detection targets (detection mode).
+    * ``"mask"`` – ``(H, W)`` LongTensor with values in ``{0, 1}`` (segmentation mode).
+    * ``"metadata"`` – ``(10,)`` LongTensor of token IDs (only when
+      ``metadata_file`` is provided).
+    """
+
+    def __init__(
+        self,
+        data_dir: str,
+        annotations_file: str,
+        metadata_file: str | None = None,
+        images_subdir: str = "images_tiff",
+        drop_no_crater_images: bool = False,
+        image_size: int | None = None,
+        min_diameter_px: float = 5.0,
+        task_mode: str = "detection",
+        transforms: Callable | None = None,
+        boxes_output_tag: str = "boxes",
+        labels_output_tag: str = "labels",
+        masks_output_tag: str = "masks",
+        scores_output_tag: str = "scores",
+        # Per-channel normalisation (len-5 lists, one entry per WAC band)
+        wac_norm_means: list[float] | None = None,
+        wac_norm_stds: list[float] | None = None,
+        # Nodata masking
+        mask_threshold: float | None = None,
+        mask_fill_value: float = 0.0,
+        # Training-set subsampling
+        train_fraction: float | None = None,
+        # Metadata tokenizer
+        metadata_tokenizer_path: str = MetadataEncoder._DEFAULT_TOKENIZER,
+        metadata_binning_config_path: str = MetadataEncoder._DEFAULT_BINNING,
+    ):
+        """Initialise the dataset.
+
+        Args:
+            data_dir: Root directory.  ``images_subdir`` is resolved relative
+                      to this path.
+            annotations_file: Path to a split's COCO JSON file (e.g.
+                              ``train.json``).  Determines which images belong
+                              to this dataset instance.
+            metadata_file: Optional path to ``metadata.parquet``.  When
+                           provided, each sample includes a ``"metadata"``
+                           LongTensor of shape ``(10,)``.
+            images_subdir: Sub-directory under ``data_dir`` containing the
+                           stacked GeoTIFF files.  Defaults to
+                           ``"images_tiff"``.
+            drop_no_crater_images: When ``True``, discard samples that have no
+                                   surviving annotations after the
+                                   ``min_diameter_px`` filter and the nodata-
+                                   overlap check.  Reads every tile once at
+                                   init time.
+            image_size: If set, resize all tiles to this square size (bilinear).
+            min_diameter_px: Minimum crater bounding-box side length in pixels.
+                             Set to ``0`` to disable.
+            task_mode: ``"detection"`` or ``"segmentation"``.
+            transforms: Optional per-sample callable applied after all other
+                        processing.
+            boxes_output_tag: Output key for bounding boxes.
+            labels_output_tag: Output key for labels.
+            masks_output_tag: Output key for masks (detection mode stubs).
+            scores_output_tag: Output key for scores.
+            wac_norm_means: Per-channel mean for normalisation.  Must have
+                            length 5 and be provided together with
+                            ``wac_norm_stds``.
+            wac_norm_stds: Per-channel std for normalisation.
+            mask_threshold: Pixels with value ≤ this are treated as nodata
+                            (in addition to NaN).  ``None`` only excludes NaN.
+            mask_fill_value: Replacement value written to nodata pixels.
+            train_fraction: If set, randomly subsample this fraction of the
+                            sample list after all other filters.  E.g. ``0.1``
+                            keeps 10 % of tiles.  Must be in ``(0, 1]``.
+                            Intended for training-data reduction experiments;
+                            val/test datasets should be created without this
+                            parameter.  The RNG seed is fixed at 123 for
+                            reproducibility.
+            metadata_tokenizer_path: Path to the HuggingFace tokenizer JSON.
+            metadata_binning_config_path: Path to the binning CSV.
+        """
+        if task_mode not in {"detection", "segmentation"}:
+            raise ValueError(
+                f"task_mode must be 'detection' or 'segmentation', got '{task_mode}'"
+            )
+        if (wac_norm_means is None) != (wac_norm_stds is None):
+            raise ValueError(
+                "wac_norm_means and wac_norm_stds must both be set or both be None."
+            )
+        if wac_norm_means is not None and len(wac_norm_means) != _WAC_N_BANDS:
+            raise ValueError(
+                f"wac_norm_means must have length {_WAC_N_BANDS}, "
+                f"got {len(wac_norm_means)}."
+            )
+
+        self.data_dir = Path(data_dir)
+        self.images_subdir = images_subdir
+        self.image_size = image_size
+        self.min_diameter_px = min_diameter_px
+        self.task_mode = task_mode
+        self.transforms = transforms
+        self.boxes_output_tag = boxes_output_tag
+        self.labels_output_tag = labels_output_tag
+        self.masks_output_tag = masks_output_tag
+        self.scores_output_tag = scores_output_tag
+        self.mask_threshold = mask_threshold
+        self.mask_fill_value = mask_fill_value
+        self.wac_norm_means: list[float] | None = wac_norm_means
+        self.wac_norm_stds: list[float] | None = wac_norm_stds
+
+        # ------------------------------------------------------------------
+        # Metadata encoder (only constructed when metadata_file is provided)
+        # ------------------------------------------------------------------
+        self._use_metadata = metadata_file is not None
+        self._metadata_lookup: dict[str, Any] = {}
+        self._metadata_encoder: MetadataEncoder | None = None
+        if self._use_metadata:
+            meta_df = pd.read_parquet(metadata_file)
+            # Key by stem derived from WAC_VIS_TILE column
+            # e.g.  "images/M1106759269CE_r1896_c240.nc" → stem
+            for _, row in meta_df.iterrows():
+                stem = Path(row["WAC_VIS_TILE"]).stem
+                self._metadata_lookup[stem] = row
+            self._metadata_encoder = MetadataEncoder(
+                tokenizer_path=metadata_tokenizer_path,
+                binning_config_path=metadata_binning_config_path,
+            )
+
+        # ------------------------------------------------------------------
+        # Load COCO annotations
+        # ------------------------------------------------------------------
+        with open(annotations_file, "r") as f:
+            coco_data = json.load(f)
+
+        self.categories: dict[int, str] = {
+            cat["id"]: cat["name"] for cat in coco_data.get("categories", [])
+        }
+
+        # Diameter-filtered annotation index
+        self.img_id_to_anns: dict[int, list[dict]] = {}
+        for ann in coco_data.get("annotations", []):
+            img_id = ann["image_id"]
+            _bx, _by, bw, bh = ann["bbox"]
+            if min(bw, bh) >= self.min_diameter_px:
+                self.img_id_to_anns.setdefault(img_id, []).append(ann)
+
+        # Build sample list: one entry per COCO image
+        # COCO file_name: "vis/{stem}.nc" → tiff: images_subdir/{stem}.tif
+        self._samples: list[dict[str, Any]] = []
+        for img_entry in coco_data["images"]:
+            stem = Path(img_entry["file_name"]).stem
+            tiff_path = self.data_dir / self.images_subdir / (stem + ".tif")
+            self._samples.append({
+                "stem":      stem,
+                "tiff_path": tiff_path,
+                "img_id":    img_entry["id"],
+            })
+
+        # ------------------------------------------------------------------
+        # Optional reproducible subsampling (train_fraction)
+        # Applied before drop_no_crater_images so the fraction is relative
+        # to the full COCO image list, not the post-filter list.
+        # ------------------------------------------------------------------
+        if train_fraction is not None:
+            if not (0 < train_fraction <= 1):
+                raise ValueError(
+                    f"train_fraction must be in (0, 1], got {train_fraction}"
+                )
+            if train_fraction < 1.0:
+                rng = np.random.default_rng(123)
+                n = max(1, round(len(self._samples) * train_fraction))
+                indices = rng.choice(len(self._samples), size=n, replace=False)
+                indices.sort()  # preserve original ordering
+                self._samples = [self._samples[i] for i in indices]
+
+        # ------------------------------------------------------------------
+        # Optionally drop tiles with no surviving annotations
+        # ------------------------------------------------------------------
+        if drop_no_crater_images:
+            kept = []
+            for s in self._samples:
+                raw_anns = self.img_id_to_anns.get(s["img_id"], [])
+                if not raw_anns:
+                    continue
+                arr = _load_wac_tiff(s["tiff_path"])
+                inv = self._nodata_mask(arr)
+                surviving = 0
+                _h, _w = arr.shape[1], arr.shape[2]
+                for ann in raw_anns:
+                    _bx, _by, bw, bh = ann["bbox"]
+                    x1i = int(max(0, _bx))
+                    y1i = int(max(0, _by))
+                    x2i = int(min(_w, _bx + bw + 1))
+                    y2i = int(min(_h, _by + bh + 1))
+                    if not inv[y1i:y2i, x1i:x2i].any():
+                        surviving += 1
+                if surviving > 0:
+                    kept.append(s)
+            self._samples = kept
+
+    # ------------------------------------------------------------------
+    # Nodata mask helper
+    # ------------------------------------------------------------------
+    def _nodata_mask(self, arr: np.ndarray) -> np.ndarray:
+        """Return a ``(H, W)`` bool mask; True where any channel is invalid."""
+        inv = np.zeros((arr.shape[1], arr.shape[2]), dtype=bool)
+        for c in range(arr.shape[0]):
+            inv |= np.isnan(arr[c])
+            if self.mask_threshold is not None:
+                inv |= arr[c] <= self.mask_threshold
+        return inv
+
+    def __len__(self) -> int:
+        return len(self._samples)
+
+    def __getitem__(self, index: int) -> dict[str, Any]:
+        s = self._samples[index]
+
+        # ------------------------------------------------------------------
+        # Load — (5, H, W) float32
+        # ------------------------------------------------------------------
+        arr = _load_wac_tiff(s["tiff_path"])          # (C, H, W)
+        orig_h, orig_w = arr.shape[1], arr.shape[2]
+
+        # ------------------------------------------------------------------
+        # Nodata mask before imputation (used for bbox filtering)
+        # ------------------------------------------------------------------
+        invalid_mask = self._nodata_mask(arr)          # (H, W) bool
+
+        # ------------------------------------------------------------------
+        # Impute nodata
+        # ------------------------------------------------------------------
+        for c in range(arr.shape[0]):
+            bad = np.isnan(arr[c])
+            if self.mask_threshold is not None:
+                bad |= arr[c] <= self.mask_threshold
+            arr[c][bad] = self.mask_fill_value
+
+        # ------------------------------------------------------------------
+        # Optional resize (per-channel bilinear via PIL)
+        # ------------------------------------------------------------------
+        if self.image_size is not None:
+            resized = np.empty(
+                (_WAC_N_BANDS, self.image_size, self.image_size), dtype=np.float32
+            )
+            for c in range(_WAC_N_BANDS):
+                pil_ch = Image.fromarray(arr[c], mode="F").resize(
+                    (self.image_size, self.image_size), Image.Resampling.BILINEAR
+                )
+                resized[c] = np.asarray(pil_ch, dtype=np.float32)
+            arr = resized
+            scale_x = self.image_size / orig_w
+            scale_y = self.image_size / orig_h
+        else:
+            scale_x = 1.0
+            scale_y = 1.0
+
+        # ------------------------------------------------------------------
+        # To tensor and per-channel normalisation
+        # ------------------------------------------------------------------
+        vis_t = torch.from_numpy(arr.copy())           # (5, H, W)
+        if self.wac_norm_means is not None:
+            means = torch.tensor(
+                self.wac_norm_means, dtype=torch.float32
+            ).view(_WAC_N_BANDS, 1, 1)
+            stds = torch.tensor(
+                self.wac_norm_stds, dtype=torch.float32
+            ).view(_WAC_N_BANDS, 1, 1)
+            vis_t = (vis_t - means) / stds
+
+        # ------------------------------------------------------------------
+        # Annotations — filter bboxes that overlap nodata pixels
+        # ------------------------------------------------------------------
+        raw_anns = self.img_id_to_anns.get(s["img_id"], [])
+        boxes: list[list[float]] = []
+        labels: list[int] = []
+        masks: list[torch.Tensor] = []
+
+        for ann in raw_anns:
+            x1, y1, bw, bh = ann["bbox"]
+            x1i = int(max(0, x1))
+            y1i = int(max(0, y1))
+            x2i = int(min(orig_w, x1 + bw + 1))
+            y2i = int(min(orig_h, y1 + bh + 1))
+            if invalid_mask[y1i:y2i, x1i:x2i].any():
+                continue
+            boxes.append([
+                x1 * scale_x,
+                y1 * scale_y,
+                (x1 + bw) * scale_x,
+                (y1 + bh) * scale_y,
+            ])
+            labels.append(1)
+            masks.append(torch.zeros((0, 0), dtype=torch.uint8))
+
+        if boxes:
+            boxes_tensor  = torch.tensor(boxes, dtype=torch.float32)
+            labels_tensor = torch.tensor(labels, dtype=torch.int64)
+        else:
+            boxes_tensor  = torch.zeros((0, 4), dtype=torch.float32)
+            labels_tensor = torch.zeros((0,), dtype=torch.int64)
+            masks = [torch.zeros((0, 0), dtype=torch.uint8)]
+
+        # ------------------------------------------------------------------
+        # Segmentation mask — rasterise filled circles per bbox
+        # ------------------------------------------------------------------
+        seg_mask: torch.Tensor | None = None
+        if self.task_mode == "segmentation":
+            h_out = vis_t.shape[-2]
+            w_out = vis_t.shape[-1]
+            seg = torch.zeros((h_out, w_out), dtype=torch.long)
+            if boxes:
+                yy, xx = torch.meshgrid(
+                    torch.arange(h_out, dtype=torch.float32),
+                    torch.arange(w_out, dtype=torch.float32),
+                    indexing="ij",
+                )
+                for x1, y1, x2, y2 in boxes:
+                    cx = (x1 + x2) / 2.0
+                    cy = (y1 + y2) / 2.0
+                    r  = min(x2 - x1, y2 - y1) / 2.0
+                    if r > 0:
+                        seg[(yy - cy) ** 2 + (xx - cx) ** 2 <= r * r] = 1
+            seg_mask = seg
+
+        # ------------------------------------------------------------------
+        # Metadata token tensor
+        # ------------------------------------------------------------------
+        metadata_t: torch.Tensor | None = None
+        if self._use_metadata:
+            meta_row = self._metadata_lookup.get(s["stem"])
+            metadata_t = (
+                self._metadata_encoder.encode(meta_row)
+                if meta_row is not None
+                else torch.zeros(_METADATA_MAX_TOKENS, dtype=torch.long)
+            )
+
+        # ------------------------------------------------------------------
+        # Assemble packed "image" tensor — vis channels followed by one
+        # extra channel per sequence modality (same layout as NACDTM
+        # "packed" mode so LunarBackbone._unpack_modalities can slice it).
+        #
+        # Layout: [vis_ch0 … vis_ch4 | meta_ch (optional)]
+        #   meta_ch: flat spatial dim holds token IDs in positions
+        #            [0 : _PACKED_SEQ_LEN], rest padded with _PACKED_SEQ_PAD.
+        # ------------------------------------------------------------------
+        channels: list[torch.Tensor] = [vis_t]   # (5, H, W)
+        if metadata_t is not None:
+            h_img, w_img = vis_t.shape[-2], vis_t.shape[-1]
+            flat_len = h_img * w_img
+            meta_channel = torch.full((flat_len,), _PACKED_SEQ_PAD, dtype=torch.float32)
+            meta_channel[: metadata_t.numel()] = metadata_t.to(torch.float32)
+            channels.append(meta_channel.view(1, h_img, w_img))
+
+        image_t = torch.cat(channels, dim=0)   # (5, H, W) or (6, H, W)
+
+        # ------------------------------------------------------------------
+        # Assemble output dict
+        # ------------------------------------------------------------------
+        if self.task_mode == "segmentation":
+            sample: dict[str, Any] = {
+                "image": image_t,
+                "mask":  seg_mask,
+                # Keep "vis" for plot(); the task only reads "image" / "mask"
+                "vis":   vis_t,
+            }
+        else:
+            sample = {
+                "image":                     image_t,
+                self.boxes_output_tag:       boxes_tensor,
+                self.labels_output_tag:      labels_tensor,
+                self.masks_output_tag:       masks,
+                # Keep "vis" for plot(); the task only reads "image" / boxes
+                "vis":                       vis_t,
+            }
+
+        if self.transforms is not None:
+            sample = self.transforms(sample)
+
+        return sample
+
+    def plot(
+        self,
+        sample: dict[str, Any],
+        show_titles: bool = True,
+        suptitle: str | None = None,
+        box_alpha: float = 0.8,
+        confidence_score: float = 0.5,
+    ) -> "Figure":
+        """Plot a sample: first WAC band with bounding boxes overlaid.
+
+        Shows the first WAC band (415 nm) only.  If predictions are present in
+        *sample* (keys ``prediction_{boxes_output_tag}``,
+        ``prediction_{labels_output_tag}``, and optionally
+        ``prediction_{scores_output_tag}``), a second column with the predicted
+        boxes is appended.
+
+        Args:
+            sample: Dict as returned by :meth:`__getitem__`.
+            show_titles: Whether to show column titles.
+            suptitle: Optional figure super-title.
+            box_alpha: Alpha for bounding-box edge colour.
+            confidence_score: Minimum score threshold for prediction boxes.
+
+        Returns:
+            ``matplotlib.figure.Figure``.
+        """
+        vis = sample["vis"]
+        if isinstance(vis, torch.Tensor):
+            vis = vis.cpu().numpy()
+
+        # Use only the first band for display.
+        band = vis[0]
+        lo, hi = np.nanmin(band), np.nanmax(band)
+        disp = (band - lo) / (hi - lo + 1e-8)
+
+        # Ground-truth boxes.
+        boxes = sample.get(self.boxes_output_tag)
+        if isinstance(boxes, torch.Tensor):
+            boxes = boxes.cpu().numpy()
+
+        # Prediction boxes (optional).
+        pred_key = f"prediction_{self.boxes_output_tag}"
+        show_predictions = pred_key in sample
+        if show_predictions:
+            pred_boxes = sample[pred_key]
+            if isinstance(pred_boxes, torch.Tensor):
+                pred_boxes = pred_boxes.cpu().numpy()
+            pred_scores_key = f"prediction_{self.scores_output_tag}"
+            pred_scores = sample.get(pred_scores_key)
+            if isinstance(pred_scores, torch.Tensor):
+                pred_scores = pred_scores.cpu().numpy()
+        else:
+            pred_boxes = pred_scores = None
+
+        ncols = 2 if show_predictions else 1
+        fig, axs = plt.subplots(1, ncols, figsize=(6 * ncols, 6), squeeze=False)
+
+        def _draw_boxes(ax, box_array, score_array=None):
+            if box_array is None or not len(box_array):
+                return
+            for i, box in enumerate(box_array):
+                if score_array is not None and score_array[i] < confidence_score:
+                    continue
+                x1, y1, x2, y2 = box
+                rect = patches.Rectangle(
+                    (x1, y1), x2 - x1, y2 - y1,
+                    linewidth=1.2, edgecolor="red",
+                    facecolor="none", alpha=box_alpha,
+                )
+                ax.add_patch(rect)
+
+        # Ground-truth column.
+        axs[0, 0].imshow(disp, cmap="gray", vmin=0, vmax=1, interpolation="nearest")
+        axs[0, 0].axis("off")
+        _draw_boxes(axs[0, 0], boxes)
+        if show_titles:
+            axs[0, 0].set_title(f"{_WAC_BAND_NAMES[0]} nm — Ground Truth", fontsize=9)
+
+        # Prediction column (only when predictions are present).
+        if show_predictions:
+            axs[0, 1].imshow(disp, cmap="gray", vmin=0, vmax=1, interpolation="nearest")
+            axs[0, 1].axis("off")
+            _draw_boxes(axs[0, 1], pred_boxes, pred_scores)
+            if show_titles:
+                axs[0, 1].set_title(f"{_WAC_BAND_NAMES[0]} nm — Prediction", fontsize=9)
+
+        if suptitle is not None:
+            fig.suptitle(suptitle, fontsize=12, fontweight="bold")
+
+        plt.tight_layout()
+        return fig
+
+
+class LunarWACCraterDataModule(LightningDataModule):
+    """TerraTorch-compatible data module for WAC 5-band multi-spectral crater detection.
+
+    Splits are driven by separate COCO JSON files (one per split).  Supply
+    either ``annotations_dir`` (a directory containing ``train.json``,
+    ``val.json``, and ``test.json``) or the three explicit path overrides.
+
+    The primary image tensor is returned under the ``"vis"`` key, matching the
+    modality name expected by :class:`LunarBackbone`.
+
+    Example YAML config::
+
+        data:
+          class_path: terratorch_integration.data_adapter.LunarWACCraterDataModule
+          init_args:
+            data_dir: data/coco_annotations_WAC_test_10k
+            annotations_dir: data/coco_annotations_WAC_test_10k
+            metadata_file: data/coco_annotations_WAC_test_10k/metadata.parquet
+            wac_norm_means: [0.0419, 0.0561, 0.0601, 0.0634, 0.0670]
+            wac_norm_stds:  [0.0375, 0.0485, 0.0522, 0.0557, 0.0581]
+            batch_size: 4
+            num_workers: 4
+            image_size: 256
+    """
+
+    def __init__(
+        self,
+        data_dir: str,
+        annotations_dir: str | None = None,
+        train_annotations_file: str | None = None,
+        val_annotations_file: str | None = None,
+        test_annotations_file: str | None = None,
+        metadata_file: str | None = None,
+        images_subdir: str = "images_tiff",
+        # Training / loader
+        batch_size: int = 4,
+        num_workers: int = 0,
+        image_size: int | None = None,
+        task_mode: str = "detection",
+        drop_no_crater_images: bool = False,
+        min_diameter_px: float = 5.0,
+        # Output tags
+        boxes_output_tag: str = "boxes",
+        labels_output_tag: str = "labels",
+        masks_output_tag: str = "masks",
+        scores_output_tag: str = "scores",
+        # Per-split transforms
+        train_transforms: Callable | None = None,
+        val_transforms: Callable | None = None,
+        test_transforms: Callable | None = None,
+        # Custom collate
+        collate_fn: Callable | None = None,
+        # Normalisation
+        wac_norm_means: list[float] | None = None,
+        wac_norm_stds: list[float] | None = None,
+        mask_threshold: float | None = None,
+        mask_fill_value: float = 0.0,
+        # Training-set subsampling
+        train_fraction: float | None = None,
+        # Metadata tokenizer
+        metadata_tokenizer_path: str = MetadataEncoder._DEFAULT_TOKENIZER,
+        metadata_binning_config_path: str = MetadataEncoder._DEFAULT_BINNING,
+    ):
+        """Initialise the data module.
+
+        Args:
+            data_dir: Root directory containing ``images_tiff/`` and
+                      optionally ``metadata.parquet``.
+            annotations_dir: Directory that contains ``train.json``,
+                             ``val.json``, and ``test.json``.  Mutually
+                             exclusive with the three explicit file overrides.
+            train_annotations_file: Explicit path to the training COCO JSON.
+            val_annotations_file: Explicit path to the validation COCO JSON.
+            test_annotations_file: Explicit path to the test COCO JSON.
+            metadata_file: Optional path to ``metadata.parquet``.
+            images_subdir: Sub-directory under ``data_dir`` containing the
+                           stacked GeoTIFF files.
+            batch_size: Samples per batch.
+            num_workers: DataLoader worker processes.
+            image_size: Resize tiles to this square size.
+            task_mode: ``"detection"`` or ``"segmentation"``.
+            drop_no_crater_images: Discard tiles with no surviving annotations.
+            min_diameter_px: Minimum crater bounding-box side in pixels.
+            boxes_output_tag: Output key for bounding boxes.
+            labels_output_tag: Output key for labels.
+            masks_output_tag: Output key for masks.
+            scores_output_tag: Output key for scores.
+            train_transforms: Per-sample transforms for the training split.
+            val_transforms: Per-sample transforms for the validation split.
+            test_transforms: Per-sample transforms for the test split.
+            collate_fn: Optional custom collate function (overrides default).
+            wac_norm_means: Per-channel means (length 5).
+            wac_norm_stds: Per-channel stds (length 5).
+            mask_threshold: Pixels ≤ this are treated as nodata.
+            mask_fill_value: Replacement value for nodata pixels.
+            train_fraction: Retain only this fraction of training images, e.g.
+                            ``0.1`` keeps 800 of 8000 tiles.  Val and test are
+                            always loaded in full.  Must be in ``(0, 1]``.
+                            The RNG seed is fixed at 123 for reproducibility.
+            metadata_tokenizer_path: Path to the HuggingFace tokenizer JSON.
+            metadata_binning_config_path: Path to the binning CSV.
+        """
+        if annotations_dir is None and (
+            train_annotations_file is None
+            or val_annotations_file is None
+            or test_annotations_file is None
+        ):
+            raise ValueError(
+                "Provide either annotations_dir or all three of "
+                "train_annotations_file, val_annotations_file, "
+                "test_annotations_file."
+            )
+        if task_mode not in {"detection", "segmentation"}:
+            raise ValueError(
+                f"task_mode must be 'detection' or 'segmentation', got '{task_mode}'"
+            )
+
+        super().__init__()
+
+        self.data_dir = data_dir
+        self.images_subdir = images_subdir
+        self.metadata_file = metadata_file
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.image_size = image_size
+        self.task_mode = task_mode
+        self.drop_no_crater_images = drop_no_crater_images
+        self.min_diameter_px = min_diameter_px
+        self.boxes_output_tag = boxes_output_tag
+        self.labels_output_tag = labels_output_tag
+        self.masks_output_tag = masks_output_tag
+        self.scores_output_tag = scores_output_tag
+        self.train_transforms = train_transforms
+        self.val_transforms = val_transforms
+        self.test_transforms = test_transforms
+        self.wac_norm_means = wac_norm_means
+        self.wac_norm_stds = wac_norm_stds
+        self.mask_threshold = mask_threshold
+        self.mask_fill_value = mask_fill_value
+        self.train_fraction = train_fraction
+        self.metadata_tokenizer_path = metadata_tokenizer_path
+        self.metadata_binning_config_path = metadata_binning_config_path
+
+        # Resolve annotation file paths
+        ann_dir = Path(annotations_dir) if annotations_dir is not None else None
+        self._ann_files: dict[str, str] = {
+            "train": str(train_annotations_file or ann_dir / "train.json"),
+            "val":   str(val_annotations_file   or ann_dir / "val.json"),
+            "test":  str(test_annotations_file  or ann_dir / "test.json"),
+        }
+
+        # Collate function — "image" is the packed tensor; metadata is baked
+        # into it so no separate metadata stacking is needed.
+        if collate_fn is not None:
+            self.collate_fn = collate_fn
+        elif task_mode == "segmentation":
+            self.collate_fn = lambda batch: collate_fn_segmentation(batch)
+        else:
+            self.collate_fn = lambda batch: collate_fn_detection_stacked(
+                batch,
+                boxes_tag=boxes_output_tag,
+                labels_tag=labels_output_tag,
+                masks_tag=masks_output_tag,
+            )
+
+        self.train_dataset: LunarWACCraterDataset | None = None
+        self.val_dataset:   LunarWACCraterDataset | None = None
+        self.test_dataset:  LunarWACCraterDataset | None = None
+
+    def _make_dataset(
+        self, split: str, transforms: Callable | None
+    ) -> LunarWACCraterDataset:
+        return LunarWACCraterDataset(
+            data_dir=self.data_dir,
+            annotations_file=self._ann_files[split],
+            metadata_file=self.metadata_file,
+            images_subdir=self.images_subdir,
+            drop_no_crater_images=self.drop_no_crater_images,
+            image_size=self.image_size,
+            min_diameter_px=self.min_diameter_px,
+            task_mode=self.task_mode,
+            transforms=transforms,
+            boxes_output_tag=self.boxes_output_tag,
+            labels_output_tag=self.labels_output_tag,
+            masks_output_tag=self.masks_output_tag,
+            scores_output_tag=self.scores_output_tag,
+            wac_norm_means=self.wac_norm_means,
+            wac_norm_stds=self.wac_norm_stds,
+            mask_threshold=self.mask_threshold,
+            mask_fill_value=self.mask_fill_value,
+            # Only apply subsampling to the training split
+            train_fraction=self.train_fraction if split == "train" else None,
+            metadata_tokenizer_path=self.metadata_tokenizer_path,
+            metadata_binning_config_path=self.metadata_binning_config_path,
+        )
+
+    def setup(self, stage: str) -> None:
+        """Create datasets for the requested stage.
+
+        Args:
+            stage: One of ``"fit"``, ``"validate"``, or ``"test"``.
+        """
+        if stage == "fit":
+            self.train_dataset = self._make_dataset("train", self.train_transforms)
+            self.val_dataset   = self._make_dataset("val",   self.val_transforms)
+        elif stage == "validate":
+            self.val_dataset   = self._make_dataset("val",   self.val_transforms)
+        elif stage == "test":
+            self.test_dataset  = self._make_dataset("test",  self.test_transforms)
+
+    def _dataloader_factory(self, split: str) -> DataLoader:
+        dataset_attr = f"{split}_dataset"
+        if getattr(self, dataset_attr, None) is None:
+            stage = "fit" if split == "train" else split
+            self.setup(stage)
+        dataset = getattr(self, dataset_attr)
+        return DataLoader(
+            dataset=dataset,
+            batch_size=self.batch_size,
+            shuffle=(split == "train"),
+            num_workers=self.num_workers,
+            collate_fn=self.collate_fn,
+        )
+
+    def train_dataloader(self) -> DataLoader:
+        """Return training DataLoader."""
+        return self._dataloader_factory("train")
+
+    def val_dataloader(self) -> DataLoader:
+        """Return validation DataLoader."""
+        return self._dataloader_factory("val")
+
+    def test_dataloader(self) -> DataLoader:
+        """Return test DataLoader."""
+        return self._dataloader_factory("test")
+
+    def plot(self, sample: dict[str, Any], **kwargs) -> "Figure":
+        """Delegate to the underlying dataset's plot method."""
+        dataset = self.val_dataset or self.train_dataset or self.test_dataset
+        if dataset is None:
+            raise RuntimeError("No dataset available; call setup() first.")
+        return dataset.plot(sample, **kwargs)

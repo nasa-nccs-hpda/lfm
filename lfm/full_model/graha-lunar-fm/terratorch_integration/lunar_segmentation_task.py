@@ -2,7 +2,8 @@
 
 ``LunarSegmentationTask`` — LLRD + split encoder/decoder LR
 ------------------------------------------------------------
-Mirrors the same optimiser recipe used in ``LunarObjectDetectionTask``:
+Inherits the shared LLRD + dual-LR + PEFT-fix recipe from
+:class:`_LunarLLRDMixin`:
 
 * **backbone_lr** — base LR for the top encoder layer; deeper layers get
   ``backbone_lr * layer_decay ** k`` (LLRD).
@@ -11,18 +12,16 @@ Mirrors the same optimiser recipe used in ``LunarObjectDetectionTask``:
 * Warmup + cosine annealing schedule.
 * Bias / norm / positional params always skip weight decay.
 
-Config note: do **not** set top-level ``optimizer:`` / ``lr_scheduler:`` when
-using this task — those monkey-patch ``configure_optimizers`` and would
-override the LLRD groups. Pass LR settings as task init args instead.
+See :mod:`terratorch_integration.lunar_llrd_mixin` for the full recipe.
 
 ``LunarShapeSegmentationTask`` — per-crater roundness regulariser
 -----------------------------------------------------------------
-Inherits the LLRD setup from ``LunarSegmentationTask`` and adds an auxiliary
-shape-compactness loss that penalises non-circular predicted crater blobs.
-The regulariser operates per bounding-box ROI (bboxes passed through the
-batch under the ``"crater_boxes"`` key by the ``LunarNACDTMDataset`` when
-constructed with ``keep_boxes=True``), so it is not confused by multiple
-craters in the same image.
+Inherits from ``LunarSegmentationTask`` and adds an auxiliary shape-compactness
+loss that penalises non-circular predicted crater blobs. The regulariser
+operates per bounding-box ROI (bboxes passed through the batch under the
+``"crater_boxes"`` key by the ``LunarNACDTMDataset`` when constructed with
+``keep_boxes=True``), so it is not confused by multiple craters in the same
+image.
 
 Shape term (per bbox ROI)::
 
@@ -30,19 +29,8 @@ Shape term (per bbox ROI)::
     compactness = 4π · area / perimeter²      ∈ (0, 1], =1 for a disk
     L_shape     = clamp(1 − compactness, min=0)
 
-The L2 magnitude of the pixel-space gradient integrates to the true
-perimeter for a disk, so a filled disk scores ~1 (loss ~0) without any
-correction constant.  L2 was chosen over the cheaper L1 TV variant because
-axis-aligned rectangles are the L1-optimum (they score >1 and get clamped
-to zero loss even though they're not round); the L2 form correctly
-penalises them.
-
-TV was chosen over Sobel-magnitude perimeter because ``|dx|+|dy|`` has
-well-behaved gradients near zero and requires no epsilon inside a sqrt.
-
-Turn the regulariser off by setting ``shape_loss_weight: 0`` — the class
-then behaves exactly like ``LunarSegmentationTask`` (aside from the
-``crater_boxes`` pop, which is a no-op when the key is absent).
+Turn the regulariser off by setting ``shape_loss_weight: 0`` — the class then
+behaves exactly like ``LunarSegmentationTask``.
 """
 
 from __future__ import annotations
@@ -52,298 +40,59 @@ from typing import Any
 
 import torch
 from torch import Tensor
-from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
 from terratorch.tasks import SemanticSegmentationTask
 from terratorch.tasks.segmentation_tasks import to_segmentation_prediction
 
-
-# ---------------------------------------------------------------------------
-# Shared LLRD helpers (mirrors lunar_object_detection_task.py)
-# ---------------------------------------------------------------------------
-
-_NO_DECAY_TOKENS = (
-    "bias",
-    "norm.weight",
-    "layernorm.weight",
-    "ln.weight",
-    "register_tokens",
-    "pos_emb",
-    "pos_embed",
-    "cls_token",
-    "mod_emb",
+from .lunar_llrd_mixin import (
+    _LunarLLRDMixin,
+    _encoder_block_index,
+    _find_lunar_backbone,
+    _fix_frozen_new_modality_embedders_after_peft,
+    _has_active_peft_adapters,
+    _is_encoder_param,
+    _is_new_modality_param,
+    _no_decay,
 )
 
-
-def _no_decay(name: str) -> bool:
-    lname = name.lower()
-    return any(tok in lname for tok in _NO_DECAY_TOKENS)
-
-
-def _encoder_block_index(name: str) -> int | None:
-    """Return the integer block index if *name* sits inside an encoder block.
-
-    Supports multiple ViT-style layouts:
-      - Lunar FM:  ``...model.encoder.<i>.<rest>``
-      - timm ViT:  ``...blocks.<i>.<rest>``
-      - generic:   ``...layers.<i>.<rest>``
-    Returns ``None`` for names that don't sit inside a recognised block.
-    """
-    for key in (".model.encoder.", ".blocks.", ".layers."):
-        idx = name.find(key)
-        if idx < 0:
-            continue
-        tail = name[idx + len(key):]
-        first = tail.split(".", 1)[0]
-        if first.isdigit():
-            return int(first)
-    return None
-
-
-def _is_encoder_param(name: str) -> bool:
-    """True for parameters that belong to the backbone/encoder.
-
-    For a terratorch PixelWiseModel the module tree is::
-
-        task.model
-          .encoder   ← backbone (ViT, etc.)
-          .decoder   ← neck / FPN / decoder head
-          .head      ← final segmentation conv
-          .aux_heads ← auxiliary decoders
-
-    ``self.model.named_parameters()`` yields names starting with ``encoder.``
-    for backbone params (the LunarBackbone wrapper adds its own ``.model.``
-    below, so a full name looks like ``encoder.model.encoder.<i>....``).
-    Everything else (decoder, head, aux_heads, neck) is head-side.
-    """
-    return name.startswith("encoder.")
-
-
-def _is_new_modality_param(name: str, new_modality_names: list[str]) -> bool:
-    """True for encoder-embedding params that belong to a *new* (randomly
-    initialised) modality, i.e. one that was not present in the pretrained
-    checkpoint.
-
-    These live under ``encoder.model.encoder_embeddings.<mod_name>.``
-    and must be trained at ``head_lr`` rather than the tiny LLRD layer-0 LR,
-    because they start from random init and need to converge at the same rate
-    as the freshly initialised decoder/head.
-
-    The modality names come directly from ``LunarBackbone._new_modalities``
-    (the same dict that was passed as ``backbone_new_modalities`` in the
-    config), so the user never has to repeat them in the task config.
-    """
-    if not new_modality_names:
-        return False
-    return any(
-        f"encoder_embeddings.{mod}." in name for mod in new_modality_names
-    )
+# Backward-compatible re-exports. Existing test modules and configs import these
+# names from ``lunar_segmentation_task``; after the LLRD consolidation the real
+# source is ``lunar_llrd_mixin``, but we keep the old public path stable.
+__all__ = [
+    "LunarSegmentationTask",
+    "LunarShapeSegmentationTask",
+    "crater_shape_loss",
+    # Helpers (re-exported for back-compat)
+    "_encoder_block_index",
+    "_find_lunar_backbone",
+    "_fix_frozen_new_modality_embedders_after_peft",
+    "_has_active_peft_adapters",
+    "_is_encoder_param",
+    "_is_new_modality_param",
+    "_no_decay",
+]
 
 
 # ---------------------------------------------------------------------------
 # LunarSegmentationTask
 # ---------------------------------------------------------------------------
 
-class LunarSegmentationTask(SemanticSegmentationTask):
+
+class LunarSegmentationTask(_LunarLLRDMixin, SemanticSegmentationTask):
     """Segmentation task with LLRD and split encoder/decoder param groups.
 
-    Args:
-        backbone_lr: Base LR for the top encoder layer (encoder_norm + last
-            block). Deeper blocks get ``backbone_lr * layer_decay ** k``.
-        head_lr: LR for decoder, segmentation head, and auxiliary heads.
-        layer_decay: Per-layer LR decay factor inside the encoder. 1.0 disables
-            LLRD (flat backbone LR).
-        weight_decay: Weight decay applied to matrix params in the encoder.
-        head_weight_decay: Weight decay for decoder / head params. Defaults to
-            the same value as ``weight_decay`` if not set.
-        warmup_steps: Linear warmup length in optimiser steps. 0 disables.
-        cosine_t_max: Total steps for the cosine phase. If ``None``, falls back
-            to ``trainer.estimated_stepping_batches - warmup_steps``.
-        eta_min: Final LR floor for cosine annealing.
-        betas: AdamW betas.
-
-    All other keyword arguments are forwarded to
+    All optimiser knobs (``backbone_lr``, ``head_lr``, ``layer_decay``,
+    ``weight_decay``, ``head_weight_decay``, ``warmup_steps``, ``cosine_t_max``,
+    ``eta_min``, ``betas``) come from :class:`_LunarLLRDMixin`. Any other
+    keyword argument is forwarded to
     :class:`~terratorch.tasks.SemanticSegmentationTask`.
     """
-
-    def __init__(
-        self,
-        *args: Any,
-        backbone_lr: float = 5.0e-5,
-        head_lr: float = 2.0e-4,
-        layer_decay: float = 0.75,
-        weight_decay: float = 0.05,
-        head_weight_decay: float | None = None,
-        warmup_steps: int = 500,
-        cosine_t_max: int | None = None,
-        eta_min: float = 1.0e-6,
-        betas: tuple[float, float] = (0.9, 0.98),
-        **kwargs: Any,
-    ) -> None:
-        # Disable base-class optimizer/scheduler — we build them ourselves.
-        kwargs.setdefault("optimizer", None)
-        kwargs.setdefault("optimizer_hparams", None)
-        kwargs.setdefault("scheduler", None)
-        kwargs.setdefault("scheduler_hparams", None)
-        super().__init__(*args, **kwargs)
-        self.backbone_lr = float(backbone_lr)
-        self.head_lr = float(head_lr)
-        self.layer_decay = float(layer_decay)
-        self.weight_decay = float(weight_decay)
-        self.head_weight_decay = (
-            float(head_weight_decay) if head_weight_decay is not None else float(weight_decay)
-        )
-        self.warmup_steps = int(warmup_steps)
-        self.cosine_t_max = cosine_t_max
-        self.eta_min = float(eta_min)
-        self.betas = tuple(betas)
-
-    # ------------------------------------------------------------------ utils
-
-    def _get_new_modality_names(self) -> list[str]:
-        """Read new-modality names directly from ``LunarBackbone._new_modalities``.
-
-        For a PixelWiseModel the encoder *is* the LunarBackbone, so the path is
-        ``task.model.encoder``. Returns an empty list when the encoder has no
-        ``_new_modalities`` attribute or it is None/empty.
-        """
-        enc = self.model.encoder
-        new_mods = getattr(enc, "_new_modalities", None) or {}
-        return list(new_mods.keys())
-
-    def _num_encoder_blocks(self) -> int:
-        """Number of transformer blocks in the encoder.
-
-        Falls back to counting ``model.encoder.blocks`` (timm-style) then
-        ``model.encoder.model.encoder`` (Lunar FM style), then 12.
-        """
-        enc = self.model.encoder
-        if hasattr(enc, "blocks"):
-            return len(enc.blocks)
-        if hasattr(enc, "model") and hasattr(enc.model, "encoder"):
-            return len(enc.model.encoder)
-        # generic fallback: scan named params for the highest block index
-        max_idx = -1
-        for name, _ in self.model.named_parameters():
-            idx = _encoder_block_index(name)
-            if idx is not None and idx > max_idx:
-                max_idx = idx
-        return max_idx + 1 if max_idx >= 0 else 12
-
-    def _param_layer_id(self, name: str, num_blocks: int) -> int:
-        """Integer layer id in ``[0, num_blocks + 1]``.
-
-        0        = embeddings / register tokens / patch embed
-        1..N     = encoder blocks (1 = deepest, N = shallowest)
-        N+1      = encoder_norm (top of encoder)
-        """
-        blk = _encoder_block_index(name)
-        if blk is not None:
-            return blk + 1
-        if "encoder_norm" in name:
-            return num_blocks + 1
-        return 0
-
-    def _make_param_groups(self) -> list[dict[str, Any]]:
-        num_blocks = self._num_encoder_blocks()
-        top_layer = num_blocks + 1
-        new_mod_names = self._get_new_modality_names()
-        groups: dict[tuple[str, bool], dict[str, Any]] = {}
-
-        for name, p in self.model.named_parameters():
-            if not p.requires_grad:
-                continue
-            in_encoder = _is_encoder_param(name)
-            nd = _no_decay(name)
-
-            if in_encoder and _is_new_modality_param(name, new_mod_names):
-                # Randomly-initialised embedding for a new modality: train at
-                # head_lr so it converges at the same rate as the decoder/head.
-                group_name = f"new_mod_emb_{'nd' if nd else 'wd'}"
-                lr = self.head_lr
-                wd = 0.0 if nd else self.head_weight_decay
-            elif in_encoder:
-                layer_id = self._param_layer_id(name, num_blocks)
-                scale = self.layer_decay ** (top_layer - layer_id)
-                lr = self.backbone_lr * scale
-                wd = 0.0 if nd else self.weight_decay
-                group_name = f"encoder_layer_{layer_id}_{'nd' if nd else 'wd'}"
-            else:
-                lr = self.head_lr
-                wd = 0.0 if nd else self.head_weight_decay
-                group_name = f"head_{'nd' if nd else 'wd'}"
-
-            g = groups.setdefault(
-                group_name,
-                {"params": [], "lr": lr, "weight_decay": wd, "name": group_name},
-            )
-            g["params"].append(p)
-
-        # Stable ordering: encoder first (deepest → shallowest), then head/new_mod.
-        def _sort_key(g: dict) -> tuple:
-            n = g["name"]
-            if n.startswith("encoder_layer_"):
-                # sort by layer id numerically
-                try:
-                    layer_num = int(n.split("_")[2])
-                except (IndexError, ValueError):
-                    layer_num = -1
-                return (0, layer_num, n)
-            return (1, 0, n)
-
-        return sorted(groups.values(), key=_sort_key)
-
-    # ---------------------------------------------------------- optim/sched
-
-    def configure_optimizers(self):  # type: ignore[override]
-        param_groups = self._make_param_groups()
-        n_params = sum(sum(p.numel() for p in g["params"]) for g in param_groups)
-        print(
-            f"[LunarSegmentationTask] {len(param_groups)} param groups, "
-            f"{n_params / 1e6:.1f}M trainable params. "
-            f"layer_decay={self.layer_decay} backbone_lr={self.backbone_lr} "
-            f"head_lr={self.head_lr}"
-        )
-        for g in param_groups:
-            print(
-                f"  {g['name']:<36s} lr={g['lr']:.2e} wd={g['weight_decay']:.2e} "
-                f"n={sum(p.numel() for p in g['params']):,}"
-            )
-
-        optimizer = torch.optim.AdamW(param_groups, betas=self.betas)
-
-        try:
-            total_steps = int(self.trainer.estimated_stepping_batches)
-        except Exception:
-            total_steps = 0
-
-        t_max = self.cosine_t_max
-        if t_max is None:
-            t_max = max(1, total_steps - self.warmup_steps) if total_steps else 10_000
-
-        cosine = CosineAnnealingLR(optimizer, T_max=t_max, eta_min=self.eta_min)
-        if self.warmup_steps > 0:
-            warmup = LinearLR(
-                optimizer,
-                start_factor=1.0 / max(self.warmup_steps, 1),
-                end_factor=1.0,
-                total_iters=self.warmup_steps,
-            )
-            scheduler = SequentialLR(
-                optimizer, schedulers=[warmup, cosine], milestones=[self.warmup_steps]
-            )
-        else:
-            scheduler = cosine
-
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {"scheduler": scheduler, "interval": "step"},
-        }
 
 
 # ---------------------------------------------------------------------------
 # Shape-loss helper
 # ---------------------------------------------------------------------------
+
 
 def crater_shape_loss(
     prob: Tensor,
@@ -423,12 +172,12 @@ def crater_shape_loss(
 # LunarShapeSegmentationTask
 # ---------------------------------------------------------------------------
 
+
 class LunarShapeSegmentationTask(LunarSegmentationTask):
     """Segmentation task with LLRD **and** a per-crater roundness loss.
 
     Combines the encoder/decoder LR split from :class:`LunarSegmentationTask`
-    with the shape-compactness regulariser originally in
-    ``LunarSegmentationTask`` (the old single-class version of this file).
+    with a shape-compactness regulariser.
 
     Extra init args:
         shape_loss_weight: Multiplier for the shape regulariser. Set to 0 to

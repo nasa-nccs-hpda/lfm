@@ -1,0 +1,129 @@
+# Lunar Crater Detection — NAC ResNet baseline (fair-fight comparison)
+#
+# The point of this run: same modalities (NAC) and same anchor fix as the
+# FM run, with the strongest defensible ResNet baseline — ImageNet-pretrained
+# ResNet50 with conv1 adapted from 3 → 2 input channels (timm does this
+# automatically via adapt_input_conv when in_chans=2 + pretrained=True).
+#
+# Everything else mirrors the FM's post-anchor-fix config so the delta
+# isolates "which backbone" rather than "which recipe".
+#
+# RUN:
+#   PYTHONPATH=. \
+#   terratorch fit --config terratorch_integration/configs/crater_detection_nac_resnet.yaml
+
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 100
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 5
+  gradient_clip_val: 1.0
+  gradient_clip_algorithm: norm
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/
+      name: crater-detection-nac-resnet
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: step
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/crater-detection-nac-resnet
+        monitor: val_map
+        mode: max
+        filename: best-{epoch:02d}-{val_map:.3f}
+        save_top_k: 3
+        save_last: true
+
+data:
+  class_path: terratorch_integration.data_adapter.LunarNACDTMDataModule
+  init_args:
+    data_dir: data/NAC_craters_coco_release
+    metadata_file: data/NAC_craters_coco_release/metadata.parquet
+    annotations_file: data/NAC_craters_coco_release/splits_used_for_labeling/nac_handlabeled_annotations.json
+    modalities: [nac]
+
+    output_mode: packed          # NAC + DTM stacked into a single (B, 2, H, W) tensor
+    batch_size: 4
+    num_workers: 0
+    image_size: 256
+    min_diameter_m: 5.0
+    nac_mask_threshold: -1.0
+    nac_mask_fill_value: 0.0
+    nac_norm_mean: 0.030591336778881636
+    nac_norm_std: 0.027601087108837487
+    dtm_mask_threshold: -9999.0
+    dtm_mask_fill_value: 0.0
+    dtm_global_std: 15.533791
+
+model:
+  # Reusing LunarObjectDetectionTask to get the anchor override. LLRD is
+  # disabled (layer_decay=1.0, backbone_lr==head_lr) so the LR schedule
+  # is effectively flat AdamW — same recipe you'd have used with the
+  # upstream ObjectDetectionTask.
+  class_path: terratorch_integration.LunarObjectDetectionTask
+  init_args:
+    model_factory: ObjectDetectionModelFactory
+    model_args:
+      framework: faster-rcnn
+
+      # timm's ResNet50 via terratorch's TIMM backbone source. features_only=True
+      # is applied automatically by TimmRegistry. out_indices=(1,2,3,4) selects
+      # the four ResNet stages at strides 4, 8, 16, 32 — matching the four
+      # anchor levels below. Excluding stage 0 (stride 2) keeps the neck at
+      # 4 levels, same count the FM run has after LearnedInterpolateToPyramidal.
+      backbone: timm_resnet50
+      backbone_pretrained: true
+      backbone_in_chans: 1                    # NAC; timm averages pretrained conv1 weights
+      backbone_out_indices: [1, 2, 3, 4]
+
+      num_classes: 2
+      framework_min_size: 256
+      framework_max_size: 256
+
+      in_channels: 1                         # tells the factory the packed tensor is 2-channel
+      necks:
+        # timm ResNet50 with features_only already returns a list of multi-scale
+        # feature maps at 4 levels — just run them through the FPN. No token
+        # reshaping, no interpolation to pyramidal (unlike the ViT which needs
+        # both because it produces a single-scale sequence of tokens).
+        - name: FeaturePyramidNetworkNeck
+
+    freeze_backbone: false
+    freeze_decoder: false
+
+    class_names:
+      - Background
+      - Crater
+
+    # -------- Anchor override (same values as the FM run) --------
+    # 4 FPN levels at strides ~[4, 8, 16, 32]. Anchor ≈ stride keeps the
+    # receptive field matched to the object scale each level can propose.
+    anchor_sizes: [[8], [16], [32], [64]]
+    anchor_aspect_ratios: [0.5, 1.0, 2.0]
+
+    # -------- LR / regularisation --------
+    # LLRD disabled: layer_decay=1.0 with backbone_lr == head_lr collapses to
+    # flat AdamW at 1e-4, matching the original ResNet run's recipe.
+    #
+    # Weight decay is lowered from the FM's ViT-default 0.05 to 1e-4 —
+    # standard for CNN detection fine-tuning. Higher WD hurts ResNet on
+    # small datasets.
+    #
+    # Betas (0.9, 0.999) is the detection standard (vs the LM (0.9, 0.98)
+    # inherited from earlier ViT configs).
+    backbone_lr: 1.0e-4
+    head_lr: 1.0e-4
+    layer_decay: 1.0
+    weight_decay: 1.0e-4
+    head_weight_decay: 1.0e-4
+    betas: [0.9, 0.999]
+    warmup_steps: 500
+    eta_min: 1.0e-6
