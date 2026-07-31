@@ -12,6 +12,7 @@ from .utils import (
     load_terramind_nac_pretraining_stats,
     load_terramind_pretraining_stats,
     load_terramind_wac_pretraining_stats,
+    setup_proj,
 )
 
 __all__ = [
@@ -35,6 +36,7 @@ __all__ = [
     "save_graha_instance_prediction_cache",
     "save_prediction_cache",
     "save_toy_instance_prediction_cache",
+    "setup_proj",
 ]
 
 

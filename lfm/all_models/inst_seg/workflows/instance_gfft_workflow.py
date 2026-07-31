@@ -27,7 +27,7 @@ def run_gfft_workflow(
     )
     started = time.perf_counter()
     instance_gfft_components.configure_proj_environment()
-    gfft_config = instance_gfft_components.build_comparison_config(config, output_dir)
+    gfft_config = instance_gfft_components.build_finetuning_config(config, output_dir)
     instance_gfft_components.configure_python_paths(gfft_config)
     instance_gfft_components.print_config(gfft_config)
     instance_gfft_components.validate_required_paths(gfft_config)

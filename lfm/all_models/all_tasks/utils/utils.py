@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -19,6 +21,87 @@ def create_timestamped_output_dir(base_dir: str | Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"Using output subdir: {output_dir}")
     return output_dir
+
+
+def _proj_dir_candidates(prefix: Path) -> list[Path]:
+    candidates = []
+    prefix_text = str(prefix)
+    if prefix_text.startswith("/explore/nobackup/"):
+        candidates.append(
+            Path(
+                prefix_text.replace("/explore/nobackup/", "/panfs/ccds02/nobackup/", 1)
+            )
+            / "share"
+            / "proj"
+        )
+    candidates.extend(
+        [
+            prefix / "share" / "proj",
+            prefix / "Library" / "share" / "proj",
+            Path("/panfs/ccds02/nobackup/projects/lfm/lfm-full-env/share/proj"),
+        ]
+    )
+    return candidates
+
+
+def setup_proj(
+    proj_dir: str | Path | None = None,
+    *,
+    gdal_dir: str | Path | None = None,
+    verbose: bool = True,
+) -> Path:
+    """Configure PROJ/GDAL for notebook and script geospatial imports.
+
+    Call this before importing packages that eagerly construct pyproj CRS
+    objects, such as TorchGeo through TerraTorch.
+    """
+    if proj_dir is None:
+        for candidate in _proj_dir_candidates(Path(sys.prefix)):
+            if (candidate / "proj.db").exists():
+                proj_dir = candidate
+                break
+        else:
+            raise FileNotFoundError(
+                "Could not find proj.db. Pass setup_proj(proj_dir=...) explicitly."
+            )
+
+    resolved_proj_dir = Path(proj_dir)
+    if not (resolved_proj_dir / "proj.db").exists():
+        raise FileNotFoundError(f"proj.db not found under {resolved_proj_dir}")
+
+    if gdal_dir is None:
+        candidate_gdal_dir = Path(sys.prefix) / "share" / "gdal"
+        if str(candidate_gdal_dir).startswith("/explore/nobackup/"):
+            panfs_gdal_dir = Path(
+                str(candidate_gdal_dir).replace(
+                    "/explore/nobackup/",
+                    "/panfs/ccds02/nobackup/",
+                    1,
+                )
+            )
+            if panfs_gdal_dir.exists():
+                candidate_gdal_dir = panfs_gdal_dir
+        gdal_dir = candidate_gdal_dir
+
+    os.environ["PROJ_LIB"] = str(resolved_proj_dir)
+    os.environ["PROJ_DATA"] = str(resolved_proj_dir)
+    if gdal_dir is not None and Path(gdal_dir).exists():
+        os.environ["GDAL_DATA"] = str(Path(gdal_dir))
+
+    try:
+        import pyproj
+
+        pyproj.datadir.set_data_dir(str(resolved_proj_dir))
+        if verbose:
+            print("pyproj data dir:", pyproj.datadir.get_data_dir())
+    except ImportError:
+        if verbose:
+            print("pyproj is not installed; set PROJ environment variables only.")
+
+    if verbose:
+        print("PROJ_DATA:", os.environ["PROJ_DATA"])
+        print("GDAL_DATA:", os.environ.get("GDAL_DATA"))
+    return resolved_proj_dir
 
 
 def ensure_data_symlink(

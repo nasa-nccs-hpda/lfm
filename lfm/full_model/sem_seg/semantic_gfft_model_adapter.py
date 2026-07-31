@@ -17,7 +17,10 @@ class GfftSemanticModelAdapter(SemanticModelAdapter):
         return "GFFT"
 
     def build_comparison_config(self, config: Any, output_dir: Path) -> Any:
-        return components.build_comparison_config(config, output_dir)
+        return components.build_finetuning_config(config, output_dir)
+
+    def build_finetuning_config(self, config: Any, output_dir: Path) -> Any:
+        return components.build_finetuning_config(config, output_dir)
 
     def build_config(self, args: Any) -> Any:
         return components.build_config(args)

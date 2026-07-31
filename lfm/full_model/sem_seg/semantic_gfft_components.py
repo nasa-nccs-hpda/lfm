@@ -30,8 +30,8 @@ def _resolve_gfft_backbone_checkpoint(config: Any) -> Path:
     )
 
 
-def build_comparison_config(config: Any, output_dir: Path):
-    """Build a Graha-shaped config with GFFT backbone weights."""
+def build_finetuning_config(config: Any, output_dir: Path):
+    """Build an internal fine-tuning config with GFFT backbone weights."""
     gfft_checkpoint = _resolve_gfft_backbone_checkpoint(config)
     graha_config = graha.build_comparison_config(config, output_dir)
     return replace(
