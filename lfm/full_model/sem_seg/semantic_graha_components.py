@@ -36,6 +36,7 @@ class FineTuningConfig:
     backbone_weights: Path
     backbone_cfg: Path
     modality_info: Path
+    gfft_config_path: Path | None
     data_root: Path
     base_output_dir: Path
     lightning_checkpoint: Path | None
@@ -178,6 +179,11 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         backbone_weights=pretrain_dir / "checkpoints/checkpoint_weights_final.pt",
         backbone_cfg=pretrain_dir / "full_config.yaml",
         modality_info=pretrain_dir / "modality_info.yaml",
+        gfft_config_path=(
+            Path(args.gfft_config_path).resolve()
+            if getattr(args, "gfft_config_path", None)
+            else None
+        ),
         data_root=data_root,
         base_output_dir=base_output_dir,
         lightning_checkpoint=lightning_checkpoint,
@@ -625,6 +631,11 @@ def build_comparison_config(config: Any, output_dir: Path) -> FineTuningConfig:
         lightning_checkpoint=(
             str(config.graha_lightning_checkpoint)
             if config.graha_lightning_checkpoint
+            else None
+        ),
+        gfft_config_path=(
+            str(config.gfft_config_path)
+            if getattr(config, "gfft_config_path", None)
             else None
         ),
         graha_input_modality_mode=config.graha_input_modality_mode,
