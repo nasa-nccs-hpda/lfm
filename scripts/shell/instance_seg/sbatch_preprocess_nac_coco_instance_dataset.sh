@@ -34,7 +34,7 @@ echo "Working directory: ${REPO_DIR}"
 echo
 
 module load miniforge
-mamba activate graha-lunar-fm
+mamba activate /explore/nobackup/projects/lfm/lfm-full-env
 python -u scripts/python/instance_seg/preprocess_nac_coco_instance_dataset.py "$@"
 
 END_TIME="$(date +%s)"

@@ -36,7 +36,7 @@ echo "CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-unset}"
 echo
 
 module load miniforge
-mamba activate graha-lunar-fm
+mamba activate /explore/nobackup/projects/lfm/lfm-full-env
 python -u scripts/python/all_tasks/checkpoint_pipeline.py --task instance "$@"
 
 END_TIME="$(date +%s)"
