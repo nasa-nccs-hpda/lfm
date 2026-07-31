@@ -5,6 +5,7 @@ from .gfft_config_loader import (
     GfftNormalizationStats,
     extract_normalization_stats,
     load_gfft_config,
+    resolve_gfft_normalization_stats,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "GfftNormalizationStats",
     "extract_normalization_stats",
     "load_gfft_config",
+    "resolve_gfft_normalization_stats",
 ]

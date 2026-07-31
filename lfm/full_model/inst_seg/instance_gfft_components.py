@@ -10,7 +10,10 @@ import torch
 from lightning.pytorch import Trainer
 from lightning.pytorch.callbacks import ModelCheckpoint
 
-from lfm.full_model.all_tasks import load_gfft_config
+from lfm.full_model.all_tasks import (
+    load_gfft_config,
+    resolve_gfft_normalization_stats,
+)
 from lfm.full_model.inst_seg import instance_graha_components as graha
 
 
@@ -54,7 +57,22 @@ def configure_python_paths(config: Any) -> None:
 
 
 def validate_required_paths(config: Any) -> None:
-    graha.validate_required_paths(config)
+    required_paths = [
+        config.graha_root,
+        config.backbone_weights,
+        config.data_root,
+        config.data_root / "train" / "chips",
+        config.data_root / "train" / "labels",
+        config.data_root / "val" / "chips",
+        config.data_root / "val" / "labels",
+    ]
+    if config.lightning_checkpoint is not None:
+        required_paths.append(config.lightning_checkpoint)
+    missing = [path for path in required_paths if not path.exists()]
+    if missing:
+        raise FileNotFoundError(
+            "Missing required GFFT paths:\n" + "\n".join(str(path) for path in missing)
+        )
 
 
 def print_config(config: Any) -> None:
@@ -75,7 +93,25 @@ def get_normalization_stats(
     config: Any,
     datamodule_cls,
 ) -> tuple[list[float], list[float]]:
-    return graha.get_normalization_stats(config, datamodule_cls)
+    if config.normalization_source == "pretrain":
+        config_path = getattr(config, "gfft_config_path", None)
+        if config_path is None:
+            raise ValueError(
+                "GFFT pretrain normalization requires --gfft-config-path. "
+                "Pass a GFFT YAML with data.init_args normalization stats, "
+                "or use --normalization-source finetune."
+            )
+        means, stds = resolve_gfft_normalization_stats(
+            load_gfft_config(config_path),
+            normalization_modality=config.normalization_modality,
+            band_filter=config.band_filter,
+        )
+        print("GFFT normalization means:", means)
+        print("GFFT normalization stds:", stds)
+        return means, stds
+    if config.normalization_source == "finetune":
+        return graha.calculate_train_stats(config, datamodule_cls)
+    raise ValueError(f"Unsupported normalization_source: {config.normalization_source}")
 
 
 def create_datamodule(

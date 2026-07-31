@@ -5,7 +5,6 @@ set -euo pipefail
 : "${GFFT_INSTANCE_DATA_ROOT:?Set GFFT_INSTANCE_DATA_ROOT to the split instance dataset root.}"
 : "${GFFT_CONFIG_PATH:?Set GFFT_CONFIG_PATH to the TerraTorch-style GFFT YAML.}"
 : "${GFFT_OUTPUT_DIR:?Set GFFT_OUTPUT_DIR to the smoke-test output directory.}"
-: "${GFFT_GRAHA_PRETRAIN_DIR:?Set GFFT_GRAHA_PRETRAIN_DIR to a Graha pretrain dir with modality_info.yaml for current pretrain normalization.}"
 
 SUBMIT_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
 if [[ -f "${SUBMIT_DIR}/scripts/shell/instance_seg/sbatch_instance_gfft_single_finetune.sh" ]]; then
@@ -23,7 +22,6 @@ mkdir -p scripts/logs "${GFFT_OUTPUT_DIR}"
 sbatch scripts/shell/instance_seg/sbatch_instance_gfft_single_finetune.sh \
   --data-root "${GFFT_INSTANCE_DATA_ROOT}" \
   --base-output-dir "${GFFT_OUTPUT_DIR}" \
-  --graha-pretrain-dir "${GFFT_GRAHA_PRETRAIN_DIR}" \
   --gfft-config-path "${GFFT_CONFIG_PATH}" \
   --max-epochs 1 \
   --target-size 256 \
@@ -37,7 +35,7 @@ sbatch scripts/shell/instance_seg/sbatch_instance_gfft_single_finetune.sh \
   --batch-size 2 \
   --graha-batch-size 2 \
   --graha-stats-batch-size 4 \
-  --band-filter 0 1 2 3 4 5 6 \
+  --band-filter 0 1 2 3 4 \
   --normalize-inputs \
   --normalization-source pretrain \
   --normalization-modality vis_uv \

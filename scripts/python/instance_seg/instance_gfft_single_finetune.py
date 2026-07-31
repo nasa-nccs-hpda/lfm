@@ -37,12 +37,10 @@ def validate_gfft_paths(config: InstanceSegmentationExperimentConfig) -> None:
             "GFFT instance fine-tuning requires --gfft-config-path or "
             "--gfft-backbone-checkpoint."
         )
-    if config.normalization_source == "pretrain" and config.graha_pretrain_dir is None:
+    if config.normalization_source == "pretrain" and config.gfft_config_path is None:
         raise ValueError(
-            "The current GFFT instance skeleton still uses Graha modality_info.yaml "
-            "for pretrain normalization. Pass --graha-pretrain-dir, or use "
-            "--normalization-source finetune until GFFT YAML stats are wired into "
-            "the datamodule path."
+            "GFFT pretrain normalization requires --gfft-config-path so the "
+            "workflow can load YAML normalization stats."
         )
     required = [config.gfft_config_path, config.gfft_backbone_checkpoint]
     missing = [path for path in required if path is not None and not path.exists()]

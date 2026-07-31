@@ -58,6 +58,89 @@ class GfftConfig:
         )
 
 
+def resolve_gfft_normalization_stats(
+    config: GfftConfig,
+    *,
+    normalization_modality: str,
+    band_filter: list[int] | None,
+) -> tuple[list[float], list[float]]:
+    """Return datamodule means/stds from a loaded GFFT YAML config.
+
+    The LFM CLIs still use Graha-era normalization modality names
+    (``vis_uv``/``nac``), while the GFFT YAMLs often store stats under task-data
+    names such as ``wac`` or ``nac``. This resolver keeps that translation in
+    one place and applies the same band-filtering expectation used by the
+    datamodule image reader.
+    """
+    stats = _resolve_stats_record(config, normalization_modality)
+    return _apply_band_filter(
+        stats.means,
+        stats.stds,
+        band_filter=band_filter,
+        stats_label=f"{config.path}::{stats.modality}",
+    )
+
+
+def _resolve_stats_record(
+    config: GfftConfig,
+    normalization_modality: str,
+) -> GfftNormalizationStats:
+    modality = normalization_modality.replace("-", "_").lower()
+    if modality == "vis_uv":
+        if "vis" in config.normalization_stats and "uv" in config.normalization_stats:
+            vis = config.normalization_stats["vis"]
+            uv = config.normalization_stats["uv"]
+            return GfftNormalizationStats(
+                modality="vis_uv",
+                means=[*vis.means, *uv.means],
+                stds=[*vis.stds, *uv.stds],
+                mean_key=f"{vis.mean_key}+{uv.mean_key}",
+                std_key=f"{vis.std_key}+{uv.std_key}",
+            )
+        for candidate in ("vis_uv", "wac", "vis"):
+            if candidate in config.normalization_stats:
+                return config.normalization_stats[candidate]
+    elif modality == "wac":
+        for candidate in ("wac", "vis_uv", "vis"):
+            if candidate in config.normalization_stats:
+                return config.normalization_stats[candidate]
+    elif modality in config.normalization_stats:
+        return config.normalization_stats[modality]
+
+    return config.stats_for_modality(modality)
+
+
+def _apply_band_filter(
+    means: list[float],
+    stds: list[float],
+    *,
+    band_filter: list[int] | None,
+    stats_label: str,
+) -> tuple[list[float], list[float]]:
+    if band_filter is None:
+        return list(means), list(stds)
+
+    if len(means) != len(stds):
+        raise ValueError(
+            f"GFFT normalization stats for {stats_label} have mismatched lengths: "
+            f"{len(means)} mean(s), {len(stds)} std(s)."
+        )
+    if not band_filter:
+        return list(means), list(stds)
+
+    max_band = max(band_filter)
+    min_band = min(band_filter)
+    if min_band < 0 or max_band >= len(means):
+        raise ValueError(
+            f"GFFT normalization stats for {stats_label} have {len(means)} "
+            f"channel(s), but band_filter={band_filter} requires indices "
+            f"{min_band}..{max_band}."
+        )
+    return [means[index] for index in band_filter], [
+        stds[index] for index in band_filter
+    ]
+
+
 def _as_float_list(value: Any) -> list[float]:
     if isinstance(value, (list, tuple)):
         return [float(item) for item in value]
