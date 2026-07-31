@@ -986,12 +986,21 @@ def create_instance_checkpoint_comparison_plot_parser(
     parser.add_argument("--run-root", type=Path, default=None)
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--toy-checkpoint", type=Path, default=None)
+    parser.add_argument("--toy-checkpoint-dir", type=Path, default=None)
+    parser.add_argument(
+        "--toy-plot-architecture",
+        choices=defaults.TOY_INSTANCE_ARCHITECTURE_CHOICES,
+        default=defaults.DEFAULT_INSTANCE_TOY_ARCHITECTURE,
+    )
     parser.add_argument("--mask2former-checkpoint", type=Path, default=None)
     parser.add_argument("--mask2former-checkpoint-dir", type=Path, default=None)
     parser.add_argument("--toy-terratorch-checkpoint", type=Path, default=None)
     parser.add_argument("--toy-terratorch-checkpoint-dir", type=Path, default=None)
     parser.add_argument("--graha-checkpoint", type=Path, default=None)
     parser.add_argument("--graha-checkpoint-dir", type=Path, default=None)
+    parser.add_argument("--gfft-checkpoint", type=Path, default=None)
+    parser.add_argument("--gfft-checkpoint-dir", type=Path, default=None)
     parser.add_argument("--dino-checkpoint", type=Path, default=None)
     _add_dataset_modality_arg(parser)
     _add_graha_input_args(parser, path_type=Path)
@@ -1092,6 +1101,8 @@ def create_semantic_checkpoint_comparison_plot_parser(
     parser.add_argument("--toy-checkpoint-dir", type=Path, default=None)
     parser.add_argument("--graha-checkpoint", type=Path, default=None)
     parser.add_argument("--graha-checkpoint-dir", type=Path, default=None)
+    parser.add_argument("--gfft-checkpoint", type=Path, default=None)
+    parser.add_argument("--gfft-checkpoint-dir", type=Path, default=None)
     parser.add_argument("--dino-checkpoint", type=Path, default=None)
     _add_dataset_modality_arg(parser)
     _add_graha_input_args(parser, path_type=Path)

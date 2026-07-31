@@ -67,6 +67,8 @@ def _apply_run_root_defaults(args: argparse.Namespace) -> None:
         args.toy_checkpoint_dir = run_root / "checkpoints" / "toy_model"
     if args.graha_checkpoint_dir is None and args.graha_checkpoint is None:
         args.graha_checkpoint_dir = run_root / "checkpoints" / "full_model"
+    if args.gfft_checkpoint_dir is None and args.gfft_checkpoint is None:
+        args.gfft_checkpoint_dir = run_root / "checkpoints" / "gfft_model"
 
 
 def _build_model_specs(args: argparse.Namespace) -> list[SemanticModelPlotSpec]:
@@ -102,6 +104,21 @@ def _build_model_specs(args: argparse.Namespace) -> list[SemanticModelPlotSpec]:
             )
         )
 
+    gfft = _resolve_checkpoint(
+        checkpoint_path=args.gfft_checkpoint,
+        checkpoint_dir=args.gfft_checkpoint_dir,
+        label="gfft",
+    )
+    if gfft is not None:
+        specs.append(
+            SemanticModelPlotSpec(
+                key="gfft",
+                display_name="GFFT",
+                model_family="gfft",
+                checkpoint_path=gfft,
+            )
+        )
+
     if len(specs) < 2:
         raise ValueError("At least two model checkpoints are required for comparison.")
     return specs
@@ -115,6 +132,8 @@ def build_checkpoint_comparison_plot_config_from_args(
         data_root=args.data_root.resolve(),
         base_output_dir=output_dir / "_setup",
         dino_checkpoint=args.dino_checkpoint,
+        gfft_config_path=args.gfft_config_path,
+        gfft_backbone_checkpoint=args.gfft_backbone_checkpoint,
         graha_base_output_dir=output_dir / "_graha_setup",
         graha_pretrain_dir=args.graha_pretrain_dir,
         dataset_modality=args.dataset_modality,

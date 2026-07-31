@@ -1,4 +1,4 @@
-"""Create instance comparison plots from final Toy/Graha checkpoints.
+"""Create instance comparison plots from final Toy/Graha/GFFT checkpoints.
 
 This post-training entrypoint loads two or three completed model checkpoints,
 writes prediction caches on a shared split, and creates one all-model plot plus
@@ -58,6 +58,14 @@ def _comparison_namespace(
             str(args.graha_pretrain_dir) if args.graha_pretrain_dir else None
         ),
         graha_lightning_checkpoint=None,
+        gfft_config_path=(
+            str(args.gfft_config_path) if args.gfft_config_path is not None else None
+        ),
+        gfft_backbone_checkpoint=(
+            str(args.gfft_backbone_checkpoint)
+            if args.gfft_backbone_checkpoint is not None
+            else None
+        ),
         dataset_modality=args.dataset_modality,
         graha_input_modality_mode=args.graha_input_modality_mode,
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
@@ -171,6 +179,42 @@ def _setup_graha(
     return datamodule, task, None
 
 
+def _setup_gfft(
+    args: InstanceCheckpointComparisonPlotConfig,
+    spec: ModelPlotSpec,
+):
+    from lfm.full_model.inst_seg.instance_gfft_model_adapter import (
+        GfftInstanceModelAdapter,
+    )
+
+    gfft_adapter = GfftInstanceModelAdapter()
+    comparison_config = build_config_from_args(
+        _comparison_namespace(args, "mask2former")
+    )
+    gfft_config = gfft_adapter.build_finetuning_config(
+        comparison_config,
+        args.output_dir / "_gfft_setup",
+    )
+    gfft_adapter.configure_environment()
+    gfft_adapter.configure_python_paths(gfft_config)
+    gfft_adapter.validate_required_paths(gfft_config)
+    deps = gfft_adapter.import_project_dependencies()
+    datamodule_cls = deps["GrahaObjectDetectionInstanceDataModule"]
+    task_cls = gfft_adapter.make_task_class(deps["LunarObjectDetectionTask"])
+    means, stds = gfft_adapter.get_normalization_stats(gfft_config, datamodule_cls)
+    datamodule = gfft_adapter.create_datamodule(
+        gfft_config,
+        datamodule_cls,
+        means,
+        stds,
+    )
+    datamodule.setup(args.prediction_split)
+    task = gfft_adapter.create_model_or_task(gfft_config, datamodule, task_cls)
+    load_lightning_checkpoint_state(task, spec.checkpoint_path)
+    task.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+    return datamodule, task, None
+
+
 def write_prediction_cache(
     args: InstanceCheckpointComparisonPlotConfig,
     spec: ModelPlotSpec,
@@ -180,6 +224,8 @@ def write_prediction_cache(
         datamodule, task, image_processor = _setup_toy(args, spec)
     elif spec.model_family == "graha":
         datamodule, task, image_processor = _setup_graha(args, spec)
+    elif spec.model_family == "gfft":
+        datamodule, task, image_processor = _setup_gfft(args, spec)
     else:
         raise ValueError(f"Unknown model family: {spec.model_family}")
 

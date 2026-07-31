@@ -12,6 +12,7 @@ import torch
 from lightning.pytorch import seed_everything
 from lightning.pytorch.callbacks import Callback
 
+from lfm.all_models.all_tasks.utils import save_prediction_cache
 from lfm.full_model.sem_seg import semantic_gfft_components
 
 
@@ -35,7 +36,7 @@ def run_gfft_workflow(
     epoch_test_suite_callback_cls: type[Callback] | None = None,
     timing_rows: list[dict[str, Any]] | None = None,
     record_timing: Callable[..., None] | None = None,
-) -> Path:
+) -> tuple[Path, Path | None]:
     """Run a single GFFT/Fourier-VQ MultiMAE semantic workflow."""
     print("\n=== GFFT/Fourier-VQ MultiMAE semantic segmentation ===", flush=True)
     total_started_at = time.perf_counter()
@@ -128,6 +129,24 @@ def run_gfft_workflow(
             started_at=fit_started_at,
         )
 
+    prediction_cache = None
+    if config.cache_predictions:
+        cache_started_at = time.perf_counter()
+        prediction_cache = save_prediction_cache(
+            task=task,
+            datamodule=datamodule,
+            output_dir=output_dir,
+            model_name="gfft",
+            split=config.prediction_split,
+            n_samples=config.prediction_n_samples,
+        )
+        _record_timing(
+            record_timing,
+            timing_rows,
+            stage="prediction_cache",
+            started_at=cache_started_at,
+        )
+
     del trainer, task, datamodule, sample_batch
     gc.collect()
     if torch.cuda.is_available():
@@ -139,4 +158,4 @@ def run_gfft_workflow(
         stage="total",
         started_at=total_started_at,
     )
-    return output_dir
+    return output_dir, prediction_cache

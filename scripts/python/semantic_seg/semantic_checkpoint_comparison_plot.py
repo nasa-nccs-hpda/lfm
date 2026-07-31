@@ -1,10 +1,11 @@
-"""Create semantic comparison plots from final Toy/Graha checkpoints."""
+"""Create semantic comparison plots from final Toy/Graha/GFFT checkpoints."""
 
 # ruff: noqa: E402
 
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import sys
 from dataclasses import replace
@@ -26,6 +27,7 @@ from lfm.all_models.sem_seg.plot_config import (
 )
 from lfm.all_models.sem_seg.plotting import plot_prediction_cache_comparison
 from lfm.all_models.sem_seg.workflows import (
+    semantic_gfft_workflow,
     semantic_graha_workflow,
     semantic_toy_workflow,
 )
@@ -60,6 +62,16 @@ def write_prediction_cache(
             no_fit=True,
             comparison_output_dir=cache_output_dir,
         )
+    elif spec.model_family == "gfft":
+        run_config = replace(
+            config.experiment_config,
+            graha_lightning_checkpoint=spec.checkpoint_path,
+        )
+        _, cache_dir = semantic_gfft_workflow.run_gfft_workflow(
+            run_config,
+            no_fit=True,
+            output_dir=cache_output_dir,
+        )
     else:
         raise ValueError(f"Unknown model family: {spec.model_family}")
 
@@ -68,18 +80,32 @@ def write_prediction_cache(
     return cache_dir
 
 
-def create_comparison_plot(
+def create_comparison_plots(
     *,
     cache_dirs: dict[str, Path],
     output_dir: Path,
     n_samples: int,
-) -> Path:
-    return plot_prediction_cache_comparison(
+) -> dict[str, str]:
+    plots_dir = output_dir / "plots"
+    outputs = {}
+    all_plot = plot_prediction_cache_comparison(
         cache_dirs,
-        output_dir / "plots",
+        plots_dir,
         n_samples=n_samples,
-        filename="semantic_checkpoint_predictions.png",
+        filename="all_models_semantic_predictions.png",
     )
+    outputs["all_models"] = str(all_plot)
+
+    for left, right in itertools.combinations(cache_dirs, 2):
+        filename = f"{left}_vs_{right}_semantic_predictions.png"
+        path = plot_prediction_cache_comparison(
+            {left: cache_dirs[left], right: cache_dirs[right]},
+            plots_dir / "pairwise",
+            n_samples=n_samples,
+            filename=filename,
+        )
+        outputs[f"{left}_vs_{right}"] = str(path)
+    return outputs
 
 
 def parse_args() -> argparse.Namespace:
@@ -95,7 +121,7 @@ def main() -> None:
     cache_dirs = {
         spec.key: write_prediction_cache(config, spec) for spec in config.model_specs
     }
-    plot_path = create_comparison_plot(
+    plots = create_comparison_plots(
         cache_dirs=cache_dirs,
         output_dir=config.output_dir,
         n_samples=config.n_samples,
@@ -111,7 +137,7 @@ def main() -> None:
             }
             for spec in config.model_specs
         ],
-        "plots": {"all_models": str(plot_path)},
+        "plots": plots,
     }
     manifest_path = config.output_dir / "comparison_plot_manifest.json"
     with manifest_path.open("w", encoding="utf-8") as f:

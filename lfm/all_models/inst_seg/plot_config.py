@@ -26,6 +26,8 @@ class InstanceCheckpointComparisonPlotConfig:
     model_specs: list[ModelPlotSpec]
     dino_checkpoint: Path | None
     graha_pretrain_dir: Path | None
+    gfft_config_path: Path | None
+    gfft_backbone_checkpoint: Path | None
     dataset_modality: str
     graha_input_modality_mode: str
     graha_vis_uv_merge_method: str
@@ -94,6 +96,8 @@ def _apply_run_root_defaults(args: argparse.Namespace) -> None:
     if args.run_root is None:
         return
     run_root = args.run_root.resolve()
+    if args.toy_checkpoint_dir is None and args.toy_checkpoint is None:
+        args.toy_checkpoint_dir = run_root / "toy_model" / "checkpoints" / "toy_model"
     if args.mask2former_checkpoint_dir is None and args.mask2former_checkpoint is None:
         args.mask2former_checkpoint_dir = (
             run_root / "toy_mask2former" / "checkpoints" / "toy_model"
@@ -109,42 +113,62 @@ def _apply_run_root_defaults(args: argparse.Namespace) -> None:
         args.graha_checkpoint_dir = (
             run_root / "graha_mask_rcnn" / "checkpoints" / "full_model"
         )
+    if args.gfft_checkpoint_dir is None and args.gfft_checkpoint is None:
+        args.gfft_checkpoint_dir = (
+            run_root / "gfft_mask_rcnn" / "checkpoints" / "gfft_model"
+        )
 
 
 def _build_model_specs(args: argparse.Namespace) -> list[ModelPlotSpec]:
     _apply_run_root_defaults(args)
     specs = []
-    mask2former = _resolve_checkpoint(
-        checkpoint_path=args.mask2former_checkpoint,
-        checkpoint_dir=args.mask2former_checkpoint_dir,
-        label="mask2former",
+    toy = _resolve_checkpoint(
+        checkpoint_path=args.toy_checkpoint,
+        checkpoint_dir=args.toy_checkpoint_dir,
+        label="toy",
     )
-    if mask2former is not None:
+    if toy is not None:
         specs.append(
             ModelPlotSpec(
-                key="toy_mask2former",
-                display_name="Toy Mask2Former",
+                key="toy_model",
+                display_name=f"Toy {args.toy_plot_architecture}",
                 model_family="toy",
-                toy_architecture="mask2former",
-                checkpoint_path=mask2former,
+                toy_architecture=args.toy_plot_architecture,
+                checkpoint_path=toy,
             )
         )
+    else:
+        mask2former = _resolve_checkpoint(
+            checkpoint_path=args.mask2former_checkpoint,
+            checkpoint_dir=args.mask2former_checkpoint_dir,
+            label="mask2former",
+        )
+        if mask2former is not None:
+            specs.append(
+                ModelPlotSpec(
+                    key="toy_mask2former",
+                    display_name="Toy Mask2Former",
+                    model_family="toy",
+                    toy_architecture="mask2former",
+                    checkpoint_path=mask2former,
+                )
+            )
 
-    toy_terratorch = _resolve_checkpoint(
-        checkpoint_path=args.toy_terratorch_checkpoint,
-        checkpoint_dir=args.toy_terratorch_checkpoint_dir,
-        label="toy-terratorch",
-    )
-    if toy_terratorch is not None:
-        specs.append(
-            ModelPlotSpec(
-                key="toy_dino_terratorch_mask_rcnn",
-                display_name="Toy DINO TerraTorch Mask R-CNN",
-                model_family="toy",
-                toy_architecture="dino-terratorch-mask-rcnn",
-                checkpoint_path=toy_terratorch,
-            )
+        toy_terratorch = _resolve_checkpoint(
+            checkpoint_path=args.toy_terratorch_checkpoint,
+            checkpoint_dir=args.toy_terratorch_checkpoint_dir,
+            label="toy-terratorch",
         )
+        if toy_terratorch is not None:
+            specs.append(
+                ModelPlotSpec(
+                    key="toy_dino_terratorch_mask_rcnn",
+                    display_name="Toy DINO TerraTorch Mask R-CNN",
+                    model_family="toy",
+                    toy_architecture="dino-terratorch-mask-rcnn",
+                    checkpoint_path=toy_terratorch,
+                )
+            )
 
     graha = _resolve_checkpoint(
         checkpoint_path=args.graha_checkpoint,
@@ -159,6 +183,22 @@ def _build_model_specs(args: argparse.Namespace) -> list[ModelPlotSpec]:
                 model_family="graha",
                 toy_architecture=None,
                 checkpoint_path=graha,
+            )
+        )
+
+    gfft = _resolve_checkpoint(
+        checkpoint_path=args.gfft_checkpoint,
+        checkpoint_dir=args.gfft_checkpoint_dir,
+        label="gfft",
+    )
+    if gfft is not None:
+        specs.append(
+            ModelPlotSpec(
+                key="gfft_mask_rcnn",
+                display_name="GFFT Mask R-CNN",
+                model_family="gfft",
+                toy_architecture=None,
+                checkpoint_path=gfft,
             )
         )
 
@@ -177,6 +217,8 @@ def build_checkpoint_comparison_plot_config_from_args(
         model_specs=_build_model_specs(args),
         dino_checkpoint=args.dino_checkpoint,
         graha_pretrain_dir=args.graha_pretrain_dir,
+        gfft_config_path=args.gfft_config_path,
+        gfft_backbone_checkpoint=args.gfft_backbone_checkpoint,
         dataset_modality=dataset_modality,
         graha_input_modality_mode=defaults.resolve_graha_input_modality_mode(
             dataset_modality=dataset_modality,
