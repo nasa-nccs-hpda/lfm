@@ -8,10 +8,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import sys
-import os
-import subprocess
-
 
 def _valid_target_mask(targets, ignore_index=None):
     if ignore_index is None:
@@ -21,41 +17,6 @@ def _valid_target_mask(targets, ignore_index=None):
 
 def _zero_loss_like(logits):
     return logits.sum() * 0.0
-
-
-def install_termcolor_locally():
-    # First, try standard pip install
-    try:
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "termcolor"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        print("Termcolor installed successfully using standard pip install")
-        return
-    except subprocess.CalledProcessError:
-        print("Standard pip install failed, attempting local installation...")
-
-        # If standard install fails, fall back to local installation
-        home_dir = os.path.expanduser("~")
-        python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-        target_path = os.path.join(
-            home_dir, ".local", "lib", f"python{python_version}", "site-packages"
-        )
-        subprocess.check_call(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                f"--target={target_path}",
-                "termcolor",
-                "--force-reinstall",
-                "--no-deps",
-            ]
-        )
-
-        print(f"Termcolor installed to: {target_path}")
 
 
 class FocalLoss(nn.Module):
@@ -320,9 +281,7 @@ class FocalDiceLoss(nn.Module):
         super().__init__()
         self.focal_weight = focal_weight
         self.dice_weight = dice_weight
-        self.focal_loss = FocalLoss(
-            alpha=alpha, gamma=gamma, ignore_index=ignore_index
-        )
+        self.focal_loss = FocalLoss(alpha=alpha, gamma=gamma, ignore_index=ignore_index)
         self.dice_loss = DiceLoss(smooth=smooth, ignore_index=ignore_index)
 
     def forward(self, logits, targets):
@@ -366,11 +325,7 @@ def get_loss_function(loss_type="cross_entropy", ignore_index=None):
     """
     loss_functions = {
         "cross_entropy": nn.CrossEntropyLoss(
-            **(
-                {"ignore_index": int(ignore_index)}
-                if ignore_index is not None
-                else {}
-            )
+            **({"ignore_index": int(ignore_index)} if ignore_index is not None else {})
         ),
         "focal": FocalLoss(alpha=0.25, gamma=2.0, ignore_index=ignore_index),
         "dice": DiceLoss(smooth=1.0, ignore_index=ignore_index),
