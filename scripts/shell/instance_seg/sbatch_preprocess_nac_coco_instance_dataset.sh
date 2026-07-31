@@ -35,6 +35,7 @@ echo
 
 module load miniforge
 mamba activate /explore/nobackup/projects/lfm/lfm-full-env
+export PYTHONNOUSERSITE=1
 export PROJ_LIB=/panfs/ccds02/nobackup/projects/lfm/lfm-full-env/share/proj
 export PROJ_DATA=${PROJ_LIB}
 export GDAL_DATA=/panfs/ccds02/nobackup/projects/lfm/lfm-full-env/share/gdal

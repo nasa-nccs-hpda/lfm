@@ -25,6 +25,8 @@ export PROJ_DATA="\${PROJ_LIB}"
 export GDAL_DATA="/panfs/ccds02/nobackup/projects/lfm/lfm-full-env/share/gdal"
 
 exec /explore/nobackup/projects/lfm/lfm-full-env/bin/python -s -Xfrozen_modules=off -m ipykernel_launcher "\$@"
+echo "LFM launcher ran at $(date)" >> "${HOME}/lfm_kernel_launcher.log"
+echo "args: $*" >> "${HOME}/lfm_kernel_launcher.log"
 EOF
 
 chmod +x "${LAUNCHER}"
