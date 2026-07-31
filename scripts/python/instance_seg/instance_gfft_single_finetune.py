@@ -14,7 +14,10 @@ if str(LFM_ROOT) not in sys.path:
 
 from lfm.all_models.all_tasks import SingleModelExperiment
 from lfm.all_models.all_tasks.cli_args import parse_instance_experiment_args
-from lfm.all_models.all_tasks.utils import ensure_data_symlink
+from lfm.all_models.all_tasks.utils import (
+    create_timestamped_output_dir,
+    ensure_data_symlink,
+)
 from lfm.all_models.inst_seg.config import (
     InstanceSegmentationExperimentConfig,
     build_config_from_args,
@@ -56,7 +59,7 @@ def main() -> None:
     ensure_data_symlink(args.simlink_dest, notebook_dir / "data")
     config = build_config_from_args(args)
     validate_gfft_paths(config)
-    output_dir = config.base_output_dir
+    output_dir = create_timestamped_output_dir(config.base_output_dir)
 
     SingleModelExperiment(
         model="gfft",
