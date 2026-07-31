@@ -8,10 +8,7 @@ from pathlib import Path
 
 
 def _proj_dir_candidates(prefix: Path) -> list[Path]:
-    candidates = [
-        prefix / "share" / "proj",
-        prefix / "Library" / "share" / "proj",
-    ]
+    candidates = []
     prefix_text = str(prefix)
     if prefix_text.startswith("/explore/nobackup/"):
         candidates.append(
@@ -21,6 +18,12 @@ def _proj_dir_candidates(prefix: Path) -> list[Path]:
             / "share"
             / "proj"
         )
+    candidates.extend(
+        [
+            prefix / "share" / "proj",
+            prefix / "Library" / "share" / "proj",
+        ]
+    )
     return candidates
 
 

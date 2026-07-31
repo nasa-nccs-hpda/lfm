@@ -37,6 +37,9 @@ echo
 
 module load miniforge
 mamba activate /explore/nobackup/projects/lfm/lfm-full-env
+export PROJ_LIB=/panfs/ccds02/nobackup/projects/lfm/lfm-full-env/share/proj
+export PROJ_DATA=${PROJ_LIB}
+export GDAL_DATA=/panfs/ccds02/nobackup/projects/lfm/lfm-full-env/share/gdal
 python -u scripts/python/semantic_seg/semantic_checkpoint_sweep.py "$@"
 
 END_TIME="$(date +%s)"
