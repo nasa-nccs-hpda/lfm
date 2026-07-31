@@ -44,8 +44,8 @@ trainer:
 data:
   class_path: terratorch_integration.data_adapter.LunarWACCraterDataModule
   init_args:
-    data_dir: data/coco_annotations_WAC_test_10k
-    annotations_dir: data/coco_annotations_WAC_test_10k/inc60-80_spatial/inc60-80_spatial
+    data_dir: /explore/nobackup/projects/lfm/processed_data/Lunar/data_release/WAC_Robbins_craters_test_10k/coco/coco_annotations_WAC_test_10k/images
+    annotations_dir: /explore/nobackup/projects/lfm/processed_data/Lunar/data_release/WAC_Robbins_craters_final
     batch_size: 4
     num_workers: 4
     image_size: 512
