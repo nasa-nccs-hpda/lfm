@@ -76,7 +76,17 @@ def validate_required_paths(config: Any) -> None:
 
 
 def print_config(config: Any) -> None:
-    graha.print_config(config)
+    print("Package directory:", config.package_dir)
+    print("Notebook directory:", config.notebook_dir)
+    print("Graha/Lunar-FM code root:", config.graha_root)
+    print("Data root:", config.data_root)
+    print("GFFT backbone weights:", config.backbone_weights)
+    print("GFFT config YAML:", config.gfft_config_path)
+    print("Normalization source:", config.normalization_source)
+    print("Normalization modality:", config.normalization_modality)
+    print("Band filter:", config.band_filter)
+    print("Base output directory:", config.base_output_dir)
+    print("Lightning checkpoint:", config.lightning_checkpoint)
 
 
 def import_project_dependencies() -> dict[str, Any]:
