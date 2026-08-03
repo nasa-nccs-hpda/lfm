@@ -17,6 +17,10 @@ LFM_ROOT = Path(__file__).resolve().parents[3]
 if str(LFM_ROOT) not in sys.path:
     sys.path.insert(0, str(LFM_ROOT))
 
+from lfm.all_models.all_tasks.metrics_comparison import (
+    FinalEpochMetricSpec,
+    write_final_epoch_metric_comparisons,
+)
 from lfm.all_models.all_tasks.cli_args import (
     parse_semantic_checkpoint_comparison_plot_args,
 )
@@ -108,6 +112,33 @@ def create_comparison_plots(
     return outputs
 
 
+def _test_suite_model_names(spec: SemanticModelPlotSpec) -> tuple[str, ...]:
+    if spec.model_family == "toy":
+        return ("toy_model", "toy")
+    if spec.model_family == "graha":
+        return ("full_model", "graha")
+    if spec.model_family == "gfft":
+        return ("gfft",)
+    raise ValueError(f"Unknown model family: {spec.model_family}")
+
+
+def create_metric_comparisons(
+    config: SemanticCheckpointComparisonPlotConfig,
+) -> dict[str, object]:
+    return write_final_epoch_metric_comparisons(
+        [
+            FinalEpochMetricSpec(
+                key=spec.key,
+                display_name=spec.display_name,
+                checkpoint_path=spec.checkpoint_path,
+                test_suite_model_names=_test_suite_model_names(spec),
+            )
+            for spec in config.model_specs
+        ],
+        config.output_dir,
+    )
+
+
 def parse_args() -> argparse.Namespace:
     return parse_semantic_checkpoint_comparison_plot_args(description=__doc__)
 
@@ -126,6 +157,7 @@ def main() -> None:
         output_dir=config.output_dir,
         n_samples=config.n_samples,
     )
+    metric_comparisons = create_metric_comparisons(config)
     manifest = {
         "models": [
             {
@@ -138,6 +170,7 @@ def main() -> None:
             for spec in config.model_specs
         ],
         "plots": plots,
+        "metric_comparisons": metric_comparisons,
     }
     manifest_path = config.output_dir / "comparison_plot_manifest.json"
     with manifest_path.open("w", encoding="utf-8") as f:
