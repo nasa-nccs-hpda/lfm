@@ -140,11 +140,10 @@ def configure_proj_environment() -> None:
 def build_config(args: argparse.Namespace) -> FineTuningConfig:
     """Create the script configuration from defaults plus CLI overrides."""
     package_dir = Path(__file__).resolve().parent
-    full_model_dir = package_dir.parent
     lfm_root = package_dir.parents[2]
     notebook_dir = lfm_root / "notebooks" / "full_model"
     scripts_output_dir = lfm_root / "scripts" / "outputs"
-    repo_root = full_model_dir / "graha-lunar-fm"
+    repo_root = lfm_root / "graha-lunar-fm"
 
     pretrain_dir = Path(
         "/explore/nobackup/projects/lfm/gabby/Lunar-FM/experiments/"
