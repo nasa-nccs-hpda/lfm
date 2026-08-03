@@ -258,3 +258,7 @@ def create_trainer(config: Any, output_dir: Path):
 
 def load_lightning_checkpoint_state(*args: Any, **kwargs: Any) -> None:
     graha.load_lightning_checkpoint_state(*args, **kwargs)
+
+
+def save_config(*args: Any, **kwargs: Any) -> None:
+    graha.save_config(*args, **kwargs)

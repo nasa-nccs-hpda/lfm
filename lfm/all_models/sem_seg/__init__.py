@@ -10,7 +10,9 @@ from lfm.all_models.sem_seg.data import (
     SemanticSegmentationDataset,
 )
 from lfm.all_models.sem_seg.notebook_config import (
+    GfftSemanticNotebookConfigs,
     GrahaSemanticNotebookConfigs,
+    build_gfft_notebook_configs,
     build_graha_notebook_configs,
 )
 from lfm.all_models.sem_seg.plot_config import (
@@ -25,6 +27,7 @@ from lfm.all_models.sem_seg.sweep_config import (
 
 __all__ = [
     "GrahaSemanticNotebookConfigs",
+    "GfftSemanticNotebookConfigs",
     "SemanticCheckpointComparisonPlotConfig",
     "SemanticSegmentationExperimentConfig",
     "SemanticCheckpointSweepConfig",
@@ -36,4 +39,5 @@ __all__ = [
     "build_config_from_args",
     "build_checkpoint_sweep_config_from_args",
     "build_graha_notebook_configs",
+    "build_gfft_notebook_configs",
 ]

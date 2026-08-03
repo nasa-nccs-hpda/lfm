@@ -19,7 +19,9 @@ from lfm.all_models.inst_seg.data import (
     minmax_scale_per_band,
 )
 from lfm.all_models.inst_seg.notebook_config import (
+    GfftInstanceNotebookConfigs,
     GrahaInstanceNotebookConfigs,
+    build_gfft_notebook_configs,
     build_graha_notebook_configs,
 )
 from lfm.all_models.inst_seg.plot_config import (
@@ -34,6 +36,7 @@ from lfm.all_models.inst_seg.sweep_config import (
 
 __all__ = [
     "GrahaInstanceNotebookConfigs",
+    "GfftInstanceNotebookConfigs",
     "InstanceCheckpointComparisonPlotConfig",
     "InstanceCheckpointSweepConfig",
     "InstanceSegmentationExperimentConfig",
@@ -50,6 +53,7 @@ __all__ = [
     "build_checkpoint_sweep_config_from_args",
     "build_config_from_args",
     "build_graha_notebook_configs",
+    "build_gfft_notebook_configs",
     "collate_mask2former_instance_segmentation",
     "instance_mask_to_object_detection_targets",
     "mask_to_binary_instance_targets",
