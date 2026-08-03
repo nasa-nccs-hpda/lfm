@@ -1,0 +1,140 @@
+# Lunar Crater Detection — WAC 5-band multi-spectral
+# Backbone: lunarmind_v1_base RANDOMLY INITIALISED (no pretraining).
+#
+# Same architecture as crater_detection_wac_vis.yaml, but with
+# backbone_checkpoint_path commented out so LunarBackbone builds the encoder
+# from scratch. This is the "no-pretraining" control for the WAC ablations
+# alongside the ConvNeXt / ResNet / ViT baselines.
+#
+# RUN:
+#   PYTHONPATH=. \
+#   terratorch fit --config terratorch_integration/configs/crater_detection_wac_random.yaml
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 100
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 10
+  enable_checkpointing: true
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/wac-crater
+      name: crater-detection-wac-random-ps8-50pct-inc60-80
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/crater-detection-wac-random-ps8-50pct-inc60-80
+        monitor: val_map
+        mode: max
+        filename: best-{epoch:02d}-{val_map:.3f}
+        save_last: true
+    - class_path: EarlyStopping
+      init_args:
+        monitor: val_map
+        mode: max
+        patience: 15
+
+data:
+  class_path: terratorch_integration.data_adapter.LunarWACCraterDataModule
+  init_args:
+    data_dir: data/coco_annotations_WAC_test_10k
+    annotations_dir: data/coco_annotations_WAC_test_10k/inc60-80_spatial/inc60-80_spatial
+    batch_size: 4
+    num_workers: 4
+    image_size: 512
+    min_diameter_px: 10.0
+    drop_no_crater_images: true
+    wac_norm_means: [0.019855351744561284, 0.02773482313902164, 0.029789978425941957, 0.03144318894931929, 0.03381151791456804]
+    wac_norm_stds:  [0.009741310229443915, 0.01323344600455514, 0.01407650071036384, 0.014859192415839976, 0.016153428019436693]
+    # train_fraction: 1.0
+    train_fraction: 0.5
+    # D4 group augmentation (0/90/180/270 rot + optional horizontal flip)
+    # applied per-sample to image, vis, and boxes together. Val/test stay
+    # identity so eval numbers remain directly comparable.
+    train_transforms:
+      class_path: terratorch_integration.data_utils.D4DetectionTransform
+      init_args:
+        image_keys: [image, vis]
+        p: 1.0
+
+model:
+  class_path: terratorch_integration.LunarObjectDetectionTask
+  init_args:
+    model_factory: ObjectDetectionModelFactory
+    model_args:
+      framework: faster-rcnn
+      backbone: lunarmind_v1_base
+      # backbone_checkpoint_path intentionally omitted -> random init.
+      backbone_cfg: weights/backbone/full_config.yaml
+      backbone_modality_info_path: weights/modality_info.yaml
+
+      num_classes: 2
+      framework_min_size: 512
+      framework_max_size: 512
+
+      backbone_modalities:
+        - vis                    # (B, 5, 256, 256) — 5-band WAC multi-spectral
+
+      backbone_patch_size: 8
+      backbone_remove_register_tokens: false
+      backbone_merge_method: concat
+
+      in_channels: 5
+      necks:
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]
+        - name: ReshapeTokensToImage
+          remove_cls_token: false
+          h: 64
+        - name: LearnedInterpolateToPyramidal
+        - name: FeaturePyramidNetworkNeck
+
+    freeze_backbone: false
+    freeze_decoder: false
+
+    class_names:
+      - Background
+      - Crater
+
+    # -------------------- Fair-reporting metric config --------------------
+    # score_threshold: pre-metric filter in apply_nms_batch. Default 0.5
+    # discards the true-positive tail on dense-detection tasks; drop to 0.05
+    # so the mAP curve sees the low-confidence detections it is designed for.
+    # iou_threshold: NMS IoU (default 0.5). Kept explicit for symmetry across
+    # NAC/WAC/LRO — bump toward 0.7 if you see many overlapping duplicates.
+    # metric_kwargs: forwarded to torchmetrics MeanAveragePrecision so we can
+    # lift the default max_detection_thresholds=[1, 10, 100] ceiling on dense
+    # GT (≈200–330 boxes / tile) and get per-class AP. Same list across NAC
+    # and WAC keeps the datasets scored on the same ruler.
+    score_threshold: 0.05
+    iou_threshold: 0.5
+    metric_kwargs:
+      max_detection_thresholds: [100, 300, 500]
+      class_metrics: true
+
+    anchor_sizes: [[8], [16], [32], [64]]
+    anchor_aspect_ratios: [0.5, 1.0, 2.0]
+
+    # No pretrained weights -> LLRD is not meaningful. Train everything at
+    # head_lr with layer_decay=1.0. weight_decay stays at the ViT-typical
+    # 0.05 so it matches the pretrained-lunarmind run's optimisation regime.
+    backbone_lr: 1.0e-4
+    head_lr: 1.0e-4
+    layer_decay: 1.0
+    weight_decay: 0.05
+    head_weight_decay: 1.0e-4
+    betas: [0.9, 0.999]
+    warmup_steps: 500
+    eta_min: 1.0e-6
+
+# NOTE: intentionally NO top-level optimizer / lr_scheduler blocks.
+# Lightning CLI monkey-patches configure_optimizers when present, which
+# would silently discard the param groups defined by the task.

@@ -1,0 +1,114 @@
+# Lunar IMP Semantic Segmentation — Fourier-VQ MultiMAE backbone (RANDOM INIT).
+# Dataset: IMP_dataset_new_negatives (single split, no fractions).
+# Same architecture as the fvqmultimae config but with
+# backbone_checkpoint_path omitted so the encoder builds from scratch.
+#
+# RUN:
+#   bsub -q normal -n 10 -M 64G -gpu "num=1:mode=exclusive_process" \
+#        -oo logs/%J.out -eo logs/%J.err \
+#        PYTHONPATH=. \
+#        terratorch fit -c terratorch_integration/configs/imp_new_negatives/imp_segmentation_nac_fvqmultimae_random_full.yaml
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 100
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 5
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/imp_new_negatives_bs8_noearly/
+      name: imp-newneg-bs8ne-segmentation-nac-fvqmultimae-random-full
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/imp-newneg-bs8ne-segmentation-nac-fvqmultimae-random-full
+        monitor: val/F1_Score
+        mode: max
+        filename: best-{epoch:02d}-{val/loss:.3f}
+        save_top_k: 1
+        save_last: false
+data:
+  class_path: terratorch.datamodules.GenericNonGeoSegmentationDataModule
+  init_args:
+    batch_size: 8
+    num_workers: 1
+    rgb_indices: [0, 0, 0]
+    train_data_root: data/IMP_dataset_new_negatives/train_new
+    train_label_data_root: data/IMP_dataset_new_negatives/train_new
+    val_data_root: data/IMP_dataset_new_negatives/val_new
+    val_label_data_root: data/IMP_dataset_new_negatives/val_new
+    test_data_root: data/IMP_dataset_new_negatives/test_new
+    test_label_data_root: data/IMP_dataset_new_negatives/test_new
+    predict_data_root: data/IMP_dataset_new_negatives/test_new
+    train_split: data/IMP_dataset_new_negatives/train.txt
+    val_split: data/IMP_dataset_new_negatives/val.txt
+    test_split: data/IMP_dataset_new_negatives/test.txt
+    num_classes: 2
+    ignore_split_file_extensions: false
+    img_grep: "*_img.tif"
+    label_grep: "*_mask.tif"
+    no_label_replace: -1
+    no_data_replace: 0
+    means:
+      - 0.029947
+    stds:
+      - 0.016554
+    train_transform:
+      - class_path: albumentations.D4
+      - class_path: albumentations.RandomBrightnessContrast
+        init_args:
+          brightness_limit: 0.15
+          contrast_limit: 0.15
+          p: 0.5
+      - class_path: albumentations.pytorch.transforms.ToTensorV2
+
+model:
+  class_path: terratorch_integration.LunarSegmentationTask
+  init_args:
+    # No pretrained weights -> LLRD off.
+    backbone_lr: 1.0e-4
+    head_lr: 1.0e-4
+    layer_decay: 1.0
+    weight_decay: 0.05
+    warmup_steps: 200
+    eta_min: 1.0e-6
+    model_factory: EncoderDecoderFactory
+    model_args:
+      backbone: lunar_fvqmultimae
+      # backbone_checkpoint_path intentionally omitted -> random init.
+      backbone_modalities:
+        - nac
+      backbone_new_modalities:
+        nac:
+          num_channels: 1
+          patch_size: 8
+          image_size: 256
+      backbone_patch_size: 8
+      backbone_image_size: 256
+      necks:
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]
+        - name: ReshapeTokensToImage
+          remove_cls_token: false
+          h: 32
+        - name: LearnedInterpolateToPyramidal
+      decoder: UNetDecoder
+      decoder_channels: [512, 256, 128, 64]
+      head_channel_list: [256]
+      head_dropout: 0.1
+      num_classes: 2
+    loss: dice
+    aux_loss:
+      aux_head: 1.0
+    freeze_backbone: false
+    freeze_decoder: false
+    ignore_index: -1
+    plot_on_val: 10

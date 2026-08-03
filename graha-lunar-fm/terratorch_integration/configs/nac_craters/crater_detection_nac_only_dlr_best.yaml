@@ -1,0 +1,254 @@
+# Lunar Crater Detection — NAC + DTM + Metadata, multimodal
+# Backbone: lunarmind_v1_base from 100k pretraining (matrix_base_vit_4g_8w_128b_1r_250s_6pf)
+#
+# RUN:
+#   PYTHONPATH=.:$PYTHONPATH \
+#   terratorch fit --config terratorch_integration/configs/crater_detection_nac_dtm_meta.yaml
+##   PYTHONPATH=/Users/pao/Documents/IBM/Lunar-FM-1/terratorch_integration:$PYTHONPATH \
+#   terratorch fit --config terratorch_integration/configs/crater_detection_nac_dtm_meta.yaml
+# Checkpoint facts (derived from weights):
+#   embed_dim=768, encoder_depth=12, patch_size=16 (nac.pos_emb=(1,256,768)),
+#   num_register_tokens=0, in_domains=[nac, dtm_3m, metadata]
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 50
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 10
+  enable_checkpointing: true
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/nac-crater
+      name: crater-detection-nac-only-fm-fair-v1
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/crater-detection-nac-meta-fm-fair-v1
+        monitor: val_map
+        mode: max
+        # Keep top-3 so selection is a small pool rather than a single point.
+        # Dense-detection val_map is high-variance across epochs and top-1
+        # can easily land on an outlier epoch.
+        save_top_k: 3
+        filename: best-{epoch:02d}-{val_map:.3f}
+        save_last: true
+
+data:
+  class_path: terratorch_integration.data_adapter.LunarNACDTMDataModule
+  init_args:
+    data_dir: data/NAC_handlabeled_1m_256
+    metadata_file: data/NAC_handlabeled_1m_256/metadata_new.parquet
+    annotations_file: data/NAC_handlabeled_1m_256/nac_nac_handlabeled_annotations.json
+    modalities: [nac, metadata]
+    # metadata_file: data/NAC_handlabeled_1m_256/metadata.parquet
+    # tokenizer/binning default to bundled files; override here if needed:
+    metadata_tokenizer_path: terramind/utils/tokenizer/trained/text_tokenizer_terramind_wordpiece_30k_binned_xyxy_reindexed.json
+    metadata_binning_config_path: terramind/utils/tokenizer/trained/metadata_binning_config.csv
+    output_mode: packed          # NAC+DTM stacked into "image" plus one metadata channel; backbone unpacks it
+    batch_size: 4
+    num_workers: 4               # keep 0 — collate_fn uses lambdas
+    image_size: 256              # matches pretraining patch grid (16×16 patches)
+    min_diameter_m: 10.0         # discard craters smaller than 5 px
+    drop_no_crater_images: true
+    used_for_labeling_only: true
+    # NAC: raw DN stored as -9999 (nodata) or integers 1-253 in the .nc files.
+    # nac_mask_threshold=-1 masks out the -9999 nodata sentinel.
+    # Stats computed from the 645 train+labeling==yes tiles in metadata_new.parquet
+    #   mean=0.020944  std=0.019197  (n_valid_pixels=41,998,479)
+    # nac_mask_threshold: -1.0
+    # nac_mask_fill_value: 0.0
+    nac_norm_mean: 0.02094413563125313
+    nac_norm_std: 0.019197145587676916
+    # DTM: -9999 nodata filtered, then local normalisation (dtm - image_mean) / global_std.
+    # global_std computed from per-image deviations over the 29 training images: 15.53
+    # dtm_mask_threshold: -9999.0
+    # dtm_mask_fill_value: 0.0
+    dtm_global_std: 44.24927615891305
+    # D4 group augmentation (0/90/180/270 rot + optional horizontal flip)
+    # applied per-sample to image and boxes together. Val/test stay identity
+    # so eval numbers remain directly comparable.
+    #
+    # NOTE: this config uses output_mode: packed. Metadata is NOT in
+    # `modalities`, so no sequence-token channel is folded into `image` and
+    # rotating/flipping is safe. If you re-enable metadata, drop this block
+    # or the metadata token order gets scrambled (see `wac_vis_meta` config).
+    # train_transforms:
+    #   class_path: terratorch_integration.data_utils.D4DetectionTransform
+    #   init_args:
+    #     image_keys: [image]
+    #     p: 1.0
+
+model:
+  class_path: terratorch_integration.LunarObjectDetectionTask
+  init_args:
+    model_factory: ObjectDetectionModelFactory
+    model_args:
+      framework: faster-rcnn
+      backbone: lunarmind_v1_base
+      backbone_checkpoint_path: weights/backbone/checkpoint_weights_final.pt
+      backbone_cfg: weights/backbone/full_config.yaml
+      backbone_modality_info_path: weights/modality_info.yaml
+      num_classes: 2             # background + crater
+      framework_min_size: 256
+      framework_max_size: 256
+
+      # Three modalities fed simultaneously; backbone merges their tokens
+      backbone_modalities:
+        - nac                    # (B, 1, 256, 256) — NAC grayscale
+        # - dtm_3m                 # (B, 1, 256, 256) — DTM elevation
+        - metadata               # (B, 10)          — tokenised observation metadata
+
+      # Deliberate override, NOT the checkpoint's native patch size. The
+      # pretrained nac.pos_emb is (1, 256, 768) = a 16x16 token grid at 256px,
+      # i.e. native patch_size 16. Setting 8 yields a 32x32 grid (1024 tokens,
+      # 4x the compute) to resolve small craters. FlexiViT PI-resize in the
+      # 16 -> 8 direction is a least-squares projection and does NOT preserve
+      # the pretrained response, so the encoder adapts during finetuning.
+      backbone_patch_size: 8
+      backbone_remove_register_tokens: false  # checkpoint has 0 register tokens
+      backbone_merge_method: concat
+
+      # ---------------- Dense-scene training tuning ----------------
+      # These are consumed by ObjectDetectionModelFactory at construction
+      # time (before the checkpoint is loaded), so they DO take effect on a
+      # fresh `terratorch fit`. They do NOT survive `terratorch test
+      # --ckpt_path` because the ckpt's frozen `model_args` overrides them —
+      # that path uses the `eval_*` init args below instead.
+      #
+      # RPN/ROI IoU thresholds — lower `bg_iou_thresh` so proposals that
+      # overlap real craters at 0.3-0.5 IoU are IGNORED rather than labeled
+      # background. Default 0.5 punishes the classifier for correctly
+      # attending to near-crater regions, which is exactly the failure mode
+      # on dense tiles (many overlapping GT).
+      # RPN thresholds kept loosened — RPN was under-firing at defaults;
+      # relaxing bg to 0.2 helps proposal recall without hurting the ROI
+      # head's calibration downstream (ROI runs on the surviving proposals).
+      framework_rpn_fg_iou_thresh: 0.5      # was 0.7 default
+      framework_rpn_bg_iou_thresh: 0.2      # was 0.3 default
+      # ROI head thresholds — v3 operating point, reverted from v5 for the
+      # fair-comparison sweep. v3 combined with 0.3 eval NMS gave the best
+      # val_map_50 (0.39) and the best score distribution
+      # (p90=0.97, frac_gt_0.5=0.32).
+      framework_box_fg_iou_thresh: 0.5      # default
+      framework_box_bg_iou_thresh: 0.3      # v3 setting
+      # Bigger sample budgets so RPN/ROI heads see more of the dense GT
+      # per image during training.
+      framework_rpn_batch_size_per_image: 512   # was 256
+      framework_box_batch_size_per_image: 1024  # was 512
+      framework_box_positive_fraction: 0.5      # v3 setting
+      # Match the eval budget at training too so val_map is computed the
+      # same way the test set is scored.
+      framework_box_detections_per_img: 600
+      framework_box_nms_thresh: 0.5             # keep default at train; sweep at eval
+      framework_rpn_post_nms_top_n_train: 3000
+      framework_rpn_post_nms_top_n_test: 3000
+      framework_rpn_pre_nms_top_n_train: 6000
+      framework_rpn_pre_nms_top_n_test: 6000
+      # Each modality produces 256 spatial tokens (16×16).
+      # The backbone concatenates nac + dtm_3m tokens → 512 total image tokens.
+      # Metadata tokens (10) are appended as sequence tokens.
+      # SelectIndices picks 4 of the 12 encoder blocks for the FPN neck.
+      # ReshapeTokensToImage must see only the image tokens; set remove_cls_token
+      # to false (no CLS) and h=16 for the 16×16 spatial grid per modality.
+      # With two image modalities concatenated, the backbone aggregation must
+      # be left at the default (None / no merge) so the neck receives the full
+      # concat token sequence split by modality via the backbone forward.
+      # Use merge_method: "mean" if you want the neck to see a single 256-token
+      # stream averaged across nac and dtm_3m.
+      in_channels: 2             # packed: 1 NAC channel (add 1 per extra modality)
+      necks:
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]  # 4 equidistant layers from 12-layer encoder
+        # - name: LearnedTokenProjection
+        #   output_dim: 768
+        - name: ReshapeTokensToImage
+          remove_cls_token: false
+          h: 32                  # 256 tokens = 16×16 spatial grid at patch_size=16
+        - name: LearnedInterpolateToPyramidal
+        - name: FeaturePyramidNetworkNeck
+
+    freeze_backbone: false
+    freeze_decoder: false
+
+    class_names:
+      - Background
+      - Crater
+
+    # -------------------- Fair-reporting metric config --------------------
+    # score_threshold: pre-metric filter in apply_nms_batch. Default 0.5
+    # discards the true-positive tail on dense-detection tasks; drop to 0.05
+    # so the mAP curve sees the low-confidence detections it is designed for.
+    # iou_threshold: NMS IoU (default 0.5). Kept explicit for symmetry across
+    # NAC/WAC/LRO — bump toward 0.7 if you see many overlapping duplicates.
+    # metric_kwargs: forwarded to torchmetrics MeanAveragePrecision so we can
+    # lift the default max_detection_thresholds=[1, 10, 100] ceiling on dense
+    # GT (≈200–330 boxes / tile) and get per-class AP. Same list across NAC
+    # and WAC keeps the datasets scored on the same ruler.
+    score_threshold: 0.05
+    # Second-pass NMS in apply_nms_batch. 0.3 matches eval_box_nms_thresh
+    # (the framework-level NMS). Empirically +2 pp val_map_50 on v3 vs 0.5,
+    # because duplicate boxes on real craters were counted as FPs; tighter
+    # NMS collapses them so precision improves faster than recall drops.
+    # See eval_v3_nms03.yaml validation run.
+    iou_threshold: 0.3
+    metric_kwargs:
+      max_detection_thresholds: [100, 300, 500]
+      class_metrics: true
+
+    # -------------------- Anchor generator --------------------
+    # Multiple sizes per FPN level → more anchors per pixel, catches the
+    # small-crater tail (min diameter 10 m ≈ 10 px at 1 m/px) that a single
+    # size ladder misses. Craters are near-circular so aspect_ratios stays
+    # centered on 1.0 rather than the torchvision 0.5/1/2 default.
+    #
+    # Top level is [48, 96] (previous [32, 48]) to cover the large-crater
+    # tail — the [[4,6],[8,12],[16,24],[32,48]] ladder capped at 48 px which
+    # regressed val_map_large. Sacrifices a mid-scale anchor (48 got merged
+    # into the top level) but keeps 4 FPN levels so the neck / RPN-head
+    # shapes don't need to change.
+    anchor_sizes: [[4, 6], [8, 12], [16, 24], [48, 96]]
+    anchor_aspect_ratios: [0.7, 1.0, 1.4]
+
+    # -------------------- Eval-time FasterRCNN caps --------------------
+    # First-class task init args (see LunarObjectDetectionTask). These are
+    # applied inside configure_models() and survive `terratorch test
+    # --ckpt_path`, unlike nested `model_args -> framework_*` keys added
+    # after training. They also apply during `fit`, so val_map computed by
+    # the ModelCheckpoint monitor uses the SAME eval budget as the test set
+    # — critical for selecting the right checkpoint.
+    eval_box_detections_per_img: 600
+    eval_box_nms_thresh: 0.3
+    eval_rpn_post_nms_top_n_test: 3000
+
+    # -------------------- LLRD (kept, but not the main lever) --------------------
+    backbone_lr: 5.0e-5
+    head_lr: 1.0e-4
+    layer_decay: 0.75
+    weight_decay: 0.05
+    head_weight_decay: 1.0e-4
+    betas: [0.9, 0.999]
+    warmup_steps: 500
+    eta_min: 1.0e-6
+
+# NOTE: intentionally NO top-level optimizer / lr_scheduler blocks.
+# Lightning CLI monkey-patches configure_optimizers when they're present,
+# which would silently discard the LLRD param groups defined by the task.
+
+# ------------------------------ Why LLRD ------------------------------
+# Pretrained ViT + fresh detector heads have very different LR needs:
+#   - Encoder wants a small LR to preserve pretrained features.
+#   - RPN, ROI-heads, and neck projections are randomly init'd and want more.
+#   - Within the encoder, top blocks are more task-specific (need more LR),
+#     bottom blocks are generic (need less). layer_decay=0.75 is the ViTDet
+#     default; try 0.65 if the FM still overfits, 0.85 if it underfits.
+#
+# WD is disabled for biases, LayerNorm weights, pos embeddings, register
+# tokens, and mod_emb — standard ViT practice.

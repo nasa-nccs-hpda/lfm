@@ -1,0 +1,131 @@
+# Lunar Crater Detection — NAC only, ViT-Base ImageNet baseline (fair-fight)
+#
+# PURPOSE — this is the scientifically most important comparison:
+# same architecture as the lunar FM (ViT-Base, ~86M params), but pretrained
+# on natural images (ImageNet) instead of lunar data. If the FM beats this
+# baseline by a real margin, it isolates the contribution of lunar-domain
+# pretraining from "having a ViT with pretrained weights".
+#
+# Uses MAE-pretrained ViT-Base from timm (vit_base_patch16_224.mae). This is
+# a strong ImageNet baseline — MAE is the natural-image analogue of the
+# self-supervised pretraining the lunar FM uses.
+#
+# Recipe: same LLRD + anchor override as the FM's winning config, since
+# we want "same architecture + same fine-tuning recipe, only pretraining
+# data differs" to be the clean isolated variable.
+#
+# RUN:
+#   PYTHONPATH=. \
+#   terratorch fit --config terratorch_integration/configs/crater_detection_nac_vit_imagenet.yaml
+
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 100
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 5
+  gradient_clip_val: 1.0
+  gradient_clip_algorithm: norm
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/
+      name: crater-detection-nac-vit-imagenet
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: step
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/crater-detection-nac-vit-imagenet
+        monitor: val_map
+        mode: max
+        filename: best-{epoch:02d}-{val_map:.3f}
+        save_top_k: 3
+        save_last: true
+
+data:
+  class_path: terratorch_integration.data_adapter.LunarNACDTMDataModule
+  init_args:
+    data_dir: data/NAC_handlabeled_1m_256
+    metadata_file: data/NAC_handlabeled_1m_256/metadata.parquet
+    annotations_file: data/NAC_handlabeled_1m_256/nac_nac_handlabeled_annotations.json
+    modalities: [nac]
+
+    output_mode: packed
+    batch_size: 4
+    num_workers: 0
+    image_size: 256
+    min_diameter_m: 5.0
+    nac_mask_threshold: -1.0
+    nac_mask_fill_value: 0.0
+    nac_norm_mean: 0.451789
+    nac_norm_std: 0.169636
+
+model:
+  class_path: terratorch_integration.LunarObjectDetectionTask
+  init_args:
+    model_factory: ObjectDetectionModelFactory
+    model_args:
+      framework: faster-rcnn
+
+      # timm ViT-Base at patch 16, MAE self-supervised on ImageNet-1k.
+      # img_size=256 tells timm to interpolate the pretrained pos_emb from
+      # its native 224² grid to our 256² grid (16 → 16 patch grid becomes
+      # 14 → 16; timm handles this at model creation time).
+      # in_chans=1 uses adapt_input_conv to average the 3-channel weights.
+      backbone: timm_vit_base_patch16_224.mae
+      backbone_pretrained: true
+      backbone_in_chans: 1
+      backbone_img_size: 256
+      # ViT returns a single-scale sequence; features_only picks 4 blocks
+      # along the depth for the FPN-style neck, mirroring the FM setup.
+      backbone_out_indices: [2, 5, 8, 11]
+
+      num_classes: 2
+      framework_min_size: 256
+      framework_max_size: 256
+
+      in_channels: 1
+      necks:
+        # Same neck stack as the FM run — single-scale ViT tokens need
+        # reshape → interpolate to pyramidal → FPN.
+        - name: ReshapeTokensToImage
+          remove_cls_token: true          # timm ViT prepends CLS by default
+          h: 16                            # 256 / patch_size(16) = 16
+        - name: LearnedInterpolateToPyramidal
+        - name: FeaturePyramidNetworkNeck
+
+    freeze_backbone: false
+    freeze_decoder: false
+
+    class_names:
+      - Background
+      - Crater
+
+    # ------ Anchors: identical to the FM's winning config ------
+    anchor_sizes: [[8], [16], [32], [64]]
+    anchor_aspect_ratios: [0.5, 1.0, 2.0]
+
+    # ------ LR / regularisation ------
+    # Same LLRD recipe as the FM run — this is the point of the comparison.
+    # "Same architecture, same fine-tuning recipe, only pretraining differs."
+    backbone_lr: 5.0e-5
+    head_lr: 1.0e-4
+    layer_decay: 0.75
+    weight_decay: 0.05
+    head_weight_decay: 1.0e-4
+    betas: [0.9, 0.999]
+    warmup_steps: 500
+    eta_min: 1.0e-6
+
+# NOTE: LLRD depends on backbone-param naming. This task's
+# `_encoder_block_index` was extended to match timm ViT's `.blocks.<i>.`
+# alongside the FM's `.model.encoder.<i>.` — so LLRD scaling works out of
+# the box here. Check the printed param-group table on startup: you should
+# see ~13 backbone groups (blocks 0..11 + embeddings/norm) with LRs
+# descending from 5e-5 at the top by factor 0.75 per layer.

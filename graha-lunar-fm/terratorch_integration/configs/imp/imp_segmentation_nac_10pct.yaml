@@ -1,0 +1,131 @@
+# Lunar IMP Semantic Segmentation — NAC only, 10% training subsample
+# Companion to imp_segmentation_nac.yaml.  Uses train_fraction=0.1 to sample
+# ~704 training tiles (val/test kept in full), and rebalances the training
+# schedule + regularisation to compensate for the much smaller pool:
+#
+#   * max_epochs 100 → 50, with EarlyStopping(patience=8) — 10× fewer
+#     iters/epoch and a pretrained backbone means overfit shows up early.
+#   * weight_decay 0.05 → 0.10 — stronger regularisation on the small set.
+#   * warmup_steps 500 → 200 — proportionally shorter warmup (~176 iters/ep).
+#
+# RUN (from repo root):
+#   PYTHONPATH=. \
+#   terratorch fit --config terratorch_integration/configs/imp_segmentation_nac_10pct.yaml
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 50
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 5
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/
+      name: imp-segmentation-nac-10pct
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    - class_path: EarlyStopping
+      init_args:
+        monitor: val/loss
+        mode: min
+        patience: 8
+        min_delta: 1.0e-4
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/imp-segmentation-nac-10pct
+        monitor: val/loss
+        mode: min
+        filename: best-{epoch:02d}-{val/loss:.3f}
+        save_top_k: 1
+        save_last: true
+
+data:
+  class_path: terratorch_integration.data_adapter_imp.LunarImpSegDataModule
+  init_args:
+    root: data/IMP_segmentation_dataset
+    batch_size: 16
+    num_workers: 0
+    image_size: 256
+    band_name: data
+    # Dataset-wide normalisation stats (computed over the full 7042 training tiles).
+    # We use the full-set stats even for the 10% subsample: leakage-safe because
+    # they were derived from the training split, and more stable than
+    # recomputing on 700 tiles.
+    per_image_norm: false
+    norm_means: [0.030536279938594046]
+    norm_stds:  [0.01734697969609096]
+    max_pixel_value: 1.0
+    # ---- 10% subsample of the training split; val/test untouched ----
+    train_fraction: 0.1
+    fraction_seed: 42
+    # ---- Training-only augmentation: random D4 symmetry (8 elements) ----
+    # Cheap, label-preserving for segmentation, and effectively 8× the training
+    # views — meaningful help when finetuning a large ViT on ~700 tiles.
+    # Val / test kept deterministic (no transform).
+    train_transforms:
+      class_path: terratorch_integration.data_utils.D4Transform
+      init_args:
+        mask_key: mask
+        p: 1.0
+
+model:
+  class_path: terratorch_integration.lunar_segmentation_task.LunarSegmentationTask
+  init_args:
+    # ---- Uniform LR (LLRD disabled) — debugging plateau ----
+    # Previous split-LR + LLRD schedule left the encoder at ~1e-6 and needed
+    # warmup for the head, so effective learning rates were tiny.  Flatten
+    # everything to one LR to isolate whether the model can move at all.
+    backbone_lr: 1.0e-4
+    head_lr:     1.0e-4
+    layer_decay: 1.0                  # 1.0 → no per-layer decay (flat)
+    weight_decay: 0.05                # back to default; heavy WD not needed
+                                      # while diagnosing.
+    warmup_steps: 20                  # <1 epoch at 44 iters/ep — just enough
+                                      # to avoid a shocked-init blow-up.
+    model_factory: EncoderDecoderFactory
+    model_args:
+      backbone: lunarmind_v1_base
+      backbone_checkpoint_path: weights/backbone/checkpoint_weights_final.pt
+      backbone_cfg: weights/backbone/full_config.yaml
+      backbone_modality_info_path: weights/modality_info.yaml
+      backbone_modalities:
+        - nac
+      backbone_patch_size: 16
+      backbone_remove_register_tokens: false
+      backbone_merge_method: null
+
+      necks:
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]
+        - name: ReshapeTokensToImage
+          remove_cls_token: false
+          h: 16
+        - name: LearnedInterpolateToPyramidal
+
+      decoder: UNetDecoder
+      decoder_channels: [512, 256, 128, 64]
+      head_channel_list: [256]
+      num_classes: 2
+      head_dropout: 0.0                # head starts from scratch on ~700
+                                       # tiles — dropout was suppressing the
+                                       # already-weak positive-class signal.
+
+    # Pure weighted CE while diagnosing.  Dice was averaging over classes and
+    # obscuring the signal — put it back later once training clearly moves.
+    loss: ce
+    class_weights: [1.0, 25.0]   # measured IMP pixel fraction ≈ 1.9%.
+    ignore_index: -100           # torch's default sentinel; explicit value
+                                 # needed because CrossEntropyLoss no longer
+                                 # accepts ignore_index=None.
+    class_names:
+      - Background
+      - IMP
+    freeze_backbone: false
+    freeze_decoder: false
+    plot_on_val: 5

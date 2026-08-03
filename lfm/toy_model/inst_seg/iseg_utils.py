@@ -8,17 +8,16 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import sys
-import os
-import subprocess
 
 import warnings
+
 warnings.filterwarnings("ignore", message=".*HF Hub.*")
 
 
 # ============================================================================
 # DISCRIMINATIVE LOSS FOR INSTANCE SEGMENTATION
 # ============================================================================
+
 
 class DiscriminativeLoss(nn.Module):
     """
@@ -44,9 +43,9 @@ class DiscriminativeLoss(nn.Module):
         super().__init__()
         self.delta_v = delta_v  # Pull margin (smaller = tighter clusters)
         self.delta_d = delta_d  # Push margin (larger = more separation)
-        self.alpha = alpha      # Variance loss weight
-        self.beta = beta        # Distance loss weight
-        self.gamma = gamma      # Regularization loss weight
+        self.alpha = alpha  # Variance loss weight
+        self.beta = beta  # Distance loss weight
+        self.gamma = gamma  # Regularization loss weight
 
     def forward(self, embeddings, instance_labels):
         """
@@ -87,7 +86,7 @@ class DiscriminativeLoss(nn.Module):
             # Compute mean embeddings for each instance
             means = []
             for instance_id in unique_instances:
-                mask = (inst == instance_id)  # (H, W)
+                mask = inst == instance_id  # (H, W)
                 instance_embeddings = emb[:, mask]  # (C, N_pixels)
 
                 if instance_embeddings.shape[1] == 0:
@@ -107,7 +106,7 @@ class DiscriminativeLoss(nn.Module):
             # ================================================================
             var_loss = 0.0
             for idx, instance_id in enumerate(unique_instances):
-                mask = (inst == instance_id)
+                mask = inst == instance_id
                 instance_embeddings = emb[:, mask]  # (C, N_pixels)
 
                 if instance_embeddings.shape[1] == 0:
@@ -116,11 +115,13 @@ class DiscriminativeLoss(nn.Module):
                 mean_emb = means[idx].unsqueeze(1)  # (C, 1)
 
                 # Distance from mean
-                distances = torch.norm(instance_embeddings - mean_emb, dim=0)  # (N_pixels,)
+                distances = torch.norm(
+                    instance_embeddings - mean_emb, dim=0
+                )  # (N_pixels,)
 
                 # Hinge loss: max(0, distance - delta_v)^2
                 hinge = torch.clamp(distances - self.delta_v, min=0.0)
-                var_loss += torch.mean(hinge ** 2)
+                var_loss += torch.mean(hinge**2)
 
             var_loss /= num_instances
 
@@ -140,7 +141,7 @@ class DiscriminativeLoss(nn.Module):
 
                         # Hinge loss: max(0, 2*delta_d - distance)^2
                         hinge = torch.clamp(2 * self.delta_d - distance, min=0.0)
-                        dist_loss += hinge ** 2
+                        dist_loss += hinge**2
 
                 # Normalize by number of pairs
                 num_pairs = (num_instances * (num_instances - 1)) / 2
@@ -165,22 +166,23 @@ class DiscriminativeLoss(nn.Module):
 
         # Weighted combination
         total_loss = (
-            self.alpha * total_var_loss +
-            self.beta * total_dist_loss +
-            self.gamma * total_reg_loss
+            self.alpha * total_var_loss
+            + self.beta * total_dist_loss
+            + self.gamma * total_reg_loss
         )
 
         return {
-            'total': total_loss,
-            'variance': total_var_loss,
-            'distance': total_dist_loss,
-            'regularization': total_reg_loss,
+            "total": total_loss,
+            "variance": total_var_loss,
+            "distance": total_dist_loss,
+            "regularization": total_reg_loss,
         }
 
 
 # ============================================================================
 # COMBINED INSTANCE SEGMENTATION LOSS
 # ============================================================================
+
 
 class InstanceSegmentationLoss(nn.Module):
     """
@@ -238,8 +240,8 @@ class InstanceSegmentationLoss(nn.Module):
         Returns:
             total_loss: Combined weighted loss (scalar)
         """
-        semantic_logits = outputs['semantic']
-        embeddings = outputs['embeddings']
+        semantic_logits = outputs["semantic"]
+        embeddings = outputs["embeddings"]
 
         # ================================================================
         # 1. SEMANTIC LOSS (Binary: crater vs background)
@@ -256,30 +258,28 @@ class InstanceSegmentationLoss(nn.Module):
         # ================================================================
         # COMBINE LOSSES
         # ================================================================
-        total_loss = (
-            self.semantic_weight * semantic_loss +
-            disc_loss_dict['total']
-        )
+        total_loss = self.semantic_weight * semantic_loss + disc_loss_dict["total"]
 
         # Store individual components for logging
         self.last_losses = {
-            'total': total_loss.item(),
-            'semantic': semantic_loss.item(),
-            'variance': disc_loss_dict['variance'].item(),
-            'distance': disc_loss_dict['distance'].item(),
-            'regularization': disc_loss_dict['regularization'].item(),
+            "total": total_loss.item(),
+            "semantic": semantic_loss.item(),
+            "variance": disc_loss_dict["variance"].item(),
+            "distance": disc_loss_dict["distance"].item(),
+            "regularization": disc_loss_dict["regularization"].item(),
         }
 
         return total_loss
 
     def get_last_losses(self):
         """Get detailed loss components from last forward pass."""
-        return getattr(self, 'last_losses', {})
+        return getattr(self, "last_losses", {})
 
 
 # ============================================================================
 # SEMANTIC SEGMENTATION LOSSES (Keep existing ones)
 # ============================================================================
+
 
 class FocalLoss(nn.Module):
     """Focal Loss for addressing class imbalance."""
@@ -396,6 +396,7 @@ class FullLoss(nn.Module):
 # LOSS FACTORY FUNCTION
 # ============================================================================
 
+
 def get_loss_function(loss_type="instance_combined"):
     """
     Factory function to get loss function by name.
@@ -420,15 +421,15 @@ def get_loss_function(loss_type="instance_combined"):
     """
     loss_functions = {
         # Instance segmentation losses
-        'instance_combined': InstanceSegmentationLoss(
+        "instance_combined": InstanceSegmentationLoss(
             semantic_weight=1.0,
             variance_weight=1.0,
             distance_weight=1.0,
             regularization_weight=0.001,
-            delta_v=0.5,   # Pull margin
-            delta_d=1.5,   # Push margin
+            delta_v=0.5,  # Pull margin
+            delta_d=1.5,  # Push margin
         ),
-        'instance_strong_push': InstanceSegmentationLoss(
+        "instance_strong_push": InstanceSegmentationLoss(
             semantic_weight=1.0,
             variance_weight=1.0,
             distance_weight=2.0,  # Stronger push
@@ -436,7 +437,7 @@ def get_loss_function(loss_type="instance_combined"):
             delta_v=0.5,
             delta_d=2.0,  # Larger margin
         ),
-        'instance_tight_clusters': InstanceSegmentationLoss(
+        "instance_tight_clusters": InstanceSegmentationLoss(
             semantic_weight=1.0,
             variance_weight=2.0,  # Stronger pull
             distance_weight=1.0,
@@ -444,13 +445,12 @@ def get_loss_function(loss_type="instance_combined"):
             delta_v=0.3,  # Smaller pull margin
             delta_d=1.5,
         ),
-
         # Semantic segmentation losses (backward compatibility)
-        'cross_entropy': nn.CrossEntropyLoss(),
-        'focal': FocalLoss(alpha=0.25, gamma=2.0),
-        'dice': DiceLoss(smooth=1.0),
-        'combined': CombinedLoss(ce_weight=0.5, dice_weight=0.5),
-        'full': FullLoss(ce_weight=0.4, dice_weight=0.4, boundary_weight=0.2),
+        "cross_entropy": nn.CrossEntropyLoss(),
+        "focal": FocalLoss(alpha=0.25, gamma=2.0),
+        "dice": DiceLoss(smooth=1.0),
+        "combined": CombinedLoss(ce_weight=0.5, dice_weight=0.5),
+        "full": FullLoss(ce_weight=0.4, dice_weight=0.4, boundary_weight=0.2),
     }
 
     if loss_type not in loss_functions:

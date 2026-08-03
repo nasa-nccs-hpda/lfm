@@ -8,7 +8,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-CKPT = '/explore/nobackup/projects/lfm/model_weights/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth'
+from lfm.toy_model.all_tasks.dino_patch_embed import flexible_dino_patch_weights
+
+CKPT = "/explore/nobackup/projects/lfm/model_weights/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth"
+
 
 class UNetDecoder(nn.Module):
     """UNet-style decoder for segmentation."""
@@ -76,7 +79,7 @@ class DINOSegmentation(nn.Module):
         num_classes=2,
         img_size=(304, 304),
         freeze_encoder=False,
-        weight_assignments=None
+        weight_assignments=None,
     ):
         super().__init__()
         self.encoder = encoder
@@ -94,11 +97,11 @@ class DINOSegmentation(nn.Module):
             self.weight_assignments = weight_assignments
             self.num_bands = len(weight_assignments)
 
-        if self.num_bands > 3:
+        if self.num_bands != 3:
             self._apply_flexible_weights()
 
         self.freeze_encoder = freeze_encoder
-        if  self.freeze_encoder:
+        if self.freeze_encoder:
             for param in self.encoder.parameters():
                 param.requires_grad = False
             print("Encoder frozen (only decoder will be trained).")
@@ -148,37 +151,13 @@ class DINOSegmentation(nn.Module):
         patch_embed = self.encoder.patch_embed.proj
 
         with torch.no_grad():
-            original_weights = patch_embed.weight.data.clone()  # Shape: (out_channels, 3, H, W)
-            # original_weights channels: [0]=Red, [1]=Green, [2]=Blue
-
-            # Create new weights for multi-band input
-            new_weights = torch.zeros(
-                original_weights.shape[0],
-                self.num_bands,
-                original_weights.shape[2],
-                original_weights.shape[3],
-            ).to(original_weights.device)
-
-            red_weights = original_weights[:, 0, :, :]
-            green_weights = original_weights[:, 1, :, :]
-            blue_weights = original_weights[:, 2, :, :]
-
-            # Dynamically assign weights based on weight_assignments
-            for i, assignment in enumerate(self.weight_assignments):
-                if assignment == "blue":
-                    new_weights[:, i, :, :] = blue_weights
-                elif assignment == "green":
-                    new_weights[:, i, :, :] = green_weights
-                elif assignment == "red":
-                    new_weights[:, i, :, :] = red_weights
-                elif assignment == "0.95*red":
-                    new_weights[:, i, :, :] = 0.95 * red_weights
-                elif assignment == "0.7*red+0.3*green":
-                    new_weights[:, i, :, :] = 0.7 * red_weights + 0.3 * green_weights
-                else:
-                    # Default fallback to red weights
-                    print(f"Warning: Unknown weight assignment '{assignment}' for band {i}, using red weights")
-                    new_weights[:, i, :, :] = red_weights
+            original_weights = (
+                patch_embed.weight.data.clone()
+            )  # Shape: (out_channels, 3, H, W)
+            new_weights = flexible_dino_patch_weights(
+                original_weights,
+                self.weight_assignments,
+            )
 
             # Replace patch embedding weights
             patch_embed.weight.data = new_weights
@@ -195,7 +174,7 @@ def load_dinov3_encoder(
             repo_or_dir="facebookresearch/dinov3",  # GitHub repo
             model=model,
             source="github",
-            weights=weights_local_checkpoint
+            weights=weights_local_checkpoint,
         ).to(device)
         print("Encoder loaded with pretrained weights.")
         return encoder

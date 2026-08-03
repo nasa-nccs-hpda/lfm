@@ -1,0 +1,135 @@
+# Lunar Crater Detection — NAC + DTM + Metadata
+# Key change vs. crater_detection_nac_dtm_meta_llrd.yaml: RPN anchor sizes
+# are overridden to match lunar-crater scale (min 5 px), not the torchvision
+# defaults which start at 32 px. LR settings kept modest (LLRD retained but
+# not the primary lever now).
+#
+# RUN:
+#   PYTHONPATH=. \
+#   terratorch fit --config terratorch_integration/configs/crater_detection_nac_dtm_meta_anchors.yaml
+
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 25
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 5
+  gradient_clip_val: 1.0
+  gradient_clip_algorithm: norm
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/
+      name: crater-detection-nac-dtm-meta-anchors
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: step
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/crater-detection-nac-dtm-meta-anchors
+        monitor: val_map
+        mode: max
+        filename: best-{epoch:02d}-{val_map:.3f}
+        save_top_k: 3
+        save_last: true
+
+data:
+  class_path: terratorch_integration.data_adapter.LunarNACDTMDataModule
+  init_args:
+    data_dir: data/NAC_handlabeled_1m_256
+    metadata_file: data/NAC_handlabeled_1m_256/metadata.parquet
+    annotations_file: data/NAC_handlabeled_1m_256/nac_nac_handlabeled_annotations.json
+    modalities: [nac, dtm, metadata]
+
+    metadata_tokenizer_path: terramind/utils/tokenizer/trained/text_tokenizer_terramind_wordpiece_30k_binned_xyxy_reindexed.json
+    metadata_binning_config_path: terramind/utils/tokenizer/trained/metadata_binning_config.csv
+
+    output_mode: packed
+    batch_size: 4
+    num_workers: 0
+    image_size: 256
+    min_diameter_m: 5.0
+    nac_mask_threshold: -1.0
+    nac_mask_fill_value: 0.0
+    nac_norm_mean: 0.451789
+    nac_norm_std: 0.169636
+    dtm_mask_threshold: -9999.0
+    dtm_mask_fill_value: 0.0
+    dtm_global_std: 15.533791
+
+model:
+  class_path: terratorch_integration.LunarObjectDetectionTask
+  init_args:
+    model_factory: ObjectDetectionModelFactory
+    model_args:
+      framework: faster-rcnn
+      backbone: lunarmind_v1_base
+      backbone_checkpoint_path: weights/backbone/checkpoint_weights_final.pt
+      backbone_cfg: weights/backbone/full_config.yaml
+      backbone_modality_info_path: weights/modality_info.yaml
+
+      num_classes: 2
+      framework_min_size: 256
+      framework_max_size: 256
+
+      backbone_modalities:
+        - nac
+        - dtm_3m
+        - metadata
+
+      backbone_patch_size: 8
+      backbone_remove_register_tokens: false
+      backbone_merge_method: concat
+
+      in_channels: 1
+      necks:
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]
+        # - name: LearnedTokenProjection
+        #   output_dim: 768
+        - name: ReshapeTokensToImage
+          remove_cls_token: false
+          h: 32
+        - name: LearnedInterpolateToPyramidal
+        - name: FeaturePyramidNetworkNeck
+
+    freeze_backbone: false
+    freeze_decoder: false
+
+    class_names:
+      - Background
+      - Crater
+
+    # -------------------- Anchor override (the point of this run) --------------------
+    # SelectIndices picks 4 encoder blocks → FPN has 4 pyramid levels (P0..P3).
+    # Approximate strides in this stack: 4, 8, 16, 32 (after LearnedInterpolateToPyramidal).
+    # Anchors should be ~1× the stride at each level so the receptive field matches
+    # the object it's proposing:
+    #   level 0 (finest, stride ~4)  → anchor 8   → covers 4–16 px craters
+    #   level 1                     → anchor 16  → covers 8–32 px
+    #   level 2                     → anchor 32  → covers 16–64 px
+    #   level 3 (coarsest)          → anchor 64  → covers 32–128 px
+    # With aspect ratios (0.5, 1.0, 2.0) each level has 3 anchors/location — same
+    # count as the torchvision default, so the pre-built RPNHead stays compatible.
+    #
+    # Previous (broken) default was (32, 64, 128, 256, 512): the smallest anchor
+    # was 6× larger than the smallest crater. RPN literally couldn't propose them.
+    anchor_sizes: [[8], [16], [32], [64]]
+    anchor_aspect_ratios: [0.5, 1.0, 2.0]
+
+    # -------------------- LLRD (kept, but not the main lever) --------------------
+    backbone_lr: 5.0e-5
+    head_lr: 1.0e-4
+    layer_decay: 0.75
+    weight_decay: 0.05
+    head_weight_decay: 1.0e-4
+    betas: [0.9, 0.999]
+    warmup_steps: 500
+    eta_min: 1.0e-6
+
+# NOTE: no top-level optimizer / lr_scheduler blocks — the task builds them.
