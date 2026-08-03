@@ -190,6 +190,7 @@ def process_one_image(args: tuple[Any, ...]) -> tuple[bool, str, int, str | None
             raise ValueError(f"Unsupported scale mode: {scale_mode}")
 
         instance_mask = np.zeros((height, width), dtype=np.uint16)
+        bboxes: list[list[float]] = []
         kept_instances = 0
 
         for annotation in annotations:
@@ -202,9 +203,12 @@ def process_one_image(args: tuple[Any, ...]) -> tuple[bool, str, int, str | None
                 continue
             kept_instances += 1
             instance_mask[single_mask > 0] = kept_instances
+            bbox = annotation.get("bbox")
+            if bbox is not None:
+                bboxes.append([float(value) for value in bbox[:4]])
 
         chip_path = split_output_root / "chips" / f"{base_name}{chip_suffix}.tif"
-        label_path = split_output_root / "labels" / f"{base_name}{label_suffix}.tif"
+        label_path = split_output_root / "labels" / f"{base_name}{label_suffix}.npz"
 
         # Save chip as multi-band GeoTIFF
         transform = Affine.identity()
@@ -221,21 +225,13 @@ def process_one_image(args: tuple[Any, ...]) -> tuple[bool, str, int, str | None
         ) as dst:
             dst.write(chip)
 
-        # Save instance mask as single-band GeoTIFF with metadata
-        with rasterio.open(
+        # Save instance mask, bboxes, and num_craters as .npz
+        np.savez_compressed(
             label_path,
-            "w",
-            driver="GTiff",
-            height=height,
-            width=width,
-            count=1,
-            dtype=rasterio.uint16,
-            transform=transform,
-            compress="lzw",
-        ) as dst:
-            dst.write(instance_mask, 1)
-            # Store num_craters as a tag for reference
-            dst.update_tags(num_craters=kept_instances)
+            mask=instance_mask,
+            bboxes=np.asarray(bboxes, dtype=np.float32).reshape(-1, 4),
+            num_craters=np.asarray(kept_instances, dtype=np.int64),
+        )
 
         return True, base_name, kept_instances, None
     except Exception as exc:  # noqa: BLE001 - return worker errors to parent
