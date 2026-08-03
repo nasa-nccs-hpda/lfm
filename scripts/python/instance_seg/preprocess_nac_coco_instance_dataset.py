@@ -28,6 +28,7 @@ import argparse
 import json
 import math
 import shutil
+import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -293,6 +294,7 @@ def process_split(
             total=len(futures),
             desc=f"{split}",
             unit="tile",
+            file=sys.stdout,
         ):
             success, base_name, num_craters, error = future.result()
             if success:

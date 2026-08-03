@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -238,6 +239,7 @@ def write_instance_test_suite_outputs(
         desc=f"{model_name} {checkpoint.name} samples",
         leave=False,
         dynamic_ncols=True,
+        file=sys.stdout,
     ):
         display_key = str(sample_key).split("_input", 1)[0]
         thresholded_sample = threshold_instance_sample(sample, score_threshold)

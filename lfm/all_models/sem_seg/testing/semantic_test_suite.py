@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -349,6 +350,7 @@ def run_semantic_checkpoint(
         desc=f"{model_name} {checkpoint.name} batches",
         leave=False,
         dynamic_ncols=True,
+        file=sys.stdout,
     )
 
     with torch.no_grad():

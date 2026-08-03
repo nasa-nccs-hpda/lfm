@@ -111,6 +111,7 @@ def preload_test_batches(dataloader, *, model_name: str) -> list[Any]:
             total=len(dataloader) if hasattr(dataloader, "__len__") else None,
             desc=f"{model_name} preload test batches",
             dynamic_ncols=True,
+            file=sys.stdout,
         ):
             cached_batches.append(_cache_batch_on_cpu(batch))
     finally:
@@ -221,6 +222,7 @@ def run_toy_sweep(
         checkpoints,
         desc="Toy checkpoints",
         dynamic_ncols=True,
+        file=sys.stdout,
     )
     for checkpoint in checkpoint_bar:
         checkpoint_bar.set_postfix(checkpoint=checkpoint.name)
@@ -356,6 +358,7 @@ def run_graha_sweep(
         checkpoints,
         desc="Graha checkpoints",
         dynamic_ncols=True,
+        file=sys.stdout,
     )
     for checkpoint in checkpoint_bar:
         checkpoint_bar.set_postfix(checkpoint=checkpoint.name)

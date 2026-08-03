@@ -208,7 +208,12 @@ def run_toy_sweep(
     _, datamodule, task, image_processor = _setup_toy(config)
     model_output_dir = config.output_root / "toy_model"
     rows = []
-    for checkpoint in tqdm(checkpoints, desc="Toy checkpoints", dynamic_ncols=True):
+    for checkpoint in tqdm(
+        checkpoints,
+        desc="Toy checkpoints",
+        dynamic_ncols=True,
+        file=sys.stdout,
+    ):
         load_lightning_checkpoint_state(task, checkpoint.path)
         if image_processor is None:
             cache_dir = save_graha_instance_prediction_cache(
@@ -274,7 +279,12 @@ def run_graha_sweep(
     datamodule, task = _setup_graha(config)
     model_output_dir = config.output_root / "graha_model"
     rows = []
-    for checkpoint in tqdm(checkpoints, desc="Graha checkpoints", dynamic_ncols=True):
+    for checkpoint in tqdm(
+        checkpoints,
+        desc="Graha checkpoints",
+        dynamic_ncols=True,
+        file=sys.stdout,
+    ):
         load_lightning_checkpoint_state(task, checkpoint.path)
         cache_dir = save_graha_instance_prediction_cache(
             task=task,
