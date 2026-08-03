@@ -170,16 +170,18 @@ RUN_ROOT="${BASE_OUTPUT_DIR%/}/${TASK}/${TIMESTAMP}"
 TOY_OUTPUT_DIR="${RUN_ROOT}/toy_model"
 GRAHA_OUTPUT_DIR="${RUN_ROOT}/graha_model"
 GFFT_OUTPUT_DIR="${RUN_ROOT}/gfft_model"
+LOG_OUTPUT_DIR="${RUN_ROOT}/logs"
 if [[ -z "${FINAL_COMPARISON_OUTPUT_DIR}" ]]; then
   FINAL_COMPARISON_OUTPUT_DIR="${RUN_ROOT}/final_checkpoint_comparison"
 fi
-mkdir -p "${TOY_OUTPUT_DIR}" "${GRAHA_OUTPUT_DIR}" "${GFFT_OUTPUT_DIR}"
+mkdir -p "${TOY_OUTPUT_DIR}" "${GRAHA_OUTPUT_DIR}" "${GFFT_OUTPUT_DIR}" "${LOG_OUTPUT_DIR}"
 
 echo "Submitting ${TASK} Toy/Graha/GFFT fine-tuning jobs"
 echo "Shared run root: ${RUN_ROOT}"
 echo "Toy output: ${TOY_OUTPUT_DIR}"
 echo "Graha output: ${GRAHA_OUTPUT_DIR}"
 echo "GFFT output: ${GFFT_OUTPUT_DIR}"
+echo "Collected sbatch logs: ${LOG_OUTPUT_DIR}"
 if [[ "${SUBMIT_FINAL_COMPARISON_PLOT}" -eq 1 ]]; then
   echo "Final checkpoint comparison output: ${FINAL_COMPARISON_OUTPUT_DIR}"
 else
@@ -264,6 +266,68 @@ if [[ "${SUBMIT_FINAL_COMPARISON_PLOT}" -eq 1 ]]; then
   echo "Plot job dependency: afterok:${TOY_JOB}:${GRAHA_JOB}:${GFFT_JOB}"
 fi
 
+LOG_COLLECTION_SCRIPT="${RUN_ROOT}/collect_sbatch_logs.sh"
+cat > "${LOG_COLLECTION_SCRIPT}" <<EOF
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+REPO_DIR="${REPO_DIR}"
+LOG_SOURCE_DIR="\${REPO_DIR}/scripts/logs"
+LOG_OUTPUT_DIR="${LOG_OUTPUT_DIR}"
+
+mkdir -p "\${LOG_OUTPUT_DIR}"
+
+copy_job_logs() {
+  local label="\$1"
+  local raw_job_id="\$2"
+  local job_id="\${raw_job_id%%;*}"
+  local copied=0
+
+  if [[ -z "\${job_id}" ]]; then
+    return
+  fi
+
+  for log_file in "\${LOG_SOURCE_DIR}"/*_"\${job_id}".out "\${LOG_SOURCE_DIR}"/*_"\${job_id}".err; do
+    if [[ -e "\${log_file}" ]]; then
+      cp -p "\${log_file}" "\${LOG_OUTPUT_DIR}/\${label}_\$(basename "\${log_file}")"
+      copied=1
+    fi
+  done
+
+  if [[ "\${copied}" -eq 0 ]]; then
+    echo "No scripts/logs files found for \${label} job \${job_id}."
+  fi
+}
+
+copy_job_logs "toy" "${TOY_JOB}"
+copy_job_logs "graha" "${GRAHA_JOB}"
+copy_job_logs "gfft" "${GFFT_JOB}"
+EOF
+
+LOG_DEPENDENCY="afterany:${TOY_JOB}:${GRAHA_JOB}:${GFFT_JOB}"
+if [[ -n "${FINAL_COMPARISON_JOB}" ]]; then
+  cat >> "${LOG_COLLECTION_SCRIPT}" <<EOF
+copy_job_logs "final_comparison" "${FINAL_COMPARISON_JOB}"
+EOF
+  LOG_DEPENDENCY="${LOG_DEPENDENCY}:${FINAL_COMPARISON_JOB}"
+fi
+cat >> "${LOG_COLLECTION_SCRIPT}" <<'EOF'
+copy_job_logs "log_collection" "${SLURM_JOB_ID:-}"
+EOF
+chmod +x "${LOG_COLLECTION_SCRIPT}"
+
+LOG_COLLECTION_JOB="$(
+  sbatch --parsable \
+    --dependency="${LOG_DEPENDENCY}" \
+    --output=scripts/logs/three_model_collect_logs_%j.out \
+    --error=scripts/logs/three_model_collect_logs_%j.err \
+    "${LOG_COLLECTION_SCRIPT}"
+)"
+echo "Submitted sbatch log collection job: ${LOG_COLLECTION_JOB}"
+echo "Log collection dependency: ${LOG_DEPENDENCY}"
+echo "Log collection output: ${LOG_OUTPUT_DIR}"
+
 cat > "${RUN_ROOT}/submitted_jobs.txt" <<EOF
 task=${TASK}
 run_root=${RUN_ROOT}
@@ -275,6 +339,9 @@ gfft_output_dir=${GFFT_OUTPUT_DIR}
 gfft_job=${GFFT_JOB}
 final_comparison_output_dir=${FINAL_COMPARISON_OUTPUT_DIR}
 final_comparison_job=${FINAL_COMPARISON_JOB}
+log_output_dir=${LOG_OUTPUT_DIR}
+log_collection_script=${LOG_COLLECTION_SCRIPT}
+log_collection_job=${LOG_COLLECTION_JOB}
 EOF
 
 echo "Wrote job manifest: ${RUN_ROOT}/submitted_jobs.txt"
