@@ -59,7 +59,11 @@ def main() -> None:
     ensure_data_symlink(args.simlink_dest, notebook_dir / "data")
     config = build_config_from_args(args)
     validate_gfft_paths(config)
-    output_dir = create_timestamped_output_dir(config.base_output_dir)
+    output_dir = (
+        config.base_output_dir
+        if args.no_timestamp_output_dir
+        else create_timestamped_output_dir(config.base_output_dir)
+    )
 
     SingleModelExperiment(
         model="gfft",

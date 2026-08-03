@@ -64,7 +64,14 @@ class InstanceCheckpointComparisonPlotConfig:
 
 
 def _final_checkpoint_from_dir(checkpoint_dir: Path) -> CheckpointRecord:
-    checkpoints = discover_checkpoints(checkpoint_dir)
+    try:
+        checkpoints = discover_checkpoints(checkpoint_dir)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            f"Could not resolve a final checkpoint from {checkpoint_dir}. "
+            "If this came from a three-model run, inspect the corresponding "
+            "model job log and confirm that training wrote at least one .ckpt file."
+        ) from exc
     return checkpoints[-1]
 
 

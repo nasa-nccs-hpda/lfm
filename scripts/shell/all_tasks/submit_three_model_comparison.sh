@@ -207,6 +207,7 @@ if [[ "${TASK}" == "semantic" ]]; then
     sbatch --parsable scripts/shell/semantic_seg/sbatch_semantic_gfft_single_finetune.sh \
       "${JOB_ARGS[@]}" \
       --base-output-dir "${GFFT_OUTPUT_DIR}" \
+      --no-timestamp-output-dir \
       --run-epoch-test-suite
   )"
 else
@@ -228,6 +229,7 @@ else
     sbatch --parsable scripts/shell/instance_seg/sbatch_instance_gfft_single_finetune.sh \
       "${JOB_ARGS[@]}" \
       --base-output-dir "${GFFT_OUTPUT_DIR}" \
+      --no-timestamp-output-dir \
       --run-epoch-test-suite
   )"
 fi

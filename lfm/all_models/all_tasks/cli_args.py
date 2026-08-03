@@ -298,6 +298,15 @@ def create_semantic_experiment_parser(
     _add_symlink_arg(parser, semantic_help=True)
     parser.add_argument("--data-root", type=str, default=None)
     parser.add_argument("--base-output-dir", type=str, default=None)
+    parser.add_argument(
+        "--no-timestamp-output-dir",
+        action="store_true",
+        help=(
+            "Write directly to --base-output-dir instead of creating a "
+            "timestamped child directory. Intended for higher-level orchestrators "
+            "that already create a timestamped run directory."
+        ),
+    )
     parser.add_argument("--dino-checkpoint", type=str, default=None)
     _add_dataset_modality_arg(parser)
     parser.add_argument(
@@ -461,6 +470,15 @@ def create_instance_experiment_parser(
     _add_symlink_arg(parser, semantic_help=False)
     parser.add_argument("--data-root", type=str, default=None)
     parser.add_argument("--base-output-dir", type=str, default=None)
+    parser.add_argument(
+        "--no-timestamp-output-dir",
+        action="store_true",
+        help=(
+            "Write directly to --base-output-dir instead of creating a "
+            "timestamped child directory. Intended for higher-level orchestrators "
+            "that already create a timestamped run directory."
+        ),
+    )
     parser.add_argument("--dino-checkpoint", type=str, default=None)
     _add_dataset_modality_arg(parser)
     parser.add_argument(
