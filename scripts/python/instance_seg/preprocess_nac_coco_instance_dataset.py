@@ -105,8 +105,20 @@ def read_netcdf_band(path: Path, *, variable: str = "band_data") -> np.ndarray:
 
 def dtm_path_for_pho_path(nac_root: Path, pho_filename: str) -> Path:
     """Resolve the matched DTM tile for a PHO COCO filename."""
-    dtm_filename = pho_filename.replace("_PHO_", "_DTM_")
-    if dtm_filename == pho_filename:
+    pho_path = Path(pho_filename)
+    stem = pho_path.stem
+    suffix = pho_path.suffix
+
+    # Some filenames contain PHO twice, once in the site/mosaic descriptor and
+    # once as the actual product modality, e.g.
+    # Apollo17_PHO_E199N0308_box3_M162107606L_PHO_r0_c3.nc. Only the final
+    # modality token should become DTM.
+    if "_PHO_" in stem:
+        prefix, rest = stem.rsplit("_PHO_", 1)
+        dtm_filename = f"{prefix}_DTM_{rest}{suffix}"
+    elif stem.endswith("_PHO"):
+        dtm_filename = f"{stem.removesuffix('_PHO')}_DTM{suffix}"
+    else:
         dtm_filename = pho_filename.replace("_PHO", "_DTM")
     return nac_root / "DTM" / dtm_filename
 
