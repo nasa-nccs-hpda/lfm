@@ -13,6 +13,8 @@ def prepare_image_for_display(
     std_clip: float = 3.0,
 ) -> tuple[np.ndarray, str]:
     """Convert HWC multispectral image to displayable grayscale/RGB."""
+    if img.ndim == 2:
+        img = img[:, :, np.newaxis]
     num_channels = img.shape[2]
     if method == "percentile":
         img_normalized = np.zeros_like(img, dtype=np.float32)
@@ -36,6 +38,8 @@ def prepare_image_for_display(
 
     if num_channels == 1:
         return img_normalized[:, :, 0], "Grayscale"
+    if num_channels == 2:
+        return img_normalized[:, :, 0], "2ch (band 0 grayscale)"
     if num_channels in (5, 7):
         return (
             img_normalized[:, :, [3, 1, 0]],
