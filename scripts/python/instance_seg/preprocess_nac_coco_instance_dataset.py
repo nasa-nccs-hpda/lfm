@@ -17,9 +17,14 @@ xarray, rasterizes COCO polygons into instance-id masks, and writes the paired
 folder layout used by the current Lunar datamodules:
 
 ```
-output_root/{train,val,test}/chips/*_input_nac_chip.npy
+output_root/{train,val,test}/chips/*_input_nac_chip.tif
 output_root/{train,val,test}/labels/*_label.npz
 ```
+
+The chip band contract is stable:
+
+* band 1: PHO/NAC image
+* band 2: DTM image, only when ``--include-dtm`` is passed
 """
 
 from __future__ import annotations
@@ -51,6 +56,14 @@ class SplitSummary:
     successful: int
     failed: int
     total_craters: int
+
+
+def chip_band_layout(*, include_dtm: bool) -> list[dict[str, int | str]]:
+    """Return the saved GeoTIFF band layout using one-based band numbers."""
+    layout: list[dict[str, int | str]] = [{"band": 1, "name": "pho"}]
+    if include_dtm:
+        layout.append({"band": 2, "name": "dtm"})
+    return layout
 
 
 def min_max_scale_bands(bands: np.ndarray) -> np.ndarray:
@@ -170,6 +183,8 @@ def process_one_image(args: tuple[Any, ...]) -> tuple[bool, str, int, str | None
         if not pho_path.exists():
             raise FileNotFoundError(f"Missing PHO tile: {pho_path}")
 
+        # Keep this order stable: output GeoTIFF band 1 is PHO/NAC, and band 2
+        # is DTM when requested.
         bands = [read_netcdf_band(pho_path, variable=nc_variable)]
         if include_dtm:
             dtm_path = dtm_path_for_pho_path(nac_root, file_name)
@@ -324,6 +339,7 @@ def write_summary(output_root: Path, summaries: list[SplitSummary], args) -> Non
         "nac_root": str(args.nac_root),
         "output_root": str(output_root),
         "include_dtm": bool(args.include_dtm),
+        "chip_band_layout": chip_band_layout(include_dtm=bool(args.include_dtm)),
         "nc_variable": args.nc_variable,
         "scale_mode": args.scale_mode,
         "chip_suffix": args.chip_suffix,
@@ -338,6 +354,7 @@ def write_summary(output_root: Path, summaries: list[SplitSummary], args) -> Non
         f"nac_root: {args.nac_root}",
         f"output_root: {output_root}",
         f"include_dtm: {args.include_dtm}",
+        f"chip_band_layout: {chip_band_layout(include_dtm=bool(args.include_dtm))}",
         f"scale_mode: {args.scale_mode}",
         "",
     ]
