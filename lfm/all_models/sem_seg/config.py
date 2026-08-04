@@ -9,6 +9,7 @@ from typing import Any
 
 from lfm.all_models.all_tasks import config_defaults as defaults
 from lfm.all_models.all_tasks.cli_args import create_semantic_experiment_parser
+from lfm.all_models.all_tasks.data_dictionary import resolve_data_dictionary
 
 
 @dataclass(frozen=True)
@@ -237,6 +238,7 @@ def build_config_from_args(
 
 def build_config(
     *,
+    data_dict: dict[str, Any] | None = None,
     data_root: str | Path | None = None,
     base_output_dir: str | Path | None = None,
     dino_checkpoint: str | Path | None = None,
@@ -250,6 +252,7 @@ def build_config(
 ) -> SemanticSegmentationExperimentConfig:
     """Build a semantic segmentation experiment config from explicit values."""
     args = create_semantic_experiment_parser().parse_args([])
+    data_dict_overrides = resolve_data_dictionary(data_dict)
     path_values = {
         "data_root": data_root,
         "base_output_dir": base_output_dir,
@@ -264,6 +267,11 @@ def build_config(
     for name, value in path_values.items():
         if value is not None:
             setattr(args, name, str(value))
+
+    for name, value in data_dict_overrides.items():
+        if not hasattr(args, name):
+            raise TypeError(f"Unknown semantic data dictionary option: {name}")
+        setattr(args, name, value)
 
     for name, value in overrides.items():
         if not hasattr(args, name):

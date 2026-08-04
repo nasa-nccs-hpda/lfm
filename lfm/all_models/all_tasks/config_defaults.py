@@ -7,8 +7,8 @@ TASK_CHOICES = ["semantic", "instance"]
 SPLIT_CHOICES = ["train", "val", "test"]
 SEMANTIC_LABEL_SOURCE_CHOICES = ["semantic", "instance"]
 
-DATASET_MODALITY_CHOICES = ["wac", "nac"]
-GRAHA_INPUT_MODALITY_CHOICES = ["single", "vis-uv"]
+DATASET_MODALITY_CHOICES = ["wac", "nac", "nac_dtm"]
+GRAHA_INPUT_MODALITY_CHOICES = ["single", "vis-uv", "nac-dtm"]
 GRAHA_VIS_UV_MERGE_CHOICES = ["mean", "max"]
 NORMALIZATION_SOURCE_CHOICES = ["pretrain", "finetune"]
 NORMALIZATION_MODALITY_CHOICES = ["vis_uv", "nac"]
@@ -96,6 +96,8 @@ def normalization_modality_for_dataset(dataset_modality: str) -> str:
         return "vis_uv"
     if dataset_modality == "nac":
         return "nac"
+    if dataset_modality == "nac_dtm":
+        return "nac"
     raise ValueError(
         f"dataset_modality must be one of {DATASET_MODALITY_CHOICES}, "
         f"got {dataset_modality!r}."
@@ -107,6 +109,8 @@ def graha_input_modality_mode_for_dataset(dataset_modality: str) -> str:
         return "vis-uv"
     if dataset_modality == "nac":
         return "single"
+    if dataset_modality == "nac_dtm":
+        return "nac-dtm"
     raise ValueError(
         f"dataset_modality must be one of {DATASET_MODALITY_CHOICES}, "
         f"got {dataset_modality!r}."

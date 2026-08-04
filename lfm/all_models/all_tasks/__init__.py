@@ -25,6 +25,7 @@ from lfm.all_models.all_tasks.model_adapters import (
     ModelAdapter,
     SemanticModelAdapter,
 )
+from lfm.all_models.all_tasks.data_dictionary import resolve_data_dictionary
 
 __all__ = [
     "InstanceModelAdapter",
@@ -42,6 +43,7 @@ __all__ = [
     "save_config_json",
     "save_single_timing_json",
     "write_checkpoint_metrics_summary",
+    "resolve_data_dictionary",
     "CheckpointPipelineConfig",
     "CheckpointPipelineResult",
     "build_checkpoint_pipeline_config_from_args",

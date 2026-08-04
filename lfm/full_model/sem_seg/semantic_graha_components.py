@@ -526,6 +526,17 @@ def create_task(config: FineTuningConfig, task_cls, sample_batch: dict[str, Any]
 def _graha_modality_args(
     config: FineTuningConfig, wac_num_channels: int
 ) -> dict[str, Any]:
+    if config.graha_input_modality_mode == "nac-dtm":
+        if wac_num_channels != 2:
+            raise ValueError(
+                "graha_input_modality_mode='nac-dtm' expects 2 channels "
+                f"(PHO/NAC + DTM), got {wac_num_channels}"
+            )
+        return {
+            "backbone_modalities": ["nac", "dtm"],
+            "backbone_new_modalities": None,
+            "backbone_merge_method": config.graha_vis_uv_merge_method,
+        }
     if config.graha_input_modality_mode == "single":
         return {
             "backbone_modalities": ["wac"],
