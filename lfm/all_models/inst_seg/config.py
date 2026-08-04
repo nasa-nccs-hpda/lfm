@@ -237,6 +237,8 @@ def build_config(
 
     for name, value in data_dict_overrides.items():
         if not hasattr(args, name):
+            if name == "semantic_label_source":
+                continue
             raise TypeError(f"Unknown instance data dictionary option: {name}")
         setattr(args, name, value)
 
