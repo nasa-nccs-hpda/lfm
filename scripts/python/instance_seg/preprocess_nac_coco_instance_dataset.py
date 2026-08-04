@@ -198,11 +198,13 @@ def process_one_image(args: tuple[Any, ...]) -> tuple[bool, str, int, str | None
         # Keep this order stable: output GeoTIFF band 1 is PHO/NAC, and band 2
         # is DTM when requested.
         bands = [read_netcdf_band(pho_path, variable=nc_variable)]
+        band_descriptions = [f"pho:{pho_path.name}"]
         if include_dtm:
             dtm_path = dtm_path_for_pho_path(nac_root, file_name)
             if not dtm_path.exists():
                 raise FileNotFoundError(f"Missing DTM tile: {dtm_path}")
             bands.append(read_netcdf_band(dtm_path, variable=nc_variable))
+            band_descriptions.append(f"dtm:{dtm_path.name}")
 
         chip = np.stack(bands, axis=0).astype(np.float32)
         if chip.shape[-2:] != (height, width):
@@ -252,6 +254,8 @@ def process_one_image(args: tuple[Any, ...]) -> tuple[bool, str, int, str | None
             compress="lzw",
         ) as dst:
             dst.write(chip)
+            for band_index, description in enumerate(band_descriptions, start=1):
+                dst.set_band_description(band_index, description)
 
         # Save instance mask, bboxes, and num_craters as .npz
         np.savez_compressed(
