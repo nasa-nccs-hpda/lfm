@@ -9,6 +9,7 @@ from typing import Any
 
 from lfm.all_models.all_tasks import config_defaults as defaults
 from lfm.all_models.all_tasks.cli_args import create_instance_experiment_parser
+from lfm.all_models.all_tasks.config_validation import validate_experiment_config
 from lfm.all_models.all_tasks.data_dictionary import resolve_data_dictionary
 
 
@@ -95,7 +96,7 @@ def build_config_from_args(
         "dataset_modality",
         defaults.DEFAULT_DATASET_MODALITY,
     )
-    return InstanceSegmentationExperimentConfig(
+    config = InstanceSegmentationExperimentConfig(
         notebook_dir=notebook_dir,
         lfm_root=lfm_root,
         data_root=(
@@ -203,6 +204,8 @@ def build_config_from_args(
         epoch_test_every_n_epochs=args.epoch_test_every_n_epochs,
         seed=args.seed,
     )
+    validate_experiment_config(config, task="instance")
+    return config
 
 
 def build_config(

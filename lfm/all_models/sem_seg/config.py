@@ -9,6 +9,7 @@ from typing import Any
 
 from lfm.all_models.all_tasks import config_defaults as defaults
 from lfm.all_models.all_tasks.cli_args import create_semantic_experiment_parser
+from lfm.all_models.all_tasks.config_validation import validate_experiment_config
 from lfm.all_models.all_tasks.data_dictionary import resolve_data_dictionary
 
 
@@ -152,7 +153,7 @@ def build_config_from_args(
         data_root=data_root,
     )
 
-    return SemanticSegmentationExperimentConfig(
+    config = SemanticSegmentationExperimentConfig(
         repo_root=repo_root,
         notebook_dir=notebook_dir,
         data_root=data_root,
@@ -275,6 +276,8 @@ def build_config_from_args(
         epoch_test_every_n_epochs=args.epoch_test_every_n_epochs,
         seed=args.seed,
     )
+    validate_experiment_config(config, task="semantic")
+    return config
 
 
 def build_config(
