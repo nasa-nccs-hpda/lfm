@@ -5,6 +5,7 @@ from lfm.all_models.all_tasks.data.base_datamodule import (
     SplitFolderDataLayout,
 )
 from lfm.all_models.all_tasks.data.base_dataset import LunarSegmentationDataset
+from lfm.all_models.all_tasks.data.base_dataset import LabelBinarizationMode
 from lfm.all_models.all_tasks.data.collate import (
     collate_instance_segmentation,
     collate_mask2former_instance_segmentation,
@@ -38,6 +39,7 @@ __all__ = [
     "FinetuneStatsNormalization",
     "LunarSegmentationDataModule",
     "LunarSegmentationDataset",
+    "LabelBinarizationMode",
     "NoDataPolicy",
     "NoNormalization",
     "NormalizationStrategy",

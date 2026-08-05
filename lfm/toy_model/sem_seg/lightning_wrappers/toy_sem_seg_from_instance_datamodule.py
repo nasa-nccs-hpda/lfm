@@ -25,7 +25,7 @@ class ToySemSegFromInstanceDataset(LunarCraterDataset):
             *args,
             label_file_type=".npz",
             label_npz_key="mask",
-            binarize_label=True,
+            binarize_label="auto",
             **kwargs,
         )
 

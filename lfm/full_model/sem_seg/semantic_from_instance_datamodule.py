@@ -26,7 +26,7 @@ class LunarSemanticFromInstanceDataset(LunarSemanticMaskSegmentationDataset):
         super().__init__(
             *args,
             label_glob="*label*.npz",
-            binarize_mask=True,
+            binarize_mask="auto",
             **kwargs,
         )
 

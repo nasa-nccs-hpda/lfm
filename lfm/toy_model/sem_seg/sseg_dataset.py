@@ -14,6 +14,7 @@ import torch
 
 from lfm.all_models.all_tasks.data import (
     FinetuneStatsNormalization,
+    LabelBinarizationMode,
     NoDataPolicy,
     NoNormalization,
     read_image_file,
@@ -49,7 +50,7 @@ class LunarCraterDataset(SemanticSegmentationDataset):
         image_suffix: str | None = None,
         label_suffix: str | None = None,
         label_npz_key: str = "mask",
-        binarize_label: bool = False,
+        binarize_label: bool | LabelBinarizationMode = "auto",
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
     ) -> None:

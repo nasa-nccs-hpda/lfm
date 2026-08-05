@@ -58,6 +58,11 @@ class FineTuningConfig:
     nodata_ignore_index: int
     shape_loss_weight: float
     shape_loss_pad_frac: float
+    backbone_lr: float
+    head_lr: float
+    layer_decay: float
+    weight_decay: float
+    warmup_steps: int
     crop_size: int
     stats_batch_size: int
     batch_size: int
@@ -202,7 +207,15 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
             normalization_modality=getattr(args, "normalization_modality", None),
         ),
         band_filter=getattr(args, "band_filter", None),
-        semantic_label_source=getattr(args, "semantic_label_source", "semantic"),
+        semantic_label_source=defaults.resolve_semantic_label_source(
+            semantic_label_source=getattr(
+                args,
+                "semantic_label_source",
+                defaults.DEFAULT_SEMANTIC_LABEL_SOURCE,
+            ),
+            label_glob=args.label_glob,
+            data_root=data_root,
+        ),
         image_glob=args.image_glob,
         label_glob=args.label_glob,
         image_suffix=args.image_suffix,
@@ -214,6 +227,11 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         nodata_ignore_index=getattr(args, "nodata_ignore_index", -1),
         shape_loss_weight=getattr(args, "shape_loss_weight", 0.05),
         shape_loss_pad_frac=getattr(args, "shape_loss_pad_frac", 0.3),
+        backbone_lr=getattr(args, "backbone_lr", defaults.DEFAULT_GRAHA_BACKBONE_LR),
+        head_lr=getattr(args, "head_lr", defaults.DEFAULT_GRAHA_HEAD_LR),
+        layer_decay=getattr(args, "layer_decay", defaults.DEFAULT_GRAHA_LAYER_DECAY),
+        weight_decay=getattr(args, "weight_decay", defaults.DEFAULT_GRAHA_WEIGHT_DECAY),
+        warmup_steps=getattr(args, "warmup_steps", defaults.DEFAULT_GRAHA_WARMUP_STEPS),
         crop_size=args.crop_size,
         stats_batch_size=args.stats_batch_size,
         batch_size=args.batch_size,
@@ -485,11 +503,11 @@ def create_task(config: FineTuningConfig, task_cls, sample_batch: dict[str, Any]
     print("Backbone merge method:", modality_args["backbone_merge_method"])
 
     return task_cls(
-        backbone_lr=5.0e-5,
-        head_lr=2.0e-4,
-        layer_decay=0.75,
-        weight_decay=0.05,
-        warmup_steps=500,
+        backbone_lr=config.backbone_lr,
+        head_lr=config.head_lr,
+        layer_decay=config.layer_decay,
+        weight_decay=config.weight_decay,
+        warmup_steps=config.warmup_steps,
         shape_loss_weight=config.shape_loss_weight,
         shape_loss_pad_frac=config.shape_loss_pad_frac,
         model_factory="EncoderDecoderFactory",
@@ -665,6 +683,11 @@ def build_comparison_config(config: Any, output_dir: Path) -> FineTuningConfig:
         nodata_ignore_index=config.nodata_ignore_index,
         shape_loss_weight=config.graha_shape_loss_weight,
         shape_loss_pad_frac=config.graha_shape_loss_pad_frac,
+        backbone_lr=config.graha_backbone_lr,
+        head_lr=config.graha_head_lr,
+        layer_decay=config.graha_layer_decay,
+        weight_decay=config.graha_weight_decay,
+        warmup_steps=config.graha_warmup_steps,
         crop_size=config.target_size[0],
         stats_batch_size=config.graha_stats_batch_size,
         batch_size=config.graha_batch_size,

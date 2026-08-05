@@ -31,6 +31,7 @@ if str(LFM_ROOT) not in sys.path:
 from lfm.all_models.all_tasks.data.normalization import (
     load_terramind_pretraining_stats,
 )
+from lfm.all_models.all_tasks import config_defaults as defaults
 from lfm.toy_model.inst_seg.lightning_wrappers import ToyDinoMaskRCNNSplitDataModule
 from lfm.toy_model.inst_seg.terratorch_dino_backbone import require_terratorch_registry
 
@@ -100,7 +101,9 @@ def get_normalization_stats(
         raise ValueError("--modality-info is required with --normalize-inputs.")
     return load_terramind_pretraining_stats(
         args.modality_info,
-        normalization_modality=args.normalization_modality,
+        normalization_modality=defaults.normalize_normalization_modality(
+            args.normalization_modality
+        ),
         band_filter=args.band_filter,
     )
 
@@ -425,7 +428,7 @@ def parse_args() -> argparse.Namespace:
         "--normalization-source", choices=["pretrain"], default="pretrain"
     )
     parser.add_argument(
-        "--normalization-modality", choices=["vis_uv", "nac"], default="vis_uv"
+        "--normalization-modality", choices=["vis-uv", "nac"], default="vis-uv"
     )
     parser.add_argument("--modality-info", type=Path, default=None)
     parser.add_argument("--out-channels", type=int, default=256)

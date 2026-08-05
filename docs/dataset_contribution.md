@@ -84,6 +84,7 @@ The notebook `DATA_DICT` should match that stored layout:
 ```python
 DATA_DICT = {
     "dataset_name": "my_dataset",
+    "data_dir": "/explore/nobackup/path/to/dataset",
     "dataset_modality": "nac_dtm",
     "image_glob": "*.tif",
     "label_glob": "*.npz",

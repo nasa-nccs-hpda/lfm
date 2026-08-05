@@ -10,6 +10,7 @@ import numpy as np
 import torch
 
 from lfm.all_models.all_tasks.data import LunarSegmentationDataModule
+from lfm.all_models.all_tasks.data import LabelBinarizationMode
 from lfm.all_models.sem_seg.data.semantic_dataset import SemanticSegmentationDataset
 
 InputMetadataFn = Callable[[str, list[int] | None], list[str]]
@@ -42,7 +43,7 @@ class SemanticSegmentationDataModule(LunarSegmentationDataModule):
         image_suffix: str | None = None,
         label_suffix: str | None = None,
         label_npz_key: str = "mask",
-        binarize_label: bool = False,
+        binarize_label: bool | LabelBinarizationMode = "auto",
         means: list[float] | np.ndarray | None = None,
         stds: list[float] | np.ndarray | None = None,
         scale_inputs: bool = True,

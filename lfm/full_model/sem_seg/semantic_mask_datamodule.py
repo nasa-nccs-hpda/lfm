@@ -7,6 +7,7 @@ import torch
 from lfm.all_models.all_tasks.data.collate import (
     collate_semantic_segmentation,
 )
+from lfm.all_models.all_tasks.data import LabelBinarizationMode
 from lfm.all_models.all_tasks.data.nodata import build_nodata_policy
 from lfm.all_models.all_tasks.data.normalization import build_normalization_strategy
 from lfm.all_models.sem_seg import (
@@ -39,7 +40,7 @@ class LunarSemanticMaskSegmentationDataset(SemanticSegmentationDataset):
         label_glob: str = "*label*.*",
         image_suffix: str | None = None,
         label_suffix: str | None = None,
-        binarize_mask: bool = True,
+        binarize_mask: bool | LabelBinarizationMode = "auto",
         no_data_replace: float | None = None,
         no_label_replace: int | None = None,
         ignore_nodata_in_loss: bool = False,
@@ -103,7 +104,7 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
         label_glob: str = "*label*.*",
         image_suffix: str | None = None,
         label_suffix: str | None = None,
-        binarize_mask: bool = True,
+        binarize_mask: bool | LabelBinarizationMode = "auto",
         band_filter: list[int] | None = None,
         max_train_samples: int | None = None,
         max_val_samples: int | None = None,

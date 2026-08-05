@@ -105,7 +105,7 @@ def _add_normalization_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--normalization-modality",
-        choices=defaults.NORMALIZATION_MODALITY_CHOICES,
+        choices=defaults.NORMALIZATION_MODALITY_CLI_CHOICES,
         default=None,
         help=(
             "Which modality family to use when --normalization-source=pretrain. "
@@ -122,7 +122,7 @@ def _add_normalization_args_without_help(parser: argparse.ArgumentParser) -> Non
     )
     parser.add_argument(
         "--normalization-modality",
-        choices=defaults.NORMALIZATION_MODALITY_CHOICES,
+        choices=defaults.NORMALIZATION_MODALITY_CLI_CHOICES,
         default=None,
     )
 
@@ -142,7 +142,8 @@ def _add_semantic_label_source_arg(
     detailed_help: bool,
 ) -> None:
     help_text = (
-        "Use .npy semantic labels or .npz instance labels converted to semantic masks."
+        "Use .npy semantic labels or .npz instance labels converted to semantic "
+        "masks. Default 'auto' infers this from label files."
         if detailed_help
         else None
     )
@@ -291,6 +292,24 @@ def _add_graha_anchor_args(
         )
 
 
+def _add_graha_optimizer_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--graha-backbone-lr", type=float, default=defaults.DEFAULT_GRAHA_BACKBONE_LR
+    )
+    parser.add_argument(
+        "--graha-head-lr", type=float, default=defaults.DEFAULT_GRAHA_HEAD_LR
+    )
+    parser.add_argument(
+        "--graha-layer-decay", type=float, default=defaults.DEFAULT_GRAHA_LAYER_DECAY
+    )
+    parser.add_argument(
+        "--graha-weight-decay", type=float, default=defaults.DEFAULT_GRAHA_WEIGHT_DECAY
+    )
+    parser.add_argument(
+        "--graha-warmup-steps", type=int, default=defaults.DEFAULT_GRAHA_WARMUP_STEPS
+    )
+
+
 def create_semantic_experiment_parser(
     description: str | None = None,
 ) -> argparse.ArgumentParser:
@@ -422,6 +441,7 @@ def create_semantic_experiment_parser(
         type=float,
         default=defaults.DEFAULT_GRAHA_SHAPE_LOSS_PAD_FRAC,
     )
+    _add_graha_optimizer_args(parser)
     parser.add_argument(
         "--graha-stats-batch-size",
         type=int,

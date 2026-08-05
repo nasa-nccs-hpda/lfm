@@ -63,6 +63,11 @@ class SemanticSegmentationExperimentConfig:
     graha_vis_uv_merge_method: str
     graha_shape_loss_weight: float
     graha_shape_loss_pad_frac: float
+    graha_backbone_lr: float
+    graha_head_lr: float
+    graha_layer_decay: float
+    graha_weight_decay: float
+    graha_warmup_steps: int
     graha_stats_batch_size: int
     graha_batch_size: int
     graha_num_workers: int
@@ -135,6 +140,17 @@ def build_config_from_args(
         "dataset_modality",
         defaults.DEFAULT_DATASET_MODALITY,
     )
+    label_file_type = _file_type_from_glob(args.label_glob)
+    semantic_label_source = defaults.resolve_semantic_label_source(
+        semantic_label_source=getattr(
+            args,
+            "semantic_label_source",
+            defaults.DEFAULT_SEMANTIC_LABEL_SOURCE,
+        ),
+        label_glob=args.label_glob,
+        label_file_type=label_file_type,
+        data_root=data_root,
+    )
 
     return SemanticSegmentationExperimentConfig(
         repo_root=repo_root,
@@ -146,7 +162,7 @@ def build_config_from_args(
         band_filter=args.band_filter,
         target_size=(args.target_size, args.target_size),
         spatial_transform="crop",
-        semantic_label_source=args.semantic_label_source,
+        semantic_label_source=semantic_label_source,
         image_glob=args.image_glob,
         label_glob=args.label_glob,
         image_suffix=args.image_suffix,
@@ -217,6 +233,31 @@ def build_config_from_args(
             args,
             "graha_shape_loss_pad_frac",
             defaults.DEFAULT_GRAHA_SHAPE_LOSS_PAD_FRAC,
+        ),
+        graha_backbone_lr=getattr(
+            args,
+            "graha_backbone_lr",
+            defaults.DEFAULT_GRAHA_BACKBONE_LR,
+        ),
+        graha_head_lr=getattr(
+            args,
+            "graha_head_lr",
+            defaults.DEFAULT_GRAHA_HEAD_LR,
+        ),
+        graha_layer_decay=getattr(
+            args,
+            "graha_layer_decay",
+            defaults.DEFAULT_GRAHA_LAYER_DECAY,
+        ),
+        graha_weight_decay=getattr(
+            args,
+            "graha_weight_decay",
+            defaults.DEFAULT_GRAHA_WEIGHT_DECAY,
+        ),
+        graha_warmup_steps=getattr(
+            args,
+            "graha_warmup_steps",
+            defaults.DEFAULT_GRAHA_WARMUP_STEPS,
         ),
         graha_stats_batch_size=args.graha_stats_batch_size,
         graha_batch_size=args.graha_batch_size,

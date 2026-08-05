@@ -115,7 +115,7 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
             label_suffix=label_suffix,
             require_all_labels=True,
             label_npz_key="mask",
-            binarize_label=False,
+            binarize_label="never",
             scale_inputs=scale_inputs,
             normalization=normalization_strategy,
             nodata_policy=nodata_strategy,

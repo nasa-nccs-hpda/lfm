@@ -19,7 +19,6 @@ _PASSTHROUGH_KEYS = {
     "label_suffix",
     "semantic_label_source",
     "normalization_source",
-    "normalization_modality",
     "graha_input_modality_mode",
     "graha_vis_uv_merge_method",
 }
@@ -139,6 +138,10 @@ def resolve_data_dictionary(data_dict: DataDictionary | None) -> dict[str, Any]:
         if key in data_dict and data_dict[key] is not None:
             overrides[key] = data_dict[key]
 
+    if "data_dir" not in data_dict or data_dict["data_dir"] is None:
+        raise KeyError("DATA_DICT must include 'data_dir'.")
+    overrides["data_root"] = data_dict["data_dir"]
+
     band_filter = _resolve_band_filter(data_dict)
     if band_filter is not None:
         overrides["band_filter"] = band_filter
@@ -164,6 +167,10 @@ def resolve_data_dictionary(data_dict: DataDictionary | None) -> dict[str, Any]:
         "normalization_modality",
         defaults.normalization_modality_for_dataset(dataset_modality),
     )
+    if "normalization_modality" in data_dict and data_dict["normalization_modality"]:
+        overrides["normalization_modality"] = defaults.normalize_normalization_modality(
+            str(data_dict["normalization_modality"])
+        )
     overrides.setdefault(
         "graha_input_modality_mode",
         defaults.graha_input_modality_mode_for_dataset(dataset_modality),
