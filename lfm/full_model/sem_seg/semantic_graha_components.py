@@ -68,6 +68,8 @@ class FineTuningConfig:
     batch_size: int
     num_workers: int
     max_epochs: int
+    plot_every_n_epochs: int
+    plot_n_samples: int
     cache_predictions: bool
     prediction_split: str
     prediction_n_samples: int
@@ -237,6 +239,12 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         max_epochs=args.max_epochs,
+        plot_every_n_epochs=getattr(args, "plot_every_n_epochs", 1),
+        plot_n_samples=getattr(
+            args,
+            "plot_n_samples",
+            defaults.DEFAULT_PLOT_N_SAMPLES,
+        ),
         cache_predictions=args.cache_predictions,
         prediction_split=args.prediction_split,
         prediction_n_samples=args.prediction_n_samples,
@@ -614,6 +622,35 @@ def create_trainer(
     checkpoint_subdir: str | Path = Path("checkpoints") / "full_model",
 ) -> Trainer:
     plot_output_dir = output_dir if plot_output_dir is None else plot_output_dir
+    callbacks: list[Callback] = [
+        validation_plot_callback_cls(
+            output_dir=plot_output_dir,
+            n_samples=config.plot_n_samples,
+            every_n_epochs=config.plot_every_n_epochs,
+            plots_subdir=plots_subdir,
+            dpi=150,
+        ),
+        ModelCheckpoint(
+            dirpath=str(output_dir / checkpoint_subdir),
+            monitor="val/loss",
+            mode="min",
+            filename="model-epoch-{epoch:02d}",
+            auto_insert_metric_name=False,
+            save_top_k=-1,
+            save_last=False,
+            save_weights_only=True,
+            every_n_epochs=1,
+        ),
+    ]
+    if config.progress_log_every_n_batches > 0:
+        callbacks.insert(
+            0,
+            FitProgressLogger(
+                "Graha",
+                log_every_n_batches=config.progress_log_every_n_batches,
+            ),
+        )
+
     return Trainer(
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=1,
@@ -622,30 +659,7 @@ def create_trainer(
         check_val_every_n_epoch=1,
         log_every_n_steps=5,
         logger=False,
-        callbacks=[
-            FitProgressLogger(
-                "Graha",
-                log_every_n_batches=config.progress_log_every_n_batches,
-            ),
-            validation_plot_callback_cls(
-                output_dir=plot_output_dir,
-                n_samples=5,
-                every_n_epochs=1,
-                plots_subdir=plots_subdir,
-                dpi=150,
-            ),
-            ModelCheckpoint(
-                dirpath=str(output_dir / checkpoint_subdir),
-                monitor="val/loss",
-                mode="min",
-                filename="model-epoch-{epoch:02d}",
-                auto_insert_metric_name=False,
-                save_top_k=-1,
-                save_last=False,
-                save_weights_only=True,
-                every_n_epochs=1,
-            ),
-        ],
+        callbacks=callbacks,
     )
 
 
@@ -693,6 +707,8 @@ def build_comparison_config(config: Any, output_dir: Path) -> FineTuningConfig:
         batch_size=config.graha_batch_size,
         num_workers=config.graha_num_workers,
         max_epochs=config.max_epochs,
+        plot_every_n_epochs=config.plot_every_n_epochs,
+        plot_n_samples=config.plot_n_samples,
         cache_predictions=config.cache_predictions,
         prediction_split=config.prediction_split,
         prediction_n_samples=config.prediction_n_samples,

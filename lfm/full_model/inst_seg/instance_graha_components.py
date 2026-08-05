@@ -555,6 +555,28 @@ def run_loss_smoke(task, sample_batch: dict[str, Any]) -> None:
 
 
 def create_trainer(config: InstanceFineTuningConfig, output_dir: Path) -> Trainer:
+    callbacks: list[Callback] = [
+        ModelCheckpoint(
+            dirpath=str(output_dir / "checkpoints" / "full_model"),
+            monitor="val_segm_map",
+            mode="max",
+            filename="model-epoch-{epoch:02d}-val-segm-map={val_segm_map:.3f}",
+            auto_insert_metric_name=False,
+            save_top_k=-1,
+            save_last=False,
+            save_weights_only=True,
+            every_n_epochs=1,
+        ),
+    ]
+    if config.progress_log_every_n_batches > 0:
+        callbacks.insert(
+            0,
+            FitProgressLogger(
+                "Graha",
+                log_every_n_batches=config.progress_log_every_n_batches,
+            ),
+        )
+
     return Trainer(
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=1,
@@ -563,23 +585,7 @@ def create_trainer(config: InstanceFineTuningConfig, output_dir: Path) -> Traine
         check_val_every_n_epoch=1,
         log_every_n_steps=5,
         logger=False,
-        callbacks=[
-            FitProgressLogger(
-                "Graha",
-                log_every_n_batches=config.progress_log_every_n_batches,
-            ),
-            ModelCheckpoint(
-                dirpath=str(output_dir / "checkpoints" / "full_model"),
-                monitor="val_segm_map",
-                mode="max",
-                filename="model-epoch-{epoch:02d}-val-segm-map={val_segm_map:.3f}",
-                auto_insert_metric_name=False,
-                save_top_k=-1,
-                save_last=False,
-                save_weights_only=True,
-                every_n_epochs=1,
-            ),
-        ],
+        callbacks=callbacks,
     )
 
 
