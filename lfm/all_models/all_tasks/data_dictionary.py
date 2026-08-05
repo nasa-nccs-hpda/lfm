@@ -107,6 +107,13 @@ def _resolve_band_filter(data_dict: DataDictionary) -> list[int] | None:
             raw_band_filters[modality],
             name=f"band_filters[{modality!r}]",
         )
+        if not local_indices:
+            raise ValueError(
+                f"DATA_DICT['band_filters'][{modality!r}] must select at least "
+                "one channel. Remove the modality key to use all channels for "
+                "that modality, or remove DATA_DICT['band_filters'] to use the "
+                "dataset defaults."
+            )
         for local_index in local_indices:
             try:
                 channels.append(modality_channels[local_index])
