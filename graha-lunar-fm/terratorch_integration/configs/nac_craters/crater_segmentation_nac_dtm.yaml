@@ -1,0 +1,140 @@
+# Lunar Crater Semantic Segmentation — NAC + DTM, multimodal
+# Backbone: lunarmind_v1_base from 100k pretraining
+# Task: dense per-pixel crater/background classification.
+# Masks are synthesised from bboxes as filled circles inscribed in each box
+# (task_mode="segmentation" in the LunarNACDTMDataModule).
+#
+# RUN:
+#   PYTHONPATH=. \
+#   terratorch fit --config terratorch_integration/configs/crater_segmentation_nac_dtm.yaml
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 100
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 5
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/
+      name: crater-segmentation-nac-dtm
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/crater-segmentation-nac-dtm
+        monitor: val/loss
+        mode: min
+        filename: best-{epoch:02d}-{val/loss:.3f}
+        save_top_k: 3
+        save_last: true
+
+data:
+  class_path: terratorch_integration.data_adapter.LunarNACDTMDataModule
+  init_args:
+    # data_dir: data/NAC_handlabeled_1m_256
+    # metadata_file: data/NAC_handlabeled_1m_256/metadata.parquet
+    # annotations_file: data/NAC_handlabeled_1m_256/nac_nac_handlabeled_annotations.json
+    
+    data_dir: data/NAC_handlabeled_1m_256
+    metadata_file: data/NAC_handlabeled_1m_256/metadata.parquet
+    annotations_file: data/NAC_handlabeled_1m_256/nac_nac_handlabeled_annotations.json
+
+    modalities: [nac, dtm]
+    output_mode: packed
+    batch_size: 4
+    num_workers: 0
+    image_size: 256
+    min_diameter_m: 10.0
+
+    drop_no_crater_images: true
+    used_for_labeling_only: true
+    task_mode: segmentation           # synthesise a per-pixel mask from bboxes
+    circle_diameter_mode: min         # inscribe the circle in the bbox (safe default)
+    keep_boxes: true                  # forward per-crater bboxes for LunarSegmentationTask's shape loss
+
+
+    drop_no_crater_images: true
+    used_for_labeling_only: true
+    task_mode: segmentation           # synthesise a per-pixel mask from bboxes
+    circle_diameter_mode: min         # inscribe the circle in the bbox (safe default)
+    keep_boxes: true                  # forward per-crater bboxes for LunarSegmentationTask's shape loss
+    
+     
+    nac_mask_threshold: -1.0
+    nac_mask_fill_value: 0.0
+    nac_norm_mean: 0.451789
+    nac_norm_std: 0.169636
+    dtm_mask_threshold: -9999.0
+    dtm_mask_fill_value: 0.0
+    dtm_global_std: 15.533791
+
+model:
+  class_path: terratorch_integration.lunar_segmentation_task.LunarShapeSegmentationTask
+  init_args:
+    # LLRD / split-LR knobs (see LunarSegmentationTask docstring).
+    backbone_lr: 5.0e-5
+    head_lr: 2.0e-4
+    layer_decay: 0.75
+    weight_decay: 0.05
+    warmup_steps: 500
+    # Roundness regulariser weight — set to 0.0 to fall back to plain segmentation.
+    # Compactness = 4π·area/perimeter² per bbox ROI; loss = mean (1 - compactness).
+    shape_loss_weight: 0.05
+    shape_loss_pad_frac: 0.3
+    model_factory: EncoderDecoderFactory
+    model_args:
+      backbone: lunarmind_v1_base
+
+
+      backbone_checkpoint_path: weights/backbone/checkpoint_weights_final.pt
+      backbone_cfg: weights/backbone/full_config.yaml
+      backbone_modality_info_path: weights/modality_info.yaml
+      
+      backbone_modalities:
+        - nac
+        - dtm_3m
+
+      backbone_patch_size: 8
+      backbone_remove_register_tokens: false
+      backbone_merge_method: concat
+
+      necks:
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]
+        - name: LearnedTokenProjection
+          output_dim: 768
+        - name: ReshapeTokensToImage
+          remove_cls_token: false
+          h: 32
+        - name: LearnedInterpolateToPyramidal
+
+      # FCNDecoder chosen over UperNetDecoder because UPerNet's PPM does
+      # adaptive_avg_pool2d at bin sizes {1,2,3,6} on the deepest pyramid
+      # level, and PyTorch's MPS backend requires the input spatial dim to
+      # be divisible by each pool output — with a 16-token grid that fails.
+      # FCNDecoder has no such constraint and is what terratorch's reference
+      # segmentation configs use.
+      decoder: UNetDecoder
+      decoder_channels: [512, 256, 128, 64]
+      head_channel_list: [256]
+      num_classes: 2
+      head_dropout: 0.1
+
+    loss: dice                        # crater pixels are a small fraction; dice > ce here
+    class_names:
+      - Background
+      - Crater
+    freeze_backbone: false
+    freeze_decoder: false
+    plot_on_val: 5
+
+# NOTE: Do NOT set top-level optimizer:/lr_scheduler: here — the task builds
+# its own AdamW + warmup+cosine schedule with LLRD param groups, and those
+# keys would clobber configure_optimizers.

@@ -1,0 +1,118 @@
+# Lunar Crater Detection (LRO grayscale) — Fourier-VQ MultiMAE backbone.
+# Backbone: lunar_fvqmultimae (from origin/old-main), pretrained on
+# vis/uv/dtm/slope/aspect at 256×256, patch_size=8. Runs at image_size=512
+# with patch_size=8 → 64×64 spatial grid per modality (pos_emb is
+# bicubic-interpolated by the input adapter).
+#
+# RUN:
+#   bsub -q normal -n 10 -M 64G -gpu "num=1:mode=exclusive_process" \
+#        -oo logs/%J.out -eo logs/%J.err \
+#        PYTHONPATH=. \
+#        terratorch fit -c terratorch_integration/configs/lro_craters/crater_detection_lro_vis_fvqmultimae.yaml
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 100
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 10
+  enable_checkpointing: true
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/lro-crater
+      name: crater-detection-lro-vis-maskrcnn-fvqmultimae-new-task-ml-sfp-dp01v2
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/crater-detection-lro-vis-maskrcnn-fvqmultimae-new-task-ml-sfp-dp01v2
+        monitor: val_bbox_map
+        mode: max
+        filename: best-{epoch:02d}-{val_bbox_map:.3f}
+        save_last: true
+    - class_path: EarlyStopping
+      init_args:
+        monitor: val_bbox_map
+        mode: max
+        patience: 15
+
+data:
+  class_path: terratorch_integration.data_adapter.LunarCraterDataModule
+  init_args:
+    root: data/LRO_Craters
+    batch_size: 4
+    num_workers: 4
+    image_size: 512
+    output_mode: vis
+    replicate_bands: 5
+    norm_mean: 0.251561
+    norm_std: 0.121082
+    load_masks: true
+    train_transforms:
+      class_path: terratorch_integration.data_utils.D4DetectionTransform
+      init_args:
+        image_keys: [image, vis]
+        p: 1.0
+
+model:
+  class_path: terratorch_integration.LunarObjectDetectionTask
+  init_args:
+    model_factory: ObjectDetectionModelFactory
+    model_args:
+      framework: mask-rcnn
+      backbone: lunar_fvqmultimae
+      backbone_checkpoint_path: weights/fvqmultimae/nasa_team_ckpt.pth
+
+      num_classes: 2
+      framework_min_size: 512
+      framework_max_size: 512
+
+      backbone_modalities:
+        - vis
+
+      backbone_patch_size: 8
+      backbone_image_size: 512
+      backbone_merge_method: concat
+      # Stochastic depth on the fvqMultiMAE encoder. Applied for symmetric
+      # FM-vs-FM comparison (LunarFM dp01v2 uses drop_path 0.1 too).
+      backbone_drop_path_rate: 0.1
+
+      in_channels: 5
+      necks:
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]
+        - name: ReshapeTokensToImage
+          remove_cls_token: false
+          h: 64
+        - name: MultilayerSimpleFeaturePyramid
+          out_channels: 256
+        - name: FeaturePyramidNetworkNeck
+
+    freeze_backbone: false
+    freeze_decoder: false
+
+    class_names:
+      - Background
+      - Crater
+
+    anchor_sizes: [[8], [16], [32], [64]]
+    anchor_aspect_ratios: [0.5, 1.0, 2.0]
+
+    # dp01v2 (fvqMultiMAE): matches LunarFM dp01v2 for symmetric FM comparison.
+    #   head_lr: 1e-4 → 5e-5
+    #   head_weight_decay: 1e-4 → 1e-3
+    #   layer_decay: 0.75 → 0.65
+    backbone_lr: 5.0e-5
+    head_lr: 5.0e-5
+    layer_decay: 0.65
+    weight_decay: 0.05
+    head_weight_decay: 1.0e-3
+    betas: [0.9, 0.999]
+    warmup_steps: 500
+    eta_min: 1.0e-6

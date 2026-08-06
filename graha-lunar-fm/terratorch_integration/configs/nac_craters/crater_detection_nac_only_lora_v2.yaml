@@ -1,0 +1,180 @@
+# Lunar Crater Detection — NAC only, LoRA PEFT variant (fused-qkv path)
+#
+# v2 vs v1: drop `replace_qkv` so we don't split the fused
+# `qkv = nn.Linear(dim, dim*3)` into three separate Linears. On v1 this
+# added ~3× wall-clock (see 1150711: 2793 vs baseline 8071 steps/h) because:
+#   - 3 small GEMMs instead of 1 fused GEMM
+#   - torch.cat((q,k,v), dim=-1) allocation + copy every block
+#   - defeats SDPA's fused fast path assumptions on A100
+# LoRA-on-fused-qkv keeps the single-GEMM path and adapts Q, K, V jointly
+# (one shared A/B pair for the (dim → 3·dim) map). Trade-off: cannot LoRA
+# Q and V independently. In practice this is fine — Q/V-only vs full-QKV
+# is a minor recipe knob and joint adaptation typically matches within noise.
+#
+# Same effective LoRA capacity as v1 on attention (r=16 on both) plus
+# mlp.fc1 / mlp.fc2. Encoder trainable-param count will land close to v1's
+# 3.34M / 202.22M (1.65%).
+#
+# Requires: pip install terratorch[peft]
+#
+# RUN:
+#   PYTHONPATH=.:$PYTHONPATH \
+#   terratorch fit --config terratorch_integration/configs/nac_craters/crater_detection_nac_only_lora_v2.yaml
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 50
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 10
+  enable_checkpointing: true
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/nac-crater
+      name: crater-detection-nac-only-lora-v2
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/crater-detection-nac-only-lora-v2
+        monitor: val_map
+        mode: max
+        save_top_k: 1
+        filename: best-{epoch:02d}-{val_map:.3f}
+        save_last: false
+
+data:
+  class_path: terratorch_integration.data_adapter.LunarNACDTMDataModule
+  init_args:
+    data_dir: data/NAC_handlabeled_1m_256
+    metadata_file: data/NAC_handlabeled_1m_256/metadata_new.parquet
+    annotations_file: data/NAC_handlabeled_1m_256/nac_nac_handlabeled_annotations.json
+    modalities: [nac]
+    metadata_tokenizer_path: terramind/utils/tokenizer/trained/text_tokenizer_terramind_wordpiece_30k_binned_xyxy_reindexed.json
+    metadata_binning_config_path: terramind/utils/tokenizer/trained/metadata_binning_config.csv
+    output_mode: packed
+    batch_size: 4
+    num_workers: 4
+    image_size: 256
+    min_diameter_m: 10.0
+    drop_no_crater_images: true
+    used_for_labeling_only: true
+    nac_norm_mean: 0.02094413563125313
+    nac_norm_std: 0.019197145587676916
+    dtm_global_std: 44.24927615891305
+    train_transforms:
+      class_path: terratorch_integration.data_utils.D4DetectionTransform
+      init_args:
+        image_keys: [image]
+        p: 1.0
+
+model:
+  class_path: terratorch_integration.LunarObjectDetectionTask
+  init_args:
+    model_factory: ObjectDetectionModelFactory
+    model_args:
+      framework: faster-rcnn
+      backbone: lunarmind_v1_base
+      backbone_checkpoint_path: weights/backbone/checkpoint_weights_final.pt
+      backbone_cfg: weights/backbone/full_config.yaml
+      backbone_modality_info_path: weights/modality_info.yaml
+      num_classes: 2
+      framework_min_size: 256
+      framework_max_size: 256
+
+      backbone_modalities:
+        - nac
+
+      backbone_patch_size: 8
+      backbone_remove_register_tokens: false
+      backbone_merge_method: concat
+
+      backbone_drop_path_rate_encoder: 0.1
+
+      framework_rpn_fg_iou_thresh: 0.5
+      framework_rpn_bg_iou_thresh: 0.2
+      framework_box_fg_iou_thresh: 0.5
+      framework_box_bg_iou_thresh: 0.3
+      framework_rpn_batch_size_per_image: 512
+      framework_box_batch_size_per_image: 1024
+      framework_box_positive_fraction: 0.5
+      framework_box_detections_per_img: 600
+      framework_box_nms_thresh: 0.5
+      framework_rpn_post_nms_top_n_train: 3000
+      framework_rpn_post_nms_top_n_test: 3000
+      framework_rpn_pre_nms_top_n_train: 6000
+      framework_rpn_pre_nms_top_n_test: 6000
+
+      in_channels: 1
+      necks:
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]
+        - name: ReshapeTokensToImage
+          remove_cls_token: false
+          h: 32
+        - name: MultilayerSimpleFeaturePyramid
+          out_channels: 256
+        - name: FeaturePyramidNetworkNeck
+
+    freeze_backbone: false
+    freeze_decoder: false
+
+    class_names:
+      - Background
+      - Crater
+
+    score_threshold: 0.05
+    iou_threshold: 0.3
+    metric_kwargs:
+      max_detection_thresholds: [100, 300, 500]
+      class_metrics: true
+
+    anchor_sizes: [[4, 6], [8, 12], [16, 24], [48, 96]]
+    anchor_aspect_ratios: [0.7, 1.0, 1.4]
+
+    eval_box_detections_per_img: 600
+    eval_box_nms_thresh: 0.3
+    eval_rpn_post_nms_top_n_test: 3000
+
+    # -------------------- PEFT / LoRA (fused-qkv path) --------------------
+    # No `replace_qkv`. target_modules names the fused qkv Linear directly,
+    # so LoRA's A/B matrices bind to the (dim → 3·dim) projection. Attention
+    # forward keeps the single-GEMM + SDPA fast path — no torch.cat, no
+    # 3-GEMM overhead. See terramind/models/tm_utils.py:181-208 for the
+    # attention layer this LoRA's targeting.
+    # target_modules includes mlp.fc3: TerraMind uses SwiGLU (GatedMlp) which
+    # has fc1/fc2/fc3 — fc3 is the gate branch and was missed in the initial
+    # config, halving MLP LoRA capacity.
+    # exclude_modules skips TerraMind's decoder blocks entirely. LunarBackbone
+    # only forward-calls the encoder + encoder_norm; decoder blocks are loaded
+    # but never used at inference/finetune time. Without this exclude, PEFT
+    # attaches adapters to `decoder.<N>.qkv/mlp.*` too — those adapters take
+    # optimizer memory and step time but receive no gradient signal.
+    peft_config:
+      method: LORA
+      peft_config_kwargs:
+        r: 16
+        lora_alpha: 32
+        lora_dropout: 0.05
+        bias: none
+        target_modules:
+          - qkv
+          - mlp.fc1
+          - mlp.fc2
+          - mlp.fc3
+        exclude_modules: '.*decoder\..*'
+
+    backbone_lr: 1.0e-4
+    head_lr: 1.0e-4
+    layer_decay: 1.0
+    weight_decay: 0.0
+    head_weight_decay: 1.0e-3
+    betas: [0.9, 0.999]
+    warmup_steps: 500
+    eta_min: 1.0e-6

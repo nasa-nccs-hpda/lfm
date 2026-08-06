@@ -1,0 +1,126 @@
+# Lunar Crater Detection — LRO grayscale JPGs fed to the WAC-pretrained backbone
+# Framework: Mask R-CNN (matches the published LRO_Craters baseline).
+#
+# Same as crater_detection_lro_vis.yaml but with:
+#   * data.load_masks=true — rasterizes each annotation's COCO polygon into
+#     a per-instance binary mask (LRO_Craters ships 72-vertex polygons per
+#     crater).  Backward-compat: set to false for Faster R-CNN.
+#   * model.framework=mask-rcnn — adds torchvision's mask head to the
+#     shared Faster-R-CNN stack.  The extra mask loss regularises the
+#     backbone features and typically improves mAP50 on small objects.
+#
+# The RPN, FPN, and anchor mechanism are identical to Faster R-CNN, so
+# most of the config is copied verbatim from crater_detection_lro_vis.yaml.
+#
+# RUN:
+#   PYTHONPATH=.:$PYTHONPATH \
+#   terratorch fit --config terratorch_integration/configs/crater_detection_lro_vis_maskrcnn.yaml
+seed_everything: 42
+custom_modules_path: terratorch_integration
+
+trainer:
+  accelerator: gpu
+  devices: 1
+  precision: "32"
+  max_epochs: 100
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 10
+  enable_checkpointing: true
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: tb_logs/lro-crater
+      name: crater-detection-lro-vis-maskrcnn-trans-last-layers-new-task
+  callbacks:
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: tb_logs/checkpoints/crater-detection-lro-vis-maskrcnn-trans-last-layers-new-task
+        monitor: val_bbox_map
+        mode: max
+        filename: best-{epoch:02d}-{val_bbox_map:.3f}
+        save_last: true
+    - class_path: EarlyStopping
+      init_args:
+        monitor: val_bbox_map
+        mode: max
+        patience: 15
+
+data:
+  class_path: terratorch_integration.data_adapter.LunarCraterDataModule
+  init_args:
+    root: data/LRO_Craters
+    batch_size: 4
+    num_workers: 4
+    image_size: 512
+    output_mode: vis
+    replicate_bands: 5
+    norm_mean: 0.251561
+    norm_std: 0.121082
+    load_masks: true             # rasterize COCO polygons into per-instance masks
+    train_transforms:
+      class_path: terratorch_integration.data_utils.D4DetectionTransform
+      init_args:
+        image_keys: [image, vis]
+        p: 1.0
+
+model:
+  class_path: terratorch_integration.LunarObjectDetectionTask
+  init_args:
+    model_factory: ObjectDetectionModelFactory
+    model_args:
+      framework: mask-rcnn       # <-- adds the mask head
+      backbone: lunarmind_v1_base
+      backbone_checkpoint_path: weights/backbone/checkpoint_weights_final.pt
+      backbone_cfg: weights/backbone/full_config.yaml
+      backbone_modality_info_path: weights/modality_info.yaml
+      # backbone_checkpoint_path: weights/backbone/checkpoint_weights_final.pt
+      # backbone_cfg: weights/backbone/full_config.yaml
+      # backbone_modality_info_path: weights/modality_info.yaml
+
+      num_classes: 2             # background + crater
+      framework_min_size: 512
+      framework_max_size: 512
+
+      backbone_modalities:
+        - vis                    # (B, 5, 512, 512) — grayscale replicated to 5 bands
+
+      backbone_patch_size: 8
+      backbone_remove_register_tokens: false
+      backbone_merge_method: concat
+
+      in_channels: 5
+      necks:
+        - name: SelectIndices
+          # indices: [2, 5, 8, 11]
+          indices: [5, 7, 9, 11]
+        - name: ReshapeTokensToImage
+          remove_cls_token: false
+          h: 64
+        - name: LearnedInterpolateToPyramidal
+        - name: FeaturePyramidNetworkNeck
+
+    freeze_backbone: false
+    freeze_decoder: false
+
+    class_names:
+      - Background
+      - Crater
+
+    anchor_sizes: [[8], [16], [32], [64]]
+    anchor_aspect_ratios: [0.5, 1.0, 2.0]
+
+    backbone_lr: 5.0e-5
+    head_lr: 1.0e-4
+    layer_decay: 0.75
+    weight_decay: 0.05
+    head_weight_decay: 1.0e-4
+    betas: [0.9, 0.999]
+    warmup_steps: 500
+    eta_min: 1.0e-6
+
+# NOTE: intentionally NO top-level optimizer / lr_scheduler blocks.
+# Lightning CLI monkey-patches configure_optimizers when present, which
+# would silently discard the LLRD param groups defined by the task.

@@ -1,0 +1,69 @@
+# Verified dependency set for Graha Lunar-FM (finetuning + inference).
+#
+# Each lower bound is the version this repo was actually exercised against.
+# Upper bounds are the next major (or next minor for 0.x, per semver) and are an
+# *assumption* about forward compatibility, not a test result. Older versions than
+# the lower bounds may well work; they were not tested. For a byte-exact
+# reproduction of the verified environment, use requirements-lock.txt instead.
+#
+# terratorch is the load-bearing pin: the integration imports ObjectDetectionTask,
+# get_batch_size and get_peft_backbone from it. Note that an editable install of a
+# terratorch fork reports the same version string as the PyPI release, so a version
+# pin alone cannot tell you which one you have -- check `terratorch.__file__` or
+# `pip show terratorch` if in doubt.
+
+# --- core ---
+terratorch>=1.2.6,<2
+torch>=2.12.0,<3
+torchvision>=0.27.0,<0.28
+torchmetrics>=1.9.0,<2
+lightning>=2.6.5,<3
+timm>=1.0.27,<2
+einops>=0.8.2,<0.9
+numpy>=2.4.4,<3
+
+# Imported directly by this repo but previously declared only transitively.
+# omegaconf was the fragile one: its sole provider was hydra-core, which nothing
+# in this repo otherwise uses.
+omegaconf>=2.3.0,<3          # terratorch_integration/lunar_backbone.py, terramind/data/*
+pillow>=12.2.0,<13           # PIL.Image in both datamodules
+rasterio>=1.5.0,<2           # terratorch_integration/data_adapter.py
+torchgeo>=0.9.0,<0.10        # terratorch_integration/lunar_object_detection_task.py
+
+# --- data I/O ---
+h5py>=3.16.0,<4              # .nc / HDF5 patch reads
+hdf5plugin>=6.0.0,<7         # registers bitshuffle / blosc / lz4 / zstd filters
+pandas>=3.0.3,<4
+pyarrow>=24.0.0,<25          # engine for pd.read_parquet on the metadata files
+
+# --- tokenizer / VQ stack (terramind) ---
+diffusers>=0.38.0,<0.39
+tokenizers>=0.22.2,<0.23
+vector-quantize-pytorch>=1.29.0,<2
+huggingface-hub>=1.15.0,<2
+
+# --- misc ---
+peft>=0.19.1,<0.20           # no direct import: reached through terratorch's
+                             # get_peft_backbone by the 5 LoRA configs
+scipy>=1.17.1,<2
+scikit-image>=0.26.0,<0.27
+matplotlib>=3.10.9,<4
+tqdm>=4.67.3,<5
+
+# --- not imported by any code in this repo ---
+# Inherited from the pretraining environment, which is not part of this
+# distribution. Nothing under terramind/ or terratorch_integration/ imports these,
+# and no shipped config references them. Left commented rather than deleted in case
+# you rely on them out-of-tree; uncomment to restore.
+#   xarray      -- .nc reads go through h5py directly, not xarray
+#   h5netcdf    -- xarray netCDF engine; unused without xarray
+#   bottleneck  -- xarray reduction accelerator; unused without xarray
+#   hydra-core  -- only ever provided omegaconf, now declared explicitly above
+#   wandb       -- no logger config in this repo uses it
+#   webdataset  -- named in a data_adapter docstring only, never imported
+# xarray>=2026.4.0,<2027
+# h5netcdf>=1.8.1,<2
+# bottleneck>=1.6.0,<2
+# hydra-core>=1.3.2,<2
+# wandb>=0.27.0,<0.28
+# webdataset>=1.0.2,<2

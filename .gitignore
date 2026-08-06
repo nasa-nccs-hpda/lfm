@@ -1,4 +1,11 @@
 .ipynb_checkpoints/
 outputs/
+**/logs/*
+!**/logs/.gitkeep
+!scripts/logs/.gitkeep
+!scripts/outputs/
+!scripts/outputs/.gitkeep
 **/__pycache__/
 notebooks/lfm
+planning.txt
+**/.ruff_cache
