@@ -36,6 +36,7 @@ def build_graha_notebook_configs(
     **config_kwargs: Any,
 ) -> GrahaInstanceNotebookConfigs:
     """Build instance experiment and Graha configs for notebook workflows."""
+    config_kwargs.setdefault("progress_log_every_n_batches", 0)
     experiment_config = build_experiment_config(**config_kwargs)
     graha_output_dir = (
         Path(output_dir).resolve()
@@ -73,6 +74,7 @@ def build_gfft_notebook_configs(
     **config_kwargs: Any,
 ) -> GfftInstanceNotebookConfigs:
     """Build instance experiment and GFFT configs for notebook workflows."""
+    config_kwargs.setdefault("progress_log_every_n_batches", 0)
     experiment_config = build_experiment_config(**config_kwargs)
     gfft_output_dir = (
         Path(output_dir).resolve()

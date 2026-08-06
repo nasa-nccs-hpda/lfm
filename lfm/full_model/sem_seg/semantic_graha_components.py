@@ -43,6 +43,7 @@ class FineTuningConfig:
     normalized_wac_data_range: list[float]
     graha_input_modality_mode: str
     graha_vis_uv_merge_method: str
+    freeze_backbone: bool
     normalization_source: str
     normalization_modality: str
     band_filter: list[int] | None
@@ -203,6 +204,11 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
             ),
         ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
+        freeze_backbone=getattr(
+            args,
+            "graha_freeze_backbone",
+            getattr(args, "freeze_backbone", defaults.DEFAULT_GRAHA_FREEZE_BACKBONE),
+        ),
         normalization_source=getattr(args, "normalization_source", "pretrain"),
         normalization_modality=defaults.resolve_normalization_modality(
             dataset_modality=dataset_modality,
@@ -509,6 +515,7 @@ def create_task(config: FineTuningConfig, task_cls, sample_batch: dict[str, Any]
     print("Graha input modality mode:", config.graha_input_modality_mode)
     print("Backbone modalities:", modality_args["backbone_modalities"])
     print("Backbone merge method:", modality_args["backbone_merge_method"])
+    print("Freeze backbone:", config.freeze_backbone)
 
     return task_cls(
         backbone_lr=config.backbone_lr,
@@ -543,7 +550,7 @@ def create_task(config: FineTuningConfig, task_cls, sample_batch: dict[str, Any]
             config.nodata_ignore_index if config.ignore_nodata_in_loss else None
         ),
         class_names=["Background", "Crater"],
-        freeze_backbone=False,
+        freeze_backbone=config.freeze_backbone,
         freeze_decoder=False,
         plot_on_val=0,
     )
@@ -682,6 +689,7 @@ def build_comparison_config(config: Any, output_dir: Path) -> FineTuningConfig:
         ),
         graha_input_modality_mode=config.graha_input_modality_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
+        graha_freeze_backbone=config.graha_freeze_backbone,
         normalization_source=config.normalization_source,
         normalization_modality=config.normalization_modality,
         band_filter=config.band_filter,
