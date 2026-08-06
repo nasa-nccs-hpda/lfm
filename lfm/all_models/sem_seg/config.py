@@ -62,6 +62,7 @@ class SemanticSegmentationExperimentConfig:
     gfft_backbone_checkpoint: Path | None
     graha_input_modality_mode: str
     graha_vis_uv_merge_method: str
+    graha_freeze_backbone: bool
     graha_shape_loss_weight: float
     graha_shape_loss_pad_frac: float
     graha_backbone_lr: float
@@ -225,6 +226,11 @@ def build_config_from_args(
             ),
         ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
+        graha_freeze_backbone=getattr(
+            args,
+            "graha_freeze_backbone",
+            defaults.DEFAULT_GRAHA_FREEZE_BACKBONE,
+        ),
         graha_shape_loss_weight=getattr(
             args,
             "graha_shape_loss_weight",

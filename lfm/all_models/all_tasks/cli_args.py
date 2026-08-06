@@ -432,6 +432,12 @@ def create_semantic_experiment_parser(
         default=defaults.DEFAULT_GRAHA_VIS_UV_MERGE_METHOD,
     )
     parser.add_argument(
+        "--graha-freeze-backbone",
+        action="store_true",
+        default=defaults.DEFAULT_GRAHA_FREEZE_BACKBONE,
+        help="Freeze the Graha/Lunar-FM backbone and train only task-specific heads.",
+    )
+    parser.add_argument(
         "--graha-shape-loss-weight",
         type=float,
         default=defaults.DEFAULT_GRAHA_SHAPE_LOSS_WEIGHT,
@@ -609,6 +615,12 @@ def create_instance_experiment_parser(
     )
     parser.add_argument(
         "--graha-warmup-steps", type=int, default=defaults.DEFAULT_GRAHA_WARMUP_STEPS
+    )
+    parser.add_argument(
+        "--graha-freeze-backbone",
+        action="store_true",
+        default=defaults.DEFAULT_GRAHA_FREEZE_BACKBONE,
+        help="Freeze the Graha/Lunar-FM backbone and train only task-specific heads.",
     )
     _add_graha_anchor_args(parser, parsed_defaults=True)
     parser.add_argument(

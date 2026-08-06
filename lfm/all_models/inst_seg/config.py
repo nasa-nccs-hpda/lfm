@@ -28,6 +28,7 @@ class InstanceSegmentationExperimentConfig:
     dataset_modality: str
     graha_input_modality_mode: str
     graha_vis_uv_merge_method: str
+    graha_freeze_backbone: bool
     normalization_source: str
     normalization_modality: str
     image_glob: str
@@ -139,6 +140,11 @@ def build_config_from_args(
             ),
         ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
+        graha_freeze_backbone=getattr(
+            args,
+            "graha_freeze_backbone",
+            defaults.DEFAULT_GRAHA_FREEZE_BACKBONE,
+        ),
         normalization_source=getattr(
             args,
             "normalization_source",
