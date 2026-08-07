@@ -15,8 +15,7 @@ from tqdm import tqdm
 
 tqdm.__init__ = partialmethod(tqdm.__init__, disable=False)
 
-repo_root = Path.cwd().parent
-NOTEBOOK_DIR = repo_root / "notebooks"
+repo_root = Path.cwd().parents[2]
 
 if not (repo_root / "lfm").exists():
   raise FileNotFoundError(
@@ -36,8 +35,10 @@ from lfm.full_model.inst_seg import instance_graha_components
 
 print("Successfully imported LFM modules")
 
+assert torch.cuda.is_available, "CUDA not installed on this device."
 
-BASE_OUTPUT_DIR = NOTEBOOK_DIR / "outputs" / "instance_seg_finetuning"  # Base output directory for finetune plots etc.
+
+BASE_OUTPUT_DIR = Path.cwd() / "outputs" / "instance_seg_finetuning"  # Base output directory for finetune plots etc.
 PRETRAIN_DIR = "/explore/nobackup/projects/lfm/ibm_model_pretrain_dir"  # Where to load Graha configuration/checkpoint from
 LIGHTNING_CHECKPOINT = None  # Fine-tuned checkpoint to resume from (fresh starts should use 'None')
 

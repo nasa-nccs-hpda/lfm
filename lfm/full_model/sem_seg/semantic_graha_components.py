@@ -24,6 +24,7 @@ from lfm.all_models.all_tasks import config_defaults as defaults
 from lfm.all_models.all_tasks.data.normalization import (
     load_terramind_pretraining_stats,
 )
+from lfm.full_model.all_tasks.utils.configure_proj import configure_proj_environment
 
 
 @dataclass(frozen=True)
@@ -123,26 +124,6 @@ class FitProgressLogger(Callback):
         if trainer.sanity_checking:
             return
         print(f"[{self.model_name}] validation finished", flush=True)
-
-
-def configure_proj_environment() -> None:
-    """Point PROJ/GDAL at the active conda environment before rasterio imports."""
-    conda_prefix = Path(sys.executable).parents[1]
-    for candidate in [
-        conda_prefix / "share" / "proj",
-        conda_prefix / "Library" / "share" / "proj",
-    ]:
-        if (candidate / "proj.db").exists():
-            proj_dir = candidate
-            break
-    else:
-        raise FileNotFoundError(f"No proj.db found under {conda_prefix}")
-
-    os.environ["PROJ_LIB"] = str(proj_dir)
-    os.environ["PROJ_DATA"] = str(proj_dir)
-    os.environ["GDAL_DATA"] = str(conda_prefix / "share" / "gdal")
-    print("PROJ_DATA =", os.environ["PROJ_DATA"])
-    print("GDAL_DATA =", os.environ["GDAL_DATA"])
 
 
 def build_config(args: argparse.Namespace) -> FineTuningConfig:
