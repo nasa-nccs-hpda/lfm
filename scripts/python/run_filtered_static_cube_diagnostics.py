@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -61,6 +62,7 @@ GLOBAL_MINIRF_NAMES = {
 }
 
 DEFAULT_OUTPUT_NODATA = -32768.0
+VALID_LTM_ZONE_RE = re.compile(r"^\d+[NS]$")
 
 
 @dataclass
@@ -330,6 +332,56 @@ def resampling_from_name(name: str) -> int:
         raise ValueError(f"Unsupported resampling method: {name}") from exc
 
 
+def get_valid_tile_indexes(
+    ul_lat: float,
+    ul_lon: float,
+    lr_lat: float,
+    lr_lon: float,
+    zoom_level: int,
+) -> list[dict]:
+    """Return intersecting tiles, skipping malformed/nonexistent TMS zones."""
+    tile_indexes = []
+    tmsi = TmsIntersector()
+
+    for zone, zone_def in tmsi.zones.items():
+        if not VALID_LTM_ZONE_RE.match(zone):
+            print(f"Skipping malformed LTM zone from TMS index: {zone}")
+            continue
+
+        tms_path = TmsTileDef.getTmsFilePath(zone)
+        if not tms_path.exists():
+            print(f"Skipping LTM zone without TMS JSON: {zone} ({tms_path})")
+            continue
+
+        if not zone_def.intersectsBbox(ul_lat, ul_lon, lr_lat, lr_lon):
+            continue
+
+        print("Found LTM zone intersection:", zone)
+        try:
+            indices = zone_def.getIntersectingTiles(
+                ul_lat,
+                ul_lon,
+                lr_lat,
+                lr_lon,
+                zoom_level,
+            )
+        except FileNotFoundError as exc:
+            print(f"Skipping LTM zone {zone}; missing TMS file: {exc}")
+            continue
+
+        for col, row in indices:
+            tile_indexes.append(
+                {
+                    "tileX": col,
+                    "tileY": row,
+                    "zone": zone,
+                    "zoomLevel": zoom_level,
+                }
+            )
+
+    return tile_indexes
+
+
 def process_aoi(
     label: str,
     bounds: tuple[float, float, float, float],
@@ -340,8 +392,13 @@ def process_aoi(
     aoi_dir.mkdir(parents=True, exist_ok=True)
 
     pipeline = Pipeline(args.tile_db, aoi_dir, debug=args.debug)
-    tmsi = TmsIntersector()
-    tile_indexes = tmsi.getTids(ul_lat, ul_lon, lr_lat, lr_lon, args.zoom_level)
+    tile_indexes = get_valid_tile_indexes(
+        ul_lat,
+        ul_lon,
+        lr_lat,
+        lr_lon,
+        args.zoom_level,
+    )
 
     report = {
         "label": label,
