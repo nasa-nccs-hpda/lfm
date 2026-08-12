@@ -382,9 +382,58 @@ def get_valid_tile_indexes(
     return tile_indexes
 
 
+def save_reprojected_aoi_tifs(
+    aoi_tif: Path | None,
+    aoi_dir: Path,
+    tile_indexes: list[dict],
+    resample_alg: int,
+) -> list[str]:
+    """Save the input AOI GeoTIFF reprojected into each intersecting LTM CRS."""
+    if aoi_tif is None:
+        return []
+
+    src_ds = gdal.Open(str(aoi_tif), gdalconst.GA_ReadOnly)
+    if src_ds is None:
+        raise RuntimeError(f"Could not open AOI raster for reprojection: {aoi_tif}")
+
+    reprojected_dir = aoi_dir / "reprojected_aoi_ltm"
+    reprojected_dir.mkdir(parents=True, exist_ok=True)
+
+    zones = sorted({idx["zone"] for idx in tile_indexes})
+    output_files = []
+
+    src_nodata = scalar_or_none(src_ds.GetRasterBand(1).GetNoDataValue())
+
+    for zone in zones:
+        tile_def = TmsTileDef.initFromParams(zone, tile_indexes[0]["zoomLevel"])
+        out_file = reprojected_dir / f"{aoi_tif.stem}_LTM{zone}.tif"
+
+        warp_kwargs = {
+            "dstSRS": tile_def.srs,
+            "format": "GTiff",
+            "resampleAlg": resample_alg,
+            "creationOptions": ["TILED=YES", "COMPRESS=LZW", "BIGTIFF=IF_SAFER"],
+        }
+
+        if src_nodata is not None:
+            warp_kwargs["srcNodata"] = src_nodata
+            warp_kwargs["dstNodata"] = src_nodata
+
+        out_ds = gdal.Warp(str(out_file), src_ds, **warp_kwargs)
+        if out_ds is None:
+            raise RuntimeError(f"gdal.Warp failed while reprojecting {aoi_tif}")
+        out_ds = None
+
+        out_file.chmod(0o664)
+        output_files.append(str(out_file))
+
+    return output_files
+
+
 def process_aoi(
     label: str,
     bounds: tuple[float, float, float, float],
+    aoi_tif: Path | None,
     args: argparse.Namespace,
 ) -> dict:
     ul_lat, ul_lon, lr_lat, lr_lon = bounds
@@ -416,6 +465,13 @@ def process_aoi(
     }
 
     resample_alg = resampling_from_name(args.resampling)
+    reprojected_aoi_files = save_reprojected_aoi_tifs(
+        aoi_tif,
+        aoi_dir,
+        tile_indexes,
+        resample_alg,
+    )
+    report["reprojected_aoi_files"] = reprojected_aoi_files
 
     for idx in tile_indexes:
         tile_x = idx["tileX"]
@@ -587,21 +643,21 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
-    aoi_specs: list[tuple[str, tuple[float, float, float, float]]] = []
+    aoi_specs: list[tuple[str, tuple[float, float, float, float], Path | None]] = []
 
     for aoi_tif in args.aoi_tif:
         aoi_tif = aoi_tif.resolve()
         label = aoi_tif.stem
         bounds = dataset_bounds_latlon(aoi_tif)
-        aoi_specs.append((label, bounds))
+        aoi_specs.append((label, bounds, aoi_tif))
 
     if args.bounds is not None:
-        aoi_specs.append(("explicit_bounds", parse_bounds(args.bounds)))
+        aoi_specs.append(("explicit_bounds", parse_bounds(args.bounds), None))
 
     reports = []
-    for label, bounds in aoi_specs:
+    for label, bounds, aoi_tif in aoi_specs:
         print(f"Processing AOI {label}: {bounds}")
-        reports.append(process_aoi(label, bounds, args))
+        reports.append(process_aoi(label, bounds, aoi_tif, args))
 
     report_path = args.out_dir / "filtered_static_cube_diagnostics.json"
     report_path.write_text(json.dumps(reports, indent=2), encoding="utf-8")
