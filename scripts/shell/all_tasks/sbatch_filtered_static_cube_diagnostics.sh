@@ -41,8 +41,9 @@ echo
 
 "${APPTAINER_BIN}" exec \
   --bind "${APPTAINER_BIND_PATHS}" \
+  --pwd "${REPO_DIR}" \
   "${CONTAINER_PATH}" \
-  python -u scripts/python/run_filtered_static_cube_diagnostics.py "$@"
+  python -u "${REPO_DIR}/scripts/python/run_filtered_static_cube_diagnostics.py" "$@"
 
 END_TIME="$(date +%s)"
 END_READABLE="$(date)"
