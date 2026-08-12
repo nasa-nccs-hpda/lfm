@@ -29,7 +29,7 @@ mkdir -p scripts/logs
 
 CONTAINER_PATH="${CONTAINER_PATH:-/explore/nobackup/projects/lfm/containers/lfm-container}"
 APPTAINER_BIN="${APPTAINER_BIN:-apptainer}"
-APPTAINER_BIND_PATHS="${APPTAINER_BIND_PATHS:-/explore,/explore/nobackup,/explore/nobackup/people/ajkerr1}"
+APPTAINER_BIND_PATHS="${APPTAINER_BIND_PATHS:-,/explore/nobackup:/panfs/ccds02/nobackup}"
 
 echo "Job started at: ${START_READABLE}"
 echo "Job ID: ${SLURM_JOB_ID:-unknown}"
@@ -38,6 +38,12 @@ echo "Working directory: ${REPO_DIR}"
 echo "Container: ${CONTAINER_PATH}"
 echo "Bind paths: ${APPTAINER_BIND_PATHS}"
 echo
+
+apptainer exec \
+  --bind "${APPTAINER_BIND_PATHS}" \
+  --pwd "${REPO_DIR}" \
+  "${CONTAINER_PATH}" \
+  pwd
 
 "${APPTAINER_BIN}" exec \
   --bind "${APPTAINER_BIND_PATHS}" \
