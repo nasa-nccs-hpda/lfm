@@ -47,6 +47,7 @@ apptainer exec \
 
 "${APPTAINER_BIN}" exec \
   --bind "${APPTAINER_BIND_PATHS}" \
+  --bind "${REPO_DIR}" \
   --pwd "${REPO_DIR}" \
   "${CONTAINER_PATH}" \
   python -u "${REPO_DIR}/scripts/python/run_filtered_static_cube_diagnostics.py" "$@"
