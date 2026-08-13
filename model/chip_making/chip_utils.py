@@ -1149,7 +1149,15 @@ def create_chips(band_regex=r"^lola_kaguya.*",
                  zoom_level=5,
                  working_dir="lfm_train_chips",
                  nodata_policy=NODATA_POLICY_NORMALIZE,
-                 resampling_method="bilinear"):
+                 resampling_method="bilinear",
+                 project_dir="/explore/nobackup/projects/lfm",
+                 train_dir=None,
+                 chip_dir=None,
+                 gpkg_path=None,
+                 tile_db_path=None,
+                 max_workers=16,
+                 max_entries=None,
+                 verbose=False):
     # Set up logging
     logger = setup_logging()
     nodata_policy = validate_nodata_policy(nodata_policy)
@@ -1158,17 +1166,17 @@ def create_chips(band_regex=r"^lola_kaguya.*",
     # ========================================================================
     # PATHS
     # ========================================================================
-    PROJECT_DIR = Path("/explore/nobackup/projects/lfm")
+    PROJECT_DIR = Path(project_dir)
     DATA_DIR = PROJECT_DIR / "processed_data/Lunar/"
     WAC_DIR = DATA_DIR / "LRO_WAC_Pho_Sites"
 
     # Training paths
-    TRAIN_DIR = PROJECT_DIR / "model_inputs/300_300_inputs/7_band_vis_uv/sem_seg"
-    CHIP_DIR = TRAIN_DIR / "chips"
-    GPKG_PATH = CHIP_DIR / "WAC_TILES.gpkg"
+    TRAIN_DIR = Path(train_dir) if train_dir is not None else PROJECT_DIR / "model_inputs/300_300_inputs/7_band_vis_uv/sem_seg"
+    CHIP_DIR = Path(chip_dir) if chip_dir is not None else TRAIN_DIR / "chips"
+    GPKG_PATH = Path(gpkg_path) if gpkg_path is not None else CHIP_DIR / "WAC_TILES.gpkg"
 
     # Tile database
-    TILE_DB_PATH = WAC_DIR / "output_index.shp"
+    TILE_DB_PATH = Path(tile_db_path) if tile_db_path is not None else WAC_DIR / "output_index.shp"
 
     # Output directories
     working_dir = Path(working_dir)
@@ -1190,9 +1198,9 @@ def create_chips(band_regex=r"^lola_kaguya.*",
     # ========================================================================
     # CONFIGURATION
     # ========================================================================
-    MAX_WORKERS = 16  # Test with 8 workers
-    MAX_ENTRIES = None  # Process first 8 samples
-    VERBOSE = False  # Set True for detailed worker logging
+    MAX_WORKERS = max_workers
+    MAX_ENTRIES = max_entries
+    VERBOSE = verbose
 
     logger.info("=" * 80)
     logger.info("Configuration:")
