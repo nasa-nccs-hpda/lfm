@@ -99,6 +99,21 @@ def prepare_dir(path: Path, *, overwrite: bool) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
+def write_summary(output_root: Path, summary: dict[str, object]) -> None:
+    summary_path = output_root / "create_instance_wac_static_chips_summary.json"
+    with summary_path.open("w") as file:
+        json.dump(summary, file, indent=2)
+
+
+def prepare_requested_output_splits(args: argparse.Namespace) -> None:
+    for split in args.splits:
+        split_output_root = args.output_root / split
+        if args.overwrite_output and split_output_root.exists():
+            shutil.rmtree(split_output_root)
+        (split_output_root / "chips").mkdir(parents=True, exist_ok=True)
+        (split_output_root / "labels").mkdir(parents=True, exist_ok=True)
+
+
 def assemble_split(
     *,
     split: str,
@@ -302,6 +317,7 @@ def main() -> int:
 
     args.output_root.mkdir(parents=True, exist_ok=True)
     args.working_root.mkdir(parents=True, exist_ok=True)
+    prepare_requested_output_splits(args)
 
     summary = {
         "reference_data_root": str(args.reference_data_root),
@@ -320,14 +336,16 @@ def main() -> int:
         "splits": [],
     }
 
+    print(f"Requested splits: {', '.join(args.splits)}", flush=True)
+    write_summary(args.output_root, summary)
+
     for split in args.splits:
         print(f"\n=== Creating {split} WAC + static chips ===", flush=True)
         split_summary = process_split(args, split)
         summary["splits"].append(split_summary)
+        write_summary(args.output_root, summary)
 
     summary_path = args.output_root / "create_instance_wac_static_chips_summary.json"
-    with summary_path.open("w") as file:
-        json.dump(summary, file, indent=2)
     print(f"\nWrote summary: {summary_path}", flush=True)
     return 0
 
