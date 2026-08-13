@@ -195,6 +195,7 @@ def process_split(args: argparse.Namespace, split: str) -> dict[str, object]:
         max_workers=args.max_workers,
         max_entries=args.max_entries,
         verbose=args.verbose,
+        extreme_nodata_threshold=args.extreme_nodata_threshold,
     )
 
     generated_chips_dir = require_path(
@@ -286,6 +287,15 @@ def parse_args() -> argparse.Namespace:
         choices=tuple(RESAMPLING_METHODS),
         default="bilinear",
     )
+    parser.add_argument(
+        "--extreme-nodata-threshold",
+        type=float,
+        default=1.0e30,
+        help=(
+            "Mask values below -threshold as NoData before/after chip "
+            "reprojection. Pass a negative value to disable."
+        ),
+    )
     parser.add_argument("--max-workers", type=int, default=16)
     parser.add_argument("--max-entries", type=int, default=None)
     parser.add_argument("--verbose", action="store_true")
@@ -314,6 +324,8 @@ def main() -> int:
     args.project_dir = args.project_dir.resolve()
     if args.tile_db_path is not None:
         args.tile_db_path = args.tile_db_path.resolve()
+    if args.extreme_nodata_threshold is not None and args.extreme_nodata_threshold < 0:
+        args.extreme_nodata_threshold = None
 
     args.output_root.mkdir(parents=True, exist_ok=True)
     args.working_root.mkdir(parents=True, exist_ok=True)
@@ -331,6 +343,7 @@ def main() -> int:
         "zoom_level": args.zoom_level,
         "nodata_policy": args.nodata_policy,
         "resampling_method": args.resampling_method,
+        "extreme_nodata_threshold": args.extreme_nodata_threshold,
         "max_workers": args.max_workers,
         "max_entries": args.max_entries,
         "splits": [],

@@ -380,7 +380,11 @@ def static_band_nodata_value(band_name: str) -> float:
     return _as_float32(PIPELINE_STATIC_NODATA)
 
 
-def restore_static_nodata_after_reproject(data, static_band_names: list):
+def restore_static_nodata_after_reproject(
+    data,
+    static_band_names: list,
+    extreme_nodata_threshold: float | None = None,
+):
     """
     Restore band-specific static NoData after temporary masked reprojection.
     """
@@ -396,6 +400,8 @@ def restore_static_nodata_after_reproject(data, static_band_names: list):
     invalid = ~np.isfinite(data)
     for value in STATIC_EXCLUDED_NODATA_VALUES:
         invalid = invalid | (data == _as_float32(value))
+    if extreme_nodata_threshold is not None and extreme_nodata_threshold > 0:
+        invalid = invalid | (data < -float(extreme_nodata_threshold))
 
     restored = data.where(~invalid, band_nodata)
     return restored.rio.write_nodata(COMMON_NODATA, inplace=False)
@@ -403,13 +409,14 @@ def restore_static_nodata_after_reproject(data, static_band_names: list):
 
 def normalize_nodata_before_reproject(data,
                                       nodata_values: tuple,
-                                      output_nodata: float = COMMON_NODATA):
+                                      output_nodata: float = COMMON_NODATA,
+                                      extreme_nodata_threshold: float | None = None):
     """
-    Normalize exact NoData sentinels before any interpolation/resampling.
+    Normalize NoData before any interpolation/resampling.
 
-    This intentionally does not use magnitude thresholds. CPR/S1 preserve their
-    source sentinel in Pipeline static cubes, so that exact value must be
-    treated as NoData before chip-making reprojection.
+    Exact sentinel values are always masked. When extreme_nodata_threshold is
+    set, very large negative values are also masked to prevent interpolation of
+    near-sentinel values that have already been perturbed by previous resampling.
     """
     output_nodata = _as_float32(output_nodata)
     normalized = data.copy()
@@ -417,13 +424,16 @@ def normalize_nodata_before_reproject(data,
     invalid = ~np.isfinite(normalized)
     for value in nodata_values:
         invalid = invalid | (normalized == _as_float32(value))
+    if extreme_nodata_threshold is not None and extreme_nodata_threshold > 0:
+        invalid = invalid | (normalized < -float(extreme_nodata_threshold))
 
     normalized = normalized.where(~invalid, output_nodata)
     return normalized.rio.write_nodata(output_nodata, inplace=False)
 
 
 def normalize_rio_nodata_before_reproject(data,
-                                          output_nodata: float = COMMON_NODATA):
+                                          output_nodata: float = COMMON_NODATA,
+                                          extreme_nodata_threshold: float | None = None):
     """
     Normalize a dataset's rio NoData value and nonfinite values before reproject.
     """
@@ -435,14 +445,19 @@ def normalize_rio_nodata_before_reproject(data,
         data,
         tuple(nodata_values),
         output_nodata=output_nodata,
+        extreme_nodata_threshold=extreme_nodata_threshold,
     )
 
 
-def normalize_static_nodata_before_reproject(data):
+def normalize_static_nodata_before_reproject(
+    data,
+    extreme_nodata_threshold: float | None = None,
+):
     return normalize_nodata_before_reproject(
         data,
         STATIC_EXCLUDED_NODATA_VALUES,
         output_nodata=COMMON_NODATA,
+        extreme_nodata_threshold=extreme_nodata_threshold,
     )
 
 
@@ -496,6 +511,7 @@ def merge_and_reproject_datasets(
     logger,
     nodata_policy: str = NODATA_POLICY_NORMALIZE,
     resampling_method: str = "bilinear",
+    extreme_nodata_threshold: float | None = None,
 ) -> tuple:
     """
     Merge tiles and reproject to target grid.
@@ -525,7 +541,10 @@ def merge_and_reproject_datasets(
         wac_datasets = []
         for wac_file in wac_files:
             ds = rxr.open_rasterio(wac_file)
-            ds = normalize_rio_nodata_before_reproject(ds)
+            ds = normalize_rio_nodata_before_reproject(
+                ds,
+                extreme_nodata_threshold=extreme_nodata_threshold,
+            )
             wac_datasets.append(ds)
 
         # Extract WAC band names from first file
@@ -558,7 +577,10 @@ def merge_and_reproject_datasets(
             # Load and select matching bands
             ds = rxr.open_rasterio(static_file)
             ds_filtered = ds.sel(band=band_nums, drop=False)
-            ds_filtered = normalize_static_nodata_before_reproject(ds_filtered)
+            ds_filtered = normalize_static_nodata_before_reproject(
+                ds_filtered,
+                extreme_nodata_threshold=extreme_nodata_threshold,
+            )
             static_datasets.append(ds_filtered)
 
         # Extract static band names
@@ -581,8 +603,14 @@ def merge_and_reproject_datasets(
             nodata=COMMON_NODATA,
         )
 
-        merged_wac = normalize_rio_nodata_before_reproject(merged_wac)
-        merged_static = normalize_static_nodata_before_reproject(merged_static)
+        merged_wac = normalize_rio_nodata_before_reproject(
+            merged_wac,
+            extreme_nodata_threshold=extreme_nodata_threshold,
+        )
+        merged_static = normalize_static_nodata_before_reproject(
+            merged_static,
+            extreme_nodata_threshold=extreme_nodata_threshold,
+        )
 
         # ====================================================================
         # Reproject to target grid
@@ -596,7 +624,8 @@ def merge_and_reproject_datasets(
             nodata=COMMON_NODATA
         )
         merged_wac_reproj = normalize_rio_nodata_before_reproject(
-            merged_wac_reproj
+            merged_wac_reproj,
+            extreme_nodata_threshold=extreme_nodata_threshold,
         )
 
         logger.info("  Reprojecting STATIC to target CRS...")
@@ -609,12 +638,14 @@ def merge_and_reproject_datasets(
         )
         if nodata_policy == NODATA_POLICY_NORMALIZE:
             merged_static_reproj = normalize_static_nodata_before_reproject(
-                merged_static_reproj
+                merged_static_reproj,
+                extreme_nodata_threshold=extreme_nodata_threshold,
             )
         else:
             merged_static_reproj = restore_static_nodata_after_reproject(
                 merged_static_reproj,
                 static_band_names_original,
+                extreme_nodata_threshold=extreme_nodata_threshold,
             )
 
         # Close original datasets
@@ -642,6 +673,7 @@ def clip_and_combine_datasets(
     train_shape: tuple,
     logger,
     nodata_policy: str = NODATA_POLICY_NORMALIZE,
+    extreme_nodata_threshold: float | None = None,
 ) -> tuple:
     """
     Clip to AOI and combine WAC+STATIC.
@@ -692,15 +724,20 @@ def clip_and_combine_datasets(
         # ====================================================================
         logger.info("  Combining WAC and STATIC datasets...")
 
-        clipped_wac_normalized = normalize_rio_nodata_before_reproject(clipped_wac)
+        clipped_wac_normalized = normalize_rio_nodata_before_reproject(
+            clipped_wac,
+            extreme_nodata_threshold=extreme_nodata_threshold,
+        )
         if nodata_policy == NODATA_POLICY_NORMALIZE:
             clipped_static_normalized = normalize_static_nodata_before_reproject(
-                clipped_static
+                clipped_static,
+                extreme_nodata_threshold=extreme_nodata_threshold,
             )
         else:
             clipped_static_normalized = restore_static_nodata_after_reproject(
                 clipped_static,
                 static_band_names,
+                extreme_nodata_threshold=extreme_nodata_threshold,
             )
 
         # Concatenate along band dimension
@@ -785,6 +822,7 @@ def process_train_sample(
     zoom_level: int,
     nodata_policy: str = NODATA_POLICY_NORMALIZE,
     resampling_method: str = "bilinear",
+    extreme_nodata_threshold: float | None = None,
     verbose: bool = False,
 ) -> tuple:
     """
@@ -962,6 +1000,7 @@ def process_train_sample(
                 logger=logger,
                 nodata_policy=nodata_policy,
                 resampling_method=resampling_method,
+                extreme_nodata_threshold=extreme_nodata_threshold,
             )
 
         if merge_status != "success":
@@ -990,6 +1029,7 @@ def process_train_sample(
             train_shape=train_shape,
             logger=logger,
             nodata_policy=nodata_policy,
+            extreme_nodata_threshold=extreme_nodata_threshold,
         )
 
         if combine_status != "success":
@@ -1060,6 +1100,7 @@ def create_chips_multiprocessing(
     zoom_level: int,
     nodata_policy: str = NODATA_POLICY_NORMALIZE,
     resampling_method: str = "bilinear",
+    extreme_nodata_threshold: float | None = None,
     max_workers: int = None,
     max_entries: int = None,
     verbose: bool = False
@@ -1107,6 +1148,7 @@ def create_chips_multiprocessing(
         zoom_level=zoom_level,
         nodata_policy=nodata_policy,
         resampling_method=resampling_method,
+        extreme_nodata_threshold=extreme_nodata_threshold,
         verbose=verbose
     )
 
@@ -1174,7 +1216,8 @@ def create_chips(band_regex=r"^lola_kaguya.*",
                  tile_db_path=None,
                  max_workers=16,
                  max_entries=None,
-                 verbose=False):
+                 verbose=False,
+                 extreme_nodata_threshold=None):
     # Set up logging
     logger = setup_logging()
     nodata_policy = validate_nodata_policy(nodata_policy)
@@ -1228,6 +1271,7 @@ def create_chips(band_regex=r"^lola_kaguya.*",
     logger.info(f"  Zoom level: {zoom_level}")
     logger.info(f"  NoData policy: {nodata_policy}")
     logger.info(f"  Resampling method: {resampling_method}")
+    logger.info(f"  Extreme NoData threshold: {extreme_nodata_threshold}")
     logger.info("=" * 80)
 
     # ========================================================================
@@ -1262,6 +1306,7 @@ def create_chips(band_regex=r"^lola_kaguya.*",
         zoom_level=zoom_level,
         nodata_policy=nodata_policy,
         resampling_method=resampling_method,
+        extreme_nodata_threshold=extreme_nodata_threshold,
         max_workers=MAX_WORKERS,
         max_entries=MAX_ENTRIES,
         verbose=VERBOSE
