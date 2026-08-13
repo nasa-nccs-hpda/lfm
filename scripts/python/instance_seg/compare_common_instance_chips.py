@@ -10,12 +10,15 @@ import argparse
 import csv
 import json
 import math
+import sys
 from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import rasterio
+from tqdm import tqdm
 
 
 DEFAULT_BASELINE_ROOT = Path(
@@ -294,6 +297,77 @@ def write_tsv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> 
             )
 
 
+def compare_common_sample(task: tuple[Any, ...]) -> dict[str, Any]:
+    (
+        split,
+        key,
+        baseline_chip,
+        candidate_chip,
+        baseline_label,
+        candidate_label,
+        known_nodata_values,
+        extreme_threshold,
+    ) = task
+
+    chip_rows = []
+    band_rows_by_dataset = {}
+    for dataset_name, chip_path in (
+        ("baseline", baseline_chip),
+        ("candidate", candidate_chip),
+    ):
+        sample, bands = chip_summary(
+            chip_path,
+            known_nodata_values,
+            extreme_threshold,
+        )
+        sample["split"] = split
+        sample["dataset"] = dataset_name
+        sample["sample_id"] = key
+        chip_rows.append(sample)
+        band_rows_by_dataset[dataset_name] = bands
+
+    label_row = None
+    missing_row = None
+    if baseline_label is None or candidate_label is None:
+        missing_row = {
+            "split": split,
+            "sample_id": key,
+            "issue": "missing_common_label",
+            "baseline_label": str(baseline_label) if baseline_label else "",
+            "candidate_label": str(candidate_label) if candidate_label else "",
+        }
+    else:
+        baseline_label_summary = label_summary(baseline_label)
+        candidate_label_summary = label_summary(candidate_label)
+        baseline_arr = load_label(baseline_label)
+        candidate_arr = load_label(candidate_label)
+        same_shape = baseline_arr.shape == candidate_arr.shape
+        exact_equal = bool(same_shape and np.array_equal(baseline_arr, candidate_arr))
+        label_row = {
+            "split": split,
+            "sample_id": key,
+            "same_shape": same_shape,
+            "exact_equal": exact_equal,
+            "baseline_path": baseline_label_summary["path"],
+            "candidate_path": candidate_label_summary["path"],
+            "baseline_shape": baseline_label_summary["shape"],
+            "candidate_shape": candidate_label_summary["shape"],
+            "baseline_foreground_pixels": baseline_label_summary["foreground_pixels"],
+            "candidate_foreground_pixels": candidate_label_summary["foreground_pixels"],
+            "baseline_unique_values": baseline_label_summary["unique_values"],
+            "candidate_unique_values": candidate_label_summary["unique_values"],
+            "baseline_max_value": baseline_label_summary["max_value"],
+            "candidate_max_value": candidate_label_summary["max_value"],
+        }
+
+    return {
+        "chip_rows": chip_rows,
+        "band_rows_by_dataset": band_rows_by_dataset,
+        "label_row": label_row,
+        "missing_row": missing_row,
+    }
+
+
 def compare_split(
     *,
     split: str,
@@ -302,6 +376,7 @@ def compare_split(
     known_nodata_values: tuple[float, ...],
     extreme_threshold: float,
     max_samples: int | None,
+    max_workers: int,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     baseline_chips_dir = baseline_root / split / "chips"
     candidate_chips_dir = candidate_root / split / "chips"
@@ -348,60 +423,69 @@ def compare_split(
         "candidate": make_chip_aggregate(),
     }
 
-    for key in common_ids:
-        for dataset_name, chip_index in (
-            ("baseline", baseline_chips),
-            ("candidate", candidate_chips),
-        ):
-            sample, bands = chip_summary(
-                chip_index[key],
-                known_nodata_values,
-                extreme_threshold,
-            )
-            sample["split"] = split
-            sample["dataset"] = dataset_name
-            sample["sample_id"] = key
-            chip_rows.append(sample)
-            add_chip_aggregate(aggregate[dataset_name], sample, bands)
-
-        baseline_label = baseline_labels.get(key)
-        candidate_label = candidate_labels.get(key)
-        if baseline_label is None or candidate_label is None:
-            missing_rows.append(
-                {
-                    "split": split,
-                    "sample_id": key,
-                    "issue": "missing_common_label",
-                    "baseline_label": str(baseline_label) if baseline_label else "",
-                    "candidate_label": str(candidate_label) if candidate_label else "",
-                }
-            )
-            continue
-
-        baseline_label_summary = label_summary(baseline_label)
-        candidate_label_summary = label_summary(candidate_label)
-        baseline_arr = load_label(baseline_label)
-        candidate_arr = load_label(candidate_label)
-        same_shape = baseline_arr.shape == candidate_arr.shape
-        exact_equal = bool(same_shape and np.array_equal(baseline_arr, candidate_arr))
-        label_rows.append(
-            {
-                "split": split,
-                "sample_id": key,
-                "same_shape": same_shape,
-                "exact_equal": exact_equal,
-                "baseline_path": baseline_label_summary["path"],
-                "candidate_path": candidate_label_summary["path"],
-                "baseline_shape": baseline_label_summary["shape"],
-                "candidate_shape": candidate_label_summary["shape"],
-                "baseline_foreground_pixels": baseline_label_summary["foreground_pixels"],
-                "candidate_foreground_pixels": candidate_label_summary["foreground_pixels"],
-                "baseline_unique_values": baseline_label_summary["unique_values"],
-                "candidate_unique_values": candidate_label_summary["unique_values"],
-                "baseline_max_value": baseline_label_summary["max_value"],
-                "candidate_max_value": candidate_label_summary["max_value"],
-            }
+    tasks = [
+        (
+            split,
+            key,
+            baseline_chips[key],
+            candidate_chips[key],
+            baseline_labels.get(key),
+            candidate_labels.get(key),
+            known_nodata_values,
+            extreme_threshold,
         )
+        for key in common_ids
+    ]
+
+    if max_workers == 1:
+        results_iter = (
+            compare_common_sample(task)
+            for task in tqdm(
+                tasks,
+                total=len(tasks),
+                desc=f"{split} common chips",
+                unit="sample",
+                file=sys.stdout,
+            )
+        )
+        for result in results_iter:
+            for sample in result["chip_rows"]:
+                chip_rows.append(sample)
+                add_chip_aggregate(
+                    aggregate[sample["dataset"]],
+                    sample,
+                    result["band_rows_by_dataset"][sample["dataset"]],
+                )
+            if result["label_row"] is not None:
+                label_rows.append(result["label_row"])
+            if result["missing_row"] is not None:
+                missing_rows.append(result["missing_row"])
+    elif tasks:
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(compare_common_sample, task) for task in tasks]
+            for future in tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc=f"{split} common chips",
+                unit="sample",
+                file=sys.stdout,
+            ):
+                result = future.result()
+                for sample in result["chip_rows"]:
+                    chip_rows.append(sample)
+                    add_chip_aggregate(
+                        aggregate[sample["dataset"]],
+                        sample,
+                        result["band_rows_by_dataset"][sample["dataset"]],
+                    )
+                if result["label_row"] is not None:
+                    label_rows.append(result["label_row"])
+                if result["missing_row"] is not None:
+                    missing_rows.append(result["missing_row"])
+
+    chip_rows.sort(key=lambda row: (row["split"], row["sample_id"], row["dataset"]))
+    label_rows.sort(key=lambda row: (row["split"], row["sample_id"]))
+    missing_rows.sort(key=lambda row: (row["split"], row["sample_id"]))
 
     split_summary["chip_aggregate"] = {
         name: serializable_aggregate(value)
@@ -432,6 +516,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional per-split cap for quick smoke tests.",
     )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=16,
+        help="Parallel workers per split for common-chip comparison.",
+    )
     return parser.parse_args()
 
 
@@ -446,6 +536,7 @@ def main() -> int:
         "known_nodata_values": known_nodata_values,
         "extreme_threshold": args.extreme_threshold,
         "max_samples": args.max_samples,
+        "max_workers": args.max_workers,
         "splits": [],
     }
     all_chip_rows: list[dict[str, Any]] = []
@@ -461,6 +552,7 @@ def main() -> int:
             known_nodata_values=known_nodata_values,
             extreme_threshold=args.extreme_threshold,
             max_samples=args.max_samples,
+            max_workers=args.max_workers,
         )
         summary["splits"].append(split_summary)
         all_chip_rows.extend(chip_rows)

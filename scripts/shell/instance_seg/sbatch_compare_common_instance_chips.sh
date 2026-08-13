@@ -2,7 +2,7 @@
 #SBATCH --job-name=iseg_chip_regress
 #SBATCH --partition=grace
 #SBATCH --mem=64G
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=16
 #SBATCH --time=04:00:00
 #SBATCH --output=scripts/logs/compare_common_instance_chips_%j.out
 #SBATCH --error=scripts/logs/compare_common_instance_chips_%j.err
