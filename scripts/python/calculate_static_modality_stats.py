@@ -22,6 +22,7 @@ import numpy as np
 
 COMMON_CUBE_NODATA = -3.40282265508890445e38
 CPR_S1_SOURCE_NODATA = -3.4028230607370965e38
+FLOAT32_MIN_NODATA = float(np.finfo(np.float32).min)
 
 DEFAULT_DATA_DIR = Path(
     "/explore/nobackup/projects/lfm/model_inputs/300_300_inputs/"
@@ -94,6 +95,18 @@ class StaticStats:
         ) - np.square(mean)
         variance = np.maximum(variance, 0.0)
         return np.sqrt(variance)
+
+    def bad_extreme_indexes(self, threshold: float) -> dict[str, list[int]]:
+        arrays = {
+            "min": self.minimum,
+            "max": self.maximum,
+            "mean": self.mean(),
+            "std": self.std(),
+        }
+        return {
+            name: np.where(np.abs(values) > threshold)[0].tolist()
+            for name, values in arrays.items()
+        }
 
 
 def parse_csv_floats(value: str) -> tuple[float, ...]:
@@ -208,7 +221,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--excluded-nodata-values",
         type=parse_csv_floats,
-        default=(COMMON_CUBE_NODATA, CPR_S1_SOURCE_NODATA),
+        default=(COMMON_CUBE_NODATA, CPR_S1_SOURCE_NODATA, FLOAT32_MIN_NODATA),
         help=(
             "Comma-separated exact NoData sentinels to exclude. Use "
             "--excluded-nodata-values=VALUE1,VALUE2 for negative scientific notation."
@@ -216,6 +229,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--output-yaml", type=Path, default=DEFAULT_OUTPUT_YAML)
     parser.add_argument("--max-files", type=int, default=None)
+    parser.add_argument(
+        "--max-abs-stat",
+        type=float,
+        default=1.0e30,
+        help=(
+            "Fail if any generated min/max/mean/std exceeds this absolute value. "
+            "This catches leaked e38 NoData sentinels."
+        ),
+    )
     parser.add_argument("--patch-size", type=int, default=16)
     parser.add_argument("--input-size", type=int, default=256)
     parser.add_argument("--image-size", type=int, default=256)
@@ -249,6 +271,14 @@ def main() -> int:
         )
         if index == 1 or index % 25 == 0 or index == len(paths):
             print(f"Processed {index}/{len(paths)} chips: {path}")
+
+    bad_extremes = stats.bad_extreme_indexes(args.max_abs_stat)
+    bad_extremes = {name: indexes for name, indexes in bad_extremes.items() if indexes}
+    if bad_extremes:
+        raise ValueError(
+            "Generated static stats still contain extreme values above "
+            f"{args.max_abs_stat:g}: {bad_extremes}. Check excluded NoData values."
+        )
 
     channel_names = [f"static_{band:02d}" for band in band_range]
     write_static_yaml(
