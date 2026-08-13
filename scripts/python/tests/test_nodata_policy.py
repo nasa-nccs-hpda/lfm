@@ -155,10 +155,12 @@ NODATA_VALUES = [
     CPR_S1_SOURCE_NODATA,
 ]
 
-# Data dictionary; see README under "Dataset Specifications" for examples
-DATA_DICT = {
+# Data dictionary; see README under "Dataset Specifications" for examples.
+# Start with the 7-band WAC control to validate NoData policy plumbing before
+# switching to the 70-band WAC+STATIC dataset.
+WAC_CONTROL_DATA_DICT = {
     "dataset_name": "wac_craters",  # Human-readable dataset name (has no functional effect)
-    "data_dir": "/explore/nobackup/projects/lfm/model_inputs/300_300_inputs/fm_all_static_all_wac_iseg",  # Data directory on /explore
+    "data_dir": "/explore/nobackup/projects/lfm/model_inputs/300_300_inputs/full_model_inst_seg_v2",  # Data directory on /explore
     "dataset_modality": "wac",  # Dataset modality
     "image_glob": "*.tif",  # Image (chip) filename pattern the dataset will look for
     "label_glob": "*_label.npz",  # Label (mask) filename pattern the dataset will look for
@@ -169,6 +171,24 @@ DATA_DICT = {
         "uv": [0, 1],  # UV channels to use (0-indexed)
     },
 }
+
+WAC_STATIC_DATA_DICT = {
+    "dataset_name": "wac_static_craters",
+    "data_dir": "/explore/nobackup/projects/lfm/model_inputs/300_300_inputs/fm_all_static_all_wac_iseg",
+    "dataset_modality": "wac",
+    "image_glob": "*.tif",
+    "label_glob": "*_label.npz",
+    "ignore_nodata_in_loss": True,
+    "excluded_nodata_values": NODATA_VALUES,
+    "chip_layout": {
+        "vis": [0, 1, 2, 3, 4],
+        "uv": [5, 6],
+        "static": list(range(7, 70)),
+    },
+    "selected_modalities": ["vis", "uv", "static"],
+}
+
+DATA_DICT = WAC_CONTROL_DATA_DICT
 
 # Upper limit for sample counts in train/val/test datasets; if less samples are found, that amount will be used instead
 MAX_TRAIN_SAMPLES = 500
