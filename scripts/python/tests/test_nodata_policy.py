@@ -39,50 +39,6 @@ print("Successfully imported LFM modules")
 sys.exit(0)
 
 
-# ## User Configuration
-#
-# These are the values a notebook user is expected to edit for a normal Graha instance-segmentation run.
-#
-# ### Paths
-# `BASE_OUTPUT_DIR`: parent directory for timestamped notebook outputs. Checkpoints, config files, prediction caches, and plots are written under a new timestamped subdirectory.
-#
-# `PRETRAIN_DIR`: Graha/Lunar-FM pretraining directory. It must contain `checkpoints/checkpoint_weights_final.pt`, `full_config.yaml`, and `modality_info.yaml`.
-#
-# `LIGHTNING_CHECKPOINT`: optional Graha Lightning checkpoint to resume from. Leave as `None` for a fresh fine-tune.
-#
-# ### Data Selection
-# To switch datasets, replace `DATA_DICT` with the matching dictionary from the README, under **"Dataset Specifications"**.
-#
-# `DATA_DICT`: dataset-level dictionary that controls the data-specific parts of training. It defines the dataset modality, dataset directory location, chip and label glob patterns, and selected chip bands. Normalization modality and Graha input modality are inferred from `dataset_modality`.
-#
-# `DATA_DICT["dataset_name"]`: dataset name for readability. Has no effect on model/dataset functionality.
-#
-# `DATA_DICT["data_dir"]`: path to dataset root. This root will have train/val/test folders nested under it.
-#
-# `DATA_DICT["dataset_modality"]`: modality of the dataset ("wac" or "nac" for currently supported datasets).
-#
-# `DATA_DICT["image_glob"]/["label_glob"]`: filename pattern to use when finding images/labels in dataset.
-#
-# `DATA_DICT["band_filters"]`: modality-local band selection. For WAC, `"vis": [0, 1, 2, 3, 4]` and `"uv": [0, 1]` selects all 7 stored WAC channels. For NAC PHO or DTM, use `[0]` because each modality is stored as a single band. If you would like to remove either "vis" or "uv" modality for WAC, you can delete that entry (so if I wanted only "wac", I would delete the "uv" line entirely).
-#
-# `MAX_TRAIN_SAMPLES`, `MAX_VAL_SAMPLES`, `MAX_TEST_SAMPLES`: optional split caps for quick experiments. Set any of these to `None` to use the full split.
-#
-# ### Training
-# `BATCH_SIZE`: Graha training batch size.
-#
-# `MAX_EPOCHS`: number of fine-tuning epochs.
-#
-# `GRAHA_BACKBONE_LR`, `GRAHA_HEAD_LR`, `GRAHA_LAYER_DECAY`, `GRAHA_WEIGHT_DECAY`, `GRAHA_WARMUP_STEPS`: Graha optimizer schedule parameters.
-#
-# `GRAHA_FREEZE_BACKBONE`: whether to keep Graha backbone frozen (aka whether to omit Graha model weights from training, only training the decoder).
-#
-#
-# ### Defaults Kept In Code
-# The notebook leaves these centralized defaults unchanged unless you intentionally add overrides to the config cell. File suffixes are inferred automatically from common names such as `_input_nac_chip`, `_input_wac_chip`, `_label`, `_mask`, and `_img`; add explicit `image_suffix` or `label_suffix` only for unusual datasets. Normalization source defaults to `"pretrain"`. A seed of 42 is used for random number generators, to ensure reproducibility.
-
-# In[ ]:
-
-
 BASE_OUTPUT_DIR = NOTEBOOK_DIR / "outputs" / "instance_seg_finetuning"  # Base output directory for finetune plots etc.
 PRETRAIN_DIR = "/explore/nobackup/projects/lfm/ibm_model_pretrain_dir"  # Where to load Graha configuration/checkpoint from
 LIGHTNING_CHECKPOINT = None  # Fine-tuned checkpoint to resume from (fresh starts should use 'None')
@@ -114,12 +70,6 @@ GRAHA_LAYER_DECAY = 0.75  # Decays learning rate further toward the backbone; al
 GRAHA_WEIGHT_DECAY = 0.05  # Penalizes large model weights during training, helping model generalize to non-training data
 GRAHA_WARMUP_STEPS = 500  # Number of optimizer steps before LR scheduler warmup ends
 GRAHA_FREEZE_BACKBONE = False  # Whether to freeze Graha backbone (can be a useful tool during training to change to True/False)
-
-
-# The configuration cell above mirrors the active Graha instance-segmentation training settings. Values not listed there use the centralized defaults documented in the previous markdown cell.
-#
-
-# In[ ]:
 
 
 OUTPUT_DIR = create_timestamped_output_dir(BASE_OUTPUT_DIR)
@@ -157,30 +107,11 @@ print(f"Graha modality mode: {config.graha_input_modality_mode}")
 print(f"Normalization modality: {config.normalization_modality}")
 
 
-# Set PyTorch device to CUDA (GPU-accelerated) if possible
-
-# In[ ]:
-
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 
-# ## Output Directory
-# The timestamped output directory was created while building the config. It contains the saved config, checkpoints, prediction caches, and plots for this run.
-#
-
-# In[ ]:
-
-
 print(f"Notebook output directory: {OUTPUT_DIR}")
-
-
-# ## Create datamodule
-# 1. Load pretraining stats from .yaml file
-# 2. Create datamodule using pretraining stats and other config options
-
-# In[ ]:
 
 
 # STEP 1: pretraining stats
@@ -194,9 +125,6 @@ means, stds = instance_graha_components.get_normalization_stats(
 )
 
 print("Done.")
-
-
-# In[ ]:
 
 
 print("\nSTEP 2: Creating datamodule and inspecting one training batch...")
@@ -213,11 +141,6 @@ graha_sample_batch = instance_graha_components.inspect_batch(graha_datamodule)
 print("Done.")
 
 
-# ## Create Terratorch Task Object, Model
-
-# In[ ]:
-
-
 task_cls = instance_graha_components.make_downstream_object_detection_task_class(
     deps["LunarObjectDetectionTask"]
 )
@@ -230,15 +153,7 @@ graha_task = instance_graha_components.create_task(
 instance_graha_components.run_loss_smoke(graha_task, graha_sample_batch)
 
 
-# ## Run Training
-
-# In[ ]:
-
-
 trainer = instance_graha_components.create_trainer(graha_config, OUTPUT_DIR)
-
-
-# In[ ]:
 
 
 print("\n" + "=" * 60)
@@ -257,13 +172,6 @@ trainer.fit(
 )
 
 print("Finished training.")
-
-
-# ## Create And Display Validation Visualizations
-# Using the saved checkpoint, this section inferences/predicts on the reserved validation dataset and displays a visualization for review
-#
-
-# In[ ]:
 
 
 prediction_cache = save_graha_instance_prediction_cache(
@@ -286,9 +194,6 @@ prediction_plot = plot_instance_cache_predictions(
 print(f"Saved prediction plot: {prediction_plot}")
 
 
-# In[ ]:
-
-
 img = mpimg.imread(prediction_plot)
 plt.figure(figsize=(16, 14))
 plt.imshow(img)
@@ -296,10 +201,6 @@ plt.axis("off")
 plt.show()
 
 
-# In[ ]:
-
-
 del graha_task, graha_datamodule, trainer
 if torch.cuda.is_available():
     torch.cuda.empty_cache()
-
