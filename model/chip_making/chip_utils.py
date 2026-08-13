@@ -136,6 +136,23 @@ def extract_product_id(train_filename: str) -> str:
     return product_id
 
 
+def extract_train_sample_id(train_filename: str) -> str:
+    """
+    Extract the stable sample ID used to pair chips and labels.
+
+    Example:
+        'M1308401680CE_r12750_c1500_input_wac_chip.tif'
+        -> 'M1308401680CE_r12750_c1500'
+    """
+    stem = Path(train_filename).stem
+    match = re.match(r"^(?P<sample_id>[^_]+_r\d+_c\d+)", stem)
+    if not match:
+        raise ValueError(
+            f"Could not extract product/row/column sample ID from {train_filename!r}"
+        )
+    return match.group("sample_id")
+
+
 def get_memory_usage():
     """
     Get current process memory usage in MB.
@@ -815,8 +832,8 @@ def process_train_sample(
         # ====================================================================
         # Step 2: Create datacube subdirectory
         # ====================================================================
-        train_fn_no_ext = train_fn.replace('.tif', '')
-        datacube_dir = datacube_base_dir / train_fn_no_ext
+        train_sample_id = extract_train_sample_id(train_fn)
+        datacube_dir = datacube_base_dir / train_sample_id
 
         # ====================================================================
         # Step 3: Run Pipeline
@@ -986,7 +1003,7 @@ def process_train_sample(
         # ====================================================================
         # Step 9: Write chip to disk
         # ====================================================================
-        output_filename = chip_output_dir / f"{train_fn_no_ext}_wac_static_chip.tif"
+        output_filename = chip_output_dir / f"{train_sample_id}_input_wac_static_chip.tif"
 
         if verbose:
             logger.info(f"  Writing chip to {output_filename.name}...")

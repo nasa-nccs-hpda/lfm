@@ -31,6 +31,8 @@ DEFAULT_KNOWN_NODATA_VALUES = (
     -3.4028234663852886e38,
 )
 SAMPLE_ID_SUFFIXES = (
+    "_input_wac_static_chip",
+    "_input_wac_chip",
     "_wac_static_chip",
     "_input_nac_chip",
     "_input_chip",
