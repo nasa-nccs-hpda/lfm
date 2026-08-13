@@ -16,8 +16,10 @@ from tqdm import tqdm
 tqdm.__init__ = partialmethod(tqdm.__init__, disable=False)
 
 
-repo_root = Path.cwd().parents[2]
+repo_root = Path.cwd()
+print(f'Repo root: {repo_root}')
 SCRIPT_DIR = repo_root / "scripts/python/tests"
+print(f'Script dir: {SCRIPT_DIR}, resolved: {SCRIPT_DIR.resolve()}')
 
 if not (repo_root / "lfm").exists():
   raise FileNotFoundError(
@@ -36,7 +38,6 @@ from lfm.all_models.inst_seg import build_graha_notebook_configs
 from lfm.full_model.inst_seg import instance_graha_components
 
 print("Successfully imported LFM modules")
-sys.exit(0)
 
 
 BASE_OUTPUT_DIR = NOTEBOOK_DIR / "outputs" / "instance_seg_finetuning"  # Base output directory for finetune plots etc.
@@ -71,6 +72,7 @@ GRAHA_WEIGHT_DECAY = 0.05  # Penalizes large model weights during training, help
 GRAHA_WARMUP_STEPS = 500  # Number of optimizer steps before LR scheduler warmup ends
 GRAHA_FREEZE_BACKBONE = False  # Whether to freeze Graha backbone (can be a useful tool during training to change to True/False)
 
+NODATA_VALUES = []  # NODATA values to ignore in model loss
 
 OUTPUT_DIR = create_timestamped_output_dir(BASE_OUTPUT_DIR)
 
