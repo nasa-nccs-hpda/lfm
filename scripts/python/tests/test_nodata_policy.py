@@ -40,13 +40,6 @@ from lfm.full_model.inst_seg import instance_graha_components
 
 print("Successfully imported LFM modules")
 
-COMMON_CUBE_NODATA = -3.40282265508890445e38
-CPR_S1_SOURCE_NODATA = -3.4028230607370965e38
-NODATA_VALUES = [
-    COMMON_CUBE_NODATA,
-    CPR_S1_SOURCE_NODATA,
-]
-
 
 def _target_positive_pixels_on_ignore(mask_tensor, target_masks, ignore_index):
     if mask_tensor is None:
@@ -155,16 +148,22 @@ BASE_OUTPUT_DIR = repo_root / "scripts" / "outputs" / "nodata_policy_test"  # Ba
 PRETRAIN_DIR = "/explore/nobackup/projects/lfm/ibm_model_pretrain_dir"  # Where to load Graha configuration/checkpoint from
 LIGHTNING_CHECKPOINT = None  # Fine-tuned checkpoint to resume from (fresh starts should use 'None')
 
+COMMON_CUBE_NODATA = -3.40282265508890445e38
+CPR_S1_SOURCE_NODATA = -3.4028230607370965e38
+NODATA_VALUES = [
+    COMMON_CUBE_NODATA,
+    CPR_S1_SOURCE_NODATA,
+]
+
 # Data dictionary; see README under "Dataset Specifications" for examples
 DATA_DICT = {
     "dataset_name": "wac_craters",  # Human-readable dataset name (has no functional effect)
-    "data_dir": "/explore/nobackup/projects/lfm/model_inputs/300_300_inputs/full_model_inst_seg_v2",  # Data directory on /explore
+    "data_dir": "/explore/nobackup/projects/lfm/model_inputs/300_300_inputs/fm_all_static_all_wac_iseg",  # Data directory on /explore
     "dataset_modality": "wac",  # Dataset modality
     "image_glob": "*.tif",  # Image (chip) filename pattern the dataset will look for
     "label_glob": "*_label.npz",  # Label (mask) filename pattern the dataset will look for
-    "ignore_nodata_in_loss": True,
-    "nodata_ignore_index": -1,
-    "excluded_nodata_values": NODATA_VALUES,
+    "ignore_nodata_in_loss": True,  # Allows for nodata to be present in data
+    "excluded_nodata_values": NODATA_VALUES,  # NODATA values to exclude from loss; aka nodata values present in data
     "band_filters": {  # Band filters for each modality
         "vis": [0, 1, 2, 3, 4],  # Vis channels to use (0-indexed)
         "uv": [0, 1],  # UV channels to use (0-indexed)
@@ -228,7 +227,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 
-print(f"Notebook output directory: {OUTPUT_DIR}")
+print(f"Script output directory: {OUTPUT_DIR}")
 
 
 # STEP 1: pretraining stats
