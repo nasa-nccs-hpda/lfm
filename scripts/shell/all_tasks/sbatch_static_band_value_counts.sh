@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=static_mod_stats
+#SBATCH --job-name=static_value_counts
 #SBATCH --partition=grace
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=8
 #SBATCH --time=08:00:00
-#SBATCH --output=scripts/logs/static_modality_stats_%j.out
-#SBATCH --error=scripts/logs/static_modality_stats_%j.err
+#SBATCH --output=scripts/logs/static_value_counts_%j.out
+#SBATCH --error=scripts/logs/static_value_counts_%j.err
 
 set -euo pipefail
 
@@ -13,14 +13,14 @@ START_TIME="$(date +%s)"
 START_READABLE="$(date)"
 
 SUBMIT_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
-if [[ -f "${SUBMIT_DIR}/scripts/python/calculate_static_modality_stats.py" ]]; then
+if [[ -f "${SUBMIT_DIR}/scripts/python/count_static_band_values.py" ]]; then
   REPO_DIR="${SUBMIT_DIR}"
-elif [[ -f "${SUBMIT_DIR}/../../python/calculate_static_modality_stats.py" ]]; then
+elif [[ -f "${SUBMIT_DIR}/../../python/count_static_band_values.py" ]]; then
   REPO_DIR="$(cd "${SUBMIT_DIR}/../.." && pwd)"
-elif [[ -f "${SUBMIT_DIR}/../../../scripts/python/calculate_static_modality_stats.py" ]]; then
+elif [[ -f "${SUBMIT_DIR}/../../../scripts/python/count_static_band_values.py" ]]; then
   REPO_DIR="$(cd "${SUBMIT_DIR}/../../.." && pwd)"
 else
-  echo "Could not locate scripts/python/calculate_static_modality_stats.py from submit directory: ${SUBMIT_DIR}" >&2
+  echo "Could not locate scripts/python/count_static_band_values.py from submit directory: ${SUBMIT_DIR}" >&2
   exit 1
 fi
 
@@ -44,7 +44,7 @@ echo
   --bind "${REPO_DIR}" \
   --pwd "${REPO_DIR}" \
   "${CONTAINER_PATH}" \
-  python -u "${REPO_DIR}/scripts/python/calculate_static_modality_stats.py" "$@"
+  python -u "${REPO_DIR}/scripts/python/count_static_band_values.py" "$@"
 
 END_TIME="$(date +%s)"
 END_READABLE="$(date)"
