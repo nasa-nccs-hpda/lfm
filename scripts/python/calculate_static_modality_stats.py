@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import math
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,6 +35,8 @@ DEFAULT_OUTPUT_YAML = Path("scripts/outputs/static_modality_info_fields.yaml")
 @dataclass
 class StaticStats:
     count: np.ndarray
+    extreme_count: np.ndarray
+    extreme_value_counts: list[Counter[float]]
     total: np.ndarray
     total_sq: np.ndarray
     minimum: np.ndarray
@@ -43,6 +46,8 @@ class StaticStats:
     def init(cls, num_bands: int) -> "StaticStats":
         return cls(
             count=np.zeros(num_bands, dtype=np.int64),
+            extreme_count=np.zeros(num_bands, dtype=np.int64),
+            extreme_value_counts=[Counter() for _ in range(num_bands)],
             total=np.zeros(num_bands, dtype=np.float64),
             total_sq=np.zeros(num_bands, dtype=np.float64),
             minimum=np.full(num_bands, np.inf, dtype=np.float64),
@@ -55,12 +60,31 @@ class StaticStats:
         *,
         raster_nodata: float | int | None,
         excluded_nodata_values: tuple[float, ...],
+        extreme_nodata_threshold: float | None,
     ) -> None:
         invalid = ~np.isfinite(data)
         if raster_nodata is not None:
             invalid |= data == np.asarray(raster_nodata, dtype=data.dtype)
         for value in excluded_nodata_values:
             invalid |= data == np.asarray(value, dtype=data.dtype)
+        if extreme_nodata_threshold is not None:
+            extreme = np.abs(data.astype(np.float64, copy=False)) > extreme_nodata_threshold
+            self.extreme_count += extreme.reshape(extreme.shape[0], -1).sum(axis=1)
+            for band_index in range(data.shape[0]):
+                band_extreme_values = data[band_index][extreme[band_index]]
+                if band_extreme_values.size == 0:
+                    continue
+                values, counts = np.unique(
+                    band_extreme_values.astype(np.float64, copy=False),
+                    return_counts=True,
+                )
+                self.extreme_value_counts[band_index].update(
+                    {
+                        float(value): int(count)
+                        for value, count in zip(values, counts, strict=True)
+                    }
+                )
+            invalid |= extreme
 
         valid = ~invalid
         valid_count = valid.reshape(valid.shape[0], -1).sum(axis=1)
@@ -107,6 +131,45 @@ class StaticStats:
             name: np.where(np.abs(values) > threshold)[0].tolist()
             for name, values in arrays.items()
         }
+
+    def format_extreme_value_report(
+        self,
+        *,
+        channel_names: list[str],
+        threshold: float,
+        tail_count: int,
+    ) -> list[str]:
+        lines: list[str] = []
+        for band_index, counts in enumerate(self.extreme_value_counts):
+            if not counts:
+                continue
+
+            negative_values = {
+                value: count for value, count in counts.items() if value < -threshold
+            }
+            positive_values = {
+                value: count for value, count in counts.items() if value > threshold
+            }
+            smallest = sorted(counts.items(), key=lambda item: item[0])[:tail_count]
+            largest = sorted(counts.items(), key=lambda item: item[0])[-tail_count:]
+
+            lines.extend(
+                [
+                    f"{channel_names[band_index]}:",
+                    f"  extreme_pixels: {sum(counts.values())}",
+                    f"  unique_values_lt_negative_threshold: {len(negative_values)}",
+                    f"  unique_values_gt_positive_threshold: {len(positive_values)}",
+                    "  smallest_extreme_values:",
+                ]
+            )
+            lines.extend(
+                f"    {format_float(value)}: {count}" for value, count in smallest
+            )
+            lines.append("  largest_extreme_values:")
+            lines.extend(
+                f"    {format_float(value)}: {count}" for value, count in largest
+            )
+        return lines
 
 
 def parse_csv_floats(value: str) -> tuple[float, ...]:
@@ -230,6 +293,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-yaml", type=Path, default=DEFAULT_OUTPUT_YAML)
     parser.add_argument("--max-files", type=int, default=None)
     parser.add_argument(
+        "--extreme-nodata-threshold",
+        type=float,
+        default=1.0e30,
+        help=(
+            "Exclude values whose absolute magnitude exceeds this threshold before "
+            "computing stats. Default 1e30 catches float32 NoData/resampling artifacts "
+            "without filtering physically plausible negative static values. Pass a "
+            "negative value to disable."
+        ),
+    )
+    parser.add_argument(
         "--max-abs-stat",
         type=float,
         default=1.0e30,
@@ -237,6 +311,12 @@ def parse_args() -> argparse.Namespace:
             "Fail if any generated min/max/mean/std exceeds this absolute value. "
             "This catches leaked e38 NoData sentinels."
         ),
+    )
+    parser.add_argument(
+        "--extreme-report-tail-count",
+        type=int,
+        default=5,
+        help="Number of smallest/largest unique extreme values to print per band.",
     )
     parser.add_argument("--patch-size", type=int, default=16)
     parser.add_argument("--input-size", type=int, default=256)
@@ -250,6 +330,9 @@ def main() -> int:
     band_range = list(args.static_band_range)
     paths = iter_tifs(args.data_dir, args.image_glob, args.max_files)
     stats = StaticStats.init(len(band_range))
+    extreme_nodata_threshold = (
+        None if args.extreme_nodata_threshold < 0 else args.extreme_nodata_threshold
+    )
 
     import rasterio
 
@@ -268,6 +351,7 @@ def main() -> int:
             data,
             raster_nodata=raster_nodata,
             excluded_nodata_values=args.excluded_nodata_values,
+            extreme_nodata_threshold=extreme_nodata_threshold,
         )
         if index == 1 or index % 25 == 0 or index == len(paths):
             print(f"Processed {index}/{len(paths)} chips: {path}")
@@ -293,6 +377,15 @@ def main() -> int:
 
     print(f"Wrote static modality YAML fields: {args.output_yaml}")
     print("Static valid counts per band:", stats.count.tolist())
+    print("Static extreme-value exclusions per band:", stats.extreme_count.tolist())
+    if extreme_nodata_threshold is not None and int(stats.extreme_count.sum()) > 0:
+        print("Static extreme value-count report:")
+        for line in stats.format_extreme_value_report(
+            channel_names=channel_names,
+            threshold=extreme_nodata_threshold,
+            tail_count=args.extreme_report_tail_count,
+        ):
+            print(line)
     print("Static means:", stats.mean().tolist())
     print("Static stds:", stats.std().tolist())
     return 0
