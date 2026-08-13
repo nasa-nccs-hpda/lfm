@@ -20,7 +20,7 @@ import numpy as np
 
 DEFAULT_DATA_DIR = Path(
     "/explore/nobackup/projects/lfm/model_inputs/300_300_inputs/"
-    "fm_all_static_all_wac_iseg"
+    "fm_all_static_all_wac_iseg/train/chips"
 )
 DEFAULT_OUT_DIR = Path("scripts/outputs/static_band_value_counts")
 DEFAULT_STATIC_BANDS = (8, 9)
