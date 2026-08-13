@@ -34,13 +34,124 @@ from lfm.all_models.all_tasks.utils import (
   plot_instance_cache_predictions,
   save_graha_instance_prediction_cache,
 )
+from lfm.all_models.all_tasks.data.image_io import read_image_file_with_nodata_mask
 from lfm.all_models.inst_seg import build_graha_notebook_configs
 from lfm.full_model.inst_seg import instance_graha_components
 
 print("Successfully imported LFM modules")
 
+COMMON_CUBE_NODATA = -3.40282265508890445e38
+CPR_S1_SOURCE_NODATA = -3.4028230607370965e38
+NODATA_VALUES = [
+    COMMON_CUBE_NODATA,
+    CPR_S1_SOURCE_NODATA,
+]
 
-BASE_OUTPUT_DIR = NOTEBOOK_DIR / "outputs" / "instance_seg_finetuning"  # Base output directory for finetune plots etc.
+
+def _target_positive_pixels_on_ignore(mask_tensor, target_masks, ignore_index):
+    if mask_tensor is None:
+        return 0
+    ignore_mask = mask_tensor == int(ignore_index)
+    if not torch.any(ignore_mask) or target_masks is None or target_masks.numel() == 0:
+        return 0
+    return int(target_masks[:, ignore_mask].sum().item())
+
+
+def inspect_nodata_batch_behavior(datamodule, batch, *, max_samples=16):
+    policy = datamodule.nodata_policy
+    if datamodule.train_dataset is None:
+        datamodule.setup("fit")
+    dataset = datamodule.train_dataset
+
+    print("\nNoData policy:")
+    print(f"  ignore_in_loss: {policy.ignore_in_loss}")
+    print(f"  ignore_index: {policy.ignore_index}")
+    print(f"  fill_image_nodata: {policy.fill_image_nodata}")
+    print(f"  image_fill_value: {policy.image_fill_value}")
+    print(f"  excluded_values: {policy.excluded_values}")
+
+    total_raw_nodata = 0
+    total_sample_ignore = 0
+    total_target_positive_on_ignore = 0
+    print(f"\nScanning up to {max_samples} train samples for excluded NoData pixels:")
+    for idx in range(min(max_samples, len(dataset))):
+        record = dataset.records[idx]
+        image_array, nodata_mask = read_image_file_with_nodata_mask(
+            record.image_path,
+            excluded_values=policy.excluded_values,
+        )
+        value_counts = {
+            repr(value): int((image_array == value).sum())
+            for value in policy.excluded_values
+        }
+        raw_nodata = int(nodata_mask.sum())
+        sample = dataset[idx]
+        sample_mask = sample.get("mask")
+        sample_ignore = (
+            int((sample_mask == policy.ignore_index).sum().item())
+            if sample_mask is not None
+            else 0
+        )
+        target_positive_on_ignore = _target_positive_pixels_on_ignore(
+            sample_mask,
+            sample.get("masks"),
+            policy.ignore_index,
+        )
+        total_raw_nodata += raw_nodata
+        total_sample_ignore += sample_ignore
+        total_target_positive_on_ignore += target_positive_on_ignore
+        print(
+            f"  {idx:03d} {record.image_path.name}: "
+            f"raw_nodata={raw_nodata}, sample_ignore={sample_ignore}, "
+            f"target_positive_on_ignore={target_positive_on_ignore}, "
+            f"excluded_value_counts={value_counts}"
+        )
+
+    batch_ignore = 0
+    batch_target_positive_on_ignore = 0
+    if "mask" in batch:
+        batch_ignore = int((batch["mask"] == policy.ignore_index).sum().item())
+        for mask_tensor, target_masks in zip(batch["mask"], batch["masks"]):
+            batch_target_positive_on_ignore += _target_positive_pixels_on_ignore(
+                mask_tensor,
+                target_masks,
+                policy.ignore_index,
+            )
+
+    print("\nNoData behavior summary:")
+    print(f"  raw nodata pixels found in scanned files: {total_raw_nodata}")
+    print(f"  ignore-index pixels in scanned dataset samples: {total_sample_ignore}")
+    print(f"  ignore-index pixels in current batch: {batch_ignore}")
+    print(
+        "  positive target-mask pixels on ignore-index pixels: "
+        f"{batch_target_positive_on_ignore}"
+    )
+    if total_raw_nodata == 0:
+        print("  CHECK: inconclusive - scanned samples did not contain excluded NoData.")
+    elif total_sample_ignore == 0:
+        print("  CHECK: FAIL - raw NoData was found but no ignore-index pixels appeared.")
+    elif batch_target_positive_on_ignore == 0:
+        print("  CHECK: PASS - ignored pixels are not represented as positive targets.")
+    else:
+        print("  CHECK: FAIL - ignored pixels leaked into positive target masks.")
+
+
+def inspect_model_reformatted_targets(task, batch, ignore_index):
+    print("\nInspecting model-reformatted targets:")
+    targets = task.reformat_batch(batch, batch_size=batch["image"].shape[0])
+    leaked_pixels = 0
+    for idx, target in enumerate(targets):
+        if "mask" not in batch or "masks" not in target:
+            continue
+        ignore_mask = batch["mask"][idx] == int(ignore_index)
+        target_masks = target["masks"]
+        if torch.any(ignore_mask) and target_masks.numel() > 0:
+            leaked_pixels += int(target_masks[:, ignore_mask].sum().item())
+    print(f"  positive target pixels on ignored inputs after reformat: {leaked_pixels}")
+    print("  CHECK:", "PASS" if leaked_pixels == 0 else "FAIL")
+
+
+BASE_OUTPUT_DIR = repo_root / "scripts" / "outputs" / "nodata_policy_test"  # Base output directory for finetune plots etc.
 PRETRAIN_DIR = "/explore/nobackup/projects/lfm/ibm_model_pretrain_dir"  # Where to load Graha configuration/checkpoint from
 LIGHTNING_CHECKPOINT = None  # Fine-tuned checkpoint to resume from (fresh starts should use 'None')
 
@@ -51,6 +162,9 @@ DATA_DICT = {
     "dataset_modality": "wac",  # Dataset modality
     "image_glob": "*.tif",  # Image (chip) filename pattern the dataset will look for
     "label_glob": "*_label.npz",  # Label (mask) filename pattern the dataset will look for
+    "ignore_nodata_in_loss": True,
+    "nodata_ignore_index": -1,
+    "excluded_nodata_values": NODATA_VALUES,
     "band_filters": {  # Band filters for each modality
         "vis": [0, 1, 2, 3, 4],  # Vis channels to use (0-indexed)
         "uv": [0, 1],  # UV channels to use (0-indexed)
@@ -71,8 +185,6 @@ GRAHA_LAYER_DECAY = 0.75  # Decays learning rate further toward the backbone; al
 GRAHA_WEIGHT_DECAY = 0.05  # Penalizes large model weights during training, helping model generalize to non-training data
 GRAHA_WARMUP_STEPS = 500  # Number of optimizer steps before LR scheduler warmup ends
 GRAHA_FREEZE_BACKBONE = False  # Whether to freeze Graha backbone (can be a useful tool during training to change to True/False)
-
-NODATA_VALUES = []  # NODATA values to ignore in model loss
 
 OUTPUT_DIR = create_timestamped_output_dir(BASE_OUTPUT_DIR)
 
@@ -107,6 +219,9 @@ print(f"Data dir: {config.data_root}")
 print(f"Output dir: {OUTPUT_DIR}")
 print(f"Graha modality mode: {config.graha_input_modality_mode}")
 print(f"Normalization modality: {config.normalization_modality}")
+print(f"Ignore nodata in loss: {config.ignore_nodata_in_loss}")
+print(f"Nodata ignore index: {config.nodata_ignore_index}")
+print(f"Excluded nodata values: {config.excluded_nodata_values}")
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -139,6 +254,7 @@ graha_datamodule = instance_graha_components.create_datamodule(
     stds,
 )
 graha_sample_batch = instance_graha_components.inspect_batch(graha_datamodule)
+inspect_nodata_batch_behavior(graha_datamodule, graha_sample_batch)
 
 print("Done.")
 
@@ -151,6 +267,11 @@ graha_task = instance_graha_components.create_task(
     graha_config,
     task_cls,
     graha_sample_batch,
+)
+inspect_model_reformatted_targets(
+    graha_task,
+    graha_sample_batch,
+    graha_config.nodata_ignore_index,
 )
 instance_graha_components.run_loss_smoke(graha_task, graha_sample_batch)
 
