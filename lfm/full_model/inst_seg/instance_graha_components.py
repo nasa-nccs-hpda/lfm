@@ -123,6 +123,7 @@ class InstanceFineTuningConfig:
     mask_shift: tuple[int, int]
     ignore_nodata_in_loss: bool
     nodata_ignore_index: int
+    excluded_nodata_values: list[float] | None
     seed: int
 
 
@@ -223,6 +224,7 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         mask_shift=tuple(args.mask_shift),
         ignore_nodata_in_loss=getattr(args, "ignore_nodata_in_loss", False),
         nodata_ignore_index=getattr(args, "nodata_ignore_index", -1),
+        excluded_nodata_values=getattr(args, "excluded_nodata_values", None),
         seed=args.seed,
     )
 
@@ -328,6 +330,7 @@ def common_datamodule_args(config: InstanceFineTuningConfig) -> dict[str, Any]:
         "mask_shift": config.mask_shift,
         "ignore_nodata_in_loss": config.ignore_nodata_in_loss,
         "nodata_ignore_index": config.nodata_ignore_index,
+        "excluded_nodata_values": config.excluded_nodata_values,
     }
 
 
@@ -684,6 +687,7 @@ def build_comparison_config(
         mask_shift=config.mask_shift,
         ignore_nodata_in_loss=config.ignore_nodata_in_loss,
         nodata_ignore_index=config.nodata_ignore_index,
+        excluded_nodata_values=config.excluded_nodata_values,
         seed=config.seed,
         no_fit=config.skip_graha_fit,
         loss_smoke_only=False,

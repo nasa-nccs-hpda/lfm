@@ -60,6 +60,7 @@ class InstanceCheckpointComparisonPlotConfig:
     mask_shift: tuple[int, int]
     ignore_nodata_in_loss: bool
     nodata_ignore_index: int
+    excluded_nodata_values: list[float] | None
     seed: int
 
 
@@ -264,5 +265,6 @@ def build_checkpoint_comparison_plot_config_from_args(
         mask_shift=tuple(args.mask_shift),
         ignore_nodata_in_loss=args.ignore_nodata_in_loss,
         nodata_ignore_index=args.nodata_ignore_index,
+        excluded_nodata_values=args.excluded_nodata_values,
         seed=args.seed,
     )

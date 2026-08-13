@@ -125,4 +125,5 @@ class ToySemSegFromInstanceDataModule(LunarSemanticSegmentationSplitDataModule):
             "sample_label_path": label_path,
             "ignore_nodata_in_loss": self.ignore_nodata_in_loss,
             "nodata_ignore_index": self.nodata_ignore_index,
+            "excluded_nodata_values": self.excluded_nodata_values,
         }

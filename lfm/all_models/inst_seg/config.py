@@ -69,6 +69,7 @@ class InstanceSegmentationExperimentConfig:
     mask_shift: tuple[int, int]
     ignore_nodata_in_loss: bool
     nodata_ignore_index: int
+    excluded_nodata_values: list[float] | None
     skip_toy_fit: bool
     skip_graha_fit: bool
     run_epoch_test_suite: bool
@@ -202,6 +203,7 @@ def build_config_from_args(
             "nodata_ignore_index",
             defaults.DEFAULT_NODATA_IGNORE_INDEX,
         ),
+        excluded_nodata_values=getattr(args, "excluded_nodata_values", None),
         skip_toy_fit=args.no_fit or args.skip_toy_fit,
         skip_graha_fit=args.no_fit or args.skip_graha_fit,
         run_epoch_test_suite=args.run_epoch_test_suite,
