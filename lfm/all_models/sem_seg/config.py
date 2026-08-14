@@ -143,6 +143,11 @@ def build_config_from_args(
         "dataset_modality",
         defaults.DEFAULT_DATASET_MODALITY,
     )
+    band_filter = (
+        list(args.band_filter)
+        if args.band_filter is not None
+        else defaults.default_band_filter_for_dataset(dataset_modality)
+    )
     label_file_type = _file_type_from_glob(args.label_glob)
     semantic_label_source = defaults.resolve_semantic_label_source(
         semantic_label_source=getattr(
@@ -162,7 +167,7 @@ def build_config_from_args(
         base_output_dir=base_output_dir,
         dino_checkpoint=dino_checkpoint,
         toy_lightning_checkpoint=toy_lightning_checkpoint,
-        band_filter=args.band_filter,
+        band_filter=band_filter,
         target_size=(args.target_size, args.target_size),
         spatial_transform="crop",
         semantic_label_source=semantic_label_source,

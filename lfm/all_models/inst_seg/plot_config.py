@@ -219,6 +219,11 @@ def build_checkpoint_comparison_plot_config_from_args(
     args: argparse.Namespace,
 ) -> InstanceCheckpointComparisonPlotConfig:
     dataset_modality = args.dataset_modality
+    band_filter = (
+        list(args.band_filter)
+        if args.band_filter is not None
+        else defaults.default_band_filter_for_dataset(dataset_modality)
+    )
     return InstanceCheckpointComparisonPlotConfig(
         data_root=args.data_root.resolve(),
         output_dir=args.output_dir.resolve(),
@@ -239,7 +244,7 @@ def build_checkpoint_comparison_plot_config_from_args(
             normalization_modality=args.normalization_modality,
         ),
         target_size=args.target_size,
-        band_filter=args.band_filter,
+        band_filter=band_filter,
         image_glob=args.image_glob,
         label_glob=args.label_glob,
         image_suffix=args.image_suffix,

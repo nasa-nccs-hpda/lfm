@@ -139,7 +139,11 @@ def _add_band_filter_arg(parser: argparse.ArgumentParser) -> None:
         "--band-filter",
         type=int,
         nargs="+",
-        default=list(defaults.DEFAULT_BAND_FILTER),
+        default=None,
+        help=(
+            "Absolute chip channel indices to use. If omitted, defaults are "
+            "derived from --dataset-modality."
+        ),
     )
 
 

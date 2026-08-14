@@ -134,23 +134,43 @@ class PretrainYamlNormalization(ZScoreNormalization):
         )
 
 
+def _as_stat_list(value: object, *, key: str, modality_name: str) -> list[float]:
+    if isinstance(value, (int, float)):
+        return [float(value)]
+    try:
+        return [float(item) for item in value]  # type: ignore[union-attr]
+    except TypeError as exc:
+        raise TypeError(
+            f"Expected {key} stats for modality '{modality_name}' to be numeric "
+            "or a sequence of numeric values."
+        ) from exc
+
+
 def _load_stats_with_yaml(
     modality_info_path: Path,
+    *,
+    modalities: tuple[str, ...],
 ) -> tuple[list[float], list[float]]:
     import yaml
 
     with modality_info_path.open("r", encoding="utf-8") as f:
         modality_info = yaml.safe_load(f)
 
-    vis_stats = modality_info["vis"]["stats"]["vis"]
-    uv_stats = modality_info["uv"]["stats"]["uv"]
-    means = list(vis_stats["mean"]) + list(uv_stats["mean"])
-    stds = list(vis_stats["std"]) + list(uv_stats["std"])
+    means: list[float] = []
+    stds: list[float] = []
+    for modality_name in modalities:
+        stats = modality_info[modality_name]["stats"][modality_name]
+        means.extend(
+            _as_stat_list(stats["mean"], key="mean", modality_name=modality_name)
+        )
+        stds.extend(_as_stat_list(stats["std"], key="std", modality_name=modality_name))
     return means, stds
 
 
 def _load_stats_without_yaml(
     modality_info_path: Path,
+    *,
+    modalities: tuple[str, ...],
 ) -> tuple[list[float], list[float]]:
     lines = modality_info_path.read_text(encoding="utf-8").splitlines()
 
@@ -183,11 +203,37 @@ def _load_stats_without_yaml(
                 return values
         raise KeyError(key)
 
-    vis_block = top_level_block("vis")
-    uv_block = top_level_block("uv")
-    means = list_after(vis_block, "mean") + list_after(uv_block, "mean")
-    stds = list_after(vis_block, "std") + list_after(uv_block, "std")
+    means: list[float] = []
+    stds: list[float] = []
+    for modality_name in modalities:
+        block = top_level_block(modality_name)
+        means.extend(list_after(block, "mean"))
+        stds.extend(list_after(block, "std"))
     return means, stds
+
+
+def _apply_band_filter(
+    means: list[float],
+    stds: list[float],
+    *,
+    band_filter: list[int] | None,
+    normalization_modality: str,
+) -> tuple[list[float], list[float]]:
+    if band_filter is None:
+        return means, stds
+    if not band_filter:
+        raise ValueError("band_filter must not be empty when provided.")
+    min_band = min(band_filter)
+    max_band = max(band_filter)
+    if min_band < 0 or max_band >= len(means) or max_band >= len(stds):
+        raise ValueError(
+            f"normalization_modality={normalization_modality!r} has "
+            f"{len(means)} channel(s), but band_filter={band_filter} requires "
+            f"indices {min_band} through {max_band}."
+        )
+    return [means[index] for index in band_filter], [
+        stds[index] for index in band_filter
+    ]
 
 
 def load_terramind_wac_pretraining_stats(
@@ -203,9 +249,15 @@ def load_terramind_wac_pretraining_stats(
     """
     modality_info_path = Path(modality_info_path)
     try:
-        means, stds = _load_stats_with_yaml(modality_info_path)
+        means, stds = _load_stats_with_yaml(
+            modality_info_path,
+            modalities=("vis", "uv"),
+        )
     except ModuleNotFoundError:
-        means, stds = _load_stats_without_yaml(modality_info_path)
+        means, stds = _load_stats_without_yaml(
+            modality_info_path,
+            modalities=("vis", "uv"),
+        )
     except KeyError as exc:
         raise KeyError(
             f"Couldn't load vis/uv pretraining stats from {modality_info_path}"
@@ -217,12 +269,61 @@ def load_terramind_wac_pretraining_stats(
             f"got {len(means)} means and {len(stds)} stds."
         )
 
-    if band_filter is not None:
-        means = [means[index] for index in band_filter]
-        stds = [stds[index] for index in band_filter]
+    means, stds = _apply_band_filter(
+        means,
+        stds,
+        band_filter=band_filter,
+        normalization_modality="vis_uv",
+    )
 
     print("TerraMind WAC pretraining mean:", means)
     print("TerraMind WAC pretraining std:", stds)
+    return [float(value) for value in means], [float(value) for value in stds]
+
+
+def load_terramind_wac_static_pretraining_stats(
+    modality_info_path: str | Path,
+    *,
+    band_filter: list[int] | None = None,
+) -> tuple[list[float], list[float]]:
+    """Load 70-band VIS + UV + static normalization stats.
+
+    Chips are expected to be ordered as 5 VIS bands, 2 UV bands, then 63 static
+    bands. The modality YAML should contain separate ``vis``, ``uv``, and
+    ``static`` entries; this returns those stats concatenated in chip order.
+    """
+    modality_info_path = Path(modality_info_path)
+    try:
+        means, stds = _load_stats_with_yaml(
+            modality_info_path,
+            modalities=("vis", "uv", "static"),
+        )
+    except ModuleNotFoundError:
+        means, stds = _load_stats_without_yaml(
+            modality_info_path,
+            modalities=("vis", "uv", "static"),
+        )
+    except KeyError as exc:
+        raise KeyError(
+            f"Couldn't load vis/uv/static pretraining stats from {modality_info_path}"
+        ) from exc
+
+    if len(means) != 70 or len(stds) != 70:
+        raise ValueError(
+            "Expected WAC+static stats to contain 5 VIS + 2 UV + 63 static "
+            f"channels; got {len(means)} means and {len(stds)} stds."
+        )
+
+    means, stds = _apply_band_filter(
+        means,
+        stds,
+        band_filter=band_filter,
+        normalization_modality="vis_uv_static",
+    )
+
+    print("TerraMind WAC+static pretraining modality info:", modality_info_path)
+    print("TerraMind WAC+static pretraining mean:", means)
+    print("TerraMind WAC+static pretraining std:", stds)
     return [float(value) for value in means], [float(value) for value in stds]
 
 
@@ -300,13 +401,19 @@ def load_terramind_pretraining_stats(
             modality_info_path,
             band_filter=band_filter,
         )
+    if normalization_modality == "vis_uv_static":
+        return load_terramind_wac_static_pretraining_stats(
+            modality_info_path,
+            band_filter=band_filter,
+        )
     if normalization_modality == "nac":
         return load_terramind_nac_pretraining_stats(
             modality_info_path,
             band_filter=band_filter,
         )
     raise ValueError(
-        "normalization_modality must be one of {'vis_uv', 'nac'}, got "
+        "normalization_modality must be one of "
+        "{'vis_uv', 'vis_uv_static', 'nac'}, got "
         f"{normalization_modality!r}."
     )
 

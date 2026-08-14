@@ -98,6 +98,11 @@ def build_config_from_args(
         "dataset_modality",
         defaults.DEFAULT_DATASET_MODALITY,
     )
+    band_filter = (
+        list(args.band_filter)
+        if args.band_filter is not None
+        else defaults.default_band_filter_for_dataset(dataset_modality)
+    )
     config = InstanceSegmentationExperimentConfig(
         notebook_dir=notebook_dir,
         lfm_root=lfm_root,
@@ -161,7 +166,7 @@ def build_config_from_args(
         label_suffix=args.label_suffix,
         toy_architecture=args.toy_architecture,
         target_size=args.target_size,
-        band_filter=args.band_filter,
+        band_filter=band_filter,
         max_train_samples=args.max_train_samples,
         max_val_samples=args.max_val_samples,
         max_test_samples=args.max_test_samples,

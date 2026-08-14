@@ -7,12 +7,12 @@ TASK_CHOICES = ["semantic", "instance"]
 SPLIT_CHOICES = ["train", "val", "test"]
 SEMANTIC_LABEL_SOURCE_CHOICES = ["auto", "semantic", "instance"]
 
-DATASET_MODALITY_CHOICES = ["wac", "nac", "nac_dtm"]
+DATASET_MODALITY_CHOICES = ["wac", "wac_static", "nac", "nac_dtm"]
 GRAHA_INPUT_MODALITY_CHOICES = ["single", "vis-uv", "nac-dtm"]
 GRAHA_VIS_UV_MERGE_CHOICES = ["mean", "max"]
 NORMALIZATION_SOURCE_CHOICES = ["pretrain", "finetune"]
-NORMALIZATION_MODALITY_CHOICES = ["vis_uv", "nac"]
-NORMALIZATION_MODALITY_CLI_CHOICES = ["vis-uv", "nac"]
+NORMALIZATION_MODALITY_CHOICES = ["vis_uv", "vis_uv_static", "nac"]
+NORMALIZATION_MODALITY_CLI_CHOICES = ["vis-uv", "vis-uv-static", "nac"]
 TOY_INSTANCE_ARCHITECTURE_CHOICES = [
     "mask2former",
     "dino-mask-rcnn",
@@ -20,7 +20,11 @@ TOY_INSTANCE_ARCHITECTURE_CHOICES = [
 ]
 
 DEFAULT_MODELS = ["toy", "graha"]
-DEFAULT_BAND_FILTER = [0, 1, 2, 3, 4, 5, 6]
+DEFAULT_WAC_BAND_FILTER = [0, 1, 2, 3, 4, 5, 6]
+DEFAULT_WAC_STATIC_BAND_FILTER = list(range(70))
+DEFAULT_NAC_BAND_FILTER = [0]
+DEFAULT_NAC_DTM_BAND_FILTER = [0, 1]
+DEFAULT_BAND_FILTER = DEFAULT_WAC_BAND_FILTER
 DEFAULT_GRAHA_ANCHOR_SIZES = [[8], [16], [32], [64]]
 DEFAULT_GRAHA_ANCHOR_ASPECT_RATIOS = [0.5, 1.0, 2.0]
 DEFAULT_GRAHA_ANCHOR_SIZES_CSV = "8,16,32,64"
@@ -96,6 +100,8 @@ DEFAULT_PIPELINE_PROGRESS_LOG_EVERY_N_BATCHES = 20
 def normalization_modality_for_dataset(dataset_modality: str) -> str:
     if dataset_modality == "wac":
         return "vis_uv"
+    if dataset_modality == "wac_static":
+        return "vis_uv_static"
     if dataset_modality == "nac":
         return "nac"
     if dataset_modality == "nac_dtm":
@@ -111,8 +117,9 @@ def normalize_normalization_modality(normalization_modality: str) -> str:
     if modality in NORMALIZATION_MODALITY_CHOICES:
         return modality
     raise ValueError(
-        "normalization_modality must be one of {'vis_uv', 'nac'} internally "
-        "or {'vis-uv', 'nac'} on the CLI, got "
+        "normalization_modality must be one of "
+        "{'vis_uv', 'vis_uv_static', 'nac'} internally or "
+        "{'vis-uv', 'vis-uv-static', 'nac'} on the CLI, got "
         f"{normalization_modality!r}."
     )
 
@@ -120,10 +127,28 @@ def normalize_normalization_modality(normalization_modality: str) -> str:
 def graha_input_modality_mode_for_dataset(dataset_modality: str) -> str:
     if dataset_modality == "wac":
         return "vis-uv"
+    if dataset_modality == "wac_static":
+        return "single"
     if dataset_modality == "nac":
         return "single"
     if dataset_modality == "nac_dtm":
         return "nac-dtm"
+    raise ValueError(
+        f"dataset_modality must be one of {DATASET_MODALITY_CHOICES}, "
+        f"got {dataset_modality!r}."
+    )
+
+
+def default_band_filter_for_dataset(dataset_modality: str | None) -> list[int]:
+    modality = dataset_modality or DEFAULT_DATASET_MODALITY
+    if modality == "wac":
+        return list(DEFAULT_WAC_BAND_FILTER)
+    if modality == "wac_static":
+        return list(DEFAULT_WAC_STATIC_BAND_FILTER)
+    if modality == "nac":
+        return list(DEFAULT_NAC_BAND_FILTER)
+    if modality == "nac_dtm":
+        return list(DEFAULT_NAC_DTM_BAND_FILTER)
     raise ValueError(
         f"dataset_modality must be one of {DATASET_MODALITY_CHOICES}, "
         f"got {dataset_modality!r}."

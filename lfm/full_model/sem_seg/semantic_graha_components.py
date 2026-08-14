@@ -42,6 +42,7 @@ class FineTuningConfig:
     base_output_dir: Path
     lightning_checkpoint: Path | None
     normalized_wac_data_range: list[float]
+    dataset_modality: str
     graha_input_modality_mode: str
     graha_vis_uv_merge_method: str
     freeze_backbone: bool
@@ -158,6 +159,11 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         "dataset_modality",
         defaults.DEFAULT_DATASET_MODALITY,
     )
+    band_filter = (
+        list(args.band_filter)
+        if getattr(args, "band_filter", None) is not None
+        else defaults.default_band_filter_for_dataset(dataset_modality)
+    )
 
     return FineTuningConfig(
         package_dir=package_dir,
@@ -177,6 +183,7 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         base_output_dir=base_output_dir,
         lightning_checkpoint=lightning_checkpoint,
         normalized_wac_data_range=[-1.0, 1.0],
+        dataset_modality=dataset_modality,
         graha_input_modality_mode=defaults.resolve_graha_input_modality_mode(
             dataset_modality=dataset_modality,
             graha_input_modality_mode=getattr(
@@ -196,7 +203,7 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
             dataset_modality=dataset_modality,
             normalization_modality=getattr(args, "normalization_modality", None),
         ),
-        band_filter=getattr(args, "band_filter", None),
+        band_filter=band_filter,
         semantic_label_source=defaults.resolve_semantic_label_source(
             semantic_label_source=getattr(
                 args,
@@ -670,6 +677,11 @@ def build_comparison_config(config: Any, output_dir: Path) -> FineTuningConfig:
             str(config.gfft_config_path)
             if getattr(config, "gfft_config_path", None)
             else None
+        ),
+        dataset_modality=getattr(
+            config,
+            "dataset_modality",
+            defaults.DEFAULT_DATASET_MODALITY,
         ),
         graha_input_modality_mode=config.graha_input_modality_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
