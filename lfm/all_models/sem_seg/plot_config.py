@@ -159,6 +159,7 @@ def build_checkpoint_comparison_plot_config_from_args(
         ignore_nodata_in_loss=args.ignore_nodata_in_loss,
         nodata_ignore_index=args.nodata_ignore_index,
         excluded_nodata_values=args.excluded_nodata_values,
+        image_nodata_policy=args.image_nodata_policy,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         max_epochs=1,

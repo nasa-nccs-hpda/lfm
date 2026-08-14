@@ -61,6 +61,7 @@ class InstanceCheckpointComparisonPlotConfig:
     ignore_nodata_in_loss: bool
     nodata_ignore_index: int
     excluded_nodata_values: list[float] | None
+    image_nodata_policy: str
     seed: int
 
 
@@ -271,5 +272,6 @@ def build_checkpoint_comparison_plot_config_from_args(
         ignore_nodata_in_loss=args.ignore_nodata_in_loss,
         nodata_ignore_index=args.nodata_ignore_index,
         excluded_nodata_values=args.excluded_nodata_values,
+        image_nodata_policy=args.image_nodata_policy,
         seed=args.seed,
     )

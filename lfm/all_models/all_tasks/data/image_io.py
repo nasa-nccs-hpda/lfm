@@ -200,6 +200,7 @@ def _nodata_mask_from_array(
     arr: np.ndarray,
     nodata: float | int | None = None,
     excluded_values: tuple[float, ...] | list[float] | None = None,
+    per_band: bool = False,
 ) -> np.ndarray:
     arr = np.asarray(arr)
     if arr.ndim == 2:
@@ -219,6 +220,8 @@ def _nodata_mask_from_array(
         invalid = invalid | (arr_chw == nodata)
     for value in excluded_values or ():
         invalid = invalid | (arr_chw == float(value))
+    if per_band:
+        return invalid
     return invalid.any(axis=0)
 
 
@@ -226,6 +229,7 @@ def read_tif_with_nodata_mask(
     path: Path,
     *,
     excluded_values: tuple[float, ...] | list[float] | None = None,
+    per_band: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     try:
         import rasterio
@@ -237,6 +241,7 @@ def read_tif_with_nodata_mask(
             arr,
             nodata,
             excluded_values=excluded_values,
+            per_band=per_band,
         )
         if arr.shape[0] == 1:
             arr = arr[0]
@@ -245,7 +250,11 @@ def read_tif_with_nodata_mask(
         import tifffile
 
         arr = tifffile.imread(path)
-        return arr, _nodata_mask_from_array(arr, excluded_values=excluded_values)
+        return arr, _nodata_mask_from_array(
+            arr,
+            excluded_values=excluded_values,
+            per_band=per_band,
+        )
 
 
 def read_tif(path: Path) -> np.ndarray:
@@ -296,12 +305,21 @@ def read_image_file_with_nodata_mask(
     path: str | Path,
     *,
     excluded_values: tuple[float, ...] | list[float] | None = None,
+    per_band: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     path = Path(path)
     if path.suffix.lower() in {".tif", ".tiff"}:
-        return read_tif_with_nodata_mask(path, excluded_values=excluded_values)
+        return read_tif_with_nodata_mask(
+            path,
+            excluded_values=excluded_values,
+            per_band=per_band,
+        )
     arr = read_image_file(path)
-    return arr, _nodata_mask_from_array(arr, excluded_values=excluded_values)
+    return arr, _nodata_mask_from_array(
+        arr,
+        excluded_values=excluded_values,
+        per_band=per_band,
+    )
 
 
 def read_label_file(

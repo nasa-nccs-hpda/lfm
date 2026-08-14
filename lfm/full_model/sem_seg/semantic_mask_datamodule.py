@@ -8,7 +8,7 @@ from lfm.all_models.all_tasks.data.collate import (
     collate_semantic_segmentation,
 )
 from lfm.all_models.all_tasks.data import LabelBinarizationMode
-from lfm.all_models.all_tasks.data.nodata import build_nodata_policy
+from lfm.all_models.all_tasks.data.nodata import NoDataPolicy, build_nodata_policy
 from lfm.all_models.all_tasks.data.normalization import build_normalization_strategy
 from lfm.all_models.sem_seg import (
     SemanticSegmentationDataModule,
@@ -46,6 +46,8 @@ class LunarSemanticMaskSegmentationDataset(SemanticSegmentationDataset):
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
         excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
+        image_nodata_policy: str = "union",
+        nodata_policy: NoDataPolicy | None = None,
         split_name: str | None = None,
     ) -> None:
         super().__init__(
@@ -74,6 +76,8 @@ class LunarSemanticMaskSegmentationDataset(SemanticSegmentationDataset):
                 ignore_nodata_in_loss=ignore_nodata_in_loss,
                 nodata_ignore_index=nodata_ignore_index,
                 excluded_nodata_values=excluded_nodata_values,
+                image_nodata_policy=image_nodata_policy,
+                nodata_policy=nodata_policy,
             ),
         )
 
@@ -116,6 +120,8 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
         excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
+        image_nodata_policy: str = "union",
+        nodata_policy: NoDataPolicy | None = None,
         pin_memory: bool = True,
     ) -> None:
         if crop_size is None:
@@ -139,6 +145,8 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
             ignore_nodata_in_loss=ignore_nodata_in_loss,
             nodata_ignore_index=nodata_ignore_index,
             excluded_nodata_values=excluded_nodata_values,
+            image_nodata_policy=image_nodata_policy,
+            nodata_policy=nodata_policy,
         )
         self.chips_subdir = chips_subdir
         self.labels_subdir = labels_subdir
@@ -155,6 +163,16 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
         self.no_label_replace = no_label_replace
         self.excluded_nodata_values = tuple(
             float(value) for value in excluded_nodata_values or ()
+        )
+        self.image_nodata_policy = image_nodata_policy
+        self.nodata_policy = build_nodata_policy(
+            no_data_replace=no_data_replace,
+            no_label_replace=no_label_replace,
+            ignore_nodata_in_loss=ignore_nodata_in_loss,
+            nodata_ignore_index=nodata_ignore_index,
+            excluded_nodata_values=self.excluded_nodata_values,
+            image_nodata_policy=image_nodata_policy,
+            nodata_policy=nodata_policy,
         )
 
     def _make_dataset(
@@ -179,6 +197,8 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
             nodata_ignore_index=self.nodata_ignore_index,
             excluded_nodata_values=self.excluded_nodata_values,
+            image_nodata_policy=self.image_nodata_policy,
+            nodata_policy=self.nodata_policy,
             split_name=split,
         )
 
@@ -200,6 +220,8 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
             nodata_ignore_index=self.nodata_ignore_index,
             excluded_nodata_values=self.excluded_nodata_values,
+            image_nodata_policy=self.image_nodata_policy,
+            nodata_policy=self.nodata_policy,
             split_name="train-stats",
         )
 

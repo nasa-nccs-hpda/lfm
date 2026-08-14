@@ -24,6 +24,7 @@ _PASSTHROUGH_KEYS = {
     "ignore_nodata_in_loss",
     "nodata_ignore_index",
     "excluded_nodata_values",
+    "image_nodata_policy",
 }
 
 

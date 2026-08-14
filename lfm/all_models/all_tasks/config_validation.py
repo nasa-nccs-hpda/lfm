@@ -72,6 +72,12 @@ def _validate_choices(config: Any, errors: list[str]) -> None:
         defaults.NORMALIZATION_MODALITY_CHOICES,
         errors,
     )
+    _require_choice(
+        config,
+        "image_nodata_policy",
+        defaults.IMAGE_NODATA_POLICY_CHOICES,
+        errors,
+    )
     _require_choice(config, "prediction_split", defaults.SPLIT_CHOICES, errors)
     _require_choice(config, "epoch_test_split", defaults.SPLIT_CHOICES, errors)
 

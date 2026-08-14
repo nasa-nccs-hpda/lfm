@@ -70,6 +70,7 @@ class InstanceSegmentationDataModule(LunarSegmentationDataModule):
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
         excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
+        image_nodata_policy: str = "union",
         nodata_policy: NoDataPolicy | None = None,
         input_metadata_fn: InputMetadataFn | None = None,
         pin_memory: bool = True,
@@ -111,12 +112,14 @@ class InstanceSegmentationDataModule(LunarSegmentationDataModule):
         self.excluded_nodata_values = tuple(
             float(value) for value in excluded_nodata_values or ()
         )
+        self.image_nodata_policy = image_nodata_policy
         self.nodata_policy = build_nodata_policy(
             no_data_replace=no_data_replace,
             no_label_replace=no_label_replace,
             ignore_nodata_in_loss=ignore_nodata_in_loss,
             nodata_ignore_index=nodata_ignore_index,
             excluded_nodata_values=self.excluded_nodata_values,
+            image_nodata_policy=image_nodata_policy,
             nodata_policy=nodata_policy,
         )
 
@@ -155,6 +158,7 @@ class InstanceSegmentationDataModule(LunarSegmentationDataModule):
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
             nodata_ignore_index=self.nodata_ignore_index,
             excluded_nodata_values=self.excluded_nodata_values,
+            image_nodata_policy=self.image_nodata_policy,
             nodata_policy=self.nodata_policy,
             max_samples=max_samples,
             split_name=split,
@@ -182,6 +186,7 @@ class InstanceSegmentationDataModule(LunarSegmentationDataModule):
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
             nodata_ignore_index=self.nodata_ignore_index,
             excluded_nodata_values=self.excluded_nodata_values,
+            image_nodata_policy=self.image_nodata_policy,
             nodata_policy=self.nodata_policy,
             max_samples=self.max_samples_by_split["train"],
             split_name="train-stats",

@@ -37,22 +37,34 @@ def minmax_scale_per_band(
     image: torch.Tensor,
     nodata_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    flat = image.flatten(start_dim=1)
-    if nodata_mask is not None and torch.any(nodata_mask):
-        valid = ~nodata_mask.flatten()
+    scaled = torch.zeros_like(image)
+    for band_idx in range(image.shape[0]):
+        band = image[band_idx]
+        valid = torch.isfinite(band)
+        if nodata_mask is not None:
+            if nodata_mask.ndim == 2:
+                band_nodata_mask = nodata_mask
+            elif nodata_mask.ndim == 3:
+                band_nodata_mask = nodata_mask[band_idx]
+            else:
+                raise ValueError(
+                    f"Expected 2D or 3D nodata mask, got {tuple(nodata_mask.shape)}"
+                )
+            valid = valid & ~band_nodata_mask
         if not torch.any(valid):
-            return torch.zeros_like(image)
-        flat_valid = flat[:, valid]
-        band_min = flat_valid.min(dim=1).values.view(-1, 1, 1)
-        band_max = flat_valid.max(dim=1).values.view(-1, 1, 1)
-    else:
-        band_min = flat.min(dim=1).values.view(-1, 1, 1)
-        band_max = flat.max(dim=1).values.view(-1, 1, 1)
-    denom = torch.clamp(band_max - band_min, min=1e-8)
-    scaled = (image - band_min) / denom
-    if nodata_mask is not None and torch.any(nodata_mask):
-        scaled = scaled.clone()
-        scaled[:, nodata_mask] = 0.0
+            continue
+        valid_band = band[valid]
+        band_min = valid_band.min()
+        band_max = valid_band.max()
+        if band_max > band_min:
+            scaled[band_idx] = (band - band_min) / torch.clamp(
+                band_max - band_min,
+                min=1e-8,
+            )
+        else:
+            scaled[band_idx] = band
+        if nodata_mask is not None and torch.any(nodata_mask):
+            scaled[band_idx][band_nodata_mask] = 0.0
     return scaled
 
 
@@ -80,6 +92,7 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
         excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
+        image_nodata_policy: str = "union",
         nodata_policy: NoDataPolicy | None = None,
         max_samples: int | None = None,
         split_name: str | None = None,
@@ -102,6 +115,7 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
             ignore_nodata_in_loss=ignore_nodata_in_loss,
             nodata_ignore_index=nodata_ignore_index,
             excluded_nodata_values=excluded_nodata_values,
+            image_nodata_policy=image_nodata_policy,
             nodata_policy=nodata_policy,
         )
         super().__init__(
@@ -143,11 +157,17 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
         image_array, nodata_mask_array = read_image_file_with_nodata_mask(
             record.image_path,
             excluded_values=self.nodata_policy.excluded_values,
+            per_band=self.nodata_policy.needs_per_band_image_mask,
         )
         image = image_to_chw_float(image_array)
         nodata_mask = torch.as_tensor(nodata_mask_array, dtype=torch.bool)
         if self.band_filter is not None:
             image = image[self.band_filter]
+            if nodata_mask.ndim == 3:
+                nodata_mask = nodata_mask[self.band_filter]
+        label_nodata_mask = (
+            nodata_mask.any(dim=0) if nodata_mask.ndim == 3 else nodata_mask
+        )
 
         label = read_label_file_with_metadata(record.label_path)
         label_mask = label["mask"] if isinstance(label, dict) else label
@@ -163,7 +183,7 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
         image = self.nodata_policy.apply_to_image_tensor(image, nodata_mask)
         mask = self.nodata_policy.apply_to_mask_tensor(
             mask,
-            nodata_mask,
+            label_nodata_mask,
             ignore_nodata=False,
         )
         mask = shift_mask(mask, self.mask_shift)
@@ -175,7 +195,7 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
                 crater_boxes[:, 1] += float(shift_y)
         mask = self.nodata_policy.apply_to_mask_tensor(
             mask,
-            nodata_mask,
+            label_nodata_mask,
             fill_label=False,
         )
         original_size = tuple(mask.shape[-2:])

@@ -60,6 +60,7 @@ class FineTuningConfig:
     ignore_nodata_in_loss: bool
     nodata_ignore_index: int
     excluded_nodata_values: list[float] | None
+    image_nodata_policy: str
     shape_loss_weight: float
     shape_loss_pad_frac: float
     backbone_lr: float
@@ -223,6 +224,11 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         ignore_nodata_in_loss=getattr(args, "ignore_nodata_in_loss", False),
         nodata_ignore_index=getattr(args, "nodata_ignore_index", -1),
         excluded_nodata_values=getattr(args, "excluded_nodata_values", None),
+        image_nodata_policy=getattr(
+            args,
+            "image_nodata_policy",
+            defaults.DEFAULT_IMAGE_NODATA_POLICY,
+        ),
         shape_loss_weight=getattr(args, "shape_loss_weight", 0.05),
         shape_loss_pad_frac=getattr(args, "shape_loss_pad_frac", 0.3),
         backbone_lr=getattr(args, "backbone_lr", defaults.DEFAULT_GRAHA_BACKBONE_LR),
@@ -384,6 +390,7 @@ def common_datamodule_args(config: FineTuningConfig) -> dict[str, Any]:
         "ignore_nodata_in_loss": config.ignore_nodata_in_loss,
         "nodata_ignore_index": config.nodata_ignore_index,
         "excluded_nodata_values": config.excluded_nodata_values,
+        "image_nodata_policy": config.image_nodata_policy,
     }
 
 
@@ -700,6 +707,7 @@ def build_comparison_config(config: Any, output_dir: Path) -> FineTuningConfig:
         ignore_nodata_in_loss=config.ignore_nodata_in_loss,
         nodata_ignore_index=config.nodata_ignore_index,
         excluded_nodata_values=config.excluded_nodata_values,
+        image_nodata_policy=config.image_nodata_policy,
         shape_loss_weight=config.graha_shape_loss_weight,
         shape_loss_pad_frac=config.graha_shape_loss_pad_frac,
         backbone_lr=config.graha_backbone_lr,

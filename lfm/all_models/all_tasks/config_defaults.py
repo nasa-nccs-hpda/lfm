@@ -13,6 +13,7 @@ GRAHA_VIS_UV_MERGE_CHOICES = ["mean", "max"]
 NORMALIZATION_SOURCE_CHOICES = ["pretrain", "finetune"]
 NORMALIZATION_MODALITY_CHOICES = ["vis_uv", "vis_uv_static", "nac"]
 NORMALIZATION_MODALITY_CLI_CHOICES = ["vis-uv", "vis-uv-static", "nac"]
+IMAGE_NODATA_POLICY_CHOICES = ["union", "per_band", "preserve"]
 TOY_INSTANCE_ARCHITECTURE_CHOICES = [
     "mask2former",
     "dino-mask-rcnn",
@@ -43,6 +44,7 @@ DEFAULT_MAX_EPOCHS = 100
 DEFAULT_SEED = 42
 DEFAULT_IGNORE_NODATA_IN_LOSS = False
 DEFAULT_NODATA_IGNORE_INDEX = -1
+DEFAULT_IMAGE_NODATA_POLICY = "union"
 DEFAULT_MASK_SHIFT = (0, 0)
 
 DEFAULT_GRAHA_INPUT_MODALITY_MODE = "vis-uv"

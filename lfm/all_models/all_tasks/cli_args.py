@@ -242,6 +242,17 @@ def _add_nodata_args(
             "--excluded-nodata-values=-3.4e38,-9999."
         ),
     )
+    parser.add_argument(
+        "--image-nodata-policy",
+        choices=defaults.IMAGE_NODATA_POLICY_CHOICES,
+        default=defaults.DEFAULT_IMAGE_NODATA_POLICY,
+        help=(
+            "How image NoData values are filled. 'union' fills all channels "
+            "where any selected channel is NoData, 'per_band' fills only the "
+            "channel where NoData occurs, and 'preserve' leaves image values "
+            "unchanged while label/loss masking can still use the union mask."
+        ),
+    )
 
 
 def _add_prediction_args(
