@@ -24,6 +24,7 @@ from lfm.all_models.all_tasks import config_defaults as defaults
 from lfm.all_models.all_tasks.data.normalization import (
     load_terramind_pretraining_stats,
 )
+from lfm.full_model.all_tasks.utils.configure_proj import configure_proj_environment
 
 
 @dataclass(frozen=True)
@@ -41,8 +42,10 @@ class FineTuningConfig:
     base_output_dir: Path
     lightning_checkpoint: Path | None
     normalized_wac_data_range: list[float]
+    dataset_modality: str
     graha_input_modality_mode: str
     graha_vis_uv_merge_method: str
+    freeze_backbone: bool
     normalization_source: str
     normalization_modality: str
     band_filter: list[int] | None
@@ -56,13 +59,21 @@ class FineTuningConfig:
     max_test_samples: int | None
     ignore_nodata_in_loss: bool
     nodata_ignore_index: int
+    excluded_nodata_values: list[float] | None
     shape_loss_weight: float
     shape_loss_pad_frac: float
+    backbone_lr: float
+    head_lr: float
+    layer_decay: float
+    weight_decay: float
+    warmup_steps: int
     crop_size: int
     stats_batch_size: int
     batch_size: int
     num_workers: int
     max_epochs: int
+    plot_every_n_epochs: int
+    plot_n_samples: int
     cache_predictions: bool
     prediction_split: str
     prediction_n_samples: int
@@ -117,26 +128,6 @@ class FitProgressLogger(Callback):
         print(f"[{self.model_name}] validation finished", flush=True)
 
 
-def configure_proj_environment() -> None:
-    """Point PROJ/GDAL at the active conda environment before rasterio imports."""
-    conda_prefix = Path(sys.executable).parents[1]
-    for candidate in [
-        conda_prefix / "share" / "proj",
-        conda_prefix / "Library" / "share" / "proj",
-    ]:
-        if (candidate / "proj.db").exists():
-            proj_dir = candidate
-            break
-    else:
-        raise FileNotFoundError(f"No proj.db found under {conda_prefix}")
-
-    os.environ["PROJ_LIB"] = str(proj_dir)
-    os.environ["PROJ_DATA"] = str(proj_dir)
-    os.environ["GDAL_DATA"] = str(conda_prefix / "share" / "gdal")
-    print("PROJ_DATA =", os.environ["PROJ_DATA"])
-    print("GDAL_DATA =", os.environ["GDAL_DATA"])
-
-
 def build_config(args: argparse.Namespace) -> FineTuningConfig:
     """Create the script configuration from defaults plus CLI overrides."""
     package_dir = Path(__file__).resolve().parent
@@ -168,6 +159,11 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         "dataset_modality",
         defaults.DEFAULT_DATASET_MODALITY,
     )
+    band_filter = (
+        list(args.band_filter)
+        if getattr(args, "band_filter", None) is not None
+        else defaults.default_band_filter_for_dataset(dataset_modality)
+    )
 
     return FineTuningConfig(
         package_dir=package_dir,
@@ -187,6 +183,7 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         base_output_dir=base_output_dir,
         lightning_checkpoint=lightning_checkpoint,
         normalized_wac_data_range=[-1.0, 1.0],
+        dataset_modality=dataset_modality,
         graha_input_modality_mode=defaults.resolve_graha_input_modality_mode(
             dataset_modality=dataset_modality,
             graha_input_modality_mode=getattr(
@@ -196,13 +193,26 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
             ),
         ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
+        freeze_backbone=getattr(
+            args,
+            "graha_freeze_backbone",
+            getattr(args, "freeze_backbone", defaults.DEFAULT_GRAHA_FREEZE_BACKBONE),
+        ),
         normalization_source=getattr(args, "normalization_source", "pretrain"),
         normalization_modality=defaults.resolve_normalization_modality(
             dataset_modality=dataset_modality,
             normalization_modality=getattr(args, "normalization_modality", None),
         ),
-        band_filter=getattr(args, "band_filter", None),
-        semantic_label_source=getattr(args, "semantic_label_source", "semantic"),
+        band_filter=band_filter,
+        semantic_label_source=defaults.resolve_semantic_label_source(
+            semantic_label_source=getattr(
+                args,
+                "semantic_label_source",
+                defaults.DEFAULT_SEMANTIC_LABEL_SOURCE,
+            ),
+            label_glob=args.label_glob,
+            data_root=data_root,
+        ),
         image_glob=args.image_glob,
         label_glob=args.label_glob,
         image_suffix=args.image_suffix,
@@ -212,13 +222,25 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         max_test_samples=getattr(args, "max_test_samples", None),
         ignore_nodata_in_loss=getattr(args, "ignore_nodata_in_loss", False),
         nodata_ignore_index=getattr(args, "nodata_ignore_index", -1),
+        excluded_nodata_values=getattr(args, "excluded_nodata_values", None),
         shape_loss_weight=getattr(args, "shape_loss_weight", 0.05),
         shape_loss_pad_frac=getattr(args, "shape_loss_pad_frac", 0.3),
+        backbone_lr=getattr(args, "backbone_lr", defaults.DEFAULT_GRAHA_BACKBONE_LR),
+        head_lr=getattr(args, "head_lr", defaults.DEFAULT_GRAHA_HEAD_LR),
+        layer_decay=getattr(args, "layer_decay", defaults.DEFAULT_GRAHA_LAYER_DECAY),
+        weight_decay=getattr(args, "weight_decay", defaults.DEFAULT_GRAHA_WEIGHT_DECAY),
+        warmup_steps=getattr(args, "warmup_steps", defaults.DEFAULT_GRAHA_WARMUP_STEPS),
         crop_size=args.crop_size,
         stats_batch_size=args.stats_batch_size,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         max_epochs=args.max_epochs,
+        plot_every_n_epochs=getattr(args, "plot_every_n_epochs", 1),
+        plot_n_samples=getattr(
+            args,
+            "plot_n_samples",
+            defaults.DEFAULT_PLOT_N_SAMPLES,
+        ),
         cache_predictions=args.cache_predictions,
         prediction_split=args.prediction_split,
         prediction_n_samples=args.prediction_n_samples,
@@ -361,6 +383,7 @@ def common_datamodule_args(config: FineTuningConfig) -> dict[str, Any]:
         "no_label_replace": None,
         "ignore_nodata_in_loss": config.ignore_nodata_in_loss,
         "nodata_ignore_index": config.nodata_ignore_index,
+        "excluded_nodata_values": config.excluded_nodata_values,
     }
 
 
@@ -483,13 +506,14 @@ def create_task(config: FineTuningConfig, task_cls, sample_batch: dict[str, Any]
     print("Graha input modality mode:", config.graha_input_modality_mode)
     print("Backbone modalities:", modality_args["backbone_modalities"])
     print("Backbone merge method:", modality_args["backbone_merge_method"])
+    print("Freeze backbone:", config.freeze_backbone)
 
     return task_cls(
-        backbone_lr=5.0e-5,
-        head_lr=2.0e-4,
-        layer_decay=0.75,
-        weight_decay=0.05,
-        warmup_steps=500,
+        backbone_lr=config.backbone_lr,
+        head_lr=config.head_lr,
+        layer_decay=config.layer_decay,
+        weight_decay=config.weight_decay,
+        warmup_steps=config.warmup_steps,
         shape_loss_weight=config.shape_loss_weight,
         shape_loss_pad_frac=config.shape_loss_pad_frac,
         model_factory="EncoderDecoderFactory",
@@ -517,7 +541,7 @@ def create_task(config: FineTuningConfig, task_cls, sample_batch: dict[str, Any]
             config.nodata_ignore_index if config.ignore_nodata_in_loss else None
         ),
         class_names=["Background", "Crater"],
-        freeze_backbone=False,
+        freeze_backbone=config.freeze_backbone,
         freeze_decoder=False,
         plot_on_val=0,
     )
@@ -596,6 +620,35 @@ def create_trainer(
     checkpoint_subdir: str | Path = Path("checkpoints") / "full_model",
 ) -> Trainer:
     plot_output_dir = output_dir if plot_output_dir is None else plot_output_dir
+    callbacks: list[Callback] = [
+        validation_plot_callback_cls(
+            output_dir=plot_output_dir,
+            n_samples=config.plot_n_samples,
+            every_n_epochs=config.plot_every_n_epochs,
+            plots_subdir=plots_subdir,
+            dpi=150,
+        ),
+        ModelCheckpoint(
+            dirpath=str(output_dir / checkpoint_subdir),
+            monitor="val/loss",
+            mode="min",
+            filename="model-epoch-{epoch:02d}",
+            auto_insert_metric_name=False,
+            save_top_k=-1,
+            save_last=False,
+            save_weights_only=True,
+            every_n_epochs=1,
+        ),
+    ]
+    if config.progress_log_every_n_batches > 0:
+        callbacks.insert(
+            0,
+            FitProgressLogger(
+                "Graha",
+                log_every_n_batches=config.progress_log_every_n_batches,
+            ),
+        )
+
     return Trainer(
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=1,
@@ -604,30 +657,7 @@ def create_trainer(
         check_val_every_n_epoch=1,
         log_every_n_steps=5,
         logger=False,
-        callbacks=[
-            FitProgressLogger(
-                "Graha",
-                log_every_n_batches=config.progress_log_every_n_batches,
-            ),
-            validation_plot_callback_cls(
-                output_dir=plot_output_dir,
-                n_samples=5,
-                every_n_epochs=1,
-                plots_subdir=plots_subdir,
-                dpi=150,
-            ),
-            ModelCheckpoint(
-                dirpath=str(output_dir / checkpoint_subdir),
-                monitor="val/loss",
-                mode="min",
-                filename="model-epoch-{epoch:02d}",
-                auto_insert_metric_name=False,
-                save_top_k=-1,
-                save_last=False,
-                save_weights_only=True,
-                every_n_epochs=1,
-            ),
-        ],
+        callbacks=callbacks,
     )
 
 
@@ -648,8 +678,14 @@ def build_comparison_config(config: Any, output_dir: Path) -> FineTuningConfig:
             if getattr(config, "gfft_config_path", None)
             else None
         ),
+        dataset_modality=getattr(
+            config,
+            "dataset_modality",
+            defaults.DEFAULT_DATASET_MODALITY,
+        ),
         graha_input_modality_mode=config.graha_input_modality_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
+        graha_freeze_backbone=config.graha_freeze_backbone,
         normalization_source=config.normalization_source,
         normalization_modality=config.normalization_modality,
         band_filter=config.band_filter,
@@ -663,13 +699,21 @@ def build_comparison_config(config: Any, output_dir: Path) -> FineTuningConfig:
         max_test_samples=config.max_test_samples,
         ignore_nodata_in_loss=config.ignore_nodata_in_loss,
         nodata_ignore_index=config.nodata_ignore_index,
+        excluded_nodata_values=config.excluded_nodata_values,
         shape_loss_weight=config.graha_shape_loss_weight,
         shape_loss_pad_frac=config.graha_shape_loss_pad_frac,
+        backbone_lr=config.graha_backbone_lr,
+        head_lr=config.graha_head_lr,
+        layer_decay=config.graha_layer_decay,
+        weight_decay=config.graha_weight_decay,
+        warmup_steps=config.graha_warmup_steps,
         crop_size=config.target_size[0],
         stats_batch_size=config.graha_stats_batch_size,
         batch_size=config.graha_batch_size,
         num_workers=config.graha_num_workers,
         max_epochs=config.max_epochs,
+        plot_every_n_epochs=config.plot_every_n_epochs,
+        plot_n_samples=config.plot_n_samples,
         cache_predictions=config.cache_predictions,
         prediction_split=config.prediction_split,
         prediction_n_samples=config.prediction_n_samples,

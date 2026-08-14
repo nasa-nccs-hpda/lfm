@@ -26,6 +26,7 @@ from lfm.all_models.all_tasks.utils import (
 from lfm.all_models.all_tasks.data.normalization import (
     load_terramind_pretraining_stats,
 )
+from lfm.full_model.all_tasks.utils.configure_proj import configure_proj_environment
 
 
 class FitProgressLogger(Callback):
@@ -88,8 +89,10 @@ class InstanceFineTuningConfig:
     base_output_dir: Path
     lightning_checkpoint: Path | None
     normalized_wac_data_range: list[float]
+    dataset_modality: str
     graha_input_modality_mode: str
     graha_vis_uv_merge_method: str
+    freeze_backbone: bool
     normalization_source: str
     normalization_modality: str
     band_filter: list[int] | None
@@ -121,27 +124,8 @@ class InstanceFineTuningConfig:
     mask_shift: tuple[int, int]
     ignore_nodata_in_loss: bool
     nodata_ignore_index: int
+    excluded_nodata_values: list[float] | None
     seed: int
-
-
-def configure_proj_environment() -> None:
-    """Point PROJ/GDAL at the active conda environment before rasterio imports."""
-    conda_prefix = Path(sys.executable).parents[1]
-    for candidate in [
-        conda_prefix / "share" / "proj",
-        conda_prefix / "Library" / "share" / "proj",
-    ]:
-        if (candidate / "proj.db").exists():
-            proj_dir = candidate
-            break
-    else:
-        raise FileNotFoundError(f"No proj.db found under {conda_prefix}")
-
-    os.environ["PROJ_LIB"] = str(proj_dir)
-    os.environ["PROJ_DATA"] = str(proj_dir)
-    os.environ["GDAL_DATA"] = str(conda_prefix / "share" / "gdal")
-    print("PROJ_DATA =", os.environ["PROJ_DATA"])
-    print("GDAL_DATA =", os.environ["GDAL_DATA"])
 
 
 def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
@@ -174,6 +158,11 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         "dataset_modality",
         defaults.DEFAULT_DATASET_MODALITY,
     )
+    band_filter = (
+        list(args.band_filter)
+        if getattr(args, "band_filter", None) is not None
+        else defaults.default_band_filter_for_dataset(dataset_modality)
+    )
 
     return InstanceFineTuningConfig(
         package_dir=package_dir,
@@ -193,6 +182,7 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         base_output_dir=base_output_dir,
         lightning_checkpoint=lightning_checkpoint,
         normalized_wac_data_range=[-1.0, 1.0],
+        dataset_modality=dataset_modality,
         graha_input_modality_mode=defaults.resolve_graha_input_modality_mode(
             dataset_modality=dataset_modality,
             graha_input_modality_mode=getattr(
@@ -202,12 +192,17 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
             ),
         ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
+        freeze_backbone=getattr(
+            args,
+            "graha_freeze_backbone",
+            getattr(args, "freeze_backbone", defaults.DEFAULT_GRAHA_FREEZE_BACKBONE),
+        ),
         normalization_source=getattr(args, "normalization_source", "pretrain"),
         normalization_modality=defaults.resolve_normalization_modality(
             dataset_modality=dataset_modality,
             normalization_modality=getattr(args, "normalization_modality", None),
         ),
-        band_filter=getattr(args, "band_filter", None),
+        band_filter=band_filter,
         image_glob=args.image_glob,
         label_glob=args.label_glob,
         image_suffix=args.image_suffix,
@@ -236,6 +231,7 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         mask_shift=tuple(args.mask_shift),
         ignore_nodata_in_loss=getattr(args, "ignore_nodata_in_loss", False),
         nodata_ignore_index=getattr(args, "nodata_ignore_index", -1),
+        excluded_nodata_values=getattr(args, "excluded_nodata_values", None),
         seed=args.seed,
     )
 
@@ -341,6 +337,7 @@ def common_datamodule_args(config: InstanceFineTuningConfig) -> dict[str, Any]:
         "mask_shift": config.mask_shift,
         "ignore_nodata_in_loss": config.ignore_nodata_in_loss,
         "nodata_ignore_index": config.nodata_ignore_index,
+        "excluded_nodata_values": config.excluded_nodata_values,
     }
 
 
@@ -461,6 +458,7 @@ def create_task(
     print("Graha input modality mode:", config.graha_input_modality_mode)
     print("Backbone modalities:", modality_args["backbone_modalities"])
     print("Backbone merge method:", modality_args["backbone_merge_method"])
+    print("Freeze backbone:", config.freeze_backbone)
 
     return task_cls(
         model_factory="ObjectDetectionModelFactory",
@@ -484,7 +482,7 @@ def create_task(
                 {"name": "FeaturePyramidNetworkNeck"},
             ],
         },
-        freeze_backbone=False,
+        freeze_backbone=config.freeze_backbone,
         freeze_decoder=False,
         class_names=["Background", "Crater"],
         backbone_lr=config.backbone_lr,
@@ -555,6 +553,28 @@ def run_loss_smoke(task, sample_batch: dict[str, Any]) -> None:
 
 
 def create_trainer(config: InstanceFineTuningConfig, output_dir: Path) -> Trainer:
+    callbacks: list[Callback] = [
+        ModelCheckpoint(
+            dirpath=str(output_dir / "checkpoints" / "full_model"),
+            monitor="val_segm_map",
+            mode="max",
+            filename="model-epoch-{epoch:02d}-val-segm-map={val_segm_map:.3f}",
+            auto_insert_metric_name=False,
+            save_top_k=-1,
+            save_last=False,
+            save_weights_only=True,
+            every_n_epochs=1,
+        ),
+    ]
+    if config.progress_log_every_n_batches > 0:
+        callbacks.insert(
+            0,
+            FitProgressLogger(
+                "Graha",
+                log_every_n_batches=config.progress_log_every_n_batches,
+            ),
+        )
+
     return Trainer(
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=1,
@@ -563,23 +583,7 @@ def create_trainer(config: InstanceFineTuningConfig, output_dir: Path) -> Traine
         check_val_every_n_epoch=1,
         log_every_n_steps=5,
         logger=False,
-        callbacks=[
-            FitProgressLogger(
-                "Graha",
-                log_every_n_batches=config.progress_log_every_n_batches,
-            ),
-            ModelCheckpoint(
-                dirpath=str(output_dir / "checkpoints" / "full_model"),
-                monitor="val_segm_map",
-                mode="max",
-                filename="model-epoch-{epoch:02d}-val-segm-map={val_segm_map:.3f}",
-                auto_insert_metric_name=False,
-                save_top_k=-1,
-                save_last=False,
-                save_weights_only=True,
-                every_n_epochs=1,
-            ),
-        ],
+        callbacks=callbacks,
     )
 
 
@@ -656,8 +660,14 @@ def build_comparison_config(
             if getattr(config, "gfft_config_path", None)
             else None
         ),
+        dataset_modality=getattr(
+            config,
+            "dataset_modality",
+            defaults.DEFAULT_DATASET_MODALITY,
+        ),
         graha_input_modality_mode=config.graha_input_modality_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
+        graha_freeze_backbone=config.graha_freeze_backbone,
         normalization_source=config.normalization_source,
         normalization_modality=config.normalization_modality,
         band_filter=config.band_filter,
@@ -689,6 +699,7 @@ def build_comparison_config(
         mask_shift=config.mask_shift,
         ignore_nodata_in_loss=config.ignore_nodata_in_loss,
         nodata_ignore_index=config.nodata_ignore_index,
+        excluded_nodata_values=config.excluded_nodata_values,
         seed=config.seed,
         no_fit=config.skip_graha_fit,
         loss_smoke_only=False,

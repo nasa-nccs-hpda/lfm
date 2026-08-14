@@ -97,6 +97,7 @@ def build_checkpoint_sweep_config_from_args(
             "nodata_ignore_index",
             defaults.DEFAULT_NODATA_IGNORE_INDEX,
         ),
+        excluded_nodata_values=getattr(args, "excluded_nodata_values", None),
     )
     return SemanticCheckpointSweepConfig(
         experiment_config=experiment_config,

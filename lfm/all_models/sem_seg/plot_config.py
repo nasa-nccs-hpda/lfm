@@ -158,6 +158,7 @@ def build_checkpoint_comparison_plot_config_from_args(
         max_test_samples=args.max_samples if args.prediction_split == "test" else None,
         ignore_nodata_in_loss=args.ignore_nodata_in_loss,
         nodata_ignore_index=args.nodata_ignore_index,
+        excluded_nodata_values=args.excluded_nodata_values,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         max_epochs=1,

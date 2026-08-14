@@ -10,6 +10,7 @@ import numpy as np
 import torch
 
 from lfm.all_models.all_tasks.data import LunarSegmentationDataModule
+from lfm.all_models.all_tasks.data import LabelBinarizationMode
 from lfm.all_models.sem_seg.data.semantic_dataset import SemanticSegmentationDataset
 
 InputMetadataFn = Callable[[str, list[int] | None], list[str]]
@@ -42,12 +43,13 @@ class SemanticSegmentationDataModule(LunarSegmentationDataModule):
         image_suffix: str | None = None,
         label_suffix: str | None = None,
         label_npz_key: str = "mask",
-        binarize_label: bool = False,
+        binarize_label: bool | LabelBinarizationMode = "auto",
         means: list[float] | np.ndarray | None = None,
         stds: list[float] | np.ndarray | None = None,
         scale_inputs: bool = True,
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
+        excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
     ) -> None:
         super().__init__(
             data_root,
@@ -73,6 +75,9 @@ class SemanticSegmentationDataModule(LunarSegmentationDataModule):
         self.scale_inputs = scale_inputs
         self.ignore_nodata_in_loss = ignore_nodata_in_loss
         self.nodata_ignore_index = int(nodata_ignore_index)
+        self.excluded_nodata_values = tuple(
+            float(value) for value in excluded_nodata_values or ()
+        )
 
         self.mean: np.ndarray | None = (
             np.asarray(means, dtype=np.float32) if means is not None else None
@@ -104,6 +109,7 @@ class SemanticSegmentationDataModule(LunarSegmentationDataModule):
             scale_inputs=self.scale_inputs,
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
             nodata_ignore_index=self.nodata_ignore_index,
+            excluded_nodata_values=self.excluded_nodata_values,
             **self._dataset_kwargs(),
         )
 
@@ -131,6 +137,7 @@ class SemanticSegmentationDataModule(LunarSegmentationDataModule):
             scale_inputs=self.scale_inputs,
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
             nodata_ignore_index=self.nodata_ignore_index,
+            excluded_nodata_values=self.excluded_nodata_values,
             **self._dataset_kwargs(),
         )
 
@@ -207,4 +214,5 @@ class SemanticSegmentationDataModule(LunarSegmentationDataModule):
             "sample_label_path": label_path,
             "ignore_nodata_in_loss": self.ignore_nodata_in_loss,
             "nodata_ignore_index": self.nodata_ignore_index,
+            "excluded_nodata_values": self.excluded_nodata_values,
         }

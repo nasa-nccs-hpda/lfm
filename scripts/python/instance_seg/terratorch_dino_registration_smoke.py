@@ -31,10 +31,15 @@ if str(LFM_ROOT) not in sys.path:
 from lfm.all_models.all_tasks.data.normalization import (
     load_terramind_pretraining_stats,
 )
+from lfm.all_models.all_tasks import config_defaults as defaults
 from lfm.toy_model.inst_seg.lightning_wrappers import ToyDinoMaskRCNNSplitDataModule
 from lfm.toy_model.inst_seg.terratorch_dino_backbone import require_terratorch_registry
 
 BACKBONE_NAME = "toy_dino_v3_mask_rcnn_backbone"
+
+
+def _float_csv(value: str) -> list[float]:
+    return [float(item.strip()) for item in value.split(",") if item.strip()]
 
 
 def tensor_summary(value: torch.Tensor) -> dict[str, Any]:
@@ -100,7 +105,9 @@ def get_normalization_stats(
         raise ValueError("--modality-info is required with --normalize-inputs.")
     return load_terramind_pretraining_stats(
         args.modality_info,
-        normalization_modality=args.normalization_modality,
+        normalization_modality=defaults.normalize_normalization_modality(
+            args.normalization_modality
+        ),
         band_filter=args.band_filter,
     )
 
@@ -127,6 +134,7 @@ def make_datamodule(args: argparse.Namespace) -> ToyDinoMaskRCNNSplitDataModule:
         max_test_samples=args.max_test_samples,
         ignore_nodata_in_loss=args.ignore_nodata_in_loss,
         nodata_ignore_index=args.nodata_ignore_index,
+        excluded_nodata_values=args.excluded_nodata_values,
     )
     datamodule.setup("fit")
     if datamodule.weight_assignments is None:
@@ -420,12 +428,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mask-shift", type=int, nargs=2, default=(0, 0))
     parser.add_argument("--ignore-nodata-in-loss", action="store_true")
     parser.add_argument("--nodata-ignore-index", type=int, default=-1)
+    parser.add_argument("--excluded-nodata-values", type=_float_csv, default=None)
     parser.add_argument("--normalize-inputs", action="store_true")
     parser.add_argument(
         "--normalization-source", choices=["pretrain"], default="pretrain"
     )
     parser.add_argument(
-        "--normalization-modality", choices=["vis_uv", "nac"], default="vis_uv"
+        "--normalization-modality", choices=["vis-uv", "nac"], default="vis-uv"
     )
     parser.add_argument("--modality-info", type=Path, default=None)
     parser.add_argument("--out-channels", type=int, default=256)

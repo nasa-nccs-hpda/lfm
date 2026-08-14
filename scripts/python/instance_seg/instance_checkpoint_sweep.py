@@ -133,6 +133,7 @@ def _make_comparison_args(config: InstanceCheckpointSweepConfig) -> argparse.Nam
         mask_shift=config.mask_shift,
         ignore_nodata_in_loss=config.ignore_nodata_in_loss,
         nodata_ignore_index=config.nodata_ignore_index,
+        excluded_nodata_values=config.excluded_nodata_values,
         skip_toy_fit=True,
         skip_graha_fit=True,
         no_fit=True,

@@ -7,6 +7,7 @@ import torch
 from lfm.all_models.all_tasks.data.collate import (
     collate_semantic_segmentation,
 )
+from lfm.all_models.all_tasks.data import LabelBinarizationMode
 from lfm.all_models.all_tasks.data.nodata import build_nodata_policy
 from lfm.all_models.all_tasks.data.normalization import build_normalization_strategy
 from lfm.all_models.sem_seg import (
@@ -39,11 +40,12 @@ class LunarSemanticMaskSegmentationDataset(SemanticSegmentationDataset):
         label_glob: str = "*label*.*",
         image_suffix: str | None = None,
         label_suffix: str | None = None,
-        binarize_mask: bool = True,
+        binarize_mask: bool | LabelBinarizationMode = "auto",
         no_data_replace: float | None = None,
         no_label_replace: int | None = None,
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
+        excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
         split_name: str | None = None,
     ) -> None:
         super().__init__(
@@ -71,6 +73,7 @@ class LunarSemanticMaskSegmentationDataset(SemanticSegmentationDataset):
                 no_label_replace=no_label_replace,
                 ignore_nodata_in_loss=ignore_nodata_in_loss,
                 nodata_ignore_index=nodata_ignore_index,
+                excluded_nodata_values=excluded_nodata_values,
             ),
         )
 
@@ -103,7 +106,7 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
         label_glob: str = "*label*.*",
         image_suffix: str | None = None,
         label_suffix: str | None = None,
-        binarize_mask: bool = True,
+        binarize_mask: bool | LabelBinarizationMode = "auto",
         band_filter: list[int] | None = None,
         max_train_samples: int | None = None,
         max_val_samples: int | None = None,
@@ -112,6 +115,7 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
         no_label_replace: int | None = None,
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
+        excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
         pin_memory: bool = True,
     ) -> None:
         if crop_size is None:
@@ -134,6 +138,7 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
             scale_inputs=False,
             ignore_nodata_in_loss=ignore_nodata_in_loss,
             nodata_ignore_index=nodata_ignore_index,
+            excluded_nodata_values=excluded_nodata_values,
         )
         self.chips_subdir = chips_subdir
         self.labels_subdir = labels_subdir
@@ -148,6 +153,9 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
         self.binarize_mask = binarize_mask
         self.no_data_replace = no_data_replace
         self.no_label_replace = no_label_replace
+        self.excluded_nodata_values = tuple(
+            float(value) for value in excluded_nodata_values or ()
+        )
 
     def _make_dataset(
         self,
@@ -170,6 +178,7 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
             no_label_replace=self.no_label_replace,
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
             nodata_ignore_index=self.nodata_ignore_index,
+            excluded_nodata_values=self.excluded_nodata_values,
             split_name=split,
         )
 
@@ -190,6 +199,7 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
             no_label_replace=self.no_label_replace,
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
             nodata_ignore_index=self.nodata_ignore_index,
+            excluded_nodata_values=self.excluded_nodata_values,
             split_name="train-stats",
         )
 
@@ -218,4 +228,5 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
             "sample_filename": sample["filename"],
             "ignore_nodata_in_loss": self.ignore_nodata_in_loss,
             "nodata_ignore_index": self.nodata_ignore_index,
+            "excluded_nodata_values": self.excluded_nodata_values,
         }

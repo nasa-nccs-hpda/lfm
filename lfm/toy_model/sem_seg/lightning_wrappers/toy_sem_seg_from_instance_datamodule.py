@@ -25,7 +25,7 @@ class ToySemSegFromInstanceDataset(LunarCraterDataset):
             *args,
             label_file_type=".npz",
             label_npz_key="mask",
-            binarize_label=True,
+            binarize_label="auto",
             **kwargs,
         )
 
@@ -125,4 +125,5 @@ class ToySemSegFromInstanceDataModule(LunarSemanticSegmentationSplitDataModule):
             "sample_label_path": label_path,
             "ignore_nodata_in_loss": self.ignore_nodata_in_loss,
             "nodata_ignore_index": self.nodata_ignore_index,
+            "excluded_nodata_values": self.excluded_nodata_values,
         }

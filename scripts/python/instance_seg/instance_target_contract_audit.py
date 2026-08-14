@@ -34,6 +34,10 @@ from lfm.toy_model.inst_seg.lightning_wrappers import (
 )
 
 
+def _float_csv(value: str) -> list[float]:
+    return [float(item.strip()) for item in value.split(",") if item.strip()]
+
+
 def tensor_summary(value: torch.Tensor) -> dict[str, Any]:
     tensor = value.detach().cpu()
     summary: dict[str, Any] = {
@@ -202,6 +206,7 @@ def make_datamodules(args: argparse.Namespace) -> dict[str, Any]:
         "max_test_samples": args.max_test_samples,
         "ignore_nodata_in_loss": args.ignore_nodata_in_loss,
         "nodata_ignore_index": args.nodata_ignore_index,
+        "excluded_nodata_values": args.excluded_nodata_values,
     }
     common_graha = {
         "data_root": args.data_root,
@@ -224,6 +229,7 @@ def make_datamodules(args: argparse.Namespace) -> dict[str, Any]:
         "mask_shift": tuple(args.mask_shift),
         "ignore_nodata_in_loss": args.ignore_nodata_in_loss,
         "nodata_ignore_index": args.nodata_ignore_index,
+        "excluded_nodata_values": args.excluded_nodata_values,
     }
     return {
         "toy_mask2former": ToyInstanceSegSplitDataModule(**common_toy),
@@ -252,6 +258,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mask-shift", type=int, nargs=2, default=(0, 0))
     parser.add_argument("--ignore-nodata-in-loss", action="store_true")
     parser.add_argument("--nodata-ignore-index", type=int, default=-1)
+    parser.add_argument("--excluded-nodata-values", type=_float_csv, default=None)
     return parser.parse_args()
 
 

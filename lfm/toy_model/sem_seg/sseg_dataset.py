@@ -14,6 +14,7 @@ import torch
 
 from lfm.all_models.all_tasks.data import (
     FinetuneStatsNormalization,
+    LabelBinarizationMode,
     NoDataPolicy,
     NoNormalization,
     read_image_file,
@@ -49,9 +50,10 @@ class LunarCraterDataset(SemanticSegmentationDataset):
         image_suffix: str | None = None,
         label_suffix: str | None = None,
         label_npz_key: str = "mask",
-        binarize_label: bool = False,
+        binarize_label: bool | LabelBinarizationMode = "auto",
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
+        excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
     ) -> None:
         self.mean = mean.astype(np.float32) if mean is not None else None
         self.std = std.astype(np.float32) if std is not None else None
@@ -60,6 +62,9 @@ class LunarCraterDataset(SemanticSegmentationDataset):
         self.label_file_type = label_file_type
         self.ignore_nodata_in_loss = ignore_nodata_in_loss
         self.nodata_ignore_index = int(nodata_ignore_index)
+        self.excluded_nodata_values = tuple(
+            float(value) for value in excluded_nodata_values or ()
+        )
         normalization = (
             FinetuneStatsNormalization(self.mean, self.std)
             if normalize_inputs and self.mean is not None and self.std is not None
@@ -84,6 +89,7 @@ class LunarCraterDataset(SemanticSegmentationDataset):
                 ignore_in_loss=ignore_nodata_in_loss,
                 ignore_index=nodata_ignore_index,
                 image_fill_value=0.0,
+                excluded_values=self.excluded_nodata_values,
             ),
         )
 

@@ -19,9 +19,11 @@ _PASSTHROUGH_KEYS = {
     "label_suffix",
     "semantic_label_source",
     "normalization_source",
-    "normalization_modality",
     "graha_input_modality_mode",
     "graha_vis_uv_merge_method",
+    "ignore_nodata_in_loss",
+    "nodata_ignore_index",
+    "excluded_nodata_values",
 }
 
 
@@ -29,6 +31,11 @@ _DEFAULT_CHIP_LAYOUTS = {
     "wac": {
         "vis": [0, 1, 2, 3, 4],
         "uv": [5, 6],
+    },
+    "wac_static": {
+        "vis": [0, 1, 2, 3, 4],
+        "uv": [5, 6],
+        "static": list(range(7, 70)),
     },
     "nac": {
         "pho": [0],
@@ -46,6 +53,12 @@ def _as_int_list(value: Any, *, name: str) -> list[int]:
     return [int(item) for item in value]
 
 
+def _as_float_list(value: Any, *, name: str) -> list[float]:
+    if isinstance(value, str) or not isinstance(value, Sequence):
+        raise TypeError(f"{name} must be a sequence of numeric values.")
+    return [float(item) for item in value]
+
+
 def _resolve_layout_channels(
     data_dict: DataDictionary,
 ) -> dict[str, list[int]]:
@@ -55,9 +68,24 @@ def _resolve_layout_channels(
     if not isinstance(raw_layout, Mapping):
         raise TypeError("DATA_DICT['chip_layout'] must be a mapping.")
     if not raw_layout:
-        dataset_modality = str(
-            data_dict.get("dataset_modality", defaults.DEFAULT_DATASET_MODALITY)
-        )
+        dataset_modality = data_dict.get("dataset_modality")
+        selected = data_dict.get("selected_modalities")
+        band_filters = data_dict.get("band_filters")
+        if dataset_modality is None:
+            selected_has_static = (
+                not isinstance(selected, str)
+                and isinstance(selected, Sequence)
+                and "static" in {str(item) for item in selected}
+            )
+            filters_have_static = (
+                isinstance(band_filters, Mapping) and "static" in band_filters
+            )
+            dataset_modality = (
+                "wac_static"
+                if selected_has_static or filters_have_static
+                else defaults.DEFAULT_DATASET_MODALITY
+            )
+        dataset_modality = str(dataset_modality)
         raw_layout = _DEFAULT_CHIP_LAYOUTS.get(dataset_modality, {})
 
     layout: dict[str, list[int]] = {}
@@ -72,11 +100,28 @@ def _resolve_layout_channels(
     return layout
 
 
-def _resolve_band_filter(data_dict: DataDictionary) -> list[int] | None:
+def _resolve_dataset_modality(
+    data_dict: DataDictionary,
+    layout: Mapping[str, list[int]],
+) -> str:
+    raw_modality = data_dict.get("dataset_modality")
+    if raw_modality is not None:
+        return str(raw_modality)
+    if "static" in layout:
+        return "wac_static"
+    return defaults.DEFAULT_DATASET_MODALITY
+
+
+def _resolve_band_filter(
+    data_dict: DataDictionary,
+    *,
+    layout: Mapping[str, list[int]] | None = None,
+) -> list[int] | None:
     if "band_filter" in data_dict and data_dict["band_filter"] is not None:
         return _as_int_list(data_dict["band_filter"], name="band_filter")
 
-    layout = _resolve_layout_channels(data_dict)
+    if layout is None:
+        layout = _resolve_layout_channels(data_dict)
     raw_band_filters = data_dict.get("band_filters")
     raw_selected = data_dict.get("selected_modalities")
 
@@ -108,6 +153,13 @@ def _resolve_band_filter(data_dict: DataDictionary) -> list[int] | None:
             raw_band_filters[modality],
             name=f"band_filters[{modality!r}]",
         )
+        if not local_indices:
+            raise ValueError(
+                f"DATA_DICT['band_filters'][{modality!r}] must select at least "
+                "one channel. Remove the modality key to use all channels for "
+                "that modality, or remove DATA_DICT['band_filters'] to use the "
+                "dataset defaults."
+            )
         for local_index in local_indices:
             try:
                 channels.append(modality_channels[local_index])
@@ -138,19 +190,35 @@ def resolve_data_dictionary(data_dict: DataDictionary | None) -> dict[str, Any]:
     for key in _PASSTHROUGH_KEYS:
         if key in data_dict and data_dict[key] is not None:
             overrides[key] = data_dict[key]
+    if "excluded_nodata_values" in overrides:
+        overrides["excluded_nodata_values"] = _as_float_list(
+            overrides["excluded_nodata_values"],
+            name="excluded_nodata_values",
+        )
+    elif "nodata_values" in data_dict and data_dict["nodata_values"] is not None:
+        overrides["excluded_nodata_values"] = _as_float_list(
+            data_dict["nodata_values"],
+            name="nodata_values",
+        )
 
-    band_filter = _resolve_band_filter(data_dict)
+    if "data_dir" not in data_dict or data_dict["data_dir"] is None:
+        raise KeyError("DATA_DICT must include 'data_dir'.")
+    overrides["data_root"] = data_dict["data_dir"]
+
+    layout = _resolve_layout_channels(data_dict)
+    dataset_modality = _resolve_dataset_modality(data_dict, layout)
+    overrides.setdefault("dataset_modality", dataset_modality)
+
+    band_filter = _resolve_band_filter(data_dict, layout=layout)
     if band_filter is not None:
         overrides["band_filter"] = band_filter
 
-    dataset_modality = overrides.get(
-        "dataset_modality",
-        data_dict.get("dataset_modality", defaults.DEFAULT_DATASET_MODALITY),
-    )
     if "graha_input_modalities" in data_dict:
         graha_modalities = tuple(str(item) for item in data_dict["graha_input_modalities"])
         if graha_modalities == ("vis", "uv"):
             overrides["graha_input_modality_mode"] = "vis-uv"
+        elif graha_modalities == ("vis", "uv", "static"):
+            overrides["graha_input_modality_mode"] = "single"
         elif graha_modalities in {("nac",), ("pho",)}:
             overrides["graha_input_modality_mode"] = "single"
         elif graha_modalities in {("nac", "dtm"), ("pho", "dtm")}:
@@ -164,6 +232,10 @@ def resolve_data_dictionary(data_dict: DataDictionary | None) -> dict[str, Any]:
         "normalization_modality",
         defaults.normalization_modality_for_dataset(dataset_modality),
     )
+    if "normalization_modality" in data_dict and data_dict["normalization_modality"]:
+        overrides["normalization_modality"] = defaults.normalize_normalization_modality(
+            str(data_dict["normalization_modality"])
+        )
     overrides.setdefault(
         "graha_input_modality_mode",
         defaults.graha_input_modality_mode_for_dataset(dataset_modality),

@@ -16,6 +16,13 @@ def _anchor_aspect_ratios(value: str) -> list[float]:
     return [float(x) for x in value.split(",")]
 
 
+def _float_csv(value: str) -> list[float]:
+    values = [item.strip() for item in value.split(",") if item.strip()]
+    if not values:
+        raise argparse.ArgumentTypeError("expected at least one float value")
+    return [float(item) for item in values]
+
+
 def _add_symlink_arg(parser: argparse.ArgumentParser, *, semantic_help: bool) -> None:
     kwargs = {
         "dest": "simlink_dest",
@@ -105,7 +112,7 @@ def _add_normalization_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--normalization-modality",
-        choices=defaults.NORMALIZATION_MODALITY_CHOICES,
+        choices=defaults.NORMALIZATION_MODALITY_CLI_CHOICES,
         default=None,
         help=(
             "Which modality family to use when --normalization-source=pretrain. "
@@ -122,7 +129,7 @@ def _add_normalization_args_without_help(parser: argparse.ArgumentParser) -> Non
     )
     parser.add_argument(
         "--normalization-modality",
-        choices=defaults.NORMALIZATION_MODALITY_CHOICES,
+        choices=defaults.NORMALIZATION_MODALITY_CLI_CHOICES,
         default=None,
     )
 
@@ -132,7 +139,11 @@ def _add_band_filter_arg(parser: argparse.ArgumentParser) -> None:
         "--band-filter",
         type=int,
         nargs="+",
-        default=list(defaults.DEFAULT_BAND_FILTER),
+        default=None,
+        help=(
+            "Absolute chip channel indices to use. If omitted, defaults are "
+            "derived from --dataset-modality."
+        ),
     )
 
 
@@ -142,7 +153,8 @@ def _add_semantic_label_source_arg(
     detailed_help: bool,
 ) -> None:
     help_text = (
-        "Use .npy semantic labels or .npz instance labels converted to semantic masks."
+        "Use .npy semantic labels or .npz instance labels converted to semantic "
+        "masks. Default 'auto' infers this from label files."
         if detailed_help
         else None
     )
@@ -220,6 +232,16 @@ def _add_nodata_args(
         default=defaults.DEFAULT_NODATA_IGNORE_INDEX,
         help="Target label value used for ignored nodata pixels.",
     )
+    parser.add_argument(
+        "--excluded-nodata-values",
+        type=_float_csv,
+        default=None,
+        help=(
+            "Additional exact image values to treat as nodata when building "
+            "the spatial ignore mask. Use a comma-separated value list, e.g. "
+            "--excluded-nodata-values=-3.4e38,-9999."
+        ),
+    )
 
 
 def _add_prediction_args(
@@ -289,6 +311,24 @@ def _add_graha_anchor_args(
             type=str,
             default=defaults.DEFAULT_GRAHA_ANCHOR_ASPECT_RATIOS_CSV,
         )
+
+
+def _add_graha_optimizer_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--graha-backbone-lr", type=float, default=defaults.DEFAULT_GRAHA_BACKBONE_LR
+    )
+    parser.add_argument(
+        "--graha-head-lr", type=float, default=defaults.DEFAULT_GRAHA_HEAD_LR
+    )
+    parser.add_argument(
+        "--graha-layer-decay", type=float, default=defaults.DEFAULT_GRAHA_LAYER_DECAY
+    )
+    parser.add_argument(
+        "--graha-weight-decay", type=float, default=defaults.DEFAULT_GRAHA_WEIGHT_DECAY
+    )
+    parser.add_argument(
+        "--graha-warmup-steps", type=int, default=defaults.DEFAULT_GRAHA_WARMUP_STEPS
+    )
 
 
 def create_semantic_experiment_parser(
@@ -413,6 +453,12 @@ def create_semantic_experiment_parser(
         default=defaults.DEFAULT_GRAHA_VIS_UV_MERGE_METHOD,
     )
     parser.add_argument(
+        "--graha-freeze-backbone",
+        action="store_true",
+        default=defaults.DEFAULT_GRAHA_FREEZE_BACKBONE,
+        help="Freeze the Graha/Lunar-FM backbone and train only task-specific heads.",
+    )
+    parser.add_argument(
         "--graha-shape-loss-weight",
         type=float,
         default=defaults.DEFAULT_GRAHA_SHAPE_LOSS_WEIGHT,
@@ -422,6 +468,7 @@ def create_semantic_experiment_parser(
         type=float,
         default=defaults.DEFAULT_GRAHA_SHAPE_LOSS_PAD_FRAC,
     )
+    _add_graha_optimizer_args(parser)
     parser.add_argument(
         "--graha-stats-batch-size",
         type=int,
@@ -589,6 +636,12 @@ def create_instance_experiment_parser(
     )
     parser.add_argument(
         "--graha-warmup-steps", type=int, default=defaults.DEFAULT_GRAHA_WARMUP_STEPS
+    )
+    parser.add_argument(
+        "--graha-freeze-backbone",
+        action="store_true",
+        default=defaults.DEFAULT_GRAHA_FREEZE_BACKBONE,
+        help="Freeze the Graha/Lunar-FM backbone and train only task-specific heads.",
     )
     _add_graha_anchor_args(parser, parsed_defaults=True)
     parser.add_argument(
@@ -1097,6 +1150,11 @@ def create_instance_checkpoint_comparison_plot_parser(
         type=int,
         default=defaults.DEFAULT_NODATA_IGNORE_INDEX,
     )
+    parser.add_argument(
+        "--excluded-nodata-values",
+        type=_float_csv,
+        default=None,
+    )
     parser.add_argument("--seed", type=int, default=defaults.DEFAULT_SEED)
     return parser
 
@@ -1173,6 +1231,11 @@ def create_semantic_checkpoint_comparison_plot_parser(
         "--nodata-ignore-index",
         type=int,
         default=defaults.DEFAULT_NODATA_IGNORE_INDEX,
+    )
+    parser.add_argument(
+        "--excluded-nodata-values",
+        type=_float_csv,
+        default=None,
     )
     parser.add_argument("--seed", type=int, default=defaults.DEFAULT_SEED)
     return parser

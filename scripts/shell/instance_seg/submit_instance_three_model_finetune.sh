@@ -85,6 +85,21 @@ for ((i = 0; i < ${#ARGS[@]}; i++)); do
       exit 2
     fi
   done
+  if [[ "${arg}" == --excluded-nodata-values=* ]]; then
+    JOB_ARGS+=("${arg}")
+    PLOT_ARGS+=("${arg}")
+    continue
+  fi
+  if [[ "${arg}" == "--excluded-nodata-values" ]]; then
+    if [[ $((i + 1)) -ge ${#ARGS[@]} ]]; then
+      echo "--excluded-nodata-values requires a comma-separated value list." >&2
+      exit 2
+    fi
+    JOB_ARGS+=("--excluded-nodata-values=${ARGS[$((i + 1))]}")
+    PLOT_ARGS+=("--excluded-nodata-values=${ARGS[$((i + 1))]}")
+    i=$((i + 1))
+    continue
+  fi
   JOB_ARGS+=("${arg}")
 
   case "${arg}" in
@@ -108,7 +123,7 @@ for ((i = 0; i < ${#ARGS[@]}; i++)); do
     --band-filter)
       append_plot_arg_with_values_until_next_flag "${arg}" "$((i + 1))"
       if [[ "${PLOT_NEXT_INDEX}" -eq $((i + 1)) ]]; then
-        echo "--band-filter requires at least one value." >&2
+        echo "${arg} requires at least one value." >&2
         exit 2
       fi
       ;;

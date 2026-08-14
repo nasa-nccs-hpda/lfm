@@ -183,6 +183,7 @@ def _make_toy_args(config: SemanticCheckpointSweepConfig) -> argparse.Namespace:
         epoch_test_every_n_epochs=1,
         ignore_nodata_in_loss=config.ignore_nodata_in_loss,
         nodata_ignore_index=config.nodata_ignore_index,
+        excluded_nodata_values=config.excluded_nodata_values,
     )
 
 
@@ -295,6 +296,7 @@ def _make_graha_args(config: SemanticCheckpointSweepConfig) -> argparse.Namespac
         no_fit=True,
         ignore_nodata_in_loss=config.ignore_nodata_in_loss,
         nodata_ignore_index=config.nodata_ignore_index,
+        excluded_nodata_values=config.excluded_nodata_values,
     )
 
 

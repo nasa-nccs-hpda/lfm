@@ -41,6 +41,8 @@ class Pipeline:
     STATIC_FILE_DB = Path('/explore/nobackup/projects/lfm/staticLinks')
 
     PROJECT_GROUP = 'j1123'
+    STATIC_OUTPUT_NODATA = np.float32(-32768.0)
+    STATIC_PRESERVE_SOURCE_NODATA_MARKERS = ('deltacpr', 'deltas1')
 
     # ------------------------------------------------------------------------
     # __init__
@@ -78,20 +80,81 @@ class Pipeline:
               srs: osr.SpatialReference,
               ds: gdal.Dataset,
               width: int,
-              height: int) -> gdal.Dataset:
+              height: int,
+              srcNodata=None,
+              dstNodata=None) -> gdal.Dataset:
 
-        clipDs: gdal.Dataset = gdal.Warp(
-                '',
-                ds,
-                outputBounds=[ulx, lry, lrx, uly],
-                dstSRS=srs,
-                width=width,
-                height=height,
-                format='MEM',
-                resampleAlg=gdal.GRA_Bilinear,
-            )
+        warp_kwargs = {
+            'outputBounds': [ulx, lry, lrx, uly],
+            'dstSRS': srs,
+            'width': width,
+            'height': height,
+            'format': 'MEM',
+            'resampleAlg': gdal.GRA_Bilinear,
+        }
+
+        if srcNodata is not None:
+            warp_kwargs['srcNodata'] = srcNodata
+            if dstNodata is not None:
+                warp_kwargs['dstNodata'] = dstNodata
+        elif dstNodata is not None:
+            warp_kwargs['dstNodata'] = dstNodata
+
+        clipDs: gdal.Dataset = gdal.Warp('', ds, **warp_kwargs)
 
         return clipDs
+
+    # ------------------------------------------------------------------------
+    # getStaticOutputNodata
+    # ------------------------------------------------------------------------
+    def _getStaticOutputNodata(self,
+                               fileName: Path,
+                               sourceNoDataValue):
+
+        if sourceNoDataValue is not None:
+
+            name = fileName.name.lower()
+            if any(marker in name for marker in
+                   Pipeline.STATIC_PRESERVE_SOURCE_NODATA_MARKERS):
+
+                return np.float32(sourceNoDataValue)
+
+        return Pipeline.STATIC_OUTPUT_NODATA
+
+    # ------------------------------------------------------------------------
+    # normalizeStaticRaster
+    # ------------------------------------------------------------------------
+    def _normalizeStaticRaster(self,
+                               raster: np.ndarray,
+                               sourceNoDataValue,
+                               outputNoDataValue) -> np.ndarray:
+
+        normalized = np.asarray(raster).copy()
+        outputNoDataValue = np.float32(outputNoDataValue)
+
+        if sourceNoDataValue is not None and sourceNoDataValue != outputNoDataValue:
+            normalized = np.where(normalized == sourceNoDataValue,
+                                  outputNoDataValue,
+                                  normalized)
+
+        normalized = np.where(np.isfinite(normalized),
+                              normalized,
+                              outputNoDataValue)
+
+        return normalized.astype(raster.dtype, copy=False)
+
+    # ------------------------------------------------------------------------
+    # nodataArg
+    # ------------------------------------------------------------------------
+    @staticmethod
+    def _nodataArg(values: list):
+
+        filtered = [v for v in values if v is not None]
+        if not filtered:
+            return None
+        if len(values) == 1:
+            return filtered[0]
+        return [v if v is not None else None for v in values]
 
     # ------------------------------------------------------------------------
     # createCube
@@ -142,6 +205,18 @@ class Pipeline:
 
             try:
 
+                sourceNoDataValues = [
+                    ds.GetRasterBand(i + 1).GetNoDataValue()
+                    for i in range(ds.RasterCount)
+                ]
+                outputNoDataValues = None
+
+                if is_static:
+                    outputNoDataValues = [
+                        self._getStaticOutputNodata(fileName, sourceNoDataValue)
+                        for sourceNoDataValue in sourceNoDataValues
+                    ]
+
                 if self._debug:
                     print('Clipping', fileName.name, 'to', ulx, uly, lrx, lry)
 
@@ -152,7 +227,13 @@ class Pipeline:
                                                   srs,
                                                   ds,
                                                   width,
-                                                  height)
+                                                  height,
+                                                  srcNodata=self._nodataArg(
+                                                      sourceNoDataValues)
+                                                  if is_static else None,
+                                                  dstNodata=self._nodataArg(
+                                                      outputNoDataValues)
+                                                  if is_static else None)
 
                 if self._debug:
 
@@ -188,9 +269,16 @@ class Pipeline:
 
             if numBands == 1:
 
-                ndv = ds.GetRasterBand(1).GetNoDataValue()
+                ndv = sourceNoDataValues[0]
+                outNodata = outputNoDataValues[0] if is_static else ndv
+                bandRaster = raster
 
-                if not (raster == ndv).all():
+                if is_static:
+                    bandRaster = self._normalizeStaticRaster(bandRaster,
+                                                             ndv,
+                                                             outNodata)
+
+                if not (bandRaster == outNodata).all():
 
                     # Must do this here to avoid empty prod ids.
                     prodId = fileName.stem.split('.')[0]
@@ -198,7 +286,9 @@ class Pipeline:
                     if prodId not in prodIdDict:
                         prodIdDict[prodId]: list[tuple] = []
 
-                    prodIdDict[prodId].append((fileName.stem, raster, ndv))
+                    prodIdDict[prodId].append((fileName.stem,
+                                               bandRaster,
+                                               outNodata))
 
                 else:
                     nullCount += 1
@@ -207,9 +297,16 @@ class Pipeline:
 
                 for i in range(numBands):
 
-                    ndv = ds.GetRasterBand(i+1).GetNoDataValue()
+                    ndv = sourceNoDataValues[i]
+                    outNodata = outputNoDataValues[i] if is_static else ndv
+                    bandRaster = raster[i]
 
-                    if not (raster == ndv).all():
+                    if is_static:
+                        bandRaster = self._normalizeStaticRaster(bandRaster,
+                                                                 ndv,
+                                                                 outNodata)
+
+                    if not (bandRaster == outNodata).all():
 
                         # Must do this here to avoid empty prod ids.
                         prodId = fileName.stem.split('.')[0]
@@ -218,7 +315,9 @@ class Pipeline:
                             prodIdDict[prodId]: list[tuple] = []
 
                         key = fileName.stem + '-' + str(i)
-                        prodIdDict[prodId].append((key, raster[i], ndv))
+                        prodIdDict[prodId].append((key,
+                                                   bandRaster,
+                                                   outNodata))
 
                     else:
                         nullCount += 1
@@ -528,7 +627,7 @@ class Pipeline:
 
         # Write the bands.
         bandIndex = 0
-        NO_DATA_VAL = -32768
+        noDataValue = float(Pipeline.STATIC_OUTPUT_NODATA)
 
         for pid, rasters in prodIdDict.items():
 
@@ -536,16 +635,14 @@ class Pipeline:
 
                 name = raster[0]
                 pixels = raster[1]
-                noDataValue = raster[2]
 
-                # This would be better in createCube().
-                raster = np.where(pixels == noDataValue, NO_DATA_VAL, pixels)
+                raster = pixels
 
                 bandIndex += 1
                 band = ds.GetRasterBand(bandIndex)
-                band.WriteArray(pixels)
+                band.WriteArray(raster)
                 band.SetMetadataItem('Name', name)
-                band.SetNoDataValue(NO_DATA_VAL)
+                band.SetNoDataValue(noDataValue)
 
         ds = None
 

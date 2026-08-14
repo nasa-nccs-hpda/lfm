@@ -9,6 +9,7 @@ from typing import Any
 
 from lfm.all_models.all_tasks import config_defaults as defaults
 from lfm.all_models.all_tasks.cli_args import create_instance_experiment_parser
+from lfm.all_models.all_tasks.config_validation import validate_experiment_config
 from lfm.all_models.all_tasks.data_dictionary import resolve_data_dictionary
 
 
@@ -27,6 +28,7 @@ class InstanceSegmentationExperimentConfig:
     dataset_modality: str
     graha_input_modality_mode: str
     graha_vis_uv_merge_method: str
+    graha_freeze_backbone: bool
     normalization_source: str
     normalization_modality: str
     image_glob: str
@@ -67,6 +69,7 @@ class InstanceSegmentationExperimentConfig:
     mask_shift: tuple[int, int]
     ignore_nodata_in_loss: bool
     nodata_ignore_index: int
+    excluded_nodata_values: list[float] | None
     skip_toy_fit: bool
     skip_graha_fit: bool
     run_epoch_test_suite: bool
@@ -95,7 +98,12 @@ def build_config_from_args(
         "dataset_modality",
         defaults.DEFAULT_DATASET_MODALITY,
     )
-    return InstanceSegmentationExperimentConfig(
+    band_filter = (
+        list(args.band_filter)
+        if args.band_filter is not None
+        else defaults.default_band_filter_for_dataset(dataset_modality)
+    )
+    config = InstanceSegmentationExperimentConfig(
         notebook_dir=notebook_dir,
         lfm_root=lfm_root,
         data_root=(
@@ -138,6 +146,11 @@ def build_config_from_args(
             ),
         ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
+        graha_freeze_backbone=getattr(
+            args,
+            "graha_freeze_backbone",
+            defaults.DEFAULT_GRAHA_FREEZE_BACKBONE,
+        ),
         normalization_source=getattr(
             args,
             "normalization_source",
@@ -153,7 +166,7 @@ def build_config_from_args(
         label_suffix=args.label_suffix,
         toy_architecture=args.toy_architecture,
         target_size=args.target_size,
-        band_filter=args.band_filter,
+        band_filter=band_filter,
         max_train_samples=args.max_train_samples,
         max_val_samples=args.max_val_samples,
         max_test_samples=args.max_test_samples,
@@ -195,6 +208,7 @@ def build_config_from_args(
             "nodata_ignore_index",
             defaults.DEFAULT_NODATA_IGNORE_INDEX,
         ),
+        excluded_nodata_values=getattr(args, "excluded_nodata_values", None),
         skip_toy_fit=args.no_fit or args.skip_toy_fit,
         skip_graha_fit=args.no_fit or args.skip_graha_fit,
         run_epoch_test_suite=args.run_epoch_test_suite,
@@ -203,6 +217,8 @@ def build_config_from_args(
         epoch_test_every_n_epochs=args.epoch_test_every_n_epochs,
         seed=args.seed,
     )
+    validate_experiment_config(config, task="instance")
+    return config
 
 
 def build_config(
@@ -237,6 +253,8 @@ def build_config(
 
     for name, value in data_dict_overrides.items():
         if not hasattr(args, name):
+            if name == "semantic_label_source":
+                continue
             raise TypeError(f"Unknown instance data dictionary option: {name}")
         setattr(args, name, value)
 

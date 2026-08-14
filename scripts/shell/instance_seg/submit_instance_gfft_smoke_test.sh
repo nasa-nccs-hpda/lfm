@@ -38,7 +38,7 @@ sbatch scripts/shell/instance_seg/sbatch_instance_gfft_single_finetune.sh \
   --band-filter 0 1 2 3 4 \
   --normalize-inputs \
   --normalization-source pretrain \
-  --normalization-modality vis_uv \
+  --normalization-modality vis-uv \
   --disable-toy-gradient-clipping \
   --dataset-modality wac \
   --prediction-split val \

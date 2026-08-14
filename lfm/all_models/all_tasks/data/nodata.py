@@ -15,6 +15,7 @@ class NoDataPolicy:
     image_fill_value: float = 0.0
     label_fill_value: int | None = None
     fill_image_nodata: bool = False
+    excluded_values: tuple[float, ...] = ()
 
     def apply_to_image(self, image: np.ndarray, nodata_mask: np.ndarray) -> np.ndarray:
         if not (self.fill_image_nodata or self.ignore_in_loss) or not np.any(
@@ -89,6 +90,7 @@ def build_nodata_policy(
     no_label_replace: int | None = None,
     ignore_nodata_in_loss: bool = False,
     nodata_ignore_index: int = -1,
+    excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
     nodata_policy: NoDataPolicy | None = None,
 ) -> NoDataPolicy:
     if nodata_policy is not None:
@@ -101,4 +103,5 @@ def build_nodata_policy(
         ),
         label_fill_value=no_label_replace,
         fill_image_nodata=no_data_replace is not None,
+        excluded_values=tuple(float(value) for value in excluded_nodata_values or ()),
     )

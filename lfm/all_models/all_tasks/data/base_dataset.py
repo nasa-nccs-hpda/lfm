@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import torch
@@ -23,6 +23,24 @@ from lfm.all_models.all_tasks.data.normalization import (
     NoNormalization,
     NormalizationStrategy,
 )
+
+LabelBinarizationMode = Literal["auto", "always", "never"]
+
+
+def normalize_label_binarization_mode(
+    value: bool | LabelBinarizationMode,
+) -> LabelBinarizationMode:
+    """Normalize legacy boolean binarization flags to an explicit mode."""
+    if value is True:
+        return "always"
+    if value is False:
+        return "never"
+    if value not in {"auto", "always", "never"}:
+        raise ValueError(
+            "label binarization must be one of 'auto', 'always', or 'never', "
+            f"got {value!r}."
+        )
+    return value
 
 
 class LunarSegmentationDataset(Dataset):
@@ -48,7 +66,7 @@ class LunarSegmentationDataset(Dataset):
         label_suffix: str | None = None,
         require_all_labels: bool = False,
         label_npz_key: str = "mask",
-        binarize_label: bool = False,
+        binarize_label: bool | LabelBinarizationMode = "auto",
         scale_inputs: bool = True,
         normalization: NormalizationStrategy | None = None,
         nodata_policy: NoDataPolicy | None = None,
@@ -66,7 +84,7 @@ class LunarSegmentationDataset(Dataset):
         self.split_name = split_name or self.base_dir.name
         self.log_prefix = f"[{self.split_name}] "
         self.label_npz_key = label_npz_key
-        self.binarize_label = binarize_label
+        self.label_binarization = normalize_label_binarization_mode(binarize_label)
         self.scale_inputs = scale_inputs
         self.normalization = normalization or NoNormalization()
         self.nodata_policy = nodata_policy or NoDataPolicy()
@@ -162,13 +180,23 @@ class LunarSegmentationDataset(Dataset):
 
     def load_label(self, label_path: Path) -> np.ndarray:
         label = read_label_file(label_path, npz_key=self.label_npz_key).astype(np.int64)
-        if self.binarize_label:
+        if self._should_binarize_label(label_path):
             label = (label > 0).astype(np.int64)
         return label
 
+    def _should_binarize_label(self, label_path: Path) -> bool:
+        if self.label_binarization == "always":
+            return True
+        if self.label_binarization == "never":
+            return False
+        return label_path.suffix.lower() != ".npy"
+
     def prepare_sample(self, idx: int) -> dict[str, Any]:
         record = self.records[idx]
-        image, nodata_mask = read_image_file_with_nodata_mask(record.image_path)
+        image, nodata_mask = read_image_file_with_nodata_mask(
+            record.image_path,
+            excluded_values=self.nodata_policy.excluded_values,
+        )
         image = image_to_hwc_float(image)
         label = self.load_label(record.label_path)
 

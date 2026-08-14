@@ -79,6 +79,7 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
         no_label_replace: int | None = None,
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
+        excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
         nodata_policy: NoDataPolicy | None = None,
         max_samples: int | None = None,
         split_name: str | None = None,
@@ -100,6 +101,7 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
             no_label_replace=no_label_replace,
             ignore_nodata_in_loss=ignore_nodata_in_loss,
             nodata_ignore_index=nodata_ignore_index,
+            excluded_nodata_values=excluded_nodata_values,
             nodata_policy=nodata_policy,
         )
         super().__init__(
@@ -115,7 +117,7 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
             label_suffix=label_suffix,
             require_all_labels=True,
             label_npz_key="mask",
-            binarize_label=False,
+            binarize_label="never",
             scale_inputs=scale_inputs,
             normalization=normalization_strategy,
             nodata_policy=nodata_strategy,
@@ -128,6 +130,9 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
         self.no_label_replace = no_label_replace
         self.ignore_nodata_in_loss = ignore_nodata_in_loss
         self.nodata_ignore_index = int(nodata_ignore_index)
+        self.excluded_nodata_values = tuple(
+            float(value) for value in excluded_nodata_values or ()
+        )
         self.nodata_policy = nodata_strategy
 
     def _load_instance_sample(
@@ -136,7 +141,8 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
     ) -> tuple[dict[str, Any], torch.Tensor | None, int | None]:
         record = self.records[index]
         image_array, nodata_mask_array = read_image_file_with_nodata_mask(
-            record.image_path
+            record.image_path,
+            excluded_values=self.nodata_policy.excluded_values,
         )
         image = image_to_chw_float(image_array)
         nodata_mask = torch.as_tensor(nodata_mask_array, dtype=torch.bool)
