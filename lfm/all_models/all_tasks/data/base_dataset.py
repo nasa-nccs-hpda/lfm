@@ -193,7 +193,10 @@ class LunarSegmentationDataset(Dataset):
 
     def prepare_sample(self, idx: int) -> dict[str, Any]:
         record = self.records[idx]
-        image, nodata_mask = read_image_file_with_nodata_mask(record.image_path)
+        image, nodata_mask = read_image_file_with_nodata_mask(
+            record.image_path,
+            excluded_values=self.nodata_policy.excluded_values,
+        )
         image = image_to_hwc_float(image)
         label = self.load_label(record.label_path)
 

@@ -21,6 +21,9 @@ _PASSTHROUGH_KEYS = {
     "normalization_source",
     "graha_input_modality_mode",
     "graha_vis_uv_merge_method",
+    "ignore_nodata_in_loss",
+    "nodata_ignore_index",
+    "excluded_nodata_values",
 }
 
 
@@ -43,6 +46,12 @@ def _as_int_list(value: Any, *, name: str) -> list[int]:
     if isinstance(value, str) or not isinstance(value, Sequence):
         raise TypeError(f"{name} must be a sequence of integer channel indices.")
     return [int(item) for item in value]
+
+
+def _as_float_list(value: Any, *, name: str) -> list[float]:
+    if isinstance(value, str) or not isinstance(value, Sequence):
+        raise TypeError(f"{name} must be a sequence of numeric values.")
+    return [float(item) for item in value]
 
 
 def _resolve_layout_channels(
@@ -144,6 +153,16 @@ def resolve_data_dictionary(data_dict: DataDictionary | None) -> dict[str, Any]:
     for key in _PASSTHROUGH_KEYS:
         if key in data_dict and data_dict[key] is not None:
             overrides[key] = data_dict[key]
+    if "excluded_nodata_values" in overrides:
+        overrides["excluded_nodata_values"] = _as_float_list(
+            overrides["excluded_nodata_values"],
+            name="excluded_nodata_values",
+        )
+    elif "nodata_values" in data_dict and data_dict["nodata_values"] is not None:
+        overrides["excluded_nodata_values"] = _as_float_list(
+            data_dict["nodata_values"],
+            name="nodata_values",
+        )
 
     if "data_dir" not in data_dict or data_dict["data_dir"] is None:
         raise KeyError("DATA_DICT must include 'data_dir'.")

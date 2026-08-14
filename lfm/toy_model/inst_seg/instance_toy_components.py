@@ -205,6 +205,7 @@ def create_datamodule(
         no_label_replace=getattr(config, "no_label_replace", None),
         ignore_nodata_in_loss=getattr(config, "ignore_nodata_in_loss", False),
         nodata_ignore_index=getattr(config, "nodata_ignore_index", -1),
+        excluded_nodata_values=getattr(config, "excluded_nodata_values", None),
         max_train_samples=config.max_train_samples,
         max_val_samples=config.max_val_samples,
         max_test_samples=config.max_test_samples,

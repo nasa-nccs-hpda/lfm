@@ -45,6 +45,7 @@ class LunarSemanticMaskSegmentationDataset(SemanticSegmentationDataset):
         no_label_replace: int | None = None,
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
+        excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
         split_name: str | None = None,
     ) -> None:
         super().__init__(
@@ -72,6 +73,7 @@ class LunarSemanticMaskSegmentationDataset(SemanticSegmentationDataset):
                 no_label_replace=no_label_replace,
                 ignore_nodata_in_loss=ignore_nodata_in_loss,
                 nodata_ignore_index=nodata_ignore_index,
+                excluded_nodata_values=excluded_nodata_values,
             ),
         )
 
@@ -113,6 +115,7 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
         no_label_replace: int | None = None,
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
+        excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
         pin_memory: bool = True,
     ) -> None:
         if crop_size is None:
@@ -135,6 +138,7 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
             scale_inputs=False,
             ignore_nodata_in_loss=ignore_nodata_in_loss,
             nodata_ignore_index=nodata_ignore_index,
+            excluded_nodata_values=excluded_nodata_values,
         )
         self.chips_subdir = chips_subdir
         self.labels_subdir = labels_subdir
@@ -149,6 +153,9 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
         self.binarize_mask = binarize_mask
         self.no_data_replace = no_data_replace
         self.no_label_replace = no_label_replace
+        self.excluded_nodata_values = tuple(
+            float(value) for value in excluded_nodata_values or ()
+        )
 
     def _make_dataset(
         self,
@@ -171,6 +178,7 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
             no_label_replace=self.no_label_replace,
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
             nodata_ignore_index=self.nodata_ignore_index,
+            excluded_nodata_values=self.excluded_nodata_values,
             split_name=split,
         )
 
@@ -191,6 +199,7 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
             no_label_replace=self.no_label_replace,
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
             nodata_ignore_index=self.nodata_ignore_index,
+            excluded_nodata_values=self.excluded_nodata_values,
             split_name="train-stats",
         )
 
@@ -219,4 +228,5 @@ class LunarSemanticMaskSegmentationDatamodule(SemanticSegmentationDataModule):
             "sample_filename": sample["filename"],
             "ignore_nodata_in_loss": self.ignore_nodata_in_loss,
             "nodata_ignore_index": self.nodata_ignore_index,
+            "excluded_nodata_values": self.excluded_nodata_values,
         }

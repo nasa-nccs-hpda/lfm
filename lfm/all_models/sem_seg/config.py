@@ -36,6 +36,7 @@ class SemanticSegmentationExperimentConfig:
     max_test_samples: int | None
     ignore_nodata_in_loss: bool
     nodata_ignore_index: int
+    excluded_nodata_values: list[float] | None
     batch_size: int
     num_workers: int
     max_epochs: int
@@ -184,6 +185,7 @@ def build_config_from_args(
             "nodata_ignore_index",
             defaults.DEFAULT_NODATA_IGNORE_INDEX,
         ),
+        excluded_nodata_values=getattr(args, "excluded_nodata_values", None),
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         max_epochs=args.max_epochs,
