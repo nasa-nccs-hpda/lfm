@@ -199,6 +199,7 @@ def find_pair_records(
 def _nodata_mask_from_array(
     arr: np.ndarray,
     nodata: float | int | None = None,
+    excluded_values: tuple[float, ...] | list[float] | None = None,
 ) -> np.ndarray:
     arr = np.asarray(arr)
     if arr.ndim == 2:
@@ -216,17 +217,27 @@ def _nodata_mask_from_array(
     invalid = ~np.isfinite(arr_chw)
     if nodata is not None:
         invalid = invalid | (arr_chw == nodata)
+    for value in excluded_values or ():
+        invalid = invalid | (arr_chw == float(value))
     return invalid.any(axis=0)
 
 
-def read_tif_with_nodata_mask(path: Path) -> tuple[np.ndarray, np.ndarray]:
+def read_tif_with_nodata_mask(
+    path: Path,
+    *,
+    excluded_values: tuple[float, ...] | list[float] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     try:
         import rasterio
 
         with rasterio.open(path) as src:
             arr = src.read()
             nodata = src.nodata
-        nodata_mask = _nodata_mask_from_array(arr, nodata)
+        nodata_mask = _nodata_mask_from_array(
+            arr,
+            nodata,
+            excluded_values=excluded_values,
+        )
         if arr.shape[0] == 1:
             arr = arr[0]
         return arr, nodata_mask
@@ -234,7 +245,7 @@ def read_tif_with_nodata_mask(path: Path) -> tuple[np.ndarray, np.ndarray]:
         import tifffile
 
         arr = tifffile.imread(path)
-        return arr, _nodata_mask_from_array(arr)
+        return arr, _nodata_mask_from_array(arr, excluded_values=excluded_values)
 
 
 def read_tif(path: Path) -> np.ndarray:
@@ -281,12 +292,16 @@ def read_image_file(path: str | Path) -> np.ndarray:
     return read_tif(path)
 
 
-def read_image_file_with_nodata_mask(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
+def read_image_file_with_nodata_mask(
+    path: str | Path,
+    *,
+    excluded_values: tuple[float, ...] | list[float] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     path = Path(path)
     if path.suffix.lower() in {".tif", ".tiff"}:
-        return read_tif_with_nodata_mask(path)
+        return read_tif_with_nodata_mask(path, excluded_values=excluded_values)
     arr = read_image_file(path)
-    return arr, _nodata_mask_from_array(arr)
+    return arr, _nodata_mask_from_array(arr, excluded_values=excluded_values)
 
 
 def read_label_file(

@@ -16,6 +16,13 @@ def _anchor_aspect_ratios(value: str) -> list[float]:
     return [float(x) for x in value.split(",")]
 
 
+def _float_csv(value: str) -> list[float]:
+    values = [item.strip() for item in value.split(",") if item.strip()]
+    if not values:
+        raise argparse.ArgumentTypeError("expected at least one float value")
+    return [float(item) for item in values]
+
+
 def _add_symlink_arg(parser: argparse.ArgumentParser, *, semantic_help: bool) -> None:
     kwargs = {
         "dest": "simlink_dest",
@@ -220,6 +227,16 @@ def _add_nodata_args(
         type=int,
         default=defaults.DEFAULT_NODATA_IGNORE_INDEX,
         help="Target label value used for ignored nodata pixels.",
+    )
+    parser.add_argument(
+        "--excluded-nodata-values",
+        type=_float_csv,
+        default=None,
+        help=(
+            "Additional exact image values to treat as nodata when building "
+            "the spatial ignore mask. Use a comma-separated value list, e.g. "
+            "--excluded-nodata-values=-3.4e38,-9999."
+        ),
     )
 
 
@@ -1129,6 +1146,11 @@ def create_instance_checkpoint_comparison_plot_parser(
         type=int,
         default=defaults.DEFAULT_NODATA_IGNORE_INDEX,
     )
+    parser.add_argument(
+        "--excluded-nodata-values",
+        type=_float_csv,
+        default=None,
+    )
     parser.add_argument("--seed", type=int, default=defaults.DEFAULT_SEED)
     return parser
 
@@ -1205,6 +1227,11 @@ def create_semantic_checkpoint_comparison_plot_parser(
         "--nodata-ignore-index",
         type=int,
         default=defaults.DEFAULT_NODATA_IGNORE_INDEX,
+    )
+    parser.add_argument(
+        "--excluded-nodata-values",
+        type=_float_csv,
+        default=None,
     )
     parser.add_argument("--seed", type=int, default=defaults.DEFAULT_SEED)
     return parser

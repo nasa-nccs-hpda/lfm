@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import sys
 import time
 import shutil
@@ -36,7 +37,29 @@ from lfm.model.Pipeline import Pipeline
 
 mp.set_start_method('spawn', force=True)
 
-COMMON_NODATA = -3.40282265508890445e+38
+COMMON_NODATA = np.float32(-3.40282265508890445e+38)
+PIPELINE_STATIC_NODATA = np.float32(-32768.0)
+MINIRF_STATIC_NODATA = np.float32(-3.4028230607370965e+38)
+NODATA_POLICY_NORMALIZE = "normalize"
+NODATA_POLICY_PRESERVE = "preserve"
+NODATA_POLICIES = (NODATA_POLICY_NORMALIZE, NODATA_POLICY_PRESERVE)
+RESAMPLING_METHODS = {
+    "nearest": Resampling.nearest,
+    "bilinear": Resampling.bilinear,
+    "cubic": Resampling.cubic,
+    "average": Resampling.average,
+}
+STATIC_EXCLUDED_NODATA_VALUES = tuple(
+    dict.fromkeys(
+        float(np.float32(value))
+        for value in (
+            COMMON_NODATA,
+            PIPELINE_STATIC_NODATA,
+            MINIRF_STATIC_NODATA,
+            np.finfo(np.float32).min,
+        )
+    )
+)
 
 # ============================================================================
 # LOGGING SETUP
@@ -111,6 +134,23 @@ def extract_product_id(train_filename: str) -> str:
     basename = os.path.basename(train_filename)
     product_id = basename.split('_')[0]
     return product_id
+
+
+def extract_train_sample_id(train_filename: str) -> str:
+    """
+    Extract the stable sample ID used to pair chips and labels.
+
+    Example:
+        'M1308401680CE_r12750_c1500_input_wac_chip.tif'
+        -> 'M1308401680CE_r12750_c1500'
+    """
+    stem = Path(train_filename).stem
+    match = re.match(r"^(?P<sample_id>[^_]+_r\d+_c\d+)", stem)
+    if not match:
+        raise ValueError(
+            f"Could not extract product/row/column sample ID from {train_filename!r}"
+        )
+    return match.group("sample_id")
 
 
 def get_memory_usage():
@@ -290,6 +330,137 @@ def get_band_names(filepath: Path, band_indices: list = None) -> list:
         return [f'band_{idx}' for idx in (band_indices or [])]
 
 
+def select_static_band_names(filepath: Path,
+                             band_regex: str,
+                             expected_static: int,
+                             logger) -> tuple:
+    """
+    Select static bands by regex once, preserving file band order.
+    """
+    pattern = re.compile(band_regex)
+    band_names = get_band_names(filepath)
+    static_band_list = [name for name in band_names if pattern.search(name)]
+
+    if expected_static is not None and len(static_band_list) != expected_static:
+        return None, (
+            f"error_static_band_count: matched {len(static_band_list)} bands "
+            f"with regex {band_regex!r}, expected {expected_static}"
+        )
+
+    if not static_band_list:
+        return None, f"error_static_band_count: no bands matched {band_regex!r}"
+
+    logger.info(f"  Selected {len(static_band_list)} static bands")
+    return static_band_list, "success"
+
+
+def _as_float32(value: float) -> float:
+    return float(np.float32(value))
+
+
+def get_resampling_method(name: str):
+    try:
+        return RESAMPLING_METHODS[name]
+    except KeyError as exc:
+        valid = ", ".join(sorted(RESAMPLING_METHODS))
+        raise ValueError(f"Unsupported resampling method {name!r}. Valid: {valid}") from exc
+
+
+def validate_nodata_policy(name: str) -> str:
+    if name not in NODATA_POLICIES:
+        valid = ", ".join(NODATA_POLICIES)
+        raise ValueError(f"Unsupported nodata policy {name!r}. Valid: {valid}")
+    return name
+
+
+def static_band_nodata_value(band_name: str) -> float:
+    name = band_name.lower()
+    if "deltacpr" in name or "deltas1" in name:
+        return _as_float32(MINIRF_STATIC_NODATA)
+    return _as_float32(PIPELINE_STATIC_NODATA)
+
+
+def restore_static_nodata_after_reproject(
+    data,
+    static_band_names: list,
+    extreme_nodata_threshold: float | None = None,
+):
+    """
+    Restore band-specific static NoData after temporary masked reprojection.
+    """
+    band_nodata = xr.DataArray(
+        np.asarray(
+            [static_band_nodata_value(name) for name in static_band_names],
+            dtype=np.float32,
+        ),
+        dims=["band"],
+        coords={"band": data.coords["band"]},
+    )
+
+    invalid = ~np.isfinite(data)
+    for value in STATIC_EXCLUDED_NODATA_VALUES:
+        invalid = invalid | (data == _as_float32(value))
+    if extreme_nodata_threshold is not None and extreme_nodata_threshold > 0:
+        invalid = invalid | (data < -float(extreme_nodata_threshold))
+
+    restored = data.where(~invalid, band_nodata)
+    return restored.rio.write_nodata(COMMON_NODATA, inplace=False)
+
+
+def normalize_nodata_before_reproject(data,
+                                      nodata_values: tuple,
+                                      output_nodata: float = COMMON_NODATA,
+                                      extreme_nodata_threshold: float | None = None):
+    """
+    Normalize NoData before any interpolation/resampling.
+
+    Exact sentinel values are always masked. When extreme_nodata_threshold is
+    set, very large negative values are also masked to prevent interpolation of
+    near-sentinel values that have already been perturbed by previous resampling.
+    """
+    output_nodata = _as_float32(output_nodata)
+    normalized = data.copy()
+
+    invalid = ~np.isfinite(normalized)
+    for value in nodata_values:
+        invalid = invalid | (normalized == _as_float32(value))
+    if extreme_nodata_threshold is not None and extreme_nodata_threshold > 0:
+        invalid = invalid | (normalized < -float(extreme_nodata_threshold))
+
+    normalized = normalized.where(~invalid, output_nodata)
+    return normalized.rio.write_nodata(output_nodata, inplace=False)
+
+
+def normalize_rio_nodata_before_reproject(data,
+                                          output_nodata: float = COMMON_NODATA,
+                                          extreme_nodata_threshold: float | None = None):
+    """
+    Normalize a dataset's rio NoData value and nonfinite values before reproject.
+    """
+    nodata_values = []
+    if data.rio.nodata is not None:
+        nodata_values.append(data.rio.nodata)
+    nodata_values.append(output_nodata)
+    return normalize_nodata_before_reproject(
+        data,
+        tuple(nodata_values),
+        output_nodata=output_nodata,
+        extreme_nodata_threshold=extreme_nodata_threshold,
+    )
+
+
+def normalize_static_nodata_before_reproject(
+    data,
+    extreme_nodata_threshold: float | None = None,
+):
+    return normalize_nodata_before_reproject(
+        data,
+        STATIC_EXCLUDED_NODATA_VALUES,
+        output_nodata=COMMON_NODATA,
+        extreme_nodata_threshold=extreme_nodata_threshold,
+    )
+
+
 def check_bands_exist(filepath: Path, static_band_list: list) -> tuple:
     """
     Check if bands matching the static band list exist.
@@ -337,7 +508,10 @@ def merge_and_reproject_datasets(
     target_height: int,
     target_width: int,
     static_band_list: list,
-    logger
+    logger,
+    nodata_policy: str = NODATA_POLICY_NORMALIZE,
+    resampling_method: str = "bilinear",
+    extreme_nodata_threshold: float | None = None,
 ) -> tuple:
     """
     Merge tiles and reproject to target grid.
@@ -358,12 +532,19 @@ def merge_and_reproject_datasets(
     """
 
     try:
+        nodata_policy = validate_nodata_policy(nodata_policy)
+        resampling = get_resampling_method(resampling_method)
+
         # ====================================================================
         # Load and filter WAC datasets
         # ====================================================================
         wac_datasets = []
         for wac_file in wac_files:
             ds = rxr.open_rasterio(wac_file)
+            ds = normalize_rio_nodata_before_reproject(
+                ds,
+                extreme_nodata_threshold=extreme_nodata_threshold,
+            )
             wac_datasets.append(ds)
 
         # Extract WAC band names from first file
@@ -396,6 +577,10 @@ def merge_and_reproject_datasets(
             # Load and select matching bands
             ds = rxr.open_rasterio(static_file)
             ds_filtered = ds.sel(band=band_nums, drop=False)
+            ds_filtered = normalize_static_nodata_before_reproject(
+                ds_filtered,
+                extreme_nodata_threshold=extreme_nodata_threshold,
+            )
             static_datasets.append(ds_filtered)
 
         # Extract static band names
@@ -405,10 +590,27 @@ def merge_and_reproject_datasets(
         # Merge tiles
         # ====================================================================
         logger.info("  Merging WAC tiles...")
-        merged_wac = merge_arrays(wac_datasets, method='last')
+        merged_wac = merge_arrays(
+            wac_datasets,
+            method='last',
+            nodata=COMMON_NODATA,
+        )
 
         logger.info("  Merging STATIC tiles...")
-        merged_static = merge_arrays(static_datasets, method='last')
+        merged_static = merge_arrays(
+            static_datasets,
+            method='last',
+            nodata=COMMON_NODATA,
+        )
+
+        merged_wac = normalize_rio_nodata_before_reproject(
+            merged_wac,
+            extreme_nodata_threshold=extreme_nodata_threshold,
+        )
+        merged_static = normalize_static_nodata_before_reproject(
+            merged_static,
+            extreme_nodata_threshold=extreme_nodata_threshold,
+        )
 
         # ====================================================================
         # Reproject to target grid
@@ -418,7 +620,12 @@ def merge_and_reproject_datasets(
             dst_crs=target_crs,
             transform=target_transform,
             shape=(target_height, target_width),
-            resampling=Resampling.cubic
+            resampling=resampling,
+            nodata=COMMON_NODATA
+        )
+        merged_wac_reproj = normalize_rio_nodata_before_reproject(
+            merged_wac_reproj,
+            extreme_nodata_threshold=extreme_nodata_threshold,
         )
 
         logger.info("  Reprojecting STATIC to target CRS...")
@@ -426,8 +633,20 @@ def merge_and_reproject_datasets(
             dst_crs=target_crs,
             transform=target_transform,
             shape=(target_height, target_width),
-            resampling=Resampling.cubic
+            resampling=resampling,
+            nodata=COMMON_NODATA
         )
+        if nodata_policy == NODATA_POLICY_NORMALIZE:
+            merged_static_reproj = normalize_static_nodata_before_reproject(
+                merged_static_reproj,
+                extreme_nodata_threshold=extreme_nodata_threshold,
+            )
+        else:
+            merged_static_reproj = restore_static_nodata_after_reproject(
+                merged_static_reproj,
+                static_band_names_original,
+                extreme_nodata_threshold=extreme_nodata_threshold,
+            )
 
         # Close original datasets
         for ds in wac_datasets:
@@ -452,7 +671,9 @@ def clip_and_combine_datasets(
     static_band_names: list,
     train_bbox: tuple,
     train_shape: tuple,
-    logger
+    logger,
+    nodata_policy: str = NODATA_POLICY_NORMALIZE,
+    extreme_nodata_threshold: float | None = None,
 ) -> tuple:
     """
     Clip to AOI and combine WAC+STATIC.
@@ -471,6 +692,8 @@ def clip_and_combine_datasets(
     """
 
     try:
+        nodata_policy = validate_nodata_policy(nodata_policy)
+
         # ====================================================================
         # Clip to training sample bbox
         # ====================================================================
@@ -501,35 +724,21 @@ def clip_and_combine_datasets(
         # ====================================================================
         logger.info("  Combining WAC and STATIC datasets...")
 
-        # Normalize nodata values
-        clipped_wac_normalized = clipped_wac.copy()
-        clipped_static_normalized = clipped_static.copy()
-
-        # Replace existing nodata with common value
-        if clipped_wac.rio.nodata is not None:
-            clipped_wac_normalized = clipped_wac_normalized.where(
-                clipped_wac_normalized != clipped_wac.rio.nodata,
-                COMMON_NODATA
-            )
-        if clipped_static.rio.nodata is not None:
-            clipped_static_normalized = clipped_static_normalized.where(
-                clipped_static_normalized != clipped_static.rio.nodata,
-                COMMON_NODATA
-            )
-
-        # Set nodata where NaN values are found
-        clipped_wac_normalized = clipped_wac_normalized.where(
-            ~np.isnan(clipped_wac_normalized),
-            COMMON_NODATA
+        clipped_wac_normalized = normalize_rio_nodata_before_reproject(
+            clipped_wac,
+            extreme_nodata_threshold=extreme_nodata_threshold,
         )
-        clipped_static_normalized = clipped_static_normalized.where(
-            ~np.isnan(clipped_static_normalized),
-            COMMON_NODATA
-        )
-
-        # Set common nodata
-        clipped_wac_normalized.rio.write_nodata(COMMON_NODATA, inplace=True)
-        clipped_static_normalized.rio.write_nodata(COMMON_NODATA, inplace=True)
+        if nodata_policy == NODATA_POLICY_NORMALIZE:
+            clipped_static_normalized = normalize_static_nodata_before_reproject(
+                clipped_static,
+                extreme_nodata_threshold=extreme_nodata_threshold,
+            )
+        else:
+            clipped_static_normalized = restore_static_nodata_after_reproject(
+                clipped_static,
+                static_band_names,
+                extreme_nodata_threshold=extreme_nodata_threshold,
+            )
 
         # Concatenate along band dimension
         combined = xr.concat([clipped_wac_normalized, clipped_static_normalized], dim='band')
@@ -611,6 +820,9 @@ def process_train_sample(
     band_regex: str,
     expected_static: int,
     zoom_level: int,
+    nodata_policy: str = NODATA_POLICY_NORMALIZE,
+    resampling_method: str = "bilinear",
+    extreme_nodata_threshold: float | None = None,
     verbose: bool = False,
 ) -> tuple:
     """
@@ -658,8 +870,8 @@ def process_train_sample(
         # ====================================================================
         # Step 2: Create datacube subdirectory
         # ====================================================================
-        train_fn_no_ext = train_fn.replace('.tif', '')
-        datacube_dir = datacube_base_dir / train_fn_no_ext
+        train_sample_id = extract_train_sample_id(train_fn)
+        datacube_dir = datacube_base_dir / train_sample_id
 
         # ====================================================================
         # Step 3: Run Pipeline
@@ -744,6 +956,17 @@ def process_train_sample(
         if verbose:
             logger.info(f"  Matched {len(wac_files)} WAC and {len(static_files)} STATIC files")
 
+        static_band_list, static_band_status = select_static_band_names(
+            Path(static_files[0]),
+            band_regex,
+            expected_static,
+            logger,
+        )
+        if static_band_status != "success":
+            if verbose or static_band_status.startswith("error"):
+                logger.error(f"  Static band selection failed: {static_band_status}")
+            return [], static_band_status, timing, mem_peak
+
         # ====================================================================
         # Step 6: Load reference training chip for target grid
         # ====================================================================
@@ -773,8 +996,11 @@ def process_train_sample(
                 target_transform=target_transform,
                 target_height=target_height,
                 target_width=target_width,
-                band_regex=band_regex,
-                logger=logger
+                static_band_list=static_band_list,
+                logger=logger,
+                nodata_policy=nodata_policy,
+                resampling_method=resampling_method,
+                extreme_nodata_threshold=extreme_nodata_threshold,
             )
 
         if merge_status != "success":
@@ -801,7 +1027,9 @@ def process_train_sample(
             static_band_names=static_band_names,
             train_bbox=train_bbox,
             train_shape=train_shape,
-            logger=logger
+            logger=logger,
+            nodata_policy=nodata_policy,
+            extreme_nodata_threshold=extreme_nodata_threshold,
         )
 
         if combine_status != "success":
@@ -815,7 +1043,7 @@ def process_train_sample(
         # ====================================================================
         # Step 9: Write chip to disk
         # ====================================================================
-        output_filename = chip_output_dir / f"{train_fn_no_ext}_wac_static_chip.tif"
+        output_filename = chip_output_dir / f"{train_sample_id}_input_wac_static_chip.tif"
 
         if verbose:
             logger.info(f"  Writing chip to {output_filename.name}...")
@@ -870,6 +1098,9 @@ def create_chips_multiprocessing(
     band_regex: str,
     expected_static: int,
     zoom_level: int,
+    nodata_policy: str = NODATA_POLICY_NORMALIZE,
+    resampling_method: str = "bilinear",
+    extreme_nodata_threshold: float | None = None,
     max_workers: int = None,
     max_entries: int = None,
     verbose: bool = False
@@ -915,6 +1146,9 @@ def create_chips_multiprocessing(
         band_regex=band_regex,
         expected_static=expected_static,
         zoom_level=zoom_level,
+        nodata_policy=nodata_policy,
+        resampling_method=resampling_method,
+        extreme_nodata_threshold=extreme_nodata_threshold,
         verbose=verbose
     )
 
@@ -969,24 +1203,40 @@ def create_chips_multiprocessing(
 # ============================================================================
 # MAIN
 # ============================================================================
-def create_chips(band_regex=r"^lola_kaguya.*", expected_static=5, zoom_level=5, working_dir="lfm_train_chips"):
+def create_chips(band_regex=r"^lola_kaguya.*",
+                 expected_static=5,
+                 zoom_level=5,
+                 working_dir="lfm_train_chips",
+                 nodata_policy=NODATA_POLICY_NORMALIZE,
+                 resampling_method="bilinear",
+                 project_dir="/explore/nobackup/projects/lfm",
+                 train_dir=None,
+                 chip_dir=None,
+                 gpkg_path=None,
+                 tile_db_path=None,
+                 max_workers=16,
+                 max_entries=None,
+                 verbose=False,
+                 extreme_nodata_threshold=None):
     # Set up logging
     logger = setup_logging()
+    nodata_policy = validate_nodata_policy(nodata_policy)
+    get_resampling_method(resampling_method)
 
     # ========================================================================
     # PATHS
     # ========================================================================
-    PROJECT_DIR = Path("/explore/nobackup/projects/lfm")
+    PROJECT_DIR = Path(project_dir)
     DATA_DIR = PROJECT_DIR / "processed_data/Lunar/"
     WAC_DIR = DATA_DIR / "LRO_WAC_Pho_Sites"
 
     # Training paths
-    TRAIN_DIR = PROJECT_DIR / "model_inputs/300_300_inputs/7_band_vis_uv/sem_seg"
-    CHIP_DIR = TRAIN_DIR / "chips"
-    GPKG_PATH = CHIP_DIR / "WAC_TILES.gpkg"
+    TRAIN_DIR = Path(train_dir) if train_dir is not None else PROJECT_DIR / "model_inputs/300_300_inputs/7_band_vis_uv/sem_seg"
+    CHIP_DIR = Path(chip_dir) if chip_dir is not None else TRAIN_DIR / "chips"
+    GPKG_PATH = Path(gpkg_path) if gpkg_path is not None else CHIP_DIR / "WAC_TILES.gpkg"
 
     # Tile database
-    TILE_DB_PATH = WAC_DIR / "output_index.shp"
+    TILE_DB_PATH = Path(tile_db_path) if tile_db_path is not None else WAC_DIR / "output_index.shp"
 
     # Output directories
     working_dir = Path(working_dir)
@@ -1008,9 +1258,9 @@ def create_chips(band_regex=r"^lola_kaguya.*", expected_static=5, zoom_level=5, 
     # ========================================================================
     # CONFIGURATION
     # ========================================================================
-    MAX_WORKERS = 16  # Test with 8 workers
-    MAX_ENTRIES = None  # Process first 8 samples
-    VERBOSE = False  # Set True for detailed worker logging
+    MAX_WORKERS = max_workers
+    MAX_ENTRIES = max_entries
+    VERBOSE = verbose
 
     logger.info("=" * 80)
     logger.info("Configuration:")
@@ -1019,6 +1269,9 @@ def create_chips(band_regex=r"^lola_kaguya.*", expected_static=5, zoom_level=5, 
     logger.info(f"  Verbose: {VERBOSE}")
     logger.info(f"  Expected static bands: {expected_static}")
     logger.info(f"  Zoom level: {zoom_level}")
+    logger.info(f"  NoData policy: {nodata_policy}")
+    logger.info(f"  Resampling method: {resampling_method}")
+    logger.info(f"  Extreme NoData threshold: {extreme_nodata_threshold}")
     logger.info("=" * 80)
 
     # ========================================================================
@@ -1051,6 +1304,9 @@ def create_chips(band_regex=r"^lola_kaguya.*", expected_static=5, zoom_level=5, 
         band_regex=band_regex,
         expected_static=expected_static,
         zoom_level=zoom_level,
+        nodata_policy=nodata_policy,
+        resampling_method=resampling_method,
+        extreme_nodata_threshold=extreme_nodata_threshold,
         max_workers=MAX_WORKERS,
         max_entries=MAX_ENTRIES,
         verbose=VERBOSE
