@@ -16,7 +16,7 @@ class NoDataPolicy:
     label_fill_value: int | None = None
     fill_image_nodata: bool = False
     excluded_values: tuple[float, ...] = ()
-    image_nodata_policy: str = "union"
+    image_nodata_policy: str = "per_band"
 
     def __post_init__(self) -> None:
         if self.image_nodata_policy not in {"union", "per_band", "preserve"}:
@@ -132,7 +132,7 @@ def build_nodata_policy(
     ignore_nodata_in_loss: bool = False,
     nodata_ignore_index: int = -1,
     excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
-    image_nodata_policy: str = "union",
+    image_nodata_policy: str = "per_band",
     nodata_policy: NoDataPolicy | None = None,
 ) -> NoDataPolicy:
     if nodata_policy is not None:
