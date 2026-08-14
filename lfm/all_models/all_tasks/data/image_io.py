@@ -205,9 +205,9 @@ def _nodata_mask_from_array(
     if arr.ndim == 2:
         arr_chw = arr[None, :, :]
     elif arr.ndim == 3:
-        if arr.shape[0] <= 32:
+        if arr.shape[0] <= arr.shape[1] and arr.shape[0] <= arr.shape[2]:
             arr_chw = arr
-        elif arr.shape[-1] <= 32:
+        elif arr.shape[-1] <= arr.shape[0] and arr.shape[-1] <= arr.shape[1]:
             arr_chw = np.moveaxis(arr, -1, 0)
         else:
             raise ValueError(f"Expected CHW or HWC image array, got {arr.shape}")
