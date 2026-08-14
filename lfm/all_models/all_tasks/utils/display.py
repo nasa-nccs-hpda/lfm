@@ -16,38 +16,53 @@ def prepare_image_for_display(
     if img.ndim == 2:
         img = img[:, :, np.newaxis]
     num_channels = img.shape[2]
+
+    if num_channels == 1:
+        display_img = img
+        note = "Grayscale"
+        squeeze_grayscale = True
+    elif num_channels == 2:
+        display_img = img[:, :, [0]]
+        note = "2ch (band 0 grayscale)"
+        squeeze_grayscale = True
+    elif num_channels == 3:
+        display_img = img[:, :, [2, 1, 0]]
+        note = "RGB (BGR->RGB)"
+        squeeze_grayscale = False
+    elif num_channels >= 5:
+        display_img = img[:, :, [3, 1, 0]]
+        note = f"{num_channels}ch (RGB from bands 3,1,0)"
+        squeeze_grayscale = False
+    else:
+        display_img = img[:, :, :3]
+        note = f"{num_channels}ch (first 3)"
+        squeeze_grayscale = False
+
     if method == "percentile":
-        img_normalized = np.zeros_like(img, dtype=np.float32)
-        for c in range(num_channels):
-            band = img[:, :, c]
+        img_normalized = np.zeros_like(display_img, dtype=np.float32)
+        for c in range(display_img.shape[2]):
+            band = display_img[:, :, c]
             p_low, p_high = np.percentile(
                 band, [clip_percentile, 100 - clip_percentile]
             )
             band = np.clip(band, p_low, p_high)
             img_normalized[:, :, c] = (band - p_low) / (p_high - p_low + 1e-8)
     elif method == "std_clip":
-        img_clipped = np.clip(img, -std_clip, std_clip)
+        img_clipped = np.clip(display_img, -std_clip, std_clip)
         img_normalized = (img_clipped + std_clip) / (2 * std_clip)
     elif method == "minmax":
-        img_normalized = (img - img.min()) / (img.max() - img.min() + 1e-8)
+        img_normalized = (
+            display_img - display_img.min()
+        ) / (display_img.max() - display_img.min() + 1e-8)
     elif method is None:
-        img_normalized = img
+        img_normalized = display_img
     else:
         raise ValueError(f"Unknown display method: {method}")
     img_normalized = np.clip(img_normalized, 0, 1)
 
-    if num_channels == 1:
-        return img_normalized[:, :, 0], "Grayscale"
-    if num_channels == 2:
-        return img_normalized[:, :, 0], "2ch (band 0 grayscale)"
-    if num_channels in (5, 7):
-        return (
-            img_normalized[:, :, [3, 1, 0]],
-            f"{num_channels}ch (RGB from bands 3,1,0)",
-        )
-    if num_channels == 3:
-        return img_normalized[:, :, [2, 1, 0]], "RGB (BGR->RGB)"
-    return img_normalized[:, :, :3], f"{num_channels}ch (first 3)"
+    if squeeze_grayscale:
+        return img_normalized[:, :, 0], note
+    return img_normalized, note
 
 
 def create_overlay_image(img_vis: np.ndarray, pred_mask: np.ndarray) -> np.ndarray:
