@@ -1,4 +1,5 @@
 echo "Copying kernel info..."
+rm -rf ~/.local/share/jupyter/kernels/*
 KERNEL_PATH=~/.local/share/jupyter/kernels/lfm
 mkdir -p $KERNEL_PATH
 cp -r /panfs/ccds02/nobackup/projects/lfm/containers/kernel.json $KERNEL_PATH
