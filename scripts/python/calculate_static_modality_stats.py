@@ -14,11 +14,14 @@ from __future__ import annotations
 
 import argparse
 import math
+import sys
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from tqdm import tqdm
 
 
 COMMON_CUBE_NODATA = -3.40282265508890445e38
@@ -100,6 +103,20 @@ class StaticStats:
             values = data[band_index][valid[band_index]].astype(np.float64, copy=False)
             self.minimum[band_index] = min(self.minimum[band_index], float(values.min()))
             self.maximum[band_index] = max(self.maximum[band_index], float(values.max()))
+
+    def merge(self, other: "StaticStats") -> None:
+        self.count += other.count
+        self.extreme_count += other.extreme_count
+        self.total += other.total
+        self.total_sq += other.total_sq
+        self.minimum = np.minimum(self.minimum, other.minimum)
+        self.maximum = np.maximum(self.maximum, other.maximum)
+        for self_counts, other_counts in zip(
+            self.extreme_value_counts,
+            other.extreme_value_counts,
+            strict=True,
+        ):
+            self_counts.update(other_counts)
 
     def mean(self) -> np.ndarray:
         return np.divide(
@@ -197,6 +214,37 @@ def iter_tifs(data_dir: Path, image_glob: str, max_files: int | None) -> list[Pa
     if not paths:
         raise FileNotFoundError(f"No GeoTIFF files matched {data_dir / image_glob}")
     return paths
+
+
+def process_one_chip(task: tuple) -> tuple[int, Path, StaticStats]:
+    (
+        index,
+        path,
+        rasterio_indexes,
+        num_bands,
+        excluded_nodata_values,
+        extreme_nodata_threshold,
+    ) = task
+
+    import rasterio
+
+    with rasterio.open(path) as src:
+        if src.count < max(rasterio_indexes):
+            raise ValueError(
+                f"{path} has {src.count} bands, but static band range "
+                f"requires band {max(rasterio_indexes)}."
+            )
+        data = src.read(rasterio_indexes)
+        raster_nodata = src.nodata
+
+    stats = StaticStats.init(num_bands)
+    stats.update(
+        data,
+        raster_nodata=raster_nodata,
+        excluded_nodata_values=excluded_nodata_values,
+        extreme_nodata_threshold=extreme_nodata_threshold,
+    )
+    return index, path, stats
 
 
 def format_float(value: float) -> str:
@@ -322,6 +370,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-size", type=int, default=256)
     parser.add_argument("--image-size", type=int, default=256)
     parser.add_argument("--gsd-m", type=float, default=None)
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=1,
+        help="Parallel workers for per-chip statistics. Use 1 for serial execution.",
+    )
     return parser.parse_args()
 
 
@@ -334,27 +388,45 @@ def main() -> int:
         None if args.extreme_nodata_threshold < 0 else args.extreme_nodata_threshold
     )
 
-    import rasterio
-
     rasterio_indexes = [band + 1 for band in band_range]
-    for index, path in enumerate(paths, start=1):
-        with rasterio.open(path) as src:
-            if src.count < max(rasterio_indexes):
-                raise ValueError(
-                    f"{path} has {src.count} bands, but static band range "
-                    f"requires band {max(rasterio_indexes)}."
-                )
-            data = src.read(rasterio_indexes)
-            raster_nodata = src.nodata
-
-        stats.update(
-            data,
-            raster_nodata=raster_nodata,
-            excluded_nodata_values=args.excluded_nodata_values,
-            extreme_nodata_threshold=extreme_nodata_threshold,
+    tasks = [
+        (
+            index,
+            path,
+            rasterio_indexes,
+            len(band_range),
+            args.excluded_nodata_values,
+            extreme_nodata_threshold,
         )
-        if index == 1 or index % 25 == 0 or index == len(paths):
-            print(f"Processed {index}/{len(paths)} chips: {path}")
+        for index, path in enumerate(paths, start=1)
+    ]
+
+    if args.max_workers <= 1:
+        iterator = tqdm(
+            tasks,
+            total=len(tasks),
+            desc="Static modality stats",
+            unit="chip",
+            file=sys.stdout,
+        )
+        for task in iterator:
+            index, path, partial_stats = process_one_chip(task)
+            stats.merge(partial_stats)
+            iterator.set_postfix_str(path.name)
+    else:
+        with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
+            futures = [executor.submit(process_one_chip, task) for task in tasks]
+            iterator = tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc="Static modality stats",
+                unit="chip",
+                file=sys.stdout,
+            )
+            for future in iterator:
+                index, path, partial_stats = future.result()
+                stats.merge(partial_stats)
+                iterator.set_postfix_str(path.name)
 
     bad_extremes = stats.bad_extreme_indexes(args.max_abs_stat)
     bad_extremes = {name: indexes for name, indexes in bad_extremes.items() if indexes}
