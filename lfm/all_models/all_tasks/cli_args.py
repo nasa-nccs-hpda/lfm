@@ -96,10 +96,26 @@ def _add_graha_input_args(parser: argparse.ArgumentParser, *, path_type=str) -> 
             "derived from --dataset-modality."
         ),
     )
+    _add_graha_backend_modalities_arg(parser)
     parser.add_argument(
         "--graha-vis-uv-merge-method",
         choices=defaults.GRAHA_VIS_UV_MERGE_CHOICES,
         default=defaults.DEFAULT_GRAHA_VIS_UV_MERGE_METHOD,
+    )
+
+
+def _add_graha_backend_modalities_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--graha-backend-modalities",
+        nargs="+",
+        choices=defaults.GRAHA_BACKEND_MODALITY_CHOICES,
+        default=None,
+        help=(
+            "Explicit TerraTorch backbone modality registration. Values are "
+            "ordered to match the selected input tensor channels, e.g. "
+            "'vis uv static' or 'nac dtm'. If omitted, legacy "
+            "--graha-input-modality-mode behavior is used."
+        ),
     )
 
 
@@ -458,6 +474,7 @@ def create_semantic_experiment_parser(
             "derived from --dataset-modality."
         ),
     )
+    _add_graha_backend_modalities_arg(parser)
     parser.add_argument(
         "--graha-vis-uv-merge-method",
         choices=defaults.GRAHA_VIS_UV_MERGE_CHOICES,
@@ -563,6 +580,7 @@ def create_instance_experiment_parser(
             "derived from --dataset-modality."
         ),
     )
+    _add_graha_backend_modalities_arg(parser)
     parser.add_argument(
         "--graha-vis-uv-merge-method",
         choices=defaults.GRAHA_VIS_UV_MERGE_CHOICES,

@@ -44,6 +44,7 @@ class FineTuningConfig:
     normalized_wac_data_range: list[float]
     dataset_modality: str
     graha_input_modality_mode: str
+    graha_backend_modalities: list[str] | None
     graha_vis_uv_merge_method: str
     freeze_backbone: bool
     normalization_source: str
@@ -192,6 +193,9 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
                 "graha_input_modality_mode",
                 None,
             ),
+        ),
+        graha_backend_modalities=defaults.normalize_graha_backend_modalities(
+            getattr(args, "graha_backend_modalities", None)
         ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         freeze_backbone=getattr(
@@ -509,8 +513,9 @@ def inspect_batch(datamodule) -> dict[str, Any]:
 def create_task(config: FineTuningConfig, task_cls, sample_batch: dict[str, Any]):
     wac_num_channels = int(sample_batch["image"].shape[1])
     modality_args = _graha_modality_args(config, wac_num_channels)
-    print("WAC channels registered for model:", wac_num_channels)
+    print("Input channels registered for model:", wac_num_channels)
     print("Graha input modality mode:", config.graha_input_modality_mode)
+    print("Graha backend modalities:", config.graha_backend_modalities)
     print("Backbone modalities:", modality_args["backbone_modalities"])
     print("Backbone merge method:", modality_args["backbone_merge_method"])
     print("Freeze backbone:", config.freeze_backbone)
@@ -557,6 +562,40 @@ def create_task(config: FineTuningConfig, task_cls, sample_batch: dict[str, Any]
 def _graha_modality_args(
     config: FineTuningConfig, wac_num_channels: int
 ) -> dict[str, Any]:
+    if config.graha_backend_modalities is not None:
+        backend_modalities = defaults.normalize_graha_backend_modalities(
+            config.graha_backend_modalities
+        )
+        if backend_modalities == ["wac"]:
+            return {
+                "backbone_modalities": ["wac"],
+                "backbone_new_modalities": {
+                    "wac": {
+                        "type": "image",
+                        "num_channels": wac_num_channels,
+                        "data_range": config.normalized_wac_data_range,
+                    },
+                },
+                "backbone_merge_method": None,
+            }
+        expected_channels = defaults.expected_graha_backend_num_channels(
+            backend_modalities
+        )
+        if expected_channels is not None and wac_num_channels != expected_channels:
+            raise ValueError(
+                "graha_backend_modalities="
+                f"{backend_modalities!r} expects {expected_channels} input "
+                f"channel(s), got {wac_num_channels}."
+            )
+        return {
+            "backbone_modalities": backend_modalities,
+            "backbone_new_modalities": None,
+            "backbone_merge_method": (
+                None
+                if len(backend_modalities) == 1
+                else config.graha_vis_uv_merge_method
+            ),
+        }
     if config.graha_input_modality_mode == "nac-dtm":
         if wac_num_channels != 2:
             raise ValueError(
@@ -691,6 +730,7 @@ def build_comparison_config(config: Any, output_dir: Path) -> FineTuningConfig:
             defaults.DEFAULT_DATASET_MODALITY,
         ),
         graha_input_modality_mode=config.graha_input_modality_mode,
+        graha_backend_modalities=getattr(config, "graha_backend_modalities", None),
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         graha_freeze_backbone=config.graha_freeze_backbone,
         normalization_source=config.normalization_source,

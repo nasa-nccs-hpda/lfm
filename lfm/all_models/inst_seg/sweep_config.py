@@ -54,6 +54,7 @@ def build_checkpoint_sweep_config_from_args(
         graha_pretrain_dir=args.graha_pretrain_dir,
         dataset_modality=args.dataset_modality,
         graha_input_modality_mode=args.graha_input_modality_mode,
+        graha_backend_modalities=getattr(args, "graha_backend_modalities", None),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=getattr(
             args,

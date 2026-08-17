@@ -20,6 +20,8 @@ _PASSTHROUGH_KEYS = {
     "semantic_label_source",
     "normalization_source",
     "graha_input_modality_mode",
+    "graha_backend_modalities",
+    "backend_modalities",
     "graha_vis_uv_merge_method",
     "ignore_nodata_in_loss",
     "nodata_ignore_index",
@@ -215,20 +217,69 @@ def resolve_data_dictionary(data_dict: DataDictionary | None) -> dict[str, Any]:
         overrides["band_filter"] = band_filter
 
     if "graha_input_modalities" in data_dict:
-        graha_modalities = tuple(str(item) for item in data_dict["graha_input_modalities"])
+        graha_modalities = tuple(
+            str(item) for item in data_dict["graha_input_modalities"]
+        )
         if graha_modalities == ("vis", "uv"):
             overrides["graha_input_modality_mode"] = "vis-uv"
+            overrides["graha_backend_modalities"] = ["vis", "uv"]
         elif graha_modalities == ("vis", "uv", "static"):
             overrides["graha_input_modality_mode"] = "single"
+            overrides["graha_backend_modalities"] = ["vis", "uv", "static"]
         elif graha_modalities in {("nac",), ("pho",)}:
             overrides["graha_input_modality_mode"] = "single"
+            overrides["graha_backend_modalities"] = ["nac"]
+        elif graha_modalities == ("dtm",):
+            overrides["graha_input_modality_mode"] = "single"
+            overrides["graha_backend_modalities"] = ["dtm"]
+        elif graha_modalities == ("static",):
+            overrides["graha_input_modality_mode"] = "single"
+            overrides["graha_backend_modalities"] = ["static"]
         elif graha_modalities in {("nac", "dtm"), ("pho", "dtm")}:
             overrides["graha_input_modality_mode"] = "nac-dtm"
+            overrides["graha_backend_modalities"] = ["nac", "dtm"]
         else:
             raise ValueError(
                 "Unsupported DATA_DICT['graha_input_modalities']: "
                 f"{graha_modalities!r}."
             )
+    if (
+        "backend_modalities" in overrides
+        and "graha_backend_modalities" not in overrides
+    ):
+        overrides["graha_backend_modalities"] = overrides.pop("backend_modalities")
+    elif "backend_modalities" in overrides:
+        overrides.pop("backend_modalities")
+    if "graha_backend_modalities" in overrides:
+        overrides["graha_backend_modalities"] = (
+            defaults.normalize_graha_backend_modalities(
+                overrides["graha_backend_modalities"]
+            )
+        )
+    elif data_dict.get("selected_modalities") is not None:
+        overrides["graha_backend_modalities"] = (
+            defaults.graha_backend_modalities_for_frontend(
+                data_dict["selected_modalities"]
+            )
+        )
+    elif (
+        isinstance(data_dict.get("band_filters"), Mapping)
+        and data_dict["band_filters"]
+    ):
+        overrides["graha_backend_modalities"] = (
+            defaults.graha_backend_modalities_for_frontend(
+                data_dict["band_filters"].keys()
+            )
+        )
+    if (
+        "graha_input_modality_mode" not in overrides
+        and overrides.get("graha_backend_modalities") is not None
+    ):
+        overrides["graha_input_modality_mode"] = (
+            defaults.graha_input_modality_mode_for_backend(
+                overrides["graha_backend_modalities"]
+            )
+        )
     overrides.setdefault(
         "normalization_modality",
         defaults.normalization_modality_for_dataset(dataset_modality),

@@ -81,6 +81,7 @@ def build_checkpoint_sweep_config_from_args(
         prediction_split=defaults.DEFAULT_SWEEP_SPLIT,
         prediction_n_samples=defaults.DEFAULT_SEMANTIC_PREDICTION_N_SAMPLES,
         graha_input_modality_mode=args.graha_input_modality_mode,
+        graha_backend_modalities=getattr(args, "graha_backend_modalities", None),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         graha_stats_batch_size=args.graha_stats_batch_size,
         graha_batch_size=args.graha_batch_size,
