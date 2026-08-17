@@ -42,6 +42,7 @@ class FineTuningConfig:
     base_output_dir: Path
     lightning_checkpoint: Path | None
     normalized_wac_data_range: list[float]
+    dataset_modality: str
     graha_input_modality_mode: str
     graha_vis_uv_merge_method: str
     freeze_backbone: bool
@@ -59,6 +60,7 @@ class FineTuningConfig:
     ignore_nodata_in_loss: bool
     nodata_ignore_index: int
     excluded_nodata_values: list[float] | None
+    image_nodata_policy: str
     shape_loss_weight: float
     shape_loss_pad_frac: float
     backbone_lr: float
@@ -158,6 +160,11 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         "dataset_modality",
         defaults.DEFAULT_DATASET_MODALITY,
     )
+    band_filter = (
+        list(args.band_filter)
+        if getattr(args, "band_filter", None) is not None
+        else defaults.default_band_filter_for_dataset(dataset_modality)
+    )
 
     return FineTuningConfig(
         package_dir=package_dir,
@@ -177,6 +184,7 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         base_output_dir=base_output_dir,
         lightning_checkpoint=lightning_checkpoint,
         normalized_wac_data_range=[-1.0, 1.0],
+        dataset_modality=dataset_modality,
         graha_input_modality_mode=defaults.resolve_graha_input_modality_mode(
             dataset_modality=dataset_modality,
             graha_input_modality_mode=getattr(
@@ -196,7 +204,7 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
             dataset_modality=dataset_modality,
             normalization_modality=getattr(args, "normalization_modality", None),
         ),
-        band_filter=getattr(args, "band_filter", None),
+        band_filter=band_filter,
         semantic_label_source=defaults.resolve_semantic_label_source(
             semantic_label_source=getattr(
                 args,
@@ -216,6 +224,11 @@ def build_config(args: argparse.Namespace) -> FineTuningConfig:
         ignore_nodata_in_loss=getattr(args, "ignore_nodata_in_loss", False),
         nodata_ignore_index=getattr(args, "nodata_ignore_index", -1),
         excluded_nodata_values=getattr(args, "excluded_nodata_values", None),
+        image_nodata_policy=getattr(
+            args,
+            "image_nodata_policy",
+            defaults.DEFAULT_IMAGE_NODATA_POLICY,
+        ),
         shape_loss_weight=getattr(args, "shape_loss_weight", 0.05),
         shape_loss_pad_frac=getattr(args, "shape_loss_pad_frac", 0.3),
         backbone_lr=getattr(args, "backbone_lr", defaults.DEFAULT_GRAHA_BACKBONE_LR),
@@ -377,6 +390,7 @@ def common_datamodule_args(config: FineTuningConfig) -> dict[str, Any]:
         "ignore_nodata_in_loss": config.ignore_nodata_in_loss,
         "nodata_ignore_index": config.nodata_ignore_index,
         "excluded_nodata_values": config.excluded_nodata_values,
+        "image_nodata_policy": config.image_nodata_policy,
     }
 
 
@@ -671,6 +685,11 @@ def build_comparison_config(config: Any, output_dir: Path) -> FineTuningConfig:
             if getattr(config, "gfft_config_path", None)
             else None
         ),
+        dataset_modality=getattr(
+            config,
+            "dataset_modality",
+            defaults.DEFAULT_DATASET_MODALITY,
+        ),
         graha_input_modality_mode=config.graha_input_modality_mode,
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         graha_freeze_backbone=config.graha_freeze_backbone,
@@ -688,6 +707,7 @@ def build_comparison_config(config: Any, output_dir: Path) -> FineTuningConfig:
         ignore_nodata_in_loss=config.ignore_nodata_in_loss,
         nodata_ignore_index=config.nodata_ignore_index,
         excluded_nodata_values=config.excluded_nodata_values,
+        image_nodata_policy=config.image_nodata_policy,
         shape_loss_weight=config.graha_shape_loss_weight,
         shape_loss_pad_frac=config.graha_shape_loss_pad_frac,
         backbone_lr=config.graha_backbone_lr,

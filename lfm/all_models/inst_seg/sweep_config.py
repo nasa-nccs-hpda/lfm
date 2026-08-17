@@ -111,6 +111,11 @@ def build_checkpoint_sweep_config_from_args(
             defaults.DEFAULT_NODATA_IGNORE_INDEX,
         ),
         excluded_nodata_values=getattr(args, "excluded_nodata_values", None),
+        image_nodata_policy=getattr(
+            args,
+            "image_nodata_policy",
+            defaults.DEFAULT_IMAGE_NODATA_POLICY,
+        ),
         skip_toy_fit=True,
         skip_graha_fit=True,
         no_fit=True,

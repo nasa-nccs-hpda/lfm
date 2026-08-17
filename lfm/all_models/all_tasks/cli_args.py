@@ -139,7 +139,11 @@ def _add_band_filter_arg(parser: argparse.ArgumentParser) -> None:
         "--band-filter",
         type=int,
         nargs="+",
-        default=list(defaults.DEFAULT_BAND_FILTER),
+        default=None,
+        help=(
+            "Absolute chip channel indices to use. If omitted, defaults are "
+            "derived from --dataset-modality."
+        ),
     )
 
 
@@ -236,6 +240,17 @@ def _add_nodata_args(
             "Additional exact image values to treat as nodata when building "
             "the spatial ignore mask. Use a comma-separated value list, e.g. "
             "--excluded-nodata-values=-3.4e38,-9999."
+        ),
+    )
+    parser.add_argument(
+        "--image-nodata-policy",
+        choices=defaults.IMAGE_NODATA_POLICY_CHOICES,
+        default=defaults.DEFAULT_IMAGE_NODATA_POLICY,
+        help=(
+            "How image NoData values are filled. 'union' fills all channels "
+            "where any selected channel is NoData, 'per_band' fills only the "
+            "channel where NoData occurs, and 'preserve' leaves image values "
+            "unchanged while label/loss masking can still use the union mask."
         ),
     )
 

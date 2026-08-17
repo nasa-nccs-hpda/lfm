@@ -11,6 +11,7 @@ import torch
 
 from lfm.all_models.all_tasks.data import LunarSegmentationDataModule
 from lfm.all_models.all_tasks.data import LabelBinarizationMode
+from lfm.all_models.all_tasks.data.nodata import NoDataPolicy, build_nodata_policy
 from lfm.all_models.sem_seg.data.semantic_dataset import SemanticSegmentationDataset
 
 InputMetadataFn = Callable[[str, list[int] | None], list[str]]
@@ -47,9 +48,13 @@ class SemanticSegmentationDataModule(LunarSegmentationDataModule):
         means: list[float] | np.ndarray | None = None,
         stds: list[float] | np.ndarray | None = None,
         scale_inputs: bool = True,
+        no_data_replace: float | None = None,
+        no_label_replace: int | None = None,
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
         excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
+        image_nodata_policy: str = "union",
+        nodata_policy: NoDataPolicy | None = None,
     ) -> None:
         super().__init__(
             data_root,
@@ -73,10 +78,22 @@ class SemanticSegmentationDataModule(LunarSegmentationDataModule):
         self.label_npz_key = label_npz_key
         self.binarize_label = binarize_label
         self.scale_inputs = scale_inputs
+        self.no_data_replace = no_data_replace
+        self.no_label_replace = no_label_replace
         self.ignore_nodata_in_loss = ignore_nodata_in_loss
         self.nodata_ignore_index = int(nodata_ignore_index)
         self.excluded_nodata_values = tuple(
             float(value) for value in excluded_nodata_values or ()
+        )
+        self.image_nodata_policy = image_nodata_policy
+        self.nodata_policy = build_nodata_policy(
+            no_data_replace=no_data_replace,
+            no_label_replace=no_label_replace,
+            ignore_nodata_in_loss=ignore_nodata_in_loss,
+            nodata_ignore_index=nodata_ignore_index,
+            excluded_nodata_values=self.excluded_nodata_values,
+            image_nodata_policy=image_nodata_policy,
+            nodata_policy=nodata_policy,
         )
 
         self.mean: np.ndarray | None = (
@@ -107,9 +124,13 @@ class SemanticSegmentationDataModule(LunarSegmentationDataModule):
             image_suffix=self.image_suffix,
             label_suffix=self.label_suffix,
             scale_inputs=self.scale_inputs,
+            no_data_replace=self.no_data_replace,
+            no_label_replace=self.no_label_replace,
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
             nodata_ignore_index=self.nodata_ignore_index,
             excluded_nodata_values=self.excluded_nodata_values,
+            image_nodata_policy=self.image_nodata_policy,
+            nodata_policy=self.nodata_policy,
             **self._dataset_kwargs(),
         )
 
@@ -135,9 +156,13 @@ class SemanticSegmentationDataModule(LunarSegmentationDataModule):
             image_suffix=self.image_suffix,
             label_suffix=self.label_suffix,
             scale_inputs=self.scale_inputs,
+            no_data_replace=self.no_data_replace,
+            no_label_replace=self.no_label_replace,
             ignore_nodata_in_loss=self.ignore_nodata_in_loss,
             nodata_ignore_index=self.nodata_ignore_index,
             excluded_nodata_values=self.excluded_nodata_values,
+            image_nodata_policy=self.image_nodata_policy,
+            nodata_policy=self.nodata_policy,
             **self._dataset_kwargs(),
         )
 
@@ -215,4 +240,5 @@ class SemanticSegmentationDataModule(LunarSegmentationDataModule):
             "ignore_nodata_in_loss": self.ignore_nodata_in_loss,
             "nodata_ignore_index": self.nodata_ignore_index,
             "excluded_nodata_values": self.excluded_nodata_values,
+            "image_nodata_policy": self.image_nodata_policy,
         }
