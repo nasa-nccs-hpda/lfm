@@ -288,6 +288,9 @@ class LunarBackbone(nn.Module):
                 # Allow per-run patch_size override to still take effect.
                 if self._patch_size_override is not None and info_dict.get("type") == "img":
                     info_dict["patch_size"] = self._patch_size_override
+                # Some saved modality_info.yaml files contain the metadata and
+                # stats needed for embeddings but omit TerraMind's runtime id.
+                info_dict.setdefault("id", compute_modality_id(mod, info_dict))
                 modality_info[mod] = info_dict
                 continue
 
