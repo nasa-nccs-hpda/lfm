@@ -363,10 +363,16 @@ class LunarBackbone(nn.Module):
             **model_config,
         )
 
-        # Set out_channels attribute (required by TerraTorch)
-        # For multi-scale features, this should be a list of channel counts per scale
-        # For lunar models, all encoder blocks output the same dimension
-        self.out_channels = [model_config["dim"]] * model_config["encoder_depth"]
+        # Set out_channels attribute (required by TerraTorch). Concat merging
+        # widens each token feature from D to D * M_img, so downstream necks
+        # must be initialized with the widened channel count.
+        output_dim = model_config["dim"]
+        if self.merge_method == "concat":
+            image_modality_count = sum(
+                1 for mod in modalities if modality_info[mod].get("type") == "img"
+            )
+            output_dim *= image_modality_count
+        self.out_channels = [output_dim] * model_config["encoder_depth"]
 
         # Load checkpoint if provided
         if checkpoint_path is not None:
