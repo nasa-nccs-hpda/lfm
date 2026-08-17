@@ -172,6 +172,7 @@ def build_checkpoint_comparison_plot_config_from_args(
         prediction_split=args.prediction_split,
         prediction_n_samples=args.n_samples,
         graha_input_modality_mode=args.graha_input_modality_mode,
+        graha_backend_modalities=args.graha_backend_modalities,
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         graha_shape_loss_weight=args.graha_shape_loss_weight,
         graha_shape_loss_pad_frac=args.graha_shape_loss_pad_frac,

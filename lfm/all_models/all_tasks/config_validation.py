@@ -60,6 +60,12 @@ def _validate_choices(config: Any, errors: list[str]) -> None:
         defaults.GRAHA_VIS_UV_MERGE_CHOICES,
         errors,
     )
+    _validate_optional_choices(
+        config,
+        "graha_backend_modalities",
+        defaults.GRAHA_BACKEND_MODALITY_CHOICES,
+        errors,
+    )
     _require_choice(
         config,
         "normalization_source",
@@ -236,6 +242,28 @@ def _require_choice(
     choices_tuple = tuple(choices)
     if value not in choices_tuple:
         errors.append(f"{name} must be one of {choices_tuple}, got {value!r}.")
+
+
+def _validate_optional_choices(
+    config: Any,
+    name: str,
+    choices: Iterable[str],
+    errors: list[str],
+) -> None:
+    if not hasattr(config, name):
+        return
+    value = getattr(config, name)
+    if value is None:
+        return
+    if isinstance(value, str) or not isinstance(value, Sequence):
+        errors.append(f"{name} must be a sequence of values from {tuple(choices)}.")
+        return
+    choices_tuple = tuple(choices)
+    for idx, item in enumerate(value):
+        if item not in choices_tuple:
+            errors.append(
+                f"{name}[{idx}] must be one of {choices_tuple}, got {item!r}."
+            )
 
 
 def _require_int(

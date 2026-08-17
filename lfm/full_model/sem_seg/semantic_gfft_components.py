@@ -6,6 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from lfm.all_models.all_tasks import config_defaults as defaults
 from lfm.full_model.all_tasks import (
     load_gfft_config,
     resolve_gfft_normalization_stats,
@@ -137,6 +138,42 @@ def _gfft_modality_args(config: Any, num_channels: int) -> dict[str, Any]:
     image_size = int(config.crop_size)
     patch_size = 8
 
+    backend_modalities = defaults.normalize_graha_backend_modalities(
+        getattr(config, "graha_backend_modalities", None)
+    )
+    if backend_modalities is not None:
+        expected_channels = defaults.expected_graha_backend_num_channels(
+            backend_modalities
+        )
+        if expected_channels is not None and num_channels != expected_channels:
+            raise ValueError(
+                "graha_backend_modalities="
+                f"{backend_modalities!r} expects {expected_channels} input "
+                f"channel(s), got {num_channels}."
+            )
+        if "wac" not in backend_modalities:
+            return {
+                "backbone_modalities": backend_modalities,
+                "backbone_merge_method": "concat",
+            }
+    backend_modalities = defaults.graha_backend_modalities_for_input_mode(
+        config.graha_input_modality_mode
+    )
+    if backend_modalities is not None:
+        expected_channels = defaults.expected_graha_backend_num_channels(
+            backend_modalities
+        )
+        if expected_channels is not None and num_channels != expected_channels:
+            raise ValueError(
+                "graha_input_modality_mode="
+                f"{config.graha_input_modality_mode!r} expects "
+                f"{expected_channels} input channel(s), got {num_channels}."
+            )
+        return {
+            "backbone_modalities": backend_modalities,
+            "backbone_merge_method": "concat",
+        }
+
     if config.graha_input_modality_mode == "vis-uv":
         if num_channels != 7:
             raise ValueError(
@@ -174,6 +211,10 @@ def create_task(config: Any, task_cls, sample_batch: dict[str, Any]):
     grid_size = int(config.crop_size) // 8
 
     print("GFFT channels registered for model:", num_channels)
+    print(
+        "GFFT backend modalities override:",
+        getattr(config, "graha_backend_modalities", None),
+    )
     print("GFFT backbone modalities:", modality_args["backbone_modalities"])
     print("GFFT backbone merge method:", modality_args["backbone_merge_method"])
 

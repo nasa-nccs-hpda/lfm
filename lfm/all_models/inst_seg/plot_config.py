@@ -30,6 +30,7 @@ class InstanceCheckpointComparisonPlotConfig:
     gfft_backbone_checkpoint: Path | None
     dataset_modality: str
     graha_input_modality_mode: str
+    graha_backend_modalities: list[str] | None
     graha_vis_uv_merge_method: str
     normalization_source: str
     normalization_modality: str
@@ -237,6 +238,9 @@ def build_checkpoint_comparison_plot_config_from_args(
         graha_input_modality_mode=defaults.resolve_graha_input_modality_mode(
             dataset_modality=dataset_modality,
             graha_input_modality_mode=args.graha_input_modality_mode,
+        ),
+        graha_backend_modalities=defaults.normalize_graha_backend_modalities(
+            args.graha_backend_modalities
         ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=args.normalization_source,

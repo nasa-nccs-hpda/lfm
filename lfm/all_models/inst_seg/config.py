@@ -27,6 +27,7 @@ class InstanceSegmentationExperimentConfig:
     gfft_backbone_checkpoint: Path | None
     dataset_modality: str
     graha_input_modality_mode: str
+    graha_backend_modalities: list[str] | None
     graha_vis_uv_merge_method: str
     graha_freeze_backbone: bool
     normalization_source: str
@@ -145,6 +146,9 @@ def build_config_from_args(
                 "graha_input_modality_mode",
                 None,
             ),
+        ),
+        graha_backend_modalities=defaults.normalize_graha_backend_modalities(
+            getattr(args, "graha_backend_modalities", None)
         ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         graha_freeze_backbone=getattr(
