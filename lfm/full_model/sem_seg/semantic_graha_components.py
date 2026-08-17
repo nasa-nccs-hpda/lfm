@@ -596,6 +596,28 @@ def _graha_modality_args(
                 else config.graha_vis_uv_merge_method
             ),
         }
+    backend_modalities = defaults.graha_backend_modalities_for_input_mode(
+        config.graha_input_modality_mode
+    )
+    if backend_modalities is not None:
+        expected_channels = defaults.expected_graha_backend_num_channels(
+            backend_modalities
+        )
+        if expected_channels is not None and wac_num_channels != expected_channels:
+            raise ValueError(
+                "graha_input_modality_mode="
+                f"{config.graha_input_modality_mode!r} expects "
+                f"{expected_channels} input channel(s), got {wac_num_channels}."
+            )
+        return {
+            "backbone_modalities": backend_modalities,
+            "backbone_new_modalities": None,
+            "backbone_merge_method": (
+                None
+                if len(backend_modalities) == 1
+                else config.graha_vis_uv_merge_method
+            ),
+        }
     if config.graha_input_modality_mode == "nac-dtm":
         if wac_num_channels != 2:
             raise ValueError(

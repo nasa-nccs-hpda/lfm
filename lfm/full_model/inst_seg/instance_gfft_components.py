@@ -164,6 +164,23 @@ def _gfft_modality_args(config: Any, num_channels: int) -> dict[str, Any]:
                 "backbone_modalities": backend_modalities,
                 "backbone_merge_method": "concat",
             }
+    backend_modalities = defaults.graha_backend_modalities_for_input_mode(
+        config.graha_input_modality_mode
+    )
+    if backend_modalities is not None:
+        expected_channels = defaults.expected_graha_backend_num_channels(
+            backend_modalities
+        )
+        if expected_channels is not None and num_channels != expected_channels:
+            raise ValueError(
+                "graha_input_modality_mode="
+                f"{config.graha_input_modality_mode!r} expects "
+                f"{expected_channels} input channel(s), got {num_channels}."
+            )
+        return {
+            "backbone_modalities": backend_modalities,
+            "backbone_merge_method": "concat",
+        }
 
     if config.graha_input_modality_mode == "vis-uv":
         if num_channels != 7:

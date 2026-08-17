@@ -8,7 +8,17 @@ SPLIT_CHOICES = ["train", "val", "test"]
 SEMANTIC_LABEL_SOURCE_CHOICES = ["auto", "semantic", "instance"]
 
 DATASET_MODALITY_CHOICES = ["wac", "wac_static", "nac", "nac_dtm"]
-GRAHA_INPUT_MODALITY_CHOICES = ["single", "vis-uv", "nac-dtm"]
+GRAHA_INPUT_MODALITY_CHOICES = [
+    "single",
+    "vis",
+    "uv",
+    "static",
+    "vis-uv",
+    "vis-uv-static",
+    "nac",
+    "dtm",
+    "nac-dtm",
+]
 GRAHA_BACKEND_MODALITY_CHOICES = ["wac", "nac", "dtm", "vis", "uv", "static"]
 GRAHA_VIS_UV_MERGE_CHOICES = ["mean", "max"]
 NORMALIZATION_SOURCE_CHOICES = ["pretrain", "finetune"]
@@ -71,6 +81,17 @@ GRAHA_BACKEND_MODALITY_CHANNELS = {
     "vis": 5,
     "uv": 2,
     "static": 63,
+}
+
+GRAHA_INPUT_MODE_TO_BACKEND_MODALITIES = {
+    "vis": ["vis"],
+    "uv": ["uv"],
+    "static": ["static"],
+    "vis-uv": ["vis", "uv"],
+    "vis-uv-static": ["vis", "uv", "static"],
+    "nac": ["nac"],
+    "dtm": ["dtm"],
+    "nac-dtm": ["nac", "dtm"],
 }
 
 DEFAULT_SEMANTIC_BATCH_SIZE = 16
@@ -195,10 +216,26 @@ def resolve_graha_input_modality_mode(
     graha_input_modality_mode: str | None,
 ) -> str:
     if graha_input_modality_mode is not None:
-        return graha_input_modality_mode
+        normalized = graha_input_modality_mode.replace("_", "-").lower()
+        if normalized not in GRAHA_INPUT_MODALITY_CHOICES:
+            raise ValueError(
+                "graha_input_modality_mode must be one of "
+                f"{GRAHA_INPUT_MODALITY_CHOICES}, got {graha_input_modality_mode!r}."
+            )
+        return normalized
     return graha_input_modality_mode_for_dataset(
         dataset_modality or DEFAULT_DATASET_MODALITY
     )
+
+
+def graha_backend_modalities_for_input_mode(
+    graha_input_modality_mode: str | None,
+) -> list[str] | None:
+    """Map a Graha input modality mode to backend TerraTorch modalities."""
+    if graha_input_modality_mode is None:
+        return None
+    mode = graha_input_modality_mode.replace("_", "-").lower()
+    return GRAHA_INPUT_MODE_TO_BACKEND_MODALITIES.get(mode)
 
 
 def normalize_graha_backend_modalities(
@@ -290,6 +327,9 @@ def graha_input_modality_mode_for_backend(
     modalities = normalize_graha_backend_modalities(graha_backend_modalities)
     if modalities is None:
         return None
+    for mode, mode_modalities in GRAHA_INPUT_MODE_TO_BACKEND_MODALITIES.items():
+        if modalities == mode_modalities:
+            return mode
     if modalities == ["vis", "uv"]:
         return "vis-uv"
     if modalities == ["nac", "dtm"]:

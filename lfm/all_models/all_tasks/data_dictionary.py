@@ -224,16 +224,16 @@ def resolve_data_dictionary(data_dict: DataDictionary | None) -> dict[str, Any]:
             overrides["graha_input_modality_mode"] = "vis-uv"
             overrides["graha_backend_modalities"] = ["vis", "uv"]
         elif graha_modalities == ("vis", "uv", "static"):
-            overrides["graha_input_modality_mode"] = "single"
+            overrides["graha_input_modality_mode"] = "vis-uv-static"
             overrides["graha_backend_modalities"] = ["vis", "uv", "static"]
         elif graha_modalities in {("nac",), ("pho",)}:
-            overrides["graha_input_modality_mode"] = "single"
+            overrides["graha_input_modality_mode"] = "nac"
             overrides["graha_backend_modalities"] = ["nac"]
         elif graha_modalities == ("dtm",):
-            overrides["graha_input_modality_mode"] = "single"
+            overrides["graha_input_modality_mode"] = "dtm"
             overrides["graha_backend_modalities"] = ["dtm"]
         elif graha_modalities == ("static",):
-            overrides["graha_input_modality_mode"] = "single"
+            overrides["graha_input_modality_mode"] = "static"
             overrides["graha_backend_modalities"] = ["static"]
         elif graha_modalities in {("nac", "dtm"), ("pho", "dtm")}:
             overrides["graha_input_modality_mode"] = "nac-dtm"
