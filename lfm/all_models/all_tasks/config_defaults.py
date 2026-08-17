@@ -20,7 +20,7 @@ GRAHA_INPUT_MODALITY_CHOICES = [
     "nac-dtm",
 ]
 GRAHA_BACKEND_MODALITY_CHOICES = ["wac", "nac", "dtm", "vis", "uv", "static"]
-GRAHA_VIS_UV_MERGE_CHOICES = ["mean", "max"]
+GRAHA_VIS_UV_MERGE_CHOICES = ["mean", "max", "concat"]
 NORMALIZATION_SOURCE_CHOICES = ["pretrain", "finetune"]
 NORMALIZATION_MODALITY_CHOICES = ["vis_uv", "vis_uv_static", "nac"]
 NORMALIZATION_MODALITY_CLI_CHOICES = ["vis-uv", "vis-uv-static", "nac"]
@@ -59,7 +59,7 @@ DEFAULT_IMAGE_NODATA_POLICY = "per_band"
 DEFAULT_MASK_SHIFT = (0, 0)
 
 DEFAULT_GRAHA_INPUT_MODALITY_MODE = "vis-uv"
-DEFAULT_GRAHA_VIS_UV_MERGE_METHOD = "mean"
+DEFAULT_GRAHA_VIS_UV_MERGE_METHOD = "concat"
 DEFAULT_DATASET_MODALITY = "wac"
 DEFAULT_NORMALIZATION_SOURCE = "pretrain"
 DEFAULT_NORMALIZATION_MODALITY = "vis_uv"
