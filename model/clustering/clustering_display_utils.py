@@ -238,6 +238,7 @@ def display_images_binary_labels(
     newClusters,
     colormap: str = FINAL_LABEL_COLORMAP,
     legend_control=None,
+    noDataValue: float | None = None,
 ):
     # This is also clipped because inHelper._dataset is the 512x512 input clip.
     cmDataset = Clusterer.labelsToGeotiff(
@@ -247,14 +248,15 @@ def display_images_binary_labels(
     )
 
     cmHelper = ImageHelper()
-    cmHelper.initFromDataset(cmDataset, inHelper._noDataValue)
+    cmNoDataValue = -9999.0 if noDataValue is None else noDataValue
+    cmHelper.initFromDataset(cmDataset, cmNoDataValue)
 
     cluster_client = TileClient(str(clusterMapFile), debug=True)
     cluster_layer = get_leaflet_tile_layer(
         cluster_client,
         vmin=cmHelper._minValue,
         vmax=cmHelper._maxValue,
-        nodata=cmHelper._noDataValue,
+        nodata=noDataValue,
         opacity=0.5,
         colormap=colormap,
     )
