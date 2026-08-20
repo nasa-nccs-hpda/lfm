@@ -18,7 +18,8 @@ import matplotlib.colors as mcolors
 from ipyleaflet import WidgetControl
 
 CLUSTER_COLORMAP = "tab20"
-FINAL_LABEL_COLORMAP = "coolwarm"
+FINAL_CLASS_COLORS = {0: "#2563eb", 1: "#dc2626"}
+FINAL_TILE_COLORMAP = "bwr"
 
 repo_root = Path.cwd().parent
 repo_root_str = str(repo_root).replace('/panfs/ccds02/nobackup', '/explore/nobackup')
@@ -136,7 +137,7 @@ def display_images_labels(
         draw_control=False,
         measure_control=False,
         scale_control=False,
-        toolbar_control=True,
+        toolbar_control=False,
         center=image_client.center(),
         zoom=image_client.default_zoom,
     )
@@ -156,26 +157,13 @@ def display_images_labels(
     return m, legend_control
 
 
-def _create_binary_legend(newClusters, colormap: str = FINAL_LABEL_COLORMAP):
-    # Final grouped class IDs
+def _create_binary_legend(newClusters, class_colors: dict = FINAL_CLASS_COLORS):
     class_ids = sorted(int(x) for x in np.unique(newClusters))
 
-    vmin = min(class_ids)
-    vmax = max(class_ids)
-
-    cmap = cm.get_cmap(colormap)
-
     rows = []
-
     for class_id in class_ids:
-        # Match the same vmin/vmax normalization used by localtileserver
-        if vmax == vmin:
-            t = 0.5
-        else:
-            t = (class_id - vmin) / (vmax - vmin)
-
-        hex_color = mcolors.to_hex(cmap(t))
-
+        hex_color = class_colors.get(class_id, "#888888")
+        class_name = "Non-crater" if class_id == 0 else "Crater" if class_id == 1 else f"Class {class_id}"
         rows.append(
             f"""
             <div style="
@@ -198,7 +186,7 @@ def _create_binary_legend(newClusters, colormap: str = FINAL_LABEL_COLORMAP):
                     color:#111;
                     white-space:nowrap;
                 ">
-                    Class {class_id}
+                    {class_name} ({class_id})
                 </div>
             </div>
             """
@@ -212,7 +200,7 @@ def _create_binary_legend(newClusters, colormap: str = FINAL_LABEL_COLORMAP):
             padding:8px 10px;
             border:1px solid #777;
             border-radius:4px;
-            min-width:120px;
+            min-width:140px;
             box-shadow:0 1px 4px rgba(0,0,0,0.25);
         ">
             <div style="
@@ -229,14 +217,15 @@ def _create_binary_legend(newClusters, colormap: str = FINAL_LABEL_COLORMAP):
     )
     return final_legend_html
 
-
 def display_images_binary_labels(
     m,
     inHelper,
     clusterMapFile,
     labelsFile,
     newClusters,
-    colormap: str = FINAL_LABEL_COLORMAP,
+    colormap=FINAL_TILE_COLORMAP,
+    legend_control=None,
+    noDataValue: float | None = None,
 ):
     # This is also clipped because inHelper._dataset is the 512x512 input clip.
     cmDataset = Clusterer.labelsToGeotiff(
@@ -246,26 +235,28 @@ def display_images_binary_labels(
     )
 
     cmHelper = ImageHelper()
-    cmHelper.initFromDataset(cmDataset, inHelper._noDataValue)
+    cmNoDataValue = -9999.0 if noDataValue is None else noDataValue
+    cmHelper.initFromDataset(cmDataset, cmNoDataValue)
 
     cluster_client = TileClient(str(clusterMapFile), debug=True)
     cluster_layer = get_leaflet_tile_layer(
         cluster_client,
-        vmin=cmHelper._minValue,
-        vmax=cmHelper._maxValue,
-        nodata=cmHelper._noDataValue,
+        vmin=0,
+        vmax=1,
+        nodata=noDataValue,
         opacity=0.5,
         colormap=colormap,
     )
     cluster_layer.name = clusterMapFile.name
 
-    # Remove the old 30-cluster legend, if it is still on the map
-    try:
-        m.remove(legend_control)
-    except Exception:
-        pass
+    # Remove the old first-pass legend, if the caller provides it.
+    if legend_control is not None:
+        try:
+            m.remove(legend_control)
+        except Exception:
+            pass
 
-    final_legend_html = _create_binary_legend(newClusters, colormap)
+    final_legend_html = _create_binary_legend(newClusters)
 
     final_legend_control = WidgetControl(
         widget=final_legend_html,
@@ -287,5 +278,5 @@ def display_images_binary_labels(
     # Add the newly generated final labels
     m.add(cluster_layer)
 
-    display(m)
+    return m
 
