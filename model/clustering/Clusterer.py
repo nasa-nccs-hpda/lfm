@@ -1,6 +1,6 @@
 from pathlib import Path
 
-import numpy
+import numpy as np
 import torch
 from tqdm.auto import tqdm
 
@@ -25,12 +25,12 @@ class Clusterer(object):
         device: str = 'auto',
         showProgress: bool = True,
         randomState: int = 0,
-    ) -> numpy.ndarray:
+    ) -> np.ndarray:
 
-        img = numpy.moveaxis(bands, 0, -1)
-        img1d = numpy.ascontiguousarray(
+        img = np.moveaxis(bands, 0, -1)
+        img1d = np.ascontiguousarray(
             img.reshape(-1, img.shape[-1]),
-            dtype=numpy.float32,
+            dtype=np.float32,
         )
 
         if img1d.shape[0] < numClusters:
@@ -38,7 +38,7 @@ class Clusterer(object):
                 f'Cannot create {numClusters} clusters from '
                 f'{img1d.shape[0]} pixels.'
             )
-        if not numpy.isfinite(img1d).all():
+        if not np.isfinite(img1d).all():
             raise ValueError(
                 'Input bands contain NaN or infinite values. Replace or mask '
                 'invalid pixels before clustering.'
@@ -51,7 +51,7 @@ class Clusterer(object):
         else:
             torchDevice = torch.device(device)
 
-        rng = numpy.random.default_rng(randomState)
+        rng = np.random.default_rng(randomState)
         initIdx = rng.choice(img1d.shape[0], size=numClusters, replace=False)
         centroids = torch.as_tensor(
             img1d[initIdx],
@@ -110,7 +110,7 @@ class Clusterer(object):
             if fitProgress is not None:
                 fitProgress.close()
 
-        imgCl = numpy.empty(nPixels, dtype=numpy.int32)
+        imgCl = np.empty(nPixels, dtype=np.int32)
         predictIter = range(0, nPixels, batchSize)
         if showProgress:
             predictIter = tqdm(predictIter, desc='K-Means predict', unit='batch')
@@ -124,7 +124,7 @@ class Clusterer(object):
                     device=torchDevice,
                 )
                 labels = torch.cdist(batch, centroids).argmin(dim=1)
-                imgCl[start:end] = labels.cpu().numpy()
+                imgCl[start:end] = labels.cpu().np()
 
         imgCl = imgCl.reshape(img[:, :, 0].shape)
 
@@ -139,7 +139,7 @@ class Clusterer(object):
     @staticmethod
     def labelsToGeotiff(referenceDs: gdal.Dataset,
                         labelsFile: Path,
-                        labels: numpy.ndarray) -> gdal.Dataset:
+                        labels: np.ndarray) -> gdal.Dataset:
 
         if labelsFile.exists():
             labelsFile.unlink()
