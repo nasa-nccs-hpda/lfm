@@ -30,6 +30,19 @@ CRATER_ASSIGNMENT = "Crater"
 NON_CRATER_ASSIGNMENT = "Non-crater"
 IGNORE_ASSIGNMENT = "Ignore"
 
+class ClusterAssignmentControl:
+    def __init__(self, crater_button, non_crater_button, ignore_button):
+        self.crater_button = crater_button
+        self.non_crater_button = non_crater_button
+        self.ignore_button = ignore_button
+
+    @property
+    def value(self):
+        if self.crater_button.value:
+            return CRATER_ASSIGNMENT
+        if self.non_crater_button.value:
+            return NON_CRATER_ASSIGNMENT
+        return IGNORE_ASSIGNMENT
 
 def crop_center(src_path: Path, dst_path: Path, size: int = 512) -> Path:
     """Write a centered square crop while preserving CRS/georeferencing."""
@@ -96,19 +109,59 @@ def create_cluster_assignment_widget(labels: np.ndarray, colormap: str = "tab20"
             value=f"Cluster {cluster_id}",
             layout=ipywidgets.Layout(width="90px"),
         )
-        assignment = ipywidgets.ToggleButtons(
-            options=[IGNORE_ASSIGNMENT, CRATER_ASSIGNMENT, NON_CRATER_ASSIGNMENT],
-            value=IGNORE_ASSIGNMENT,
-            layout=ipywidgets.Layout(width="320px"),
+        crater_button = ipywidgets.ToggleButton(
+            value=False,
+            description=CRATER_ASSIGNMENT,
+            layout=ipywidgets.Layout(width="120px"),
         )
-        controls[cluster_id] = assignment
-        rows.append(
-            ipywidgets.HBox(
-                [swatch, label, assignment],
-                layout=ipywidgets.Layout(align_items="center", margin="2px 0"),
-            )
+        non_crater_button = ipywidgets.ToggleButton(
+            value=False,
+            description=NON_CRATER_ASSIGNMENT,
+            layout=ipywidgets.Layout(width="120px"),
+        )
+        ignore_button = ipywidgets.ToggleButton(
+            value=True,
+            description=IGNORE_ASSIGNMENT,
+            layout=ipywidgets.Layout(width="95px"),
         )
 
+        buttons = [crater_button, non_crater_button, ignore_button]
+
+        def make_observer(selected_button):
+            def observe(change):
+                if not change["new"]:
+                    if not any(button.value for button in buttons):
+                        ignore_button.value = True
+                    return
+                for button in buttons:
+                    if button is not selected_button:
+                        button.value = False
+            return observe
+
+        for button in buttons:
+            button.observe(make_observer(button), names="value")
+
+        assignment = ClusterAssignmentControl(
+            crater_button,
+            non_crater_button,
+            ignore_button,
+        )
+        controls[cluster_id] = assignment
+
+        class_column = ipywidgets.VBox(
+            [crater_button, non_crater_button],
+            layout=ipywidgets.Layout(width="130px"),
+        )
+        ignore_column = ipywidgets.VBox(
+            [ignore_button],
+            layout=ipywidgets.Layout(width="105px", align_items="flex-start"),
+        )
+        rows.append(
+            ipywidgets.HBox(
+                [swatch, label, class_column, ignore_column],
+                layout=ipywidgets.Layout(align_items="center", margin="4px 0"),
+            )
+        )
     widget = ipywidgets.VBox([header, *rows])
     return widget, controls
 
