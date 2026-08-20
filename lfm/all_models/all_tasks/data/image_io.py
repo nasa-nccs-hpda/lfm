@@ -199,14 +199,16 @@ def find_pair_records(
 def _nodata_mask_from_array(
     arr: np.ndarray,
     nodata: float | int | None = None,
+    excluded_values: tuple[float, ...] | list[float] | None = None,
+    per_band: bool = False,
 ) -> np.ndarray:
     arr = np.asarray(arr)
     if arr.ndim == 2:
         arr_chw = arr[None, :, :]
     elif arr.ndim == 3:
-        if arr.shape[0] <= 32:
+        if arr.shape[0] <= arr.shape[1] and arr.shape[0] <= arr.shape[2]:
             arr_chw = arr
-        elif arr.shape[-1] <= 32:
+        elif arr.shape[-1] <= arr.shape[0] and arr.shape[-1] <= arr.shape[1]:
             arr_chw = np.moveaxis(arr, -1, 0)
         else:
             raise ValueError(f"Expected CHW or HWC image array, got {arr.shape}")
@@ -216,17 +218,31 @@ def _nodata_mask_from_array(
     invalid = ~np.isfinite(arr_chw)
     if nodata is not None:
         invalid = invalid | (arr_chw == nodata)
+    for value in excluded_values or ():
+        invalid = invalid | (arr_chw == float(value))
+    if per_band:
+        return invalid
     return invalid.any(axis=0)
 
 
-def read_tif_with_nodata_mask(path: Path) -> tuple[np.ndarray, np.ndarray]:
+def read_tif_with_nodata_mask(
+    path: Path,
+    *,
+    excluded_values: tuple[float, ...] | list[float] | None = None,
+    per_band: bool = False,
+) -> tuple[np.ndarray, np.ndarray]:
     try:
         import rasterio
 
         with rasterio.open(path) as src:
             arr = src.read()
             nodata = src.nodata
-        nodata_mask = _nodata_mask_from_array(arr, nodata)
+        nodata_mask = _nodata_mask_from_array(
+            arr,
+            nodata,
+            excluded_values=excluded_values,
+            per_band=per_band,
+        )
         if arr.shape[0] == 1:
             arr = arr[0]
         return arr, nodata_mask
@@ -234,7 +250,11 @@ def read_tif_with_nodata_mask(path: Path) -> tuple[np.ndarray, np.ndarray]:
         import tifffile
 
         arr = tifffile.imread(path)
-        return arr, _nodata_mask_from_array(arr)
+        return arr, _nodata_mask_from_array(
+            arr,
+            excluded_values=excluded_values,
+            per_band=per_band,
+        )
 
 
 def read_tif(path: Path) -> np.ndarray:
@@ -281,12 +301,25 @@ def read_image_file(path: str | Path) -> np.ndarray:
     return read_tif(path)
 
 
-def read_image_file_with_nodata_mask(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
+def read_image_file_with_nodata_mask(
+    path: str | Path,
+    *,
+    excluded_values: tuple[float, ...] | list[float] | None = None,
+    per_band: bool = False,
+) -> tuple[np.ndarray, np.ndarray]:
     path = Path(path)
     if path.suffix.lower() in {".tif", ".tiff"}:
-        return read_tif_with_nodata_mask(path)
+        return read_tif_with_nodata_mask(
+            path,
+            excluded_values=excluded_values,
+            per_band=per_band,
+        )
     arr = read_image_file(path)
-    return arr, _nodata_mask_from_array(arr)
+    return arr, _nodata_mask_from_array(
+        arr,
+        excluded_values=excluded_values,
+        per_band=per_band,
+    )
 
 
 def read_label_file(

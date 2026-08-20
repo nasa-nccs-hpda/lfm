@@ -16,6 +16,13 @@ def _anchor_aspect_ratios(value: str) -> list[float]:
     return [float(x) for x in value.split(",")]
 
 
+def _float_csv(value: str) -> list[float]:
+    values = [item.strip() for item in value.split(",") if item.strip()]
+    if not values:
+        raise argparse.ArgumentTypeError("expected at least one float value")
+    return [float(item) for item in values]
+
+
 def _add_symlink_arg(parser: argparse.ArgumentParser, *, semantic_help: bool) -> None:
     kwargs = {
         "dest": "simlink_dest",
@@ -89,10 +96,26 @@ def _add_graha_input_args(parser: argparse.ArgumentParser, *, path_type=str) -> 
             "derived from --dataset-modality."
         ),
     )
+    _add_graha_backend_modalities_arg(parser)
     parser.add_argument(
         "--graha-vis-uv-merge-method",
         choices=defaults.GRAHA_VIS_UV_MERGE_CHOICES,
         default=defaults.DEFAULT_GRAHA_VIS_UV_MERGE_METHOD,
+    )
+
+
+def _add_graha_backend_modalities_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--graha-backend-modalities",
+        nargs="+",
+        choices=defaults.GRAHA_BACKEND_MODALITY_CHOICES,
+        default=None,
+        help=(
+            "Explicit TerraTorch backbone modality registration. Values are "
+            "ordered to match the selected input tensor channels, e.g. "
+            "'vis uv static' or 'nac dtm'. If omitted, legacy "
+            "--graha-input-modality-mode behavior is used."
+        ),
     )
 
 
@@ -132,7 +155,11 @@ def _add_band_filter_arg(parser: argparse.ArgumentParser) -> None:
         "--band-filter",
         type=int,
         nargs="+",
-        default=list(defaults.DEFAULT_BAND_FILTER),
+        default=None,
+        help=(
+            "Absolute chip channel indices to use. If omitted, defaults are "
+            "derived from --dataset-modality."
+        ),
     )
 
 
@@ -220,6 +247,27 @@ def _add_nodata_args(
         type=int,
         default=defaults.DEFAULT_NODATA_IGNORE_INDEX,
         help="Target label value used for ignored nodata pixels.",
+    )
+    parser.add_argument(
+        "--excluded-nodata-values",
+        type=_float_csv,
+        default=None,
+        help=(
+            "Additional exact image values to treat as nodata when building "
+            "the spatial ignore mask. Use a comma-separated value list, e.g. "
+            "--excluded-nodata-values=-3.4e38,-9999."
+        ),
+    )
+    parser.add_argument(
+        "--image-nodata-policy",
+        choices=defaults.IMAGE_NODATA_POLICY_CHOICES,
+        default=defaults.DEFAULT_IMAGE_NODATA_POLICY,
+        help=(
+            "How image NoData values are filled. 'union' fills all channels "
+            "where any selected channel is NoData, 'per_band' fills only the "
+            "channel where NoData occurs, and 'preserve' leaves image values "
+            "unchanged while label/loss masking can still use the union mask."
+        ),
     )
 
 
@@ -426,6 +474,7 @@ def create_semantic_experiment_parser(
             "derived from --dataset-modality."
         ),
     )
+    _add_graha_backend_modalities_arg(parser)
     parser.add_argument(
         "--graha-vis-uv-merge-method",
         choices=defaults.GRAHA_VIS_UV_MERGE_CHOICES,
@@ -531,6 +580,7 @@ def create_instance_experiment_parser(
             "derived from --dataset-modality."
         ),
     )
+    _add_graha_backend_modalities_arg(parser)
     parser.add_argument(
         "--graha-vis-uv-merge-method",
         choices=defaults.GRAHA_VIS_UV_MERGE_CHOICES,
@@ -1129,6 +1179,11 @@ def create_instance_checkpoint_comparison_plot_parser(
         type=int,
         default=defaults.DEFAULT_NODATA_IGNORE_INDEX,
     )
+    parser.add_argument(
+        "--excluded-nodata-values",
+        type=_float_csv,
+        default=None,
+    )
     parser.add_argument("--seed", type=int, default=defaults.DEFAULT_SEED)
     return parser
 
@@ -1205,6 +1260,11 @@ def create_semantic_checkpoint_comparison_plot_parser(
         "--nodata-ignore-index",
         type=int,
         default=defaults.DEFAULT_NODATA_IGNORE_INDEX,
+    )
+    parser.add_argument(
+        "--excluded-nodata-values",
+        type=_float_csv,
+        default=None,
     )
     parser.add_argument("--seed", type=int, default=defaults.DEFAULT_SEED)
     return parser

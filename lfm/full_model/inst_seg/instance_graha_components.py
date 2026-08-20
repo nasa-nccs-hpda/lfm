@@ -26,6 +26,7 @@ from lfm.all_models.all_tasks.utils import (
 from lfm.all_models.all_tasks.data.normalization import (
     load_terramind_pretraining_stats,
 )
+from lfm.full_model.all_tasks.utils.configure_proj import configure_proj_environment
 
 
 class FitProgressLogger(Callback):
@@ -88,7 +89,9 @@ class InstanceFineTuningConfig:
     base_output_dir: Path
     lightning_checkpoint: Path | None
     normalized_wac_data_range: list[float]
+    dataset_modality: str
     graha_input_modality_mode: str
+    graha_backend_modalities: list[str] | None
     graha_vis_uv_merge_method: str
     freeze_backbone: bool
     normalization_source: str
@@ -122,27 +125,9 @@ class InstanceFineTuningConfig:
     mask_shift: tuple[int, int]
     ignore_nodata_in_loss: bool
     nodata_ignore_index: int
+    excluded_nodata_values: list[float] | None
+    image_nodata_policy: str
     seed: int
-
-
-def configure_proj_environment() -> None:
-    """Point PROJ/GDAL at the active conda environment before rasterio imports."""
-    conda_prefix = Path(sys.executable).parents[1]
-    for candidate in [
-        conda_prefix / "share" / "proj",
-        conda_prefix / "Library" / "share" / "proj",
-    ]:
-        if (candidate / "proj.db").exists():
-            proj_dir = candidate
-            break
-    else:
-        raise FileNotFoundError(f"No proj.db found under {conda_prefix}")
-
-    os.environ["PROJ_LIB"] = str(proj_dir)
-    os.environ["PROJ_DATA"] = str(proj_dir)
-    os.environ["GDAL_DATA"] = str(conda_prefix / "share" / "gdal")
-    print("PROJ_DATA =", os.environ["PROJ_DATA"])
-    print("GDAL_DATA =", os.environ["GDAL_DATA"])
 
 
 def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
@@ -175,6 +160,11 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         "dataset_modality",
         defaults.DEFAULT_DATASET_MODALITY,
     )
+    band_filter = (
+        list(args.band_filter)
+        if getattr(args, "band_filter", None) is not None
+        else defaults.default_band_filter_for_dataset(dataset_modality)
+    )
 
     return InstanceFineTuningConfig(
         package_dir=package_dir,
@@ -194,6 +184,7 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         base_output_dir=base_output_dir,
         lightning_checkpoint=lightning_checkpoint,
         normalized_wac_data_range=[-1.0, 1.0],
+        dataset_modality=dataset_modality,
         graha_input_modality_mode=defaults.resolve_graha_input_modality_mode(
             dataset_modality=dataset_modality,
             graha_input_modality_mode=getattr(
@@ -201,6 +192,9 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
                 "graha_input_modality_mode",
                 None,
             ),
+        ),
+        graha_backend_modalities=defaults.normalize_graha_backend_modalities(
+            getattr(args, "graha_backend_modalities", None)
         ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         freeze_backbone=getattr(
@@ -213,7 +207,7 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
             dataset_modality=dataset_modality,
             normalization_modality=getattr(args, "normalization_modality", None),
         ),
-        band_filter=getattr(args, "band_filter", None),
+        band_filter=band_filter,
         image_glob=args.image_glob,
         label_glob=args.label_glob,
         image_suffix=args.image_suffix,
@@ -242,6 +236,12 @@ def build_config(args: argparse.Namespace) -> InstanceFineTuningConfig:
         mask_shift=tuple(args.mask_shift),
         ignore_nodata_in_loss=getattr(args, "ignore_nodata_in_loss", False),
         nodata_ignore_index=getattr(args, "nodata_ignore_index", -1),
+        excluded_nodata_values=getattr(args, "excluded_nodata_values", None),
+        image_nodata_policy=getattr(
+            args,
+            "image_nodata_policy",
+            defaults.DEFAULT_IMAGE_NODATA_POLICY,
+        ),
         seed=args.seed,
     )
 
@@ -347,6 +347,8 @@ def common_datamodule_args(config: InstanceFineTuningConfig) -> dict[str, Any]:
         "mask_shift": config.mask_shift,
         "ignore_nodata_in_loss": config.ignore_nodata_in_loss,
         "nodata_ignore_index": config.nodata_ignore_index,
+        "excluded_nodata_values": config.excluded_nodata_values,
+        "image_nodata_policy": config.image_nodata_policy,
     }
 
 
@@ -463,8 +465,9 @@ def create_task(
 ):
     wac_num_channels = int(sample_batch["image"].shape[1])
     modality_args = _graha_modality_args(config, wac_num_channels)
-    print("WAC channels registered for model:", wac_num_channels)
+    print("Input channels registered for model:", wac_num_channels)
     print("Graha input modality mode:", config.graha_input_modality_mode)
+    print("Graha backend modalities:", config.graha_backend_modalities)
     print("Backbone modalities:", modality_args["backbone_modalities"])
     print("Backbone merge method:", modality_args["backbone_merge_method"])
     print("Freeze backbone:", config.freeze_backbone)
@@ -508,6 +511,62 @@ def create_task(
 def _graha_modality_args(
     config: InstanceFineTuningConfig, wac_num_channels: int
 ) -> dict[str, Any]:
+    if config.graha_backend_modalities is not None:
+        backend_modalities = defaults.normalize_graha_backend_modalities(
+            config.graha_backend_modalities
+        )
+        if backend_modalities == ["wac"]:
+            return {
+                "backbone_modalities": ["wac"],
+                "backbone_new_modalities": {
+                    "wac": {
+                        "type": "image",
+                        "num_channels": wac_num_channels,
+                        "data_range": config.normalized_wac_data_range,
+                    },
+                },
+                "backbone_merge_method": None,
+            }
+        expected_channels = defaults.expected_graha_backend_num_channels(
+            backend_modalities
+        )
+        if expected_channels is not None and wac_num_channels != expected_channels:
+            raise ValueError(
+                "graha_backend_modalities="
+                f"{backend_modalities!r} expects {expected_channels} input "
+                f"channel(s), got {wac_num_channels}."
+            )
+        return {
+            "backbone_modalities": backend_modalities,
+            "backbone_new_modalities": None,
+            "backbone_merge_method": (
+                None
+                if len(backend_modalities) == 1
+                else config.graha_vis_uv_merge_method
+            ),
+        }
+    backend_modalities = defaults.graha_backend_modalities_for_input_mode(
+        config.graha_input_modality_mode
+    )
+    if backend_modalities is not None:
+        expected_channels = defaults.expected_graha_backend_num_channels(
+            backend_modalities
+        )
+        if expected_channels is not None and wac_num_channels != expected_channels:
+            raise ValueError(
+                "graha_input_modality_mode="
+                f"{config.graha_input_modality_mode!r} expects "
+                f"{expected_channels} input channel(s), got {wac_num_channels}."
+            )
+        return {
+            "backbone_modalities": backend_modalities,
+            "backbone_new_modalities": None,
+            "backbone_merge_method": (
+                None
+                if len(backend_modalities) == 1
+                else config.graha_vis_uv_merge_method
+            ),
+        }
     if config.graha_input_modality_mode == "nac-dtm":
         if wac_num_channels != 2:
             raise ValueError(
@@ -669,7 +728,13 @@ def build_comparison_config(
             if getattr(config, "gfft_config_path", None)
             else None
         ),
+        dataset_modality=getattr(
+            config,
+            "dataset_modality",
+            defaults.DEFAULT_DATASET_MODALITY,
+        ),
         graha_input_modality_mode=config.graha_input_modality_mode,
+        graha_backend_modalities=getattr(config, "graha_backend_modalities", None),
         graha_vis_uv_merge_method=config.graha_vis_uv_merge_method,
         graha_freeze_backbone=config.graha_freeze_backbone,
         normalization_source=config.normalization_source,
@@ -703,6 +768,8 @@ def build_comparison_config(
         mask_shift=config.mask_shift,
         ignore_nodata_in_loss=config.ignore_nodata_in_loss,
         nodata_ignore_index=config.nodata_ignore_index,
+        excluded_nodata_values=config.excluded_nodata_values,
+        image_nodata_policy=config.image_nodata_policy,
         seed=config.seed,
         no_fit=config.skip_graha_fit,
         loss_smoke_only=False,

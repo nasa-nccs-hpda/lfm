@@ -114,6 +114,7 @@ def _comparison_namespace(
         mask_shift=tuple(args.mask_shift),
         ignore_nodata_in_loss=args.ignore_nodata_in_loss,
         nodata_ignore_index=args.nodata_ignore_index,
+        excluded_nodata_values=args.excluded_nodata_values,
         skip_toy_fit=True,
         skip_graha_fit=True,
         no_fit=True,

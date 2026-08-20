@@ -100,6 +100,24 @@ def _resolve_stats_record(
         for candidate in ("vis_uv", "wac", "vis"):
             if candidate in config.normalization_stats:
                 return config.normalization_stats[candidate]
+    elif modality == "vis_uv_static":
+        if all(
+            candidate in config.normalization_stats
+            for candidate in ("vis", "uv", "static")
+        ):
+            vis = config.normalization_stats["vis"]
+            uv = config.normalization_stats["uv"]
+            static = config.normalization_stats["static"]
+            return GfftNormalizationStats(
+                modality="vis_uv_static",
+                means=[*vis.means, *uv.means, *static.means],
+                stds=[*vis.stds, *uv.stds, *static.stds],
+                mean_key=f"{vis.mean_key}+{uv.mean_key}+{static.mean_key}",
+                std_key=f"{vis.std_key}+{uv.std_key}+{static.std_key}",
+            )
+        for candidate in ("vis_uv_static", "wac_static"):
+            if candidate in config.normalization_stats:
+                return config.normalization_stats[candidate]
     elif modality == "wac":
         for candidate in ("wac", "vis_uv", "vis"):
             if candidate in config.normalization_stats:

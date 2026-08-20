@@ -288,6 +288,9 @@ class LunarBackbone(nn.Module):
                 # Allow per-run patch_size override to still take effect.
                 if self._patch_size_override is not None and info_dict.get("type") == "img":
                     info_dict["patch_size"] = self._patch_size_override
+                # Some saved modality_info.yaml files contain the metadata and
+                # stats needed for embeddings but omit TerraMind's runtime id.
+                info_dict.setdefault("id", compute_modality_id(mod, info_dict))
                 modality_info[mod] = info_dict
                 continue
 
@@ -360,10 +363,16 @@ class LunarBackbone(nn.Module):
             **model_config,
         )
 
-        # Set out_channels attribute (required by TerraTorch)
-        # For multi-scale features, this should be a list of channel counts per scale
-        # For lunar models, all encoder blocks output the same dimension
-        self.out_channels = [model_config["dim"]] * model_config["encoder_depth"]
+        # Set out_channels attribute (required by TerraTorch). Concat merging
+        # widens each token feature from D to D * M_img, so downstream necks
+        # must be initialized with the widened channel count.
+        output_dim = model_config["dim"]
+        if self.merge_method == "concat":
+            image_modality_count = sum(
+                1 for mod in modalities if modality_info[mod].get("type") == "img"
+            )
+            output_dim *= image_modality_count
+        self.out_channels = [output_dim] * model_config["encoder_depth"]
 
         # Load checkpoint if provided
         if checkpoint_path is not None:

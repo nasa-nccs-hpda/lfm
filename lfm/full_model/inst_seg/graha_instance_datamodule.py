@@ -39,6 +39,8 @@ class GrahaInstanceSegmentationDataModule(InstanceMaskSegmentationDataModule):
         mask_shift: tuple[int, int] | None = None,
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
+        excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
+        image_nodata_policy: str = "union",
         pin_memory: bool = True,
     ) -> None:
         super().__init__(
@@ -65,6 +67,8 @@ class GrahaInstanceSegmentationDataModule(InstanceMaskSegmentationDataModule):
             no_label_replace=no_label_replace,
             ignore_nodata_in_loss=ignore_nodata_in_loss,
             nodata_ignore_index=nodata_ignore_index,
+            excluded_nodata_values=excluded_nodata_values,
+            image_nodata_policy=image_nodata_policy,
             pin_memory=pin_memory,
         )
         self.crop_size = crop_size
@@ -102,6 +106,8 @@ class GrahaObjectDetectionInstanceDataModule(
         mask_shift: tuple[int, int] | None = None,
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
+        excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
+        image_nodata_policy: str = "union",
         pin_memory: bool = True,
     ) -> None:
         super().__init__(
@@ -128,6 +134,8 @@ class GrahaObjectDetectionInstanceDataModule(
             no_label_replace=no_label_replace,
             ignore_nodata_in_loss=ignore_nodata_in_loss,
             nodata_ignore_index=nodata_ignore_index,
+            excluded_nodata_values=excluded_nodata_values,
+            image_nodata_policy=image_nodata_policy,
             target_box_format=target_box_format,
             pin_memory=pin_memory,
         )

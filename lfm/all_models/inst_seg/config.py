@@ -27,6 +27,7 @@ class InstanceSegmentationExperimentConfig:
     gfft_backbone_checkpoint: Path | None
     dataset_modality: str
     graha_input_modality_mode: str
+    graha_backend_modalities: list[str] | None
     graha_vis_uv_merge_method: str
     graha_freeze_backbone: bool
     normalization_source: str
@@ -69,6 +70,8 @@ class InstanceSegmentationExperimentConfig:
     mask_shift: tuple[int, int]
     ignore_nodata_in_loss: bool
     nodata_ignore_index: int
+    excluded_nodata_values: list[float] | None
+    image_nodata_policy: str
     skip_toy_fit: bool
     skip_graha_fit: bool
     run_epoch_test_suite: bool
@@ -96,6 +99,11 @@ def build_config_from_args(
         args,
         "dataset_modality",
         defaults.DEFAULT_DATASET_MODALITY,
+    )
+    band_filter = (
+        list(args.band_filter)
+        if args.band_filter is not None
+        else defaults.default_band_filter_for_dataset(dataset_modality)
     )
     config = InstanceSegmentationExperimentConfig(
         notebook_dir=notebook_dir,
@@ -139,6 +147,9 @@ def build_config_from_args(
                 None,
             ),
         ),
+        graha_backend_modalities=defaults.normalize_graha_backend_modalities(
+            getattr(args, "graha_backend_modalities", None)
+        ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         graha_freeze_backbone=getattr(
             args,
@@ -160,7 +171,7 @@ def build_config_from_args(
         label_suffix=args.label_suffix,
         toy_architecture=args.toy_architecture,
         target_size=args.target_size,
-        band_filter=args.band_filter,
+        band_filter=band_filter,
         max_train_samples=args.max_train_samples,
         max_val_samples=args.max_val_samples,
         max_test_samples=args.max_test_samples,
@@ -201,6 +212,12 @@ def build_config_from_args(
             args,
             "nodata_ignore_index",
             defaults.DEFAULT_NODATA_IGNORE_INDEX,
+        ),
+        excluded_nodata_values=getattr(args, "excluded_nodata_values", None),
+        image_nodata_policy=getattr(
+            args,
+            "image_nodata_policy",
+            defaults.DEFAULT_IMAGE_NODATA_POLICY,
         ),
         skip_toy_fit=args.no_fit or args.skip_toy_fit,
         skip_graha_fit=args.no_fit or args.skip_graha_fit,

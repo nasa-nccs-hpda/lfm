@@ -32,6 +32,7 @@ from lfm.all_models.all_tasks.data.normalization import (
     build_normalization_strategy,
     load_terramind_nac_pretraining_stats,
     load_terramind_pretraining_stats,
+    load_terramind_wac_static_pretraining_stats,
     load_terramind_wac_pretraining_stats,
 )
 
@@ -57,6 +58,7 @@ __all__ = [
     "image_to_hwc_float",
     "load_terramind_nac_pretraining_stats",
     "load_terramind_pretraining_stats",
+    "load_terramind_wac_static_pretraining_stats",
     "load_terramind_wac_pretraining_stats",
     "path_key",
     "read_image_file",

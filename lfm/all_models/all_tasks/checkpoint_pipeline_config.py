@@ -39,6 +39,13 @@ def append_flag(command: list[str], flag: str, value: Any) -> None:
     """Append a CLI flag/value pair, preserving argparse list and boolean behavior."""
     if value is None:
         return
+    if flag == "--excluded-nodata-values":
+        values = value if isinstance(value, (list, tuple)) else [value]
+        if not values:
+            return
+        joined = ",".join(str(item) for item in values)
+        command.append(f"{flag}={joined}")
+        return
     if isinstance(value, bool):
         if value:
             command.append(flag)
@@ -160,6 +167,7 @@ def _common_comparison_args(args: argparse.Namespace) -> list[str]:
     append_flag(command, "--dino-checkpoint", args.dino_checkpoint)
     append_flag(command, "--graha-pretrain-dir", args.graha_pretrain_dir)
     append_flag(command, "--graha-input-modality-mode", args.graha_input_modality_mode)
+    append_flag(command, "--graha-backend-modalities", args.graha_backend_modalities)
     append_flag(command, "--graha-vis-uv-merge-method", args.graha_vis_uv_merge_method)
     append_flag(command, "--normalization-source", args.normalization_source)
     append_flag(command, "--normalization-modality", args.normalization_modality)
@@ -202,6 +210,7 @@ def _semantic_comparison_command(
     append_flag(command, "--label-suffix", args.label_suffix)
     append_flag(command, "--ignore-nodata-in-loss", args.ignore_nodata_in_loss)
     append_flag(command, "--nodata-ignore-index", args.nodata_ignore_index)
+    append_flag(command, "--excluded-nodata-values", args.excluded_nodata_values)
     append_flag(command, "--batch-size", args.batch_size)
     append_flag(command, "--num-workers", args.num_workers)
     append_flag(command, "--learning-rate", args.learning_rate)
@@ -273,6 +282,9 @@ def _instance_comparison_command(
         command, "--progress-log-every-n-batches", args.progress_log_every_n_batches
     )
     append_flag(command, "--mask-shift", args.mask_shift)
+    append_flag(command, "--ignore-nodata-in-loss", args.ignore_nodata_in_loss)
+    append_flag(command, "--nodata-ignore-index", args.nodata_ignore_index)
+    append_flag(command, "--excluded-nodata-values", args.excluded_nodata_values)
     command.extend(args.comparison_extra_arg)
     return command
 
@@ -298,9 +310,11 @@ def _semantic_sweep_command_args(args: argparse.Namespace) -> list[str]:
     append_flag(command, "--max-test-samples", args.sweep_max_samples)
     append_flag(command, "--ignore-nodata-in-loss", args.ignore_nodata_in_loss)
     append_flag(command, "--nodata-ignore-index", args.nodata_ignore_index)
+    append_flag(command, "--excluded-nodata-values", args.excluded_nodata_values)
     append_flag(command, "--dino-checkpoint", args.dino_checkpoint)
     append_flag(command, "--graha-pretrain-dir", args.graha_pretrain_dir)
     append_flag(command, "--graha-input-modality-mode", args.graha_input_modality_mode)
+    append_flag(command, "--graha-backend-modalities", args.graha_backend_modalities)
     append_flag(command, "--graha-vis-uv-merge-method", args.graha_vis_uv_merge_method)
     append_flag(command, "--graha-stats-batch-size", args.graha_stats_batch_size)
     append_flag(command, "--graha-batch-size", args.graha_batch_size)
@@ -334,6 +348,7 @@ def _instance_sweep_command_args(args: argparse.Namespace) -> list[str]:
     append_flag(command, "--dino-checkpoint", args.dino_checkpoint)
     append_flag(command, "--graha-pretrain-dir", args.graha_pretrain_dir)
     append_flag(command, "--graha-input-modality-mode", args.graha_input_modality_mode)
+    append_flag(command, "--graha-backend-modalities", args.graha_backend_modalities)
     append_flag(command, "--graha-vis-uv-merge-method", args.graha_vis_uv_merge_method)
     append_flag(command, "--graha-stats-batch-size", args.graha_stats_batch_size)
     append_flag(command, "--graha-batch-size", args.graha_batch_size)
@@ -353,6 +368,9 @@ def _instance_sweep_command_args(args: argparse.Namespace) -> list[str]:
         command, "--prediction-score-threshold", args.prediction_score_threshold
     )
     append_flag(command, "--mask-shift", args.mask_shift)
+    append_flag(command, "--ignore-nodata-in-loss", args.ignore_nodata_in_loss)
+    append_flag(command, "--nodata-ignore-index", args.nodata_ignore_index)
+    append_flag(command, "--excluded-nodata-values", args.excluded_nodata_values)
     append_flag(command, "--max-checkpoints", args.max_checkpoints)
     append_flag(command, "--seed", args.seed)
     append_flag(command, "--verbose", args.verbose)

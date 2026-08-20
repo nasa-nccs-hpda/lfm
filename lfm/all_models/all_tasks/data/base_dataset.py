@@ -140,7 +140,15 @@ class LunarSegmentationDataset(Dataset):
             band = image[:, :, band_idx]
             valid = np.isfinite(band)
             if nodata_mask is not None:
-                valid = valid & ~nodata_mask
+                if nodata_mask.ndim == 2:
+                    band_nodata_mask = nodata_mask
+                elif nodata_mask.ndim == 3:
+                    band_nodata_mask = nodata_mask[:, :, band_idx]
+                else:
+                    raise ValueError(
+                        f"Expected 2D or 3D nodata mask, got {nodata_mask.shape}"
+                    )
+                valid = valid & ~band_nodata_mask
             if not np.any(valid):
                 continue
             valid_band = band[valid]
@@ -150,7 +158,7 @@ class LunarSegmentationDataset(Dataset):
             else:
                 scaled[:, :, band_idx] = band
             if nodata_mask is not None and np.any(nodata_mask):
-                scaled[:, :, band_idx][nodata_mask] = 0.0
+                scaled[:, :, band_idx][band_nodata_mask] = 0.0
         return scaled
 
     @staticmethod
@@ -193,8 +201,14 @@ class LunarSegmentationDataset(Dataset):
 
     def prepare_sample(self, idx: int) -> dict[str, Any]:
         record = self.records[idx]
-        image, nodata_mask = read_image_file_with_nodata_mask(record.image_path)
+        image, nodata_mask = read_image_file_with_nodata_mask(
+            record.image_path,
+            excluded_values=self.nodata_policy.excluded_values,
+            per_band=self.nodata_policy.needs_per_band_image_mask,
+        )
         image = image_to_hwc_float(image)
+        if nodata_mask.ndim == 3:
+            nodata_mask = np.moveaxis(nodata_mask, 0, -1)
         label = self.load_label(record.label_path)
 
         if image.shape[2] != self.num_channels:
@@ -203,6 +217,11 @@ class LunarSegmentationDataset(Dataset):
                 f"for {record.image_path}"
             )
         image = image[:, :, self.band_filter].astype(np.float32)
+        if nodata_mask.ndim == 3:
+            nodata_mask = nodata_mask[:, :, self.band_filter]
+            label_nodata_mask = nodata_mask.any(axis=2)
+        else:
+            label_nodata_mask = nodata_mask
 
         scale_nodata_mask = nodata_mask if self.nodata_policy.ignore_in_loss else None
         if self.scale_inputs:
@@ -210,7 +229,7 @@ class LunarSegmentationDataset(Dataset):
         else:
             image = self.nodata_policy.apply_to_image(image, nodata_mask)
 
-        label = self.nodata_policy.apply_to_label(label, nodata_mask)
+        label = self.nodata_policy.apply_to_label(label, label_nodata_mask)
         image = self.normalization.apply(image, band_filter=self.band_filter)
 
         if self.spatial_transform == "crop":

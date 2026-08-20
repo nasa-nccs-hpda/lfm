@@ -36,6 +36,8 @@ class SemanticSegmentationExperimentConfig:
     max_test_samples: int | None
     ignore_nodata_in_loss: bool
     nodata_ignore_index: int
+    excluded_nodata_values: list[float] | None
+    image_nodata_policy: str
     batch_size: int
     num_workers: int
     max_epochs: int
@@ -61,6 +63,7 @@ class SemanticSegmentationExperimentConfig:
     gfft_config_path: Path | None
     gfft_backbone_checkpoint: Path | None
     graha_input_modality_mode: str
+    graha_backend_modalities: list[str] | None
     graha_vis_uv_merge_method: str
     graha_freeze_backbone: bool
     graha_shape_loss_weight: float
@@ -142,6 +145,11 @@ def build_config_from_args(
         "dataset_modality",
         defaults.DEFAULT_DATASET_MODALITY,
     )
+    band_filter = (
+        list(args.band_filter)
+        if args.band_filter is not None
+        else defaults.default_band_filter_for_dataset(dataset_modality)
+    )
     label_file_type = _file_type_from_glob(args.label_glob)
     semantic_label_source = defaults.resolve_semantic_label_source(
         semantic_label_source=getattr(
@@ -161,7 +169,7 @@ def build_config_from_args(
         base_output_dir=base_output_dir,
         dino_checkpoint=dino_checkpoint,
         toy_lightning_checkpoint=toy_lightning_checkpoint,
-        band_filter=args.band_filter,
+        band_filter=band_filter,
         target_size=(args.target_size, args.target_size),
         spatial_transform="crop",
         semantic_label_source=semantic_label_source,
@@ -183,6 +191,12 @@ def build_config_from_args(
             args,
             "nodata_ignore_index",
             defaults.DEFAULT_NODATA_IGNORE_INDEX,
+        ),
+        excluded_nodata_values=getattr(args, "excluded_nodata_values", None),
+        image_nodata_policy=getattr(
+            args,
+            "image_nodata_policy",
+            defaults.DEFAULT_IMAGE_NODATA_POLICY,
         ),
         batch_size=args.batch_size,
         num_workers=args.num_workers,
@@ -224,6 +238,9 @@ def build_config_from_args(
                 "graha_input_modality_mode",
                 None,
             ),
+        ),
+        graha_backend_modalities=defaults.normalize_graha_backend_modalities(
+            getattr(args, "graha_backend_modalities", None)
         ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         graha_freeze_backbone=getattr(

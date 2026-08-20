@@ -30,6 +30,7 @@ class InstanceCheckpointComparisonPlotConfig:
     gfft_backbone_checkpoint: Path | None
     dataset_modality: str
     graha_input_modality_mode: str
+    graha_backend_modalities: list[str] | None
     graha_vis_uv_merge_method: str
     normalization_source: str
     normalization_modality: str
@@ -60,6 +61,8 @@ class InstanceCheckpointComparisonPlotConfig:
     mask_shift: tuple[int, int]
     ignore_nodata_in_loss: bool
     nodata_ignore_index: int
+    excluded_nodata_values: list[float] | None
+    image_nodata_policy: str
     seed: int
 
 
@@ -218,6 +221,11 @@ def build_checkpoint_comparison_plot_config_from_args(
     args: argparse.Namespace,
 ) -> InstanceCheckpointComparisonPlotConfig:
     dataset_modality = args.dataset_modality
+    band_filter = (
+        list(args.band_filter)
+        if args.band_filter is not None
+        else defaults.default_band_filter_for_dataset(dataset_modality)
+    )
     return InstanceCheckpointComparisonPlotConfig(
         data_root=args.data_root.resolve(),
         output_dir=args.output_dir.resolve(),
@@ -231,6 +239,9 @@ def build_checkpoint_comparison_plot_config_from_args(
             dataset_modality=dataset_modality,
             graha_input_modality_mode=args.graha_input_modality_mode,
         ),
+        graha_backend_modalities=defaults.normalize_graha_backend_modalities(
+            args.graha_backend_modalities
+        ),
         graha_vis_uv_merge_method=args.graha_vis_uv_merge_method,
         normalization_source=args.normalization_source,
         normalization_modality=defaults.resolve_normalization_modality(
@@ -238,7 +249,7 @@ def build_checkpoint_comparison_plot_config_from_args(
             normalization_modality=args.normalization_modality,
         ),
         target_size=args.target_size,
-        band_filter=args.band_filter,
+        band_filter=band_filter,
         image_glob=args.image_glob,
         label_glob=args.label_glob,
         image_suffix=args.image_suffix,
@@ -264,5 +275,7 @@ def build_checkpoint_comparison_plot_config_from_args(
         mask_shift=tuple(args.mask_shift),
         ignore_nodata_in_loss=args.ignore_nodata_in_loss,
         nodata_ignore_index=args.nodata_ignore_index,
+        excluded_nodata_values=args.excluded_nodata_values,
+        image_nodata_policy=args.image_nodata_policy,
         seed=args.seed,
     )
