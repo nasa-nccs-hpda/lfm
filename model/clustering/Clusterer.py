@@ -6,6 +6,8 @@ from tqdm import tqdm
 
 from osgeo import gdal
 
+from model.clustering.ClusterPreprocessConfig import ClusterPreprocessConfig
+
 
 # ----------------------------------------------------------------------------
 # Class Clusterer
@@ -27,9 +29,10 @@ class Clusterer(object):
         randomState: int = 0,
         noDataValue=None,
         noDataLabel: int = 0,
+        preprocessConfig: ClusterPreprocessConfig | None = None,
     ) -> np.ndarray:
 
-        img = np.moveaxis(bands, 0, -1)
+        img = Clusterer._prepareFeatures(bands, noDataValue, preprocessConfig)
         flatImg = np.ascontiguousarray(
             img.reshape(-1, img.shape[-1]),
             dtype=np.float32,
@@ -44,7 +47,8 @@ class Clusterer(object):
 
         validMask = finiteMask
         if noDataValue is not None:
-            validMask = validMask & ~(flatImg == noDataValue).any(axis=1)
+            source = np.moveaxis(bands, 0, -1).reshape(-1, len(bands))
+            validMask = validMask & ~(source == noDataValue).any(axis=1)
 
         if not validMask.any():
             raise ValueError('No valid pixels are available for clustering.')
@@ -161,7 +165,138 @@ class Clusterer(object):
             imgCl[validMask] = validLabels + 1
         imgCl = imgCl.reshape(img[:, :, 0].shape)
 
+        if (
+            preprocessConfig is not None
+            and preprocessConfig.medianFilterLabelsSize is not None
+            and preprocessConfig.medianFilterLabelsSize > 1
+        ):
+            imgCl = Clusterer._medianFilterLabels(
+                imgCl,
+                preprocessConfig.medianFilterLabelsSize,
+            )
+            imgCl[~validMask.reshape(imgCl.shape)] = noDataLabel
+
         return imgCl
+
+    @staticmethod
+    def _prepareFeatures(
+        bands: list,
+        noDataValue=None,
+        config: ClusterPreprocessConfig | None = None,
+    ) -> np.ndarray:
+        img = np.moveaxis(bands, 0, -1).astype(np.float32, copy=False)
+        if config is None:
+            return img
+
+        base = img[:, :, 0]
+        validMask = np.isfinite(base)
+        if noDataValue is not None:
+            validMask &= base != noDataValue
+
+        working = base.copy()
+        if config.clipPercentiles is not None and validMask.any():
+            lo, hi = np.percentile(working[validMask], config.clipPercentiles)
+            working[validMask] = np.clip(working[validMask], lo, hi)
+
+        if config.gaussianSigma is not None and config.gaussianSigma > 0:
+            working = Clusterer._smooth(working, validMask, config.gaussianSigma)
+
+        features = []
+        if config.includeRaw:
+            features.append(working)
+        if config.includeLocalMean:
+            features.append(Clusterer._boxSmooth(working, validMask, config.localMeanSize))
+        if config.includeLocalStd:
+            mean = Clusterer._boxSmooth(working, validMask, config.localStdSize)
+            meanSq = Clusterer._boxSmooth(working * working, validMask, config.localStdSize)
+            features.append(np.sqrt(np.maximum(meanSq - mean * mean, 0.0)))
+        if config.includeGradientMagnitude:
+            gy, gx = np.gradient(working)
+            features.append(np.sqrt(gx * gx + gy * gy))
+        if config.includeLaplacian:
+            lap = np.zeros_like(working, dtype=np.float32)
+            lap[1:-1, 1:-1] = (
+                working[:-2, 1:-1]
+                + working[2:, 1:-1]
+                + working[1:-1, :-2]
+                + working[1:-1, 2:]
+                - 4.0 * working[1:-1, 1:-1]
+            )
+            features.append(lap)
+
+        if not features:
+            raise ValueError('At least one clustering feature must be enabled.')
+
+        featureImg = np.stack(features, axis=-1).astype(np.float32, copy=False)
+        if config.standardizeFeatures and validMask.any():
+            for idx in range(featureImg.shape[-1]):
+                layer = featureImg[:, :, idx]
+                values = layer[validMask]
+                mean = values.mean()
+                std = values.std()
+                if std > 0:
+                    featureImg[:, :, idx] = (layer - mean) / std
+                else:
+                    featureImg[:, :, idx] = layer - mean
+
+        return featureImg
+
+    @staticmethod
+    def _smooth(values: np.ndarray, validMask: np.ndarray, sigma: float) -> np.ndarray:
+        try:
+            from scipy.ndimage import gaussian_filter
+
+            filled = np.where(validMask, values, 0.0)
+            weights = validMask.astype(np.float32)
+            smoothed = gaussian_filter(filled, sigma=sigma)
+            smoothedWeights = gaussian_filter(weights, sigma=sigma)
+            return np.divide(
+                smoothed,
+                smoothedWeights,
+                out=np.zeros_like(smoothed),
+                where=smoothedWeights > 0,
+            )
+        except ImportError:
+            size = max(3, int(round(sigma * 2 + 1)))
+            return Clusterer._boxSmooth(values, validMask, size)
+
+    @staticmethod
+    def _boxSmooth(values: np.ndarray, validMask: np.ndarray, size: int) -> np.ndarray:
+        size = max(1, int(size))
+        if size % 2 == 0:
+            size += 1
+        radius = size // 2
+        paddedValues = np.pad(np.where(validMask, values, 0.0), radius, mode='edge')
+        paddedWeights = np.pad(validMask.astype(np.float32), radius, mode='edge')
+        valueIntegral = Clusterer._integralImage(paddedValues)
+        weightIntegral = Clusterer._integralImage(paddedWeights)
+        totals = Clusterer._windowSums(valueIntegral, size)
+        weights = Clusterer._windowSums(weightIntegral, size)
+        return np.divide(totals, weights, out=np.zeros_like(totals), where=weights > 0)
+
+    @staticmethod
+    def _integralImage(values: np.ndarray) -> np.ndarray:
+        return np.pad(values, ((1, 0), (1, 0)), mode='constant').cumsum(0).cumsum(1)
+
+    @staticmethod
+    def _windowSums(integral: np.ndarray, size: int) -> np.ndarray:
+        return (
+            integral[size:, size:]
+            - integral[:-size, size:]
+            - integral[size:, :-size]
+            + integral[:-size, :-size]
+        )
+
+    @staticmethod
+    def _medianFilterLabels(labels: np.ndarray, size: int) -> np.ndarray:
+        size = max(1, int(size))
+        if size % 2 == 0:
+            size += 1
+        radius = size // 2
+        padded = np.pad(labels, radius, mode='edge')
+        windows = np.lib.stride_tricks.sliding_window_view(padded, (size, size))
+        return np.median(windows, axis=(-2, -1)).astype(labels.dtype, copy=False)
+
     # ------------------------------------------------------------------------
     # labelsToGeotiff
     # These renderers seem to write tiles or pyramids to disk.
