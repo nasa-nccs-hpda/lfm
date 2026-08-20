@@ -25,23 +25,36 @@ class Clusterer(object):
         device: str = 'auto',
         showProgress: bool = True,
         randomState: int = 0,
+        noDataValue=None,
+        noDataLabel: int = 0,
     ) -> np.ndarray:
 
         img = np.moveaxis(bands, 0, -1)
-        img1d = np.ascontiguousarray(
+        flatImg = np.ascontiguousarray(
             img.reshape(-1, img.shape[-1]),
             dtype=np.float32,
         )
 
-        if img1d.shape[0] < numClusters:
-            raise ValueError(
-                f'Cannot create {numClusters} clusters from '
-                f'{img1d.shape[0]} pixels.'
-            )
-        if not np.isfinite(img1d).all():
+        finiteMask = np.isfinite(flatImg).all(axis=1)
+        if not finiteMask.all():
             raise ValueError(
                 'Input bands contain NaN or infinite values. Replace or mask '
                 'invalid pixels before clustering.'
+            )
+
+        validMask = finiteMask
+        if noDataValue is not None:
+            validMask = validMask & ~(flatImg == noDataValue).any(axis=1)
+
+        if not validMask.any():
+            raise ValueError('No valid pixels are available for clustering.')
+
+        img1d = flatImg[validMask]
+
+        if img1d.shape[0] < numClusters:
+            raise ValueError(
+                f'Cannot create {numClusters} clusters from '
+                f'{img1d.shape[0]} valid pixels.'
             )
 
         if device == 'auto':
@@ -110,7 +123,7 @@ class Clusterer(object):
             if fitProgress is not None:
                 fitProgress.close()
 
-        imgCl = np.empty(nPixels, dtype=np.int32)
+        validLabels = np.empty(nPixels, dtype=np.int32)
         predictIter = range(0, nPixels, batchSize)
         if showProgress:
             predictIter = tqdm(predictIter, desc='K-Means predict', unit='batch')
@@ -124,12 +137,16 @@ class Clusterer(object):
                     device=torchDevice,
                 )
                 labels = torch.cdist(batch, centroids).argmin(dim=1)
-                imgCl[start:end] = labels.cpu().numpy()
+                validLabels[start:end] = labels.cpu().numpy()
 
+        imgCl = np.full(flatImg.shape[0], noDataLabel, dtype=np.int32)
+        if noDataValue is None:
+            imgCl[validMask] = validLabels
+        else:
+            imgCl[validMask] = validLabels + 1
         imgCl = imgCl.reshape(img[:, :, 0].shape)
 
         return imgCl
-
     # ------------------------------------------------------------------------
     # labelsToGeotiff
     # These renderers seem to write tiles or pyramids to disk.
