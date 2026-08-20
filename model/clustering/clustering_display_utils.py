@@ -17,6 +17,9 @@ import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 from ipyleaflet import WidgetControl
 
+CLUSTER_COLORMAP = "tab20"
+FINAL_LABEL_COLORMAP = "coolwarm"
+
 repo_root = Path.cwd().parent
 repo_root_str = str(repo_root).replace('/panfs/ccds02/nobackup', '/explore/nobackup')
 repo_root = Path(repo_root_str)
@@ -33,17 +36,17 @@ sys.path.insert(0, str(repo_root))
 from model.clustering.Clusterer import Clusterer
 from model.clustering.ImageHelperSingleBand import ImageHelper
 
-def _create_display_legend(labels):
+def _create_display_legend(labels, colormap: str = CLUSTER_COLORMAP):
     # Unique cluster IDs, used to generate labels
     cluster_ids = sorted(int(i) for i in np.unique(labels))
     vmin = min(cluster_ids)
     vmax = max(cluster_ids)
 
-    cmap = cm.get_cmap("viridis")
+    cmap = cm.get_cmap(colormap)
 
     rows = []
     for cid in cluster_ids:
-        # Match the same continuous viridis mapping used by the layer
+        # Match the same colormap normalization used by the layer
         if vmax == vmin:
             t = 0.5
         else:
@@ -91,7 +94,12 @@ def _create_display_legend(labels):
 
 
 def display_images_labels(
-    inputFile: Path, labelsFile: Path, labels: np.array, inHelper, lHelper
+    inputFile: Path,
+    labelsFile: Path,
+    labels: np.array,
+    inHelper,
+    lHelper,
+    colormap: str = CLUSTER_COLORMAP,
 ):
     # Use localtileserver directly for raster serving. This path works with the
     # Jupyter/VS Code loopback bridge and avoids leafmap.add_raster().
@@ -113,7 +121,7 @@ def display_images_labels(
         vmax=lHelper._maxValue,
         nodata=lHelper._noDataValue,
         opacity=0.5,
-        colormap="viridis",
+        colormap=colormap,
     )
     labels_layer.name = labelsFile.name
 
@@ -142,20 +150,20 @@ def display_images_labels(
 
     m.layout.height = "600px"
 
-    legend_html = _create_display_legend(labels)
+    legend_html = _create_display_legend(labels, colormap)
     legend_control = WidgetControl(widget=legend_html, position="topright")
     m.add(legend_control)
     return m, legend_control
 
 
-def _create_binary_legend(newClusters):
+def _create_binary_legend(newClusters, colormap: str = FINAL_LABEL_COLORMAP):
     # Final grouped class IDs
     class_ids = sorted(int(x) for x in np.unique(newClusters))
 
     vmin = min(class_ids)
     vmax = max(class_ids)
 
-    cmap = cm.get_cmap("viridis")
+    cmap = cm.get_cmap(colormap)
 
     rows = []
 
@@ -222,7 +230,14 @@ def _create_binary_legend(newClusters):
     return final_legend_html
 
 
-def display_images_binary_labels(m, inHelper, clusterMapFile, labelsFile, newClusters):
+def display_images_binary_labels(
+    m,
+    inHelper,
+    clusterMapFile,
+    labelsFile,
+    newClusters,
+    colormap: str = FINAL_LABEL_COLORMAP,
+):
     # This is also clipped because inHelper._dataset is the 512x512 input clip.
     cmDataset = Clusterer.labelsToGeotiff(
         inHelper._dataset,
@@ -240,7 +255,7 @@ def display_images_binary_labels(m, inHelper, clusterMapFile, labelsFile, newClu
         vmax=cmHelper._maxValue,
         nodata=cmHelper._noDataValue,
         opacity=0.5,
-        colormap="viridis",
+        colormap=colormap,
     )
     cluster_layer.name = clusterMapFile.name
 
@@ -250,7 +265,7 @@ def display_images_binary_labels(m, inHelper, clusterMapFile, labelsFile, newClu
     except Exception:
         pass
 
-    final_legend_html = _create_binary_legend(newClusters)
+    final_legend_html = _create_binary_legend(newClusters, colormap)
 
     final_legend_control = WidgetControl(
         widget=final_legend_html,
