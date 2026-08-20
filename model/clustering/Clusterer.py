@@ -124,7 +124,7 @@ class Clusterer(object):
                     device=torchDevice,
                 )
                 labels = torch.cdist(batch, centroids).argmin(dim=1)
-                imgCl[start:end] = labels.cpu().np()
+                imgCl[start:end] = labels.cpu().numpy()
 
         imgCl = imgCl.reshape(img[:, :, 0].shape)
 
