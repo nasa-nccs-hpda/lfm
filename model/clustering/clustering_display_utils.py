@@ -150,7 +150,7 @@ def display_images_labels(
 
 def _create_binary_legend(newClusters):
     # Final grouped class IDs
-    class_ids = sorted(int(x) for x in numpy.unique(newClusters))
+    class_ids = sorted(int(x) for x in np.unique(newClusters))
 
     vmin = min(class_ids)
     vmax = max(class_ids)
@@ -231,7 +231,7 @@ def display_images_binary_labels(m, inHelper, clusterMapFile, labelsFile, newClu
     )
 
     cmHelper = ImageHelper()
-    cmHelper.initFromDataset(cmDataset, noDataValue)
+    cmHelper.initFromDataset(cmDataset, inHelper._noDataValue)
 
     cluster_client = TileClient(str(clusterMapFile), debug=True)
     cluster_layer = get_leaflet_tile_layer(

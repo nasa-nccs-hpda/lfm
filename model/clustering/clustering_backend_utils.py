@@ -62,7 +62,7 @@ def crop_center(src_path: Path, dst_path: Path, size: int = 512) -> Path:
     return dst_path
 
 
-def handleClick(change: dict) -> None:
+def handleClick(change: dict, output, sl, bt, opts: list, table: dict) -> None:
     with output:
         if change.new == "Next":
             if not sl.value:
@@ -71,16 +71,16 @@ def handleClick(change: dict) -> None:
                 return
 
             nn = updateList(list(sl.options), list(sl.value))
-            updateDict("N")
+            updateDict("N", sl, table)
             sl.options = nn
             bt.value = "Select:"
 
         if change.new == "Done":
-            updateDict("D")
+            updateDict("D", sl, table)
 
         if change.new == "Start Over":
             sl.options = opts
-            updateDict("S")
+            updateDict("S", sl, table)
             bt.value = "Select:"
 
 
@@ -95,7 +95,7 @@ def relabel(labelArray: np.ndarray, lookup: dict) -> np.ndarray:
     return newLab
 
 
-def updateDict(op: str) -> None:
+def updateDict(op: str, sl, table: dict) -> None:
     if op == "N":
         key = list(sl.value)[0]
         table[key] = list(sl.value)
