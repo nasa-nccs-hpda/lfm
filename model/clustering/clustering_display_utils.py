@@ -19,7 +19,7 @@ from ipyleaflet import WidgetControl
 
 CLUSTER_COLORMAP = "tab20"
 FINAL_CLASS_COLORS = {0: "#2563eb", 1: "#dc2626"}
-FINAL_TILE_COLORMAP = {0: (37, 99, 235, 255), 1: (220, 38, 38, 255)}
+FINAL_TILE_COLORMAP = "bwr"
 
 repo_root = Path.cwd().parent
 repo_root_str = str(repo_root).replace('/panfs/ccds02/nobackup', '/explore/nobackup')
