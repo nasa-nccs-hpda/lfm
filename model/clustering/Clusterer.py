@@ -65,9 +65,15 @@ class Clusterer(object):
             torchDevice = torch.device(device)
 
         rng = np.random.default_rng(randomState)
-        initIdx = rng.choice(img1d.shape[0], size=numClusters, replace=False)
+        if img1d.shape[1] == 1:
+            quantiles = np.linspace(0.0, 1.0, numClusters + 2, dtype=np.float32)[1:-1]
+            initialCentroids = np.quantile(img1d[:, 0], quantiles).reshape(-1, 1)
+        else:
+            initIdx = rng.choice(img1d.shape[0], size=numClusters, replace=False)
+            initialCentroids = img1d[initIdx]
+
         centroids = torch.as_tensor(
-            img1d[initIdx],
+            np.ascontiguousarray(initialCentroids, dtype=np.float32),
             dtype=torch.float32,
             device=torchDevice,
         )
@@ -110,6 +116,15 @@ class Clusterer(object):
 
                 nonEmpty = counts > 0
                 centroids[nonEmpty] = sums[nonEmpty] / counts[nonEmpty].unsqueeze(1)
+
+                empty = torch.where(~nonEmpty)[0]
+                if len(empty) > 0:
+                    replaceIdx = rng.choice(nPixels, size=len(empty), replace=False)
+                    centroids[empty] = torch.as_tensor(
+                        img1d[replaceIdx],
+                        dtype=torch.float32,
+                        device=torchDevice,
+                    )
 
                 if fitProgress is not None:
                     fitProgress.set_postfix(inertia=f'{inertia:.4g}')

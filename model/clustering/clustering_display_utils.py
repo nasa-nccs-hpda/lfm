@@ -237,6 +237,7 @@ def display_images_binary_labels(
     labelsFile,
     newClusters,
     colormap: str = FINAL_LABEL_COLORMAP,
+    legend_control=None,
 ):
     # This is also clipped because inHelper._dataset is the 512x512 input clip.
     cmDataset = Clusterer.labelsToGeotiff(
@@ -259,11 +260,12 @@ def display_images_binary_labels(
     )
     cluster_layer.name = clusterMapFile.name
 
-    # Remove the old 30-cluster legend, if it is still on the map
-    try:
-        m.remove(legend_control)
-    except Exception:
-        pass
+    # Remove the old first-pass legend, if the caller provides it.
+    if legend_control is not None:
+        try:
+            m.remove(legend_control)
+        except Exception:
+            pass
 
     final_legend_html = _create_binary_legend(newClusters, colormap)
 
@@ -287,5 +289,5 @@ def display_images_binary_labels(
     # Add the newly generated final labels
     m.add(cluster_layer)
 
-    display(m)
+    return m
 
