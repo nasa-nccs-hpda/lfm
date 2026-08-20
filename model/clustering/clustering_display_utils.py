@@ -136,7 +136,7 @@ def display_images_labels(
         draw_control=False,
         measure_control=False,
         scale_control=False,
-        toolbar_control=True,
+        toolbar_control=False,
         center=image_client.center(),
         zoom=image_client.default_zoom,
     )
