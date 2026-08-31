@@ -709,6 +709,9 @@ def sliding_window_inference(
         # Storage for tile info
         tile_predictions = []
         tile_positions = []
+        tile_logit_ranges = []
+        tile_probability_ranges = []
+        tile_positive_pixels = []
 
         # Iterate through tiles
         tile_count = 0
@@ -728,6 +731,28 @@ def sliding_window_inference(
 
                 # Run inference
                 logits = model(tile_tensor)
+                if not torch.is_tensor(logits):
+                    raise TypeError(
+                        "Inference model must return a torch.Tensor of logits, "
+                        f"got {type(logits)}"
+                    )
+                logits_cpu = logits.detach().float().cpu()
+                finite_logits = logits_cpu[torch.isfinite(logits_cpu)]
+                if finite_logits.numel() == 0:
+                    raise ValueError(
+                        f"Tile {tile_id} produced no finite logits."
+                    )
+                logit_range = (
+                    float(finite_logits.min()), float(finite_logits.max())
+                )
+                tile_logit_ranges.append(logit_range)
+                if debug:
+                    class_means = logits_cpu.mean(dim=(0, 2, 3)).tolist()
+                    print(
+                        f"  Tile {tile_id}: logits shape={tuple(logits.shape)} "
+                        f"range=[{logit_range[0]:.6g}, {logit_range[1]:.6g}] "
+                        f"class_means={class_means}"
+                    )
                 # Match the training/validation probability convention:
                 # two-class heads use softmax and select class 1, while a
                 # single-channel head uses sigmoid.
@@ -740,6 +765,25 @@ def sliding_window_inference(
                 probs_np = probs.cpu().numpy()
                 probs_np = probs_np[0]
                 probs_np = np.transpose(probs_np, (1, 2, 0))
+                finite_tile_probs = probs_np[np.isfinite(probs_np)]
+                if finite_tile_probs.size == 0:
+                    raise ValueError(
+                        f"Tile {tile_id} produced no finite probabilities."
+                    )
+                probability_range = (
+                    float(finite_tile_probs.min()),
+                    float(finite_tile_probs.max()),
+                )
+                tile_probability_ranges.append(probability_range)
+                tile_positive_pixels.append(
+                    int(np.count_nonzero(probs_np.squeeze() > threshold))
+                )
+                if debug:
+                    print(
+                        f"  Tile {tile_id}: positive-probability range="
+                        f"[{probability_range[0]:.6g}, {probability_range[1]:.6g}] "
+                        f"pixels>{threshold}={tile_positive_pixels[-1]:,}"
+                    )
 
                 # Store tile prediction and position if requested
                 if return_tiles:
@@ -763,6 +807,16 @@ def sliding_window_inference(
 
         if debug:
             print(f"\nProcessed {tile_count} tiles total")
+            logit_min = min(item[0] for item in tile_logit_ranges)
+            logit_max = max(item[1] for item in tile_logit_ranges)
+            probability_min = min(item[0] for item in tile_probability_ranges)
+            probability_max = max(item[1] for item in tile_probability_ranges)
+            print(
+                f"Tile diagnostic summary: logits range=[{logit_min:.6g}, "
+                f"{logit_max:.6g}], probabilities range=[{probability_min:.6g}, "
+                f"{probability_max:.6g}], total tile pixels>{threshold}="
+                f"{sum(tile_positive_pixels):,}"
+            )
 
         # Merge all tiles
         merged_probs = output_merger.merge(unpad=True)
