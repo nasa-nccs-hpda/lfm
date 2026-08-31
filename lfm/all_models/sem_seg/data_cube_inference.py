@@ -1504,12 +1504,24 @@ def plot_inference_results(
     file_pairs = file_pairs[:max_samples]
     if nodata_masks is not None:
         nodata_masks = nodata_masks[:max_samples]
-    fig, axes = plt.subplots(
-        3,
-        len(file_pairs),
-        figsize=(6 * len(file_pairs), 14),
-        squeeze=False,
+    sample_count = len(file_pairs)
+    fig = plt.figure(
+        figsize=(6 * sample_count, 14),
+        constrained_layout=True,
     )
+    grid = fig.add_gridspec(
+        3,
+        2 * sample_count,
+        width_ratios=[value for _ in range(sample_count) for value in (1.0, 0.05)],
+    )
+    axes = np.empty((3, sample_count), dtype=object)
+    colorbar_axes = np.empty((3, sample_count), dtype=object)
+    for row in range(3):
+        for column in range(sample_count):
+            axes[row, column] = fig.add_subplot(grid[row, 2 * column])
+            colorbar_axes[row, column] = fig.add_subplot(
+                grid[row, 2 * column + 1]
+            )
     for index, ((wac_file, static_file), image, prediction) in enumerate(
         zip(file_pairs, images_raw, predictions)
     ):
@@ -1564,7 +1576,7 @@ def plot_inference_results(
             vis_data, cmap="gray", vmin=vis_vmin, vmax=vis_vmax
         )
         axes[0, index].set_title(f"VIS band 0: {vis_name}")
-        fig.colorbar(vis_plot, ax=axes[0, index], fraction=0.046, pad=0.04)
+        fig.colorbar(vis_plot, cax=colorbar_axes[0, index])
 
         static_plot = axes[1, index].imshow(
             static_data, cmap="gray", vmin=static_vmin, vmax=static_vmax
@@ -1572,7 +1584,7 @@ def plot_inference_results(
         axes[1, index].set_title(
             f"Static band {static_band_number}: {static_name}"
         )
-        fig.colorbar(static_plot, ax=axes[1, index], fraction=0.046, pad=0.04)
+        fig.colorbar(static_plot, cax=colorbar_axes[1, index])
 
         prediction_display = create_binary_colormap(
             np.nan_to_num(prediction, nan=0.0)
@@ -1584,13 +1596,17 @@ def plot_inference_results(
             )
             prediction_display[prediction_mask] = (0.65, 0.65, 0.65)
         axes[2, index].imshow(prediction_display)
+        colorbar_axes[2, index].set_axis_off()
         axes[2, index].set_title(
             f"Graha prediction ({int(prediction.sum()):,} positive pixels)"
         )
+        image_height, image_width = vis_data.shape
         for row in axes[:, index]:
+            row.set_xlim(-0.5, image_width - 0.5)
+            row.set_ylim(image_height - 0.5, -0.5)
+            row.set_aspect("equal", adjustable="box")
             row.axis("off")
     fig.suptitle(f"Graha inference: {n_channels} input channels", y=1.0)
-    fig.tight_layout()
     output_path = output_dir / "graha_inference_viz.png"
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.show()

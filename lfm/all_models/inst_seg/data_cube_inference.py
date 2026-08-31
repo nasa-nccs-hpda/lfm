@@ -330,9 +330,23 @@ def plot_instance_inference_results(
         raise ValueError("No instance predictions are available to plot.")
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    fig, axes = plt.subplots(
-        3, sample_count, figsize=(6 * sample_count, 14), squeeze=False
+    fig = plt.figure(
+        figsize=(6 * sample_count, 14),
+        constrained_layout=True,
     )
+    grid = fig.add_gridspec(
+        3,
+        2 * sample_count,
+        width_ratios=[value for _ in range(sample_count) for value in (1.0, 0.05)],
+    )
+    axes = np.empty((3, sample_count), dtype=object)
+    colorbar_axes = np.empty((3, sample_count), dtype=object)
+    for row in range(3):
+        for column in range(sample_count):
+            axes[row, column] = fig.add_subplot(grid[row, 2 * column])
+            colorbar_axes[row, column] = fig.add_subplot(
+                grid[row, 2 * column + 1]
+            )
     for index in range(sample_count):
         wac_file, static_file = file_pairs[index]
         prediction = predictions[index]
@@ -360,7 +374,7 @@ def plot_instance_inference_results(
             vis, cmap="gray", vmin=vis_limits[0], vmax=vis_limits[1]
         )
         axes[0, index].set_title(f"VIS band 0: {vis_name}")
-        fig.colorbar(vis_plot, ax=axes[0, index], fraction=0.046, pad=0.04)
+        fig.colorbar(vis_plot, cax=colorbar_axes[0, index])
         static_plot = axes[1, index].imshow(
             static,
             cmap="gray",
@@ -370,15 +384,14 @@ def plot_instance_inference_results(
         axes[1, index].set_title(
             f"Static band {static_band_number}: {static_name}"
         )
-        fig.colorbar(
-            static_plot, ax=axes[1, index], fraction=0.046, pad=0.04
-        )
+        fig.colorbar(static_plot, cax=colorbar_axes[1, index])
         instance_display = _colorize_instances(prediction["instance_map"])
         if nodata_masks is not None:
             wac_channels = min(7, nodata_masks[index].shape[0])
             invalid = np.any(nodata_masks[index][:wac_channels], axis=0)
             instance_display[invalid] = (0.65, 0.65, 0.65)
         axes[2, index].imshow(instance_display)
+        colorbar_axes[2, index].set_axis_off()
         for box, score in zip(prediction["boxes"], prediction["scores"]):
             x1, y1, x2, y2 = box
             axes[2, index].add_patch(
@@ -402,10 +415,13 @@ def plot_instance_inference_results(
         axes[2, index].set_title(
             f"Graha instances ({len(prediction['scores'])} detections)"
         )
+        image_height, image_width = vis.shape
         for row in axes[:, index]:
+            row.set_xlim(-0.5, image_width - 0.5)
+            row.set_ylim(image_height - 0.5, -0.5)
+            row.set_aspect("equal", adjustable="box")
             row.axis("off")
     fig.suptitle(f"Graha instance inference: {n_channels} input channels", y=1.0)
-    fig.tight_layout()
     output_path = output_dir / "graha_instance_inference_viz.png"
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.show()
