@@ -393,10 +393,10 @@ def get_datacube_data(
                 invalid |= combined_values == nodata_value
             for value in excluded_nodata_values or ():
                 invalid |= combined_values == float(value)
-            # Apply the WAC validity cutoff while the first seven canonical
-            # channels are still identifiable, then apply the user's band
-            # filter to both data and mask.
-            invalid[:7] |= combined_values[:7] < wac_nodata_threshold
+            # Apply the same conservative cutoff to every loaded modality
+            # before band filtering. Product discovery separately applies the
+            # cutoff to every WAC band when validating product IDs.
+            invalid |= combined_values < wac_nodata_threshold
             if band_filter is not None:
                 combined_ds = combined_ds.isel(band=band_filter)
                 invalid = invalid[band_filter]
@@ -1345,7 +1345,9 @@ def preprocess_datacubes(images_raw, means=None, stds=None, nodata_masks=None):
 
     Training applies per-band min-max scaling followed by pretrained z-score
     normalization. NoData pixels are excluded from min-max statistics and are
-    preserved for Graha's NoData-aware input handling.
+    replaced with the corresponding band mean before z-score normalization.
+    Thus invalid model-input pixels become zero in normalized space. The
+    original NoData mask remains available to mask merged outputs.
     """
     from tqdm import tqdm
 
@@ -1363,6 +1365,8 @@ def preprocess_datacubes(images_raw, means=None, stds=None, nodata_masks=None):
         invalid = masks_hwc[index] if masks_hwc is not None else np.zeros_like(
             image, dtype=bool
         )
+        invalid |= ~np.isfinite(image)
+        invalid |= image < WAC_NODATA_THRESHOLD
         valid = ~invalid
         def _range(values):
             finite_values = values[np.isfinite(values)]
@@ -1386,8 +1390,9 @@ def preprocess_datacubes(images_raw, means=None, stds=None, nodata_masks=None):
             f"Static valid range {_range(static_image[static_valid])}"
         )
         # Match LunarSegmentationDataset.min_max_scale_bands before applying
-        # the z-score statistics. Preserve invalid pixels for Graha's
-        # NoData-aware input handling.
+        # the z-score statistics. Invalid pixels are filled after
+        # normalization so extreme raster sentinels cannot create NaNs in the
+        # model forward pass; nodata_masks still control output masking.
         scaled = image.copy()
         for channel in range(image.shape[-1]):
             channel_valid = valid[:, :, channel]
@@ -1405,8 +1410,14 @@ def preprocess_datacubes(images_raw, means=None, stds=None, nodata_masks=None):
             std = np.asarray(stds, dtype=np.float32)
             for channel in range(image.shape[-1]):
                 channel_valid = valid[:, :, channel]
-                images_normalized[index][channel_valid, channel] = (
-                    scaled[channel_valid, channel] - mean[channel]
+                # Mean-impute in the pre-z-score (min-max) domain. This makes
+                # every invalid pixel exactly zero after z-score normalization
+                # for its own band, without exposing raster sentinels to the
+                # model.
+                channel_values = scaled[:, :, channel]
+                channel_values[~channel_valid] = mean[channel]
+                images_normalized[index][:, :, channel] = (
+                    channel_values - mean[channel]
                 ) / std[channel]
         else:
             # With no pretrained stats, retain the historical [-1, 1]

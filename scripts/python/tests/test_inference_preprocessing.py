@@ -35,7 +35,7 @@ def test_preprocess_matches_training_minmax_then_zscore():
     np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
 
 
-def test_preprocess_excludes_nodata_from_scaling_and_preserves_it():
+def test_preprocess_excludes_nodata_from_scaling_and_fills_it_for_model():
     image_chw = np.array(
         [[[[-32768.0, 1.0], [3.0, 5.0]]]], dtype=np.float32
     )
@@ -44,17 +44,19 @@ def test_preprocess_excludes_nodata_from_scaling_and_preserves_it():
     )
     actual = preprocess_datacubes(
         image_chw,
-        means=[0.0],
-        stds=[1.0],
+        means=[0.25],
+        stds=[0.5],
         nodata_masks=nodata_mask,
     )[0]
 
-    assert actual[0, 0, 0] == -32768.0
+    # The invalid pixel is mean-imputed before z-scoring, so it reaches the
+    # model as zero rather than the source -32768 sentinel.
+    assert actual[0, 0, 0] == 0.0
     np.testing.assert_allclose(
-        actual[0, 1, 0], 0.0, rtol=1e-6, atol=1e-6
+        actual[0, 1, 0], -0.5, rtol=1e-6, atol=1e-6
     )
     np.testing.assert_allclose(
-        actual[1, :, 0], [0.5, 1.0], rtol=1e-6, atol=1e-6
+        actual[1, :, 0], [0.5, 1.5], rtol=1e-6, atol=1e-6
     )
 
 
