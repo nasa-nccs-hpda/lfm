@@ -821,8 +821,20 @@ def sliding_window_inference(
         # Merge all tiles
         merged_probs = output_merger.merge(unpad=True)
         if nodata_masks is not None:
-            valid_mask = ~np.any(nodata_masks[idx], axis=0)
+            # Static bands can have geographically different coverage. A
+            # missing value in one static layer is mean-imputed and should not
+            # erase the prediction for the whole pixel. Require only the WAC
+            # channels to be valid for output masking.
+            wac_channel_count = min(7, nodata_masks[idx].shape[0])
+            valid_mask = ~np.any(
+                nodata_masks[idx][:wac_channel_count], axis=0
+            )
             merged_probs[~valid_mask, :] = np.nan
+            if debug:
+                print(
+                    f"Output mask: {int((~valid_mask).sum()):,} masked pixels "
+                    f"of {valid_mask.size:,} (WAC channels only)"
+                )
 
         print(f"Merged probabilities shape: {merged_probs.shape}")
         finite_probs = merged_probs[np.isfinite(merged_probs)]
@@ -1527,7 +1539,16 @@ def plot_inference_results(
         )
         fig.colorbar(static_plot, ax=axes[1, index], fraction=0.046, pad=0.04)
 
-        axes[2, index].imshow(create_binary_colormap(prediction))
+        prediction_display = create_binary_colormap(
+            np.nan_to_num(prediction, nan=0.0)
+        )
+        if nodata_masks is not None:
+            wac_channel_count = min(7, nodata_masks[index].shape[0])
+            prediction_mask = np.any(
+                nodata_masks[index][:wac_channel_count], axis=0
+            )
+            prediction_display[prediction_mask] = (0.65, 0.65, 0.65)
+        axes[2, index].imshow(prediction_display)
         axes[2, index].set_title(
             f"Graha prediction ({int(prediction.sum()):,} positive pixels)"
         )
