@@ -356,6 +356,98 @@ def get_datacube_data(
         return np.array([]), file_pairs
 
 
+def _selected_raw_band_indices(data_dict, static_count: int) -> list[int]:
+    """Translate modality-local DATA_DICT filters to combined raw indices."""
+    layout = {
+        "vis": list(range(5)),
+        "uv": list(range(5, 7)),
+        "static": list(range(7, 7 + static_count)),
+    }
+    selected_modalities = data_dict.get("selected_modalities", ["vis", "uv"])
+    filters = data_dict.get("band_filters", {})
+    indices: list[int] = []
+    for modality in selected_modalities:
+        if modality not in layout:
+            raise ValueError(
+                f"Unsupported raw WAC modality {modality!r}; expected vis, uv, or static."
+            )
+        available = layout[modality]
+        local_indices = filters.get(modality, list(range(len(available))))
+        for local_index in local_indices:
+            if local_index < 0 or local_index >= len(available):
+                raise IndexError(
+                    f"band_filters[{modality!r}] contains {local_index}, "
+                    f"but only {len(available)} band(s) are available."
+                )
+            indices.append(available[local_index])
+    if not indices:
+        raise ValueError("DATA_DICT must select at least one input band.")
+    return indices
+
+
+def load_and_configure_input_data(
+    input_paths,
+    data_dict: dict,
+    *,
+    verbose: bool = True,
+    verify_bands: bool = True,
+) -> dict:
+    """Load WAC/static cubes and apply training-style modality selection.
+
+    The returned WAC channels are in canonical VIS-then-UV order, followed by
+    the static bands selected by the data dictionary. Graha modality metadata
+    is included so notebooks do not need to duplicate input-layout logic.
+    """
+    images_all, file_pairs = get_datacube_data(
+        input_paths,
+        band_filter=None,
+        verbose=verbose,
+        verify_bands=verify_bands,
+    )
+    if images_all.size == 0:
+        raise ValueError("No valid WAC/Static datacube pairs were found.")
+
+    static_count = max(int(images_all.shape[1]) - 7, 0)
+    band_filter = _selected_raw_band_indices(data_dict, static_count)
+    images_raw = images_all[:, band_filter]
+    selected = list(data_dict.get("selected_modalities", ["vis", "uv"]))
+    static_filter = data_dict.get("band_filters", {}).get(
+        "static", list(range(static_count))
+    )
+    static_selected_count = len(static_filter)
+
+    if selected == ["vis", "uv"]:
+        backend_modalities, input_mode = ["vis", "uv"], "vis-uv"
+    elif selected == ["vis"]:
+        backend_modalities, input_mode = ["vis"], "vis"
+    elif selected == ["uv"]:
+        backend_modalities, input_mode = ["uv"], "uv"
+    elif selected == ["vis", "uv", "static"] and static_selected_count == 63:
+        backend_modalities, input_mode = ["vis", "uv", "static"], "vis-uv-static"
+    elif selected == ["static"] and static_selected_count == 63:
+        backend_modalities, input_mode = ["static"], "static"
+    else:
+        backend_modalities, input_mode = ["wac"], "single"
+
+    normalization_modality = (
+        "vis_uv"
+        if backend_modalities in (["vis"], ["uv"], ["vis", "uv"])
+        else "vis_uv_static"
+        if backend_modalities in (["vis", "uv", "static"], ["static"])
+        else None
+    )
+    return {
+        "images_raw": images_raw,
+        "file_pairs": file_pairs,
+        "band_filter": band_filter,
+        "n_channels": int(images_raw.shape[1]),
+        "selected_modalities": selected,
+        "backend_modalities": backend_modalities,
+        "input_mode": input_mode,
+        "normalization_modality": normalization_modality,
+    }
+
+
 # ============================================================
 # DATA PREPROCESSING (mimic training)
 # ============================================================
@@ -1085,3 +1177,62 @@ def run_datacube_inference(
     model.train()
 
     return fig, images_scaled, preds_list
+
+
+def preprocess_datacubes(images_raw, means=None, stds=None):
+    """Convert BCHW cubes to normalized BHWC tensors for Graha inference."""
+    from tqdm import tqdm
+
+    images_hwc = np.transpose(images_raw, (0, 2, 3, 1)).astype(np.float32)
+    images_normalized = np.empty_like(images_hwc)
+    for index, image in enumerate(
+        tqdm(images_hwc, desc="Preprocessing datacubes")
+    ):
+        if means is not None and stds is not None:
+            mean = np.asarray(means, dtype=np.float32).reshape(1, 1, -1)
+            std = np.asarray(stds, dtype=np.float32).reshape(1, 1, -1)
+            images_normalized[index] = (image - mean) / std
+        else:
+            band_min = np.nanmin(image, axis=(0, 1), keepdims=True)
+            band_max = np.nanmax(image, axis=(0, 1), keepdims=True)
+            denominator = np.where(band_max > band_min, band_max - band_min, 1.0)
+            images_normalized[index] = 2.0 * (
+                (image - band_min) / denominator
+            ) - 1.0
+    return images_normalized
+
+
+def plot_inference_results(
+    images_normalized,
+    predictions,
+    file_pairs,
+    output_dir,
+    n_channels: int,
+):
+    """Plot source imagery and binary Graha predictions, then save and show."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True, parents=True)
+    fig, axes = plt.subplots(
+        2,
+        len(file_pairs),
+        figsize=(6 * len(file_pairs), 10),
+        squeeze=False,
+    )
+    for index, ((wac_file, _), image, prediction) in enumerate(
+        zip(file_pairs, images_normalized, predictions)
+    ):
+        axes[0, index].imshow(image[:, :, 0], cmap="gray")
+        axes[0, index].set_title(Path(wac_file).stem)
+        axes[1, index].imshow(create_binary_colormap(prediction))
+        axes[1, index].set_title(
+            f"Graha prediction ({int(prediction.sum()):,} positive pixels)"
+        )
+        for row in axes[:, index]:
+            row.axis("off")
+    fig.suptitle(f"Graha inference: {n_channels} input channels", y=1.0)
+    fig.tight_layout()
+    output_path = output_dir / "graha_inference_viz.png"
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.show()
+    print(f"Saved visualization to {output_path}")
+    return fig
