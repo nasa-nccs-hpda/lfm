@@ -26,6 +26,10 @@ from lfm.all_models.all_tasks.model_adapters import (
     SemanticModelAdapter,
 )
 from lfm.all_models.all_tasks.data_dictionary import resolve_data_dictionary
+from lfm.all_models.all_tasks.graha_inference import (
+    GrahaInstanceModel,
+    GrahaLogitModel,
+)
 
 __all__ = [
     "InstanceModelAdapter",
@@ -44,6 +48,8 @@ __all__ = [
     "save_single_timing_json",
     "write_checkpoint_metrics_summary",
     "resolve_data_dictionary",
+    "GrahaInstanceModel",
+    "GrahaLogitModel",
     "CheckpointPipelineConfig",
     "CheckpointPipelineResult",
     "build_checkpoint_pipeline_config_from_args",

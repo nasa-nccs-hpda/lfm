@@ -1373,8 +1373,9 @@ def preprocess_datacubes(
 ):
     """Convert BCHW cubes to training-equivalent normalized BHWC tensors.
 
-    The Graha semantic training backend sets ``scale_inputs=False`` and
-    applies pretrained z-score normalization directly to raw chip values.
+    The Graha semantic and instance training backends set
+    ``scale_inputs=False`` and apply pretrained z-score normalization directly
+    to raw chip values.
     ``scale_inputs=True`` is available for datasets whose training backend
     explicitly performs min-max scaling first. NoData pixels are excluded from
     any scaling statistics and are replaced with the corresponding band mean
@@ -1451,7 +1452,7 @@ def preprocess_datacubes(
             std = np.asarray(stds, dtype=np.float32)
             for channel in range(image.shape[-1]):
                 channel_valid = valid[:, :, channel]
-                # Mean-impute in the pre-z-score (min-max) domain. This makes
+                # Mean-impute in the pre-z-score input domain. This makes
                 # every invalid pixel exactly zero after z-score normalization
                 # for its own band, without exposing raster sentinels to the
                 # model.

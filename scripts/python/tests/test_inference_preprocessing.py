@@ -6,7 +6,7 @@ from torch import nn
 
 from lfm.all_models.all_tasks.data.normalization import ZScoreNormalization
 from lfm.all_models.sem_seg.data_cube_inference import preprocess_datacubes
-from lfm.all_models.sem_seg.graha_inference import GrahaLogitModel
+from lfm.all_models.all_tasks.graha_inference import GrahaLogitModel
 
 
 def test_preprocess_matches_graha_training_zscore_pipeline():

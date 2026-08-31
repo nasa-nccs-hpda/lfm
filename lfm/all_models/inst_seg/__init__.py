@@ -33,6 +33,13 @@ from lfm.all_models.inst_seg.sweep_config import (
     InstanceCheckpointSweepConfig,
     build_checkpoint_sweep_config_from_args,
 )
+from lfm.all_models.all_tasks.graha_inference import GrahaInstanceModel
+from lfm.all_models.inst_seg.data_cube_inference import (
+    load_and_configure_input_data,
+    plot_instance_inference_results,
+    preprocess_datacubes,
+    sliding_window_instance_inference,
+)
 
 __all__ = [
     "GrahaInstanceNotebookConfigs",
@@ -58,4 +65,9 @@ __all__ = [
     "instance_mask_to_object_detection_targets",
     "mask_to_binary_instance_targets",
     "minmax_scale_per_band",
+    "GrahaInstanceModel",
+    "load_and_configure_input_data",
+    "plot_instance_inference_results",
+    "preprocess_datacubes",
+    "sliding_window_instance_inference",
 ]
