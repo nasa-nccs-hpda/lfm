@@ -614,7 +614,7 @@ def sliding_window_inference(
     model,
     target_size=304,
     device="cuda",
-    threshold=0.5,
+    threshold=0.75,
     n_channels=12,
     overlap=0.25,
     debug=False,
