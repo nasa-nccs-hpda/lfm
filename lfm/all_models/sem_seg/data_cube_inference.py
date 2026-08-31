@@ -10,9 +10,62 @@ import rasterio
 from tiler import Tiler, Merger
 import torch
 import xarray as xr
+from tqdm import tqdm
 
 
 import rioxarray as rxr
+
+
+def _product_id(filepath: str) -> str | None:
+    """Extract the Pipeline product ID from a WAC filename."""
+    match = re.search(r"ProdId-([^_.]+)", Path(filepath).name)
+    return match.group(1) if match else None
+
+
+def _wac_is_fully_valid(
+    filepath: str,
+    excluded_nodata_values=None,
+) -> bool:
+    """Return whether every pixel in every WAC band is valid."""
+    with rasterio.open(filepath) as src:
+        values = src.read()
+        invalid = ~np.isfinite(values)
+        if src.nodata is not None:
+            invalid |= values == src.nodata
+        for value in excluded_nodata_values or ():
+            invalid |= values == float(value)
+    return not np.any(invalid)
+
+
+def _select_valid_wac_product_group(
+    wac_files: list[str],
+    *,
+    required_count: int = 4,
+    excluded_nodata_values=None,
+    verbose: bool = True,
+) -> list[str]:
+    """Select the first product group with enough fully valid WAC cubes."""
+    grouped: dict[str, list[str]] = {}
+    for filepath in wac_files:
+        product_id = _product_id(filepath)
+        if product_id is not None:
+            grouped.setdefault(product_id, []).append(filepath)
+
+    for product_id, candidates in grouped.items():
+        valid_files = [
+            filepath
+            for filepath in candidates
+            if _wac_is_fully_valid(filepath, excluded_nodata_values)
+        ]
+        if verbose:
+            print(
+                f"  Product {product_id}: {len(valid_files)}/{len(candidates)} "
+                "WAC cube(s) are 100% valid"
+            )
+        if len(valid_files) >= required_count:
+            return valid_files[:required_count]
+
+    return []
 
 # ============================================================
 # DATA LOADING
@@ -236,10 +289,25 @@ def get_datacube_data(
     all_nodata_masks = []
     file_pairs = []
 
-    # We have already extracted only a single WAC/STATIC file per tile ID
+    # Select one product ID per tile, requiring four completely valid WAC
+    # datacubes. Static NoData is intentionally not part of this filter.
     for tile_id, dataset_dict in cubes_by_tile.items():
-        for wac_file in dataset_dict["wac"]:
-            static_file = dataset_dict["static"][0]
+        selected_wac_files = _select_valid_wac_product_group(
+            dataset_dict["wac"],
+            required_count=4,
+            excluded_nodata_values=excluded_nodata_values,
+            verbose=verbose,
+        )
+        if not selected_wac_files:
+            if verbose:
+                print(
+                    f"  ⚠ No product ID for tile {tile_id} has "
+                    "four fully valid WAC cubes; skipping tile"
+                )
+            continue
+
+        static_file = dataset_dict["static"][0]
+        for wac_file in selected_wac_files:
             if verbose:
                 print(f"\n{'='*60}")
                 print(f"Processing tile_id: {tile_id}")
@@ -309,7 +377,6 @@ def get_datacube_data(
             all_datasets.append(combined_ds)
             all_nodata_masks.append(invalid)
             file_pairs.append((wac_file, static_file))
-            break
 
     if verbose:
         print(f"\n{'='*60}")
@@ -606,8 +673,11 @@ def sliding_window_inference(
         # Iterate through tiles
         tile_count = 0
         with torch.no_grad():
-            for tile_id, tile_batch in input_tiler(
-                image, batch_size=1, progress_bar=True
+            tile_iterator = input_tiler(image, batch_size=1, progress_bar=False)
+            for tile_id, tile_batch in tqdm(
+                tile_iterator,
+                total=len(input_tiler),
+                desc=f"Inference image {idx + 1}",
             ):
                 tile_count += 1
                 tile = tile_batch[0]
