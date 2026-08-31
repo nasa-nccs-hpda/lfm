@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 import numpy as np
 import rasterio
@@ -13,10 +14,21 @@ from lfm.all_models.all_tasks.utils.common import (
     _extract_logits,
     _prediction_probabilities,
 )
-from lfm.toy_model.sem_seg.data_cube_inference import group_cubes_by_tile
-
-
 WAC_TRAINING_ORDER = [2, 3, 4, 5, 6, 0, 1]
+_LTM_PATTERN = re.compile(r"Cube-(LTM[0-9]+[NS])", re.IGNORECASE)
+_TILE_PATTERN = re.compile(r"_Tile-([0-9]+)-([0-9]+)(?:_|\.|$)", re.IGNORECASE)
+
+
+def _scene_key(path: Path) -> tuple[str, str] | None:
+    """Return an exact (LTM zone, row-column) key parsed from a scene path."""
+    path_text = path.as_posix()
+    tile_match = _TILE_PATTERN.search(path_text)
+    if tile_match is None:
+        return None
+    ltm_match = _LTM_PATTERN.search(path_text)
+    zone = ltm_match.group(1).upper() if ltm_match else "NO_LTM"
+    tile = f"{tile_match.group(1)}-{tile_match.group(2)}"
+    return zone, tile
 
 
 def find_scene_pairs(input_dir: str | Path) -> list[tuple[str, Path, Path]]:
@@ -25,18 +37,39 @@ def find_scene_pairs(input_dir: str | Path) -> list[tuple[str, Path, Path]]:
     paths = sorted(input_dir.rglob("*.tif"))
     if not paths:
         raise FileNotFoundError(f"No .tif files found beneath {input_dir}")
-    grouped, _ = group_cubes_by_tile([str(path) for path in paths])
+    grouped: dict[tuple[str, str], dict[str, list[Path]]] = {}
+    ignored = []
+    for path in paths:
+        key = _scene_key(path)
+        if key is None:
+            ignored.append(path)
+            continue
+        role = "static" if "static" in path.as_posix().lower() else "wac"
+        grouped.setdefault(key, {"wac": [], "static": []})[role].append(path)
+
     pairs = []
-    for tile_id, files in sorted(grouped.items()):
+    for (zone, tile_id), files in sorted(grouped.items()):
+        if not files["wac"] or not files["static"]:
+            print(
+                f"Skipping {zone} Tile-{tile_id}: found {len(files['wac'])} WAC "
+                f"and {len(files['static'])} static file(s)."
+            )
+            continue
         if len(files["wac"]) != 1 or len(files["static"]) != 1:
             raise ValueError(
-                f"Tile {tile_id} must have exactly one WAC and one static cube; "
-                f"found {len(files['wac'])} WAC and {len(files['static'])} static."
+                f"{zone} Tile-{tile_id} must have exactly one WAC and one static "
+                f"cube; found {len(files['wac'])} WAC and "
+                f"{len(files['static'])} static. WAC examples: "
+                f"{[str(path) for path in files['wac'][:3]]}; static examples: "
+                f"{[str(path) for path in files['static'][:3]]}"
             )
-        pairs.append((tile_id, Path(files["wac"][0]), Path(files["static"][0])))
+        scene_id = f"{zone}_Tile-{tile_id}" if zone != "NO_LTM" else f"Tile-{tile_id}"
+        pairs.append((scene_id, files["wac"][0], files["static"][0]))
     if not pairs:
         raise FileNotFoundError(
-            f"No paired WAC/static pipeline tiles were found beneath {input_dir}"
+            f"No exactly paired WAC/static pipeline tiles were found beneath "
+            f"{input_dir}. Ignored {len(ignored)} TIFF(s) without an exact "
+            "'_Tile-<row>-<column>' filename token."
         )
     return pairs
 
@@ -154,8 +187,8 @@ def write_scene_outputs(
     prediction[invalid_pixels] = 255
     probability[invalid_pixels] = -9999.0
 
-    mask_path = output_dir / f"Tile-{tile_id}_semantic_mask.tif"
-    probability_path = output_dir / f"Tile-{tile_id}_semantic_probability.tif"
+    mask_path = output_dir / f"{tile_id}_semantic_mask.tif"
+    probability_path = output_dir / f"{tile_id}_semantic_probability.tif"
     mask_profile = {**profile, "count": 1, "dtype": "uint8", "nodata": 255}
     probability_profile = {
         **profile,
@@ -189,7 +222,7 @@ def run_datacube_inference(
     results = []
     pairs = find_scene_pairs(input_dir)
     for index, (tile_id, wac_path, static_path) in enumerate(pairs, start=1):
-        print(f"Processing scene {index}/{len(pairs)}: Tile-{tile_id}")
+        print(f"Processing scene {index}/{len(pairs)}: {tile_id}")
         image, invalid_pixels, profile = read_scene(
             wac_path,
             static_path,
