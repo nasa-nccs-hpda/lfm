@@ -659,9 +659,14 @@ def sliding_window_inference(
             merged_probs[~valid_mask, :] = np.nan
 
         print(f"Merged probabilities shape: {merged_probs.shape}")
-        print(
-            f"Merged prob range: [{merged_probs.min():.4f}, {merged_probs.max():.4f}]"
-        )
+        finite_probs = merged_probs[np.isfinite(merged_probs)]
+        if finite_probs.size:
+            print(
+                f"Merged prob range: [{finite_probs.min():.4f}, "
+                f"{finite_probs.max():.4f}]"
+            )
+        else:
+            print("Merged prob range: no valid pixels")
 
         # Check if merging actually blended values
         unique_vals = np.unique(merged_probs)
@@ -1183,50 +1188,106 @@ def preprocess_datacubes(images_raw, means=None, stds=None, nodata_masks=None):
                 f"NoData mask shape {masks_hwc.shape} does not match "
                 f"image shape {images_hwc.shape}."
             )
-    for index, image in enumerate(
-        tqdm(images_hwc, desc="Preprocessing datacubes")
-    ):
+    for index, image in enumerate(tqdm(images_hwc, desc="Preprocessing datacubes")):
+        invalid = masks_hwc[index] if masks_hwc is not None else np.zeros_like(
+            image, dtype=bool
+        )
+        valid = ~invalid
+        # Start with the original values so Graha can see its NoData sentinels.
+        images_normalized[index] = image
         if means is not None and stds is not None:
-            mean = np.asarray(means, dtype=np.float32).reshape(1, 1, -1)
-            std = np.asarray(stds, dtype=np.float32).reshape(1, 1, -1)
-            images_normalized[index] = (image - mean) / std
+            mean = np.asarray(means, dtype=np.float32)
+            std = np.asarray(stds, dtype=np.float32)
+            for channel in range(image.shape[-1]):
+                channel_valid = valid[:, :, channel]
+                images_normalized[index][channel_valid, channel] = (
+                    image[channel_valid, channel] - mean[channel]
+                ) / std[channel]
         else:
-            band_min = np.nanmin(image, axis=(0, 1), keepdims=True)
-            band_max = np.nanmax(image, axis=(0, 1), keepdims=True)
-            denominator = np.where(band_max > band_min, band_max - band_min, 1.0)
-            images_normalized[index] = 2.0 * (
-                (image - band_min) / denominator
-            ) - 1.0
-        if masks_hwc is not None and np.any(masks_hwc[index]):
-            # Preserve the original NoData values for Graha's NoData-aware
-            # encoder. Invalid pixels were excluded from fallback scaling.
-            images_normalized[index][masks_hwc[index]] = image[masks_hwc[index]]
+            for channel in range(image.shape[-1]):
+                channel_valid = valid[:, :, channel]
+                if not np.any(channel_valid):
+                    continue
+                valid_band = image[:, :, channel][channel_valid]
+                band_min, band_max = valid_band.min(), valid_band.max()
+                if band_max > band_min:
+                    images_normalized[index][channel_valid, channel] = (
+                        2.0
+                        * (image[channel_valid, channel] - band_min)
+                        / (band_max - band_min)
+                        - 1.0
+                    )
     return images_normalized
 
 
 def plot_inference_results(
-    images_normalized,
+    images_raw,
     predictions,
     file_pairs,
     output_dir,
     n_channels: int,
+    nodata_masks=None,
+    static_band_number: int = 58,
 ):
-    """Plot source imagery and binary Graha predictions, then save and show."""
+    """Plot VIS, a static band, and binary predictions.
+
+    The static band is read from the paired static GeoTIFF so its original
+    Rasterio metadata and NoData mask are available for visualization.
+    """
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
     fig, axes = plt.subplots(
-        2,
+        3,
         len(file_pairs),
-        figsize=(6 * len(file_pairs), 10),
+        figsize=(6 * len(file_pairs), 14),
         squeeze=False,
     )
-    for index, ((wac_file, _), image, prediction) in enumerate(
-        zip(file_pairs, images_normalized, predictions)
+    for index, ((wac_file, static_file), image, prediction) in enumerate(
+        zip(file_pairs, images_raw, predictions)
     ):
-        axes[0, index].imshow(image[:, :, 0], cmap="gray")
-        axes[0, index].set_title(Path(wac_file).stem)
-        axes[1, index].imshow(create_binary_colormap(prediction))
+        vis_mask = (
+            np.any(nodata_masks[index], axis=0)
+            if nodata_masks is not None
+            else ~np.isfinite(image[0])
+        )
+        vis_data = np.ma.array(image[0], mask=vis_mask)
+        vis_values = vis_data.compressed()
+        vis_vmin, vis_vmax = (
+            (float(vis_values.min()), float(vis_values.max()))
+            if vis_values.size
+            else (0.0, 1.0)
+        )
+        with rasterio.open(static_file) as src:
+            static_data = src.read(static_band_number, masked=True)
+            static_name = src.tags(static_band_number).get(
+                "Name", f"band_{static_band_number}"
+            )
+        static_values = static_data.compressed()
+        static_vmin, static_vmax = (
+            (float(static_values.min()), float(static_values.max()))
+            if static_values.size
+            else (0.0, 1.0)
+        )
+        with rasterio.open(wac_file) as src:
+            # The canonical VIS band 0 comes from source WAC band 3.
+            vis_name = src.tags(3).get("Name", "VIS band 0")
+
+        vis_plot = axes[0, index].imshow(
+            vis_data, cmap="gray", vmin=vis_vmin, vmax=vis_vmax
+        )
+        axes[0, index].set_title(f"VIS band 0: {vis_name}")
+        fig.colorbar(vis_plot, ax=axes[0, index], fraction=0.046, pad=0.04)
+
+        static_plot = axes[1, index].imshow(
+            static_data, cmap="viridis", vmin=static_vmin, vmax=static_vmax
+        )
         axes[1, index].set_title(
+            f"Static band {static_band_number}: {static_name}"
+        )
+        fig.colorbar(static_plot, ax=axes[1, index], fraction=0.046, pad=0.04)
+
+        axes[2, index].imshow(create_binary_colormap(prediction))
+        axes[2, index].set_title(
             f"Graha prediction ({int(prediction.sum()):,} positive pixels)"
         )
         for row in axes[:, index]:
