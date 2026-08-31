@@ -1352,12 +1352,21 @@ def run_datacube_inference(
     return fig, images_scaled, preds_list
 
 
-def preprocess_datacubes(images_raw, means=None, stds=None, nodata_masks=None):
+def preprocess_datacubes(
+    images_raw,
+    means=None,
+    stds=None,
+    nodata_masks=None,
+    scale_inputs: bool = False,
+):
     """Convert BCHW cubes to training-equivalent normalized BHWC tensors.
 
-    Training applies per-band min-max scaling followed by pretrained z-score
-    normalization. NoData pixels are excluded from min-max statistics and are
-    replaced with the corresponding band mean before z-score normalization.
+    The Graha semantic training backend sets ``scale_inputs=False`` and
+    applies pretrained z-score normalization directly to raw chip values.
+    ``scale_inputs=True`` is available for datasets whose training backend
+    explicitly performs min-max scaling first. NoData pixels are excluded from
+    any scaling statistics and are replaced with the corresponding band mean
+    before z-score normalization.
     Thus invalid model-input pixels become zero in normalized space. The
     original NoData mask remains available to mask merged outputs.
     """
@@ -1401,21 +1410,22 @@ def preprocess_datacubes(images_raw, means=None, stds=None, nodata_masks=None):
             f"Static raw range {_range(static_image)} | "
             f"Static valid range {_range(static_image[static_valid])}"
         )
-        # Match LunarSegmentationDataset.min_max_scale_bands before applying
-        # the z-score statistics. Invalid pixels are filled after
-        # normalization so extreme raster sentinels cannot create NaNs in the
-        # model forward pass; nodata_masks still control output masking.
+        # Match the configured training scaling behavior. Invalid pixels are
+        # filled with their per-band mean before z-score normalization so
+        # extreme raster sentinels cannot create NaNs in the model forward
+        # pass; nodata_masks still control output masking.
         scaled = image.copy()
-        for channel in range(image.shape[-1]):
-            channel_valid = valid[:, :, channel]
-            if not np.any(channel_valid):
-                continue
-            valid_band = image[:, :, channel][channel_valid]
-            band_min, band_max = valid_band.min(), valid_band.max()
-            if band_max > band_min:
-                scaled[channel_valid, channel] = (
-                    image[channel_valid, channel] - band_min
-                ) / (band_max - band_min)
+        if scale_inputs:
+            for channel in range(image.shape[-1]):
+                channel_valid = valid[:, :, channel]
+                if not np.any(channel_valid):
+                    continue
+                valid_band = image[:, :, channel][channel_valid]
+                band_min, band_max = valid_band.min(), valid_band.max()
+                if band_max > band_min:
+                    scaled[channel_valid, channel] = (
+                        image[channel_valid, channel] - band_min
+                    ) / (band_max - band_min)
         images_normalized[index] = scaled
         if means is not None and stds is not None:
             mean = np.asarray(means, dtype=np.float32)
@@ -1433,13 +1443,15 @@ def preprocess_datacubes(images_raw, means=None, stds=None, nodata_masks=None):
                 ) / std[channel]
         else:
             # With no pretrained stats, retain the historical [-1, 1]
-            # fallback, applied after the same valid-pixel min-max statistics.
+            # fallback. This path still uses optional valid-pixel min-max
+            # scaling when requested.
             for channel in range(image.shape[-1]):
                 channel_valid = valid[:, :, channel]
                 if np.any(channel_valid):
                     images_normalized[index][channel_valid, channel] = (
                         2.0 * scaled[channel_valid, channel] - 1.0
                     )
+            images_normalized[index][invalid] = 0.0
         normalized_valid = images_normalized[index][valid]
         print(
             f"Datacube {index}: model-input valid range "

@@ -4,14 +4,13 @@ import numpy as np
 import torch
 from torch import nn
 
-from lfm.all_models.all_tasks.data.base_dataset import LunarSegmentationDataset
 from lfm.all_models.all_tasks.data.normalization import ZScoreNormalization
 from lfm.all_models.sem_seg.data_cube_inference import preprocess_datacubes
 from lfm.all_models.sem_seg.graha_inference import GrahaLogitModel
 
 
-def test_preprocess_matches_training_minmax_then_zscore():
-    """Inference preprocessing must equal the training dataset pipeline."""
+def test_preprocess_matches_graha_training_zscore_pipeline():
+    """Inference preprocessing must match Graha semantic training."""
     image_chw = np.array(
         [
             [[1.0, 2.0], [3.0, 5.0]],
@@ -24,10 +23,9 @@ def test_preprocess_matches_training_minmax_then_zscore():
     stds = [0.5, 0.25, 0.125]
 
     image_hwc = np.moveaxis(image_chw, 0, -1)
-    training_scaled = LunarSegmentationDataset.min_max_scale_bands(image_hwc)
     expected = ZScoreNormalization(
         np.asarray(means), np.asarray(stds)
-    ).apply(training_scaled, band_filter=[0, 1, 2])
+    ).apply(image_hwc, band_filter=[0, 1, 2])
     actual = preprocess_datacubes(
         image_chw[None], means=means, stds=stds
     )[0]
@@ -53,10 +51,10 @@ def test_preprocess_excludes_nodata_from_scaling_and_fills_it_for_model():
     # model as zero rather than the source -32768 sentinel.
     assert actual[0, 0, 0] == 0.0
     np.testing.assert_allclose(
-        actual[0, 1, 0], -0.5, rtol=1e-6, atol=1e-6
+        actual[0, 0, 1], 1.5, rtol=1e-6, atol=1e-6
     )
     np.testing.assert_allclose(
-        actual[1, :, 0], [0.5, 1.5], rtol=1e-6, atol=1e-6
+        actual[1, :, 0], [5.5, 9.5], rtol=1e-6, atol=1e-6
     )
 
 
