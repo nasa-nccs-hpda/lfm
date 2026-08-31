@@ -103,7 +103,7 @@ def check_bands_exist(filepath: Path, pattern: str) -> tuple:
 
 def filter_static_bands(static_cubes, verbose=True, verify=True):
     """
-    Filter static cube bands to only include those matching 'lola_kaguya' pattern.
+    Load every band in each static cube.
 
     Args:
         static_cubes: List of file paths to static cube GeoTIFFs
@@ -114,49 +114,12 @@ def filter_static_bands(static_cubes, verbose=True, verify=True):
         List of xarray DataArrays with filtered bands
     """
     static_datasets = []
-    STATIC_BAND_REGEX = r"lola_kaguya"
-
     for cube in static_cubes:
-        bands_exist, band_indices, error_message = check_bands_exist(
-            cube, STATIC_BAND_REGEX
-        )
-
-        if not bands_exist:
-            if verbose:
-                print(f"  ⚠ Skipping {Path(cube).name}: {error_message}")
-            continue
-
-        # Verify the band selection if requested
-        if verify:
-            all_match, band_names, mismatches = verify_band_selection(
-                cube, band_indices, STATIC_BAND_REGEX, verbose=verbose
-            )
-            if not all_match:
-                raise ValueError(
-                    f"Band verification failed for {cube}. " f"Mismatches: {mismatches}"
-                )
-
-        # Convert from 1-based (rasterio) to 0-based (xarray) indexing
-        band_indices_0based = [idx - 1 for idx in band_indices]
-
-        if verbose:
-            print(
-                f"  Converting indices: {band_indices} (rasterio) -> {band_indices_0based} (xarray)"
-            )
-
-        # Open with rioxarray and select matching bands
         ds = rxr.open_rasterio(cube)
-
         if verbose:
-            print(f"  Total bands in file: {ds.sizes['band']}")
-            print(f"  Selecting bands at 0-based indices: {band_indices_0based}")
-
-        ds_filtered = ds.isel(band=band_indices_0based)
-
-        if verbose:
-            print(f"  ✓ Result: {ds_filtered.sizes['band']} bands selected\n")
-
-        static_datasets.append(ds_filtered)
+            print(f"  Static file: {Path(cube).name}")
+            print(f"  ✓ Keeping all {ds.sizes['band']} static bands\n")
+        static_datasets.append(ds)
 
     return static_datasets
 
@@ -220,18 +183,24 @@ def get_datacube_data(
     band_filter=None,
     verbose=True,
     verify_bands=True,
+    excluded_nodata_values=None,
+    return_nodata_mask=False,
 ):
     """
     Extract and stack vis and static GeoTIFF data.
 
     Args:
         input_paths: Path(s) to directory or file(s)
-        band_filter: Not currently used
+        band_filter: Optional zero-based filter applied after WAC and all
+            static bands are concatenated
         verbose: Print progress information
         verify_bands: Verify that band filtering worked correctly
 
     Returns:
-        tuple: (stacked_data, file_pairs)
+        tuple: (stacked_data, file_pairs), optionally with a per-band
+            nodata mask when ``return_nodata_mask=True``. The mask has shape
+            ``(N, bands, H, W)`` and includes non-finite, raster nodata, and
+            explicitly excluded sentinel values.
             - stacked_data: numpy array of shape (N, bands, H, W)
             - file_pairs: List of (vis_file, static_file) tuples
     """
@@ -264,6 +233,7 @@ def get_datacube_data(
 
     # Process each pair
     all_datasets = []
+    all_nodata_masks = []
     file_pairs = []
 
     # We have already extracted only a single WAC/STATIC file per tile ID
@@ -308,11 +278,20 @@ def get_datacube_data(
 
             static_ds = static_datasets[0]
 
-            # Combine wac and static
+            # Combine WAC and all static bands before applying the user's
+            # modality-local band filter.
             combined_ds = xr.concat([wac_ds, static_ds], dim="band")
+            combined_values = np.asarray(combined_ds.values)
+            nodata_value = combined_ds.rio.nodata
+            invalid = ~np.isfinite(combined_values)
+            if nodata_value is not None:
+                invalid |= combined_values == nodata_value
+            for value in excluded_nodata_values or ():
+                invalid |= combined_values == float(value)
+
             if band_filter is not None:
                 combined_ds = combined_ds.isel(band=band_filter)
-            # clipped_combined_ds = np.clip(combined_ds.values, 0, 1)
+                invalid = invalid[band_filter]
 
             if verbose:
                 print(f"  Combined shape: {combined_ds.shape}")
@@ -324,15 +303,13 @@ def get_datacube_data(
                     f"  Combined min/max: {np.min(combined_ds.values), np.max(combined_ds.values)}"
                 )
 
-            # Convert to numpy and append
-            if not np.any(combined_ds.values == combined_ds.rio.nodata):
-                all_datasets.append(combined_ds)
-                file_pairs.append((wac_file, static_file))
-                break
-            elif verbose:
-                print(
-                    f"  ⚠ Skipping - contains nodata (value: {combined_ds.rio.nodata})"
-                )
+            # Keep NoData-containing cubes. Graha is NoData-aware; the mask is
+            # retained separately so preprocessing and output merging can avoid
+            # using invalid pixels for scale/range calculations.
+            all_datasets.append(combined_ds)
+            all_nodata_masks.append(invalid)
+            file_pairs.append((wac_file, static_file))
+            break
 
     if verbose:
         print(f"\n{'='*60}")
@@ -351,8 +328,13 @@ def get_datacube_data(
 
     # Convert to numpy array with shape (N, bands, H, W)
     if all_datasets:
-        return np.array(all_datasets), file_pairs
+        stacked_data = np.array([np.asarray(dataset.values) for dataset in all_datasets])
+        if return_nodata_mask:
+            return stacked_data, file_pairs, np.asarray(all_nodata_masks, dtype=bool)
+        return stacked_data, file_pairs
     else:
+        if return_nodata_mask:
+            return np.array([]), file_pairs, np.array([], dtype=bool)
         return np.array([]), file_pairs
 
 
@@ -398,11 +380,13 @@ def load_and_configure_input_data(
     the static bands selected by the data dictionary. Graha modality metadata
     is included so notebooks do not need to duplicate input-layout logic.
     """
-    images_all, file_pairs = get_datacube_data(
+    images_all, file_pairs, nodata_masks_all = get_datacube_data(
         input_paths,
         band_filter=None,
         verbose=verbose,
         verify_bands=verify_bands,
+        excluded_nodata_values=data_dict.get("excluded_nodata_values"),
+        return_nodata_mask=True,
     )
     if images_all.size == 0:
         raise ValueError("No valid WAC/Static datacube pairs were found.")
@@ -410,6 +394,7 @@ def load_and_configure_input_data(
     static_count = max(int(images_all.shape[1]) - 7, 0)
     band_filter = _selected_raw_band_indices(data_dict, static_count)
     images_raw = images_all[:, band_filter]
+    nodata_masks = nodata_masks_all[:, band_filter]
     selected = list(data_dict.get("selected_modalities", ["vis", "uv"]))
     static_filter = data_dict.get("band_filters", {}).get(
         "static", list(range(static_count))
@@ -438,6 +423,7 @@ def load_and_configure_input_data(
     )
     return {
         "images_raw": images_raw,
+        "nodata_masks": nodata_masks,
         "file_pairs": file_pairs,
         "band_filter": band_filter,
         "n_channels": int(images_raw.shape[1]),
@@ -527,6 +513,7 @@ def sliding_window_inference(
     debug=False,
     window="triang",
     return_tiles=False,
+    nodata_masks=None,
 ):
     """
     Perform sliding window inference on large images.
@@ -667,6 +654,9 @@ def sliding_window_inference(
 
         # Merge all tiles
         merged_probs = output_merger.merge(unpad=True)
+        if nodata_masks is not None:
+            valid_mask = ~np.any(nodata_masks[idx], axis=0)
+            merged_probs[~valid_mask, :] = np.nan
 
         print(f"Merged probabilities shape: {merged_probs.shape}")
         print(
@@ -1179,12 +1169,20 @@ def run_datacube_inference(
     return fig, images_scaled, preds_list
 
 
-def preprocess_datacubes(images_raw, means=None, stds=None):
+def preprocess_datacubes(images_raw, means=None, stds=None, nodata_masks=None):
     """Convert BCHW cubes to normalized BHWC tensors for Graha inference."""
     from tqdm import tqdm
 
     images_hwc = np.transpose(images_raw, (0, 2, 3, 1)).astype(np.float32)
     images_normalized = np.empty_like(images_hwc)
+    masks_hwc = None
+    if nodata_masks is not None:
+        masks_hwc = np.moveaxis(np.asarray(nodata_masks, dtype=bool), 1, -1)
+        if masks_hwc.shape != images_hwc.shape:
+            raise ValueError(
+                f"NoData mask shape {masks_hwc.shape} does not match "
+                f"image shape {images_hwc.shape}."
+            )
     for index, image in enumerate(
         tqdm(images_hwc, desc="Preprocessing datacubes")
     ):
@@ -1199,6 +1197,10 @@ def preprocess_datacubes(images_raw, means=None, stds=None):
             images_normalized[index] = 2.0 * (
                 (image - band_min) / denominator
             ) - 1.0
+        if masks_hwc is not None and np.any(masks_hwc[index]):
+            # Preserve the original NoData values for Graha's NoData-aware
+            # encoder. Invalid pixels were excluded from fallback scaling.
+            images_normalized[index][masks_hwc[index]] = image[masks_hwc[index]]
     return images_normalized
 
 
