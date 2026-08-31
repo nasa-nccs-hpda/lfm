@@ -16,6 +16,12 @@ from tqdm import tqdm
 import rioxarray as rxr
 
 
+# Temporary WAC validity cutoff. Values below this are treated as NoData in
+# the seven WAC bands; static bands are governed by their own raster metadata
+# and excluded sentinel values.
+WAC_NODATA_THRESHOLD = -10_000.0
+
+
 def _product_id(filepath: str) -> str | None:
     """Extract the Pipeline product ID from a WAC filename."""
     match = re.search(r"ProdId-([^_.]+)", Path(filepath).name)
@@ -25,6 +31,7 @@ def _product_id(filepath: str) -> str | None:
 def _wac_is_fully_valid(
     filepath: str,
     excluded_nodata_values=None,
+    nodata_threshold: float = WAC_NODATA_THRESHOLD,
 ) -> bool:
     """Return whether every pixel in every WAC band is valid."""
     with rasterio.open(filepath) as src:
@@ -34,6 +41,7 @@ def _wac_is_fully_valid(
             invalid |= values == src.nodata
         for value in excluded_nodata_values or ():
             invalid |= values == float(value)
+        invalid |= values < nodata_threshold
     return not np.any(invalid)
 
 
@@ -43,6 +51,7 @@ def _select_valid_wac_products_across_tiles(
     required_tiles: int = 4,
     required_products: int = 4,
     excluded_nodata_values=None,
+    nodata_threshold: float = WAC_NODATA_THRESHOLD,
     verbose: bool = True,
 ) -> dict[str, dict[str, str]]:
     """Greedily select products valid on every tile.
@@ -75,7 +84,11 @@ def _select_valid_wac_products_across_tiles(
         for tile_id in tile_ids:
             candidates = tiles.get(tile_id, [])
             for filepath in candidates:
-                if _wac_is_fully_valid(filepath, excluded_nodata_values):
+                if _wac_is_fully_valid(
+                    filepath,
+                    excluded_nodata_values,
+                    nodata_threshold=nodata_threshold,
+                ):
                     selected[tile_id] = filepath
                     break
         if verbose:
@@ -261,6 +274,7 @@ def get_datacube_data(
     verify_bands=True,
     excluded_nodata_values=None,
     return_nodata_mask=False,
+    wac_nodata_threshold: float = WAC_NODATA_THRESHOLD,
 ):
     """
     Extract and stack vis and static GeoTIFF data.
@@ -319,6 +333,7 @@ def get_datacube_data(
         required_tiles=4,
         required_products=4,
         excluded_nodata_values=excluded_nodata_values,
+        nodata_threshold=wac_nodata_threshold,
         verbose=verbose,
     )
     if not selected_products:
@@ -378,6 +393,7 @@ def get_datacube_data(
                 invalid |= combined_values == nodata_value
             for value in excluded_nodata_values or ():
                 invalid |= combined_values == float(value)
+            invalid[:7] |= combined_values[:7] < wac_nodata_threshold
 
             if band_filter is not None:
                 combined_ds = combined_ds.isel(band=band_filter)
