@@ -618,6 +618,7 @@ def sliding_window_inference(
     n_channels=12,
     overlap=0.25,
     debug=False,
+    verbose=True,
     window="triang",
     return_tiles=False,
     nodata_masks=None,
@@ -646,6 +647,7 @@ def sliding_window_inference(
     if isinstance(target_size, int):
         target_size = (target_size, target_size)
 
+    debug = bool(debug and verbose)
     model.eval()
 
     # Handle single image
@@ -660,7 +662,8 @@ def sliding_window_inference(
 
     # Process each image
     for idx in range(images_scaled.shape[0]):
-        print(f"\nProcessing image {idx + 1}/{images_scaled.shape[0]}")
+        if verbose:
+            print(f"\nProcessing image {idx + 1}/{images_scaled.shape[0]}")
         image = images_scaled[idx]  # Shape: (H, W, n_channels)
 
         img_h, img_w = image.shape[0], image.shape[1]
@@ -697,14 +700,17 @@ def sliding_window_inference(
         # Create merger
         output_merger = Merger(tiler=output_tiler, window=window)
 
-        print(f"Number of tiles: {len(input_tiler)}")
+        if verbose:
+            print(f"Number of tiles: {len(input_tiler)}")
 
         # Calculate and display effective overlap
         if isinstance(overlap, float):
             overlap_pixels = int(target_size[0] * overlap)
-            print(f"Tile overlap: {overlap*100:.0f}% ({overlap_pixels} pixels)")
+            if verbose:
+                print(f"Tile overlap: {overlap*100:.0f}% ({overlap_pixels} pixels)")
         else:
-            print(f"Tile overlap: {overlap} pixels")
+            if verbose:
+                print(f"Tile overlap: {overlap} pixels")
 
         # Storage for tile info
         tile_predictions = []
@@ -721,6 +727,7 @@ def sliding_window_inference(
                 tile_iterator,
                 total=len(input_tiler),
                 desc=f"Inference image {idx + 1}",
+                disable=not verbose,
             ):
                 tile_count += 1
                 tile = tile_batch[0]
@@ -836,15 +843,18 @@ def sliding_window_inference(
                     f"of {valid_mask.size:,} (WAC channels only)"
                 )
 
-        print(f"Merged probabilities shape: {merged_probs.shape}")
+        if verbose:
+            print(f"Merged probabilities shape: {merged_probs.shape}")
         finite_probs = merged_probs[np.isfinite(merged_probs)]
         if finite_probs.size:
-            print(
+            if verbose:
+                print(
                 f"Merged prob range: [{finite_probs.min():.4f}, "
                 f"{finite_probs.max():.4f}]"
-            )
+                )
         else:
-            print("Merged prob range: no valid pixels")
+            if verbose:
+                print("Merged prob range: no valid pixels")
 
         # Check if merging actually blended values
         unique_vals = np.unique(merged_probs)
@@ -873,9 +883,10 @@ def sliding_window_inference(
                 }
             )
 
-        print(f"Final prediction shape: {merged_preds.shape}")
-        print(f"Prediction range: [{merged_preds.min():.2f}, {merged_preds.max():.2f}]")
-        print(f"Positive pixels: {(merged_preds > 0).sum()} / {merged_preds.size}")
+        if verbose:
+            print(f"Final prediction shape: {merged_preds.shape}")
+            print(f"Prediction range: [{merged_preds.min():.2f}, {merged_preds.max():.2f}]")
+            print(f"Positive pixels: {(merged_preds > 0).sum()} / {merged_preds.size}")
 
     predictions = np.stack(all_predictions, axis=0)
     probabilities = np.stack(all_probabilities, axis=0)
@@ -1358,6 +1369,7 @@ def preprocess_datacubes(
     stds=None,
     nodata_masks=None,
     scale_inputs: bool = False,
+    verbose: bool = True,
 ):
     """Convert BCHW cubes to training-equivalent normalized BHWC tensors.
 
@@ -1382,7 +1394,13 @@ def preprocess_datacubes(
                 f"NoData mask shape {masks_hwc.shape} does not match "
                 f"image shape {images_hwc.shape}."
             )
-    for index, image in enumerate(tqdm(images_hwc, desc="Preprocessing datacubes")):
+    for index, image in enumerate(
+        tqdm(
+            images_hwc,
+            desc="Preprocessing datacubes",
+            disable=not verbose,
+        )
+    ):
         invalid = masks_hwc[index] if masks_hwc is not None else np.zeros_like(
             image, dtype=bool
         )
@@ -1403,13 +1421,14 @@ def preprocess_datacubes(
         wac_valid = valid[:, :, :wac_channels]
         static_image = image[:, :, wac_channels:]
         static_valid = valid[:, :, wac_channels:]
-        print(
-            f"Datacube {index}: "
-            f"WAC raw range {_range(wac_image)} | "
-            f"WAC valid range {_range(wac_image[wac_valid])} | "
-            f"Static raw range {_range(static_image)} | "
-            f"Static valid range {_range(static_image[static_valid])}"
-        )
+        if verbose:
+            print(
+                f"Datacube {index}: "
+                f"WAC raw range {_range(wac_image)} | "
+                f"WAC valid range {_range(wac_image[wac_valid])} | "
+                f"Static raw range {_range(static_image)} | "
+                f"Static valid range {_range(static_image[static_valid])}"
+            )
         # Match the configured training scaling behavior. Invalid pixels are
         # filled with their per-band mean before z-score normalization so
         # extreme raster sentinels cannot create NaNs in the model forward
@@ -1453,10 +1472,11 @@ def preprocess_datacubes(
                     )
             images_normalized[index][invalid] = 0.0
         normalized_valid = images_normalized[index][valid]
-        print(
-            f"Datacube {index}: model-input valid range "
-            f"{_range(normalized_valid)}"
-        )
+        if verbose:
+            print(
+                f"Datacube {index}: model-input valid range "
+                f"{_range(normalized_valid)}"
+            )
     return images_normalized
 
 
@@ -1468,6 +1488,7 @@ def plot_inference_results(
     n_channels: int,
     nodata_masks=None,
     static_band_number: int = 59,
+    verbose: bool = True,
 ):
     """Plot VIS, a static band, and binary predictions.
 
@@ -1514,10 +1535,11 @@ def plot_inference_results(
         if vis_values.size
         else (0.0, 1.0)
         )
-        print(
-            f"Plot {index}: raw VIS band 0 range "
-            f"[{vis_vmin:.6g}, {vis_vmax:.6g}]"
-        )
+        if verbose:
+            print(
+                f"Plot {index}: raw VIS band 0 range "
+                f"[{vis_vmin:.6g}, {vis_vmax:.6g}]"
+            )
         with rasterio.open(static_file) as src:
             static_data = src.read(static_band_number, masked=True)
             static_name = src.tags(static_band_number).get(
@@ -1571,5 +1593,6 @@ def plot_inference_results(
     output_path = output_dir / "graha_inference_viz.png"
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.show()
-    print(f"Saved visualization to {output_path}")
+    if verbose:
+        print(f"Saved visualization to {output_path}")
     return fig
