@@ -10,9 +10,98 @@ import rasterio
 from tiler import Tiler, Merger
 import torch
 import xarray as xr
+from tqdm import tqdm
 
 
 import rioxarray as rxr
+
+
+# Temporary WAC validity cutoff. Values below this are treated as NoData in
+# the seven WAC bands; static bands are governed by their own raster metadata
+# and excluded sentinel values.
+WAC_NODATA_THRESHOLD = -10_000.0
+
+
+def _product_id(filepath: str) -> str | None:
+    """Extract the Pipeline product ID from a WAC filename."""
+    match = re.search(r"ProdId-([^_.]+)", Path(filepath).name)
+    return match.group(1) if match else None
+
+
+def _wac_is_fully_valid(
+    filepath: str,
+    excluded_nodata_values=None,
+    nodata_threshold: float = WAC_NODATA_THRESHOLD,
+) -> bool:
+    """Return whether every pixel in every WAC band is valid."""
+    with rasterio.open(filepath) as src:
+        values = src.read()
+        invalid = ~np.isfinite(values)
+        if src.nodata is not None:
+            invalid |= values == src.nodata
+        for value in excluded_nodata_values or ():
+            invalid |= values == float(value)
+        invalid |= values < nodata_threshold
+    return not np.any(invalid)
+
+
+def _select_valid_wac_products_across_tiles(
+    cubes_by_tile: dict,
+    *,
+    required_tiles: int = 4,
+    required_products: int = 1,
+    excluded_nodata_values=None,
+    nodata_threshold: float = WAC_NODATA_THRESHOLD,
+    verbose: bool = True,
+) -> dict[str, dict[str, str]]:
+    """Greedily select products valid on every tile.
+
+    A product is accepted only when one fully valid WAC cube exists for each
+    tile. Selection stops immediately after ``required_products`` product IDs
+    have been accepted.
+    """
+    tile_ids = sorted(cubes_by_tile)
+    if len(tile_ids) != required_tiles:
+        if verbose:
+            print(
+                f"  ⚠ Found {len(tile_ids)} tile(s); expected "
+                f"exactly {required_tiles} for product selection"
+            )
+        return {}
+
+    product_tiles: dict[str, dict[str, list[str]]] = {}
+    for tile_id in tile_ids:
+        for filepath in cubes_by_tile[tile_id]["wac"]:
+            product_id = _product_id(filepath)
+            if product_id is not None:
+                product_tiles.setdefault(product_id, {}).setdefault(
+                    tile_id, []
+                ).append(filepath)
+
+    selected_products: dict[str, dict[str, str]] = {}
+    for product_id, tiles in product_tiles.items():
+        selected: dict[str, str] = {}
+        for tile_id in tile_ids:
+            candidates = tiles.get(tile_id, [])
+            for filepath in candidates:
+                if _wac_is_fully_valid(
+                    filepath,
+                    excluded_nodata_values,
+                    nodata_threshold=nodata_threshold,
+                ):
+                    selected[tile_id] = filepath
+                    break
+        if verbose:
+            print(
+                f"  Product {product_id}: valid on "
+                f"{len(selected)}/{len(tile_ids)} tile(s)"
+            )
+        if len(selected) == required_tiles:
+            selected_products[product_id] = selected
+            if len(selected_products) == required_products:
+                break
+
+    return selected_products
 
 # ============================================================
 # DATA LOADING
@@ -103,7 +192,7 @@ def check_bands_exist(filepath: Path, pattern: str) -> tuple:
 
 def filter_static_bands(static_cubes, verbose=True, verify=True):
     """
-    Filter static cube bands to only include those matching 'lola_kaguya' pattern.
+    Load every band in each static cube.
 
     Args:
         static_cubes: List of file paths to static cube GeoTIFFs
@@ -114,49 +203,12 @@ def filter_static_bands(static_cubes, verbose=True, verify=True):
         List of xarray DataArrays with filtered bands
     """
     static_datasets = []
-    STATIC_BAND_REGEX = r"lola_kaguya"
-
     for cube in static_cubes:
-        bands_exist, band_indices, error_message = check_bands_exist(
-            cube, STATIC_BAND_REGEX
-        )
-
-        if not bands_exist:
-            if verbose:
-                print(f"  ⚠ Skipping {Path(cube).name}: {error_message}")
-            continue
-
-        # Verify the band selection if requested
-        if verify:
-            all_match, band_names, mismatches = verify_band_selection(
-                cube, band_indices, STATIC_BAND_REGEX, verbose=verbose
-            )
-            if not all_match:
-                raise ValueError(
-                    f"Band verification failed for {cube}. " f"Mismatches: {mismatches}"
-                )
-
-        # Convert from 1-based (rasterio) to 0-based (xarray) indexing
-        band_indices_0based = [idx - 1 for idx in band_indices]
-
-        if verbose:
-            print(
-                f"  Converting indices: {band_indices} (rasterio) -> {band_indices_0based} (xarray)"
-            )
-
-        # Open with rioxarray and select matching bands
         ds = rxr.open_rasterio(cube)
-
         if verbose:
-            print(f"  Total bands in file: {ds.sizes['band']}")
-            print(f"  Selecting bands at 0-based indices: {band_indices_0based}")
-
-        ds_filtered = ds.isel(band=band_indices_0based)
-
-        if verbose:
-            print(f"  ✓ Result: {ds_filtered.sizes['band']} bands selected\n")
-
-        static_datasets.append(ds_filtered)
+            print(f"  Static file: {Path(cube).name}")
+            print(f"  ✓ Keeping all {ds.sizes['band']} static bands\n")
+        static_datasets.append(ds)
 
     return static_datasets
 
@@ -220,18 +272,25 @@ def get_datacube_data(
     band_filter=None,
     verbose=True,
     verify_bands=True,
+    excluded_nodata_values=None,
+    return_nodata_mask=False,
+    wac_nodata_threshold: float = WAC_NODATA_THRESHOLD,
 ):
     """
     Extract and stack vis and static GeoTIFF data.
 
     Args:
         input_paths: Path(s) to directory or file(s)
-        band_filter: Not currently used
+        band_filter: Optional zero-based filter applied after WAC and all
+            static bands are concatenated
         verbose: Print progress information
         verify_bands: Verify that band filtering worked correctly
 
     Returns:
-        tuple: (stacked_data, file_pairs)
+        tuple: (stacked_data, file_pairs), optionally with a per-band
+            nodata mask when ``return_nodata_mask=True``. The mask has shape
+            ``(N, bands, H, W)`` and includes non-finite, raster nodata, and
+            explicitly excluded sentinel values.
             - stacked_data: numpy array of shape (N, bands, H, W)
             - file_pairs: List of (vis_file, static_file) tuples
     """
@@ -264,11 +323,27 @@ def get_datacube_data(
 
     # Process each pair
     all_datasets = []
+    all_nodata_masks = []
     file_pairs = []
 
-    # We have already extracted only a single WAC/STATIC file per tile ID
-    for tile_id, dataset_dict in cubes_by_tile.items():
-        for wac_file in dataset_dict["wac"]:
+    # Select one product ID requiring a fully valid WAC cube on every tile.
+    # Static NoData is intentionally not part of this filter.
+    selected_products = _select_valid_wac_products_across_tiles(
+        cubes_by_tile,
+        required_tiles=4,
+        required_products=1,
+        excluded_nodata_values=excluded_nodata_values,
+        nodata_threshold=wac_nodata_threshold,
+        verbose=verbose,
+    )
+    if not selected_products:
+        if verbose:
+            print("  ⚠ No product ID is valid on all four tiles")
+        return np.array([]), file_pairs
+
+    for product_id, selected_wac_by_tile in selected_products.items():
+        for tile_id, dataset_dict in cubes_by_tile.items():
+            wac_file = selected_wac_by_tile[tile_id]
             static_file = dataset_dict["static"][0]
             if verbose:
                 print(f"\n{'='*60}")
@@ -308,11 +383,23 @@ def get_datacube_data(
 
             static_ds = static_datasets[0]
 
-            # Combine wac and static
+            # Combine WAC and all static bands before applying the user's
+            # modality-local band filter.
             combined_ds = xr.concat([wac_ds, static_ds], dim="band")
+            combined_values = np.asarray(combined_ds.values)
+            nodata_value = combined_ds.rio.nodata
+            invalid = ~np.isfinite(combined_values)
+            if nodata_value is not None:
+                invalid |= combined_values == nodata_value
+            for value in excluded_nodata_values or ():
+                invalid |= combined_values == float(value)
+            # Apply the same conservative cutoff to every loaded modality
+            # before band filtering. Product discovery separately applies the
+            # cutoff to every WAC band when validating product IDs.
+            invalid |= combined_values < wac_nodata_threshold
             if band_filter is not None:
                 combined_ds = combined_ds.isel(band=band_filter)
-            # clipped_combined_ds = np.clip(combined_ds.values, 0, 1)
+                invalid = invalid[band_filter]
 
             if verbose:
                 print(f"  Combined shape: {combined_ds.shape}")
@@ -324,15 +411,12 @@ def get_datacube_data(
                     f"  Combined min/max: {np.min(combined_ds.values), np.max(combined_ds.values)}"
                 )
 
-            # Convert to numpy and append
-            if not np.any(combined_ds.values == combined_ds.rio.nodata):
-                all_datasets.append(combined_ds)
-                file_pairs.append((wac_file, static_file))
-                break
-            elif verbose:
-                print(
-                    f"  ⚠ Skipping - contains nodata (value: {combined_ds.rio.nodata})"
-                )
+            # Keep NoData-containing cubes. Graha is NoData-aware; the mask is
+            # retained separately so preprocessing and output merging can avoid
+            # using invalid pixels for scale/range calculations.
+            all_datasets.append(combined_ds)
+            all_nodata_masks.append(invalid)
+            file_pairs.append((wac_file, static_file))
 
     if verbose:
         print(f"\n{'='*60}")
@@ -351,9 +435,110 @@ def get_datacube_data(
 
     # Convert to numpy array with shape (N, bands, H, W)
     if all_datasets:
-        return np.array(all_datasets), file_pairs
+        stacked_data = np.array([np.asarray(dataset.values) for dataset in all_datasets])
+        if return_nodata_mask:
+            return stacked_data, file_pairs, np.asarray(all_nodata_masks, dtype=bool)
+        return stacked_data, file_pairs
     else:
+        if return_nodata_mask:
+            return np.array([]), file_pairs, np.array([], dtype=bool)
         return np.array([]), file_pairs
+
+
+def _selected_raw_band_indices(data_dict, static_count: int) -> list[int]:
+    """Translate modality-local DATA_DICT filters to combined raw indices."""
+    layout = {
+        "vis": list(range(5)),
+        "uv": list(range(5, 7)),
+        "static": list(range(7, 7 + static_count)),
+    }
+    selected_modalities = data_dict.get("selected_modalities", ["vis", "uv"])
+    filters = data_dict.get("band_filters", {})
+    indices: list[int] = []
+    for modality in selected_modalities:
+        if modality not in layout:
+            raise ValueError(
+                f"Unsupported raw WAC modality {modality!r}; expected vis, uv, or static."
+            )
+        available = layout[modality]
+        local_indices = filters.get(modality, list(range(len(available))))
+        for local_index in local_indices:
+            if local_index < 0 or local_index >= len(available):
+                raise IndexError(
+                    f"band_filters[{modality!r}] contains {local_index}, "
+                    f"but only {len(available)} band(s) are available."
+                )
+            indices.append(available[local_index])
+    if not indices:
+        raise ValueError("DATA_DICT must select at least one input band.")
+    return indices
+
+
+def load_and_configure_input_data(
+    input_paths,
+    data_dict: dict,
+    *,
+    verbose: bool = True,
+    verify_bands: bool = True,
+) -> dict:
+    """Load WAC/static cubes and apply training-style modality selection.
+
+    The returned WAC channels are in canonical VIS-then-UV order, followed by
+    the static bands selected by the data dictionary. Graha modality metadata
+    is included so notebooks do not need to duplicate input-layout logic.
+    """
+    images_all, file_pairs, nodata_masks_all = get_datacube_data(
+        input_paths,
+        band_filter=None,
+        verbose=verbose,
+        verify_bands=verify_bands,
+        excluded_nodata_values=data_dict.get("excluded_nodata_values"),
+        return_nodata_mask=True,
+    )
+    if images_all.size == 0:
+        raise ValueError("No valid WAC/Static datacube pairs were found.")
+
+    static_count = max(int(images_all.shape[1]) - 7, 0)
+    band_filter = _selected_raw_band_indices(data_dict, static_count)
+    images_raw = images_all[:, band_filter]
+    nodata_masks = nodata_masks_all[:, band_filter]
+    selected = list(data_dict.get("selected_modalities", ["vis", "uv"]))
+    static_filter = data_dict.get("band_filters", {}).get(
+        "static", list(range(static_count))
+    )
+    static_selected_count = len(static_filter)
+
+    if selected == ["vis", "uv"]:
+        backend_modalities, input_mode = ["vis", "uv"], "vis-uv"
+    elif selected == ["vis"]:
+        backend_modalities, input_mode = ["vis"], "vis"
+    elif selected == ["uv"]:
+        backend_modalities, input_mode = ["uv"], "uv"
+    elif selected == ["vis", "uv", "static"] and static_selected_count == 63:
+        backend_modalities, input_mode = ["vis", "uv", "static"], "vis-uv-static"
+    elif selected == ["static"] and static_selected_count == 63:
+        backend_modalities, input_mode = ["static"], "static"
+    else:
+        backend_modalities, input_mode = ["wac"], "single"
+
+    normalization_modality = (
+        "vis_uv"
+        if backend_modalities in (["vis"], ["uv"], ["vis", "uv"])
+        else "vis_uv_static"
+        if backend_modalities in (["vis", "uv", "static"], ["static"])
+        else None
+    )
+    return {
+        "images_raw": images_raw,
+        "nodata_masks": nodata_masks,
+        "file_pairs": file_pairs,
+        "band_filter": band_filter,
+        "n_channels": int(images_raw.shape[1]),
+        "selected_modalities": selected,
+        "backend_modalities": backend_modalities,
+        "input_mode": input_mode,
+        "normalization_modality": normalization_modality,
+    }
 
 
 # ============================================================
@@ -429,12 +614,14 @@ def sliding_window_inference(
     model,
     target_size=304,
     device="cuda",
-    threshold=0.5,
+    threshold=0.75,
     n_channels=12,
     overlap=0.25,
     debug=False,
+    verbose=True,
     window="triang",
     return_tiles=False,
+    nodata_masks=None,
 ):
     """
     Perform sliding window inference on large images.
@@ -460,6 +647,7 @@ def sliding_window_inference(
     if isinstance(target_size, int):
         target_size = (target_size, target_size)
 
+    debug = bool(debug and verbose)
     model.eval()
 
     # Handle single image
@@ -474,7 +662,8 @@ def sliding_window_inference(
 
     # Process each image
     for idx in range(images_scaled.shape[0]):
-        print(f"\nProcessing image {idx + 1}/{images_scaled.shape[0]}")
+        if verbose:
+            print(f"\nProcessing image {idx + 1}/{images_scaled.shape[0]}")
         image = images_scaled[idx]  # Shape: (H, W, n_channels)
 
         img_h, img_w = image.shape[0], image.shape[1]
@@ -511,24 +700,34 @@ def sliding_window_inference(
         # Create merger
         output_merger = Merger(tiler=output_tiler, window=window)
 
-        print(f"Number of tiles: {len(input_tiler)}")
+        if verbose:
+            print(f"Number of tiles: {len(input_tiler)}")
 
         # Calculate and display effective overlap
         if isinstance(overlap, float):
             overlap_pixels = int(target_size[0] * overlap)
-            print(f"Tile overlap: {overlap*100:.0f}% ({overlap_pixels} pixels)")
+            if verbose:
+                print(f"Tile overlap: {overlap*100:.0f}% ({overlap_pixels} pixels)")
         else:
-            print(f"Tile overlap: {overlap} pixels")
+            if verbose:
+                print(f"Tile overlap: {overlap} pixels")
 
         # Storage for tile info
         tile_predictions = []
         tile_positions = []
+        tile_logit_ranges = []
+        tile_probability_ranges = []
+        tile_positive_pixels = []
 
         # Iterate through tiles
         tile_count = 0
         with torch.no_grad():
-            for tile_id, tile_batch in input_tiler(
-                image, batch_size=1, progress_bar=True
+            tile_iterator = input_tiler(image, batch_size=1, progress_bar=False)
+            for tile_id, tile_batch in tqdm(
+                tile_iterator,
+                total=len(input_tiler),
+                desc=f"Inference image {idx + 1}",
+                disable=not verbose,
             ):
                 tile_count += 1
                 tile = tile_batch[0]
@@ -539,16 +738,59 @@ def sliding_window_inference(
 
                 # Run inference
                 logits = model(tile_tensor)
-                probs = torch.sigmoid(logits)
-
-                # Get crater class
-                if probs.shape[1] == 2:
-                    probs = probs[:, 1:2]
+                if not torch.is_tensor(logits):
+                    raise TypeError(
+                        "Inference model must return a torch.Tensor of logits, "
+                        f"got {type(logits)}"
+                    )
+                logits_cpu = logits.detach().float().cpu()
+                finite_logits = logits_cpu[torch.isfinite(logits_cpu)]
+                if finite_logits.numel() == 0:
+                    raise ValueError(
+                        f"Tile {tile_id} produced no finite logits."
+                    )
+                logit_range = (
+                    float(finite_logits.min()), float(finite_logits.max())
+                )
+                tile_logit_ranges.append(logit_range)
+                if debug:
+                    class_means = logits_cpu.mean(dim=(0, 2, 3)).tolist()
+                    print(
+                        f"  Tile {tile_id}: logits shape={tuple(logits.shape)} "
+                        f"range=[{logit_range[0]:.6g}, {logit_range[1]:.6g}] "
+                        f"class_means={class_means}"
+                    )
+                # Match the training/validation probability convention:
+                # two-class heads use softmax and select class 1, while a
+                # single-channel head uses sigmoid.
+                if logits.shape[1] == 2:
+                    probs = torch.softmax(logits, dim=1)[:, 1:2]
+                else:
+                    probs = torch.sigmoid(logits)
 
                 # Convert to numpy
                 probs_np = probs.cpu().numpy()
                 probs_np = probs_np[0]
                 probs_np = np.transpose(probs_np, (1, 2, 0))
+                finite_tile_probs = probs_np[np.isfinite(probs_np)]
+                if finite_tile_probs.size == 0:
+                    raise ValueError(
+                        f"Tile {tile_id} produced no finite probabilities."
+                    )
+                probability_range = (
+                    float(finite_tile_probs.min()),
+                    float(finite_tile_probs.max()),
+                )
+                tile_probability_ranges.append(probability_range)
+                tile_positive_pixels.append(
+                    int(np.count_nonzero(probs_np.squeeze() > threshold))
+                )
+                if debug:
+                    print(
+                        f"  Tile {tile_id}: positive-probability range="
+                        f"[{probability_range[0]:.6g}, {probability_range[1]:.6g}] "
+                        f"pixels>{threshold}={tile_positive_pixels[-1]:,}"
+                    )
 
                 # Store tile prediction and position if requested
                 if return_tiles:
@@ -572,14 +814,47 @@ def sliding_window_inference(
 
         if debug:
             print(f"\nProcessed {tile_count} tiles total")
+            logit_min = min(item[0] for item in tile_logit_ranges)
+            logit_max = max(item[1] for item in tile_logit_ranges)
+            probability_min = min(item[0] for item in tile_probability_ranges)
+            probability_max = max(item[1] for item in tile_probability_ranges)
+            print(
+                f"Tile diagnostic summary: logits range=[{logit_min:.6g}, "
+                f"{logit_max:.6g}], probabilities range=[{probability_min:.6g}, "
+                f"{probability_max:.6g}], total tile pixels>{threshold}="
+                f"{sum(tile_positive_pixels):,}"
+            )
 
         # Merge all tiles
         merged_probs = output_merger.merge(unpad=True)
+        if nodata_masks is not None:
+            # Static bands can have geographically different coverage. A
+            # missing value in one static layer is mean-imputed and should not
+            # erase the prediction for the whole pixel. Require only the WAC
+            # channels to be valid for output masking.
+            wac_channel_count = min(7, nodata_masks[idx].shape[0])
+            valid_mask = ~np.any(
+                nodata_masks[idx][:wac_channel_count], axis=0
+            )
+            merged_probs[~valid_mask, :] = np.nan
+            if debug:
+                print(
+                    f"Output mask: {int((~valid_mask).sum()):,} masked pixels "
+                    f"of {valid_mask.size:,} (WAC channels only)"
+                )
 
-        print(f"Merged probabilities shape: {merged_probs.shape}")
-        print(
-            f"Merged prob range: [{merged_probs.min():.4f}, {merged_probs.max():.4f}]"
-        )
+        if verbose:
+            print(f"Merged probabilities shape: {merged_probs.shape}")
+        finite_probs = merged_probs[np.isfinite(merged_probs)]
+        if finite_probs.size:
+            if verbose:
+                print(
+                f"Merged prob range: [{finite_probs.min():.4f}, "
+                f"{finite_probs.max():.4f}]"
+                )
+        else:
+            if verbose:
+                print("Merged prob range: no valid pixels")
 
         # Check if merging actually blended values
         unique_vals = np.unique(merged_probs)
@@ -608,9 +883,10 @@ def sliding_window_inference(
                 }
             )
 
-        print(f"Final prediction shape: {merged_preds.shape}")
-        print(f"Prediction range: [{merged_preds.min():.2f}, {merged_preds.max():.2f}]")
-        print(f"Positive pixels: {(merged_preds > 0).sum()} / {merged_preds.size}")
+        if verbose:
+            print(f"Final prediction shape: {merged_preds.shape}")
+            print(f"Prediction range: [{merged_preds.min():.2f}, {merged_preds.max():.2f}]")
+            print(f"Positive pixels: {(merged_preds > 0).sum()} / {merged_preds.size}")
 
     predictions = np.stack(all_predictions, axis=0)
     probabilities = np.stack(all_probabilities, axis=0)
@@ -1085,3 +1361,238 @@ def run_datacube_inference(
     model.train()
 
     return fig, images_scaled, preds_list
+
+
+def preprocess_datacubes(
+    images_raw,
+    means=None,
+    stds=None,
+    nodata_masks=None,
+    scale_inputs: bool = False,
+    verbose: bool = True,
+):
+    """Convert BCHW cubes to training-equivalent normalized BHWC tensors.
+
+    The Graha semantic training backend sets ``scale_inputs=False`` and
+    applies pretrained z-score normalization directly to raw chip values.
+    ``scale_inputs=True`` is available for datasets whose training backend
+    explicitly performs min-max scaling first. NoData pixels are excluded from
+    any scaling statistics and are replaced with the corresponding band mean
+    before z-score normalization.
+    Thus invalid model-input pixels become zero in normalized space. The
+    original NoData mask remains available to mask merged outputs.
+    """
+    from tqdm import tqdm
+
+    images_hwc = np.transpose(images_raw, (0, 2, 3, 1)).astype(np.float32)
+    images_normalized = np.empty_like(images_hwc)
+    masks_hwc = None
+    if nodata_masks is not None:
+        masks_hwc = np.moveaxis(np.asarray(nodata_masks, dtype=bool), 1, -1)
+        if masks_hwc.shape != images_hwc.shape:
+            raise ValueError(
+                f"NoData mask shape {masks_hwc.shape} does not match "
+                f"image shape {images_hwc.shape}."
+            )
+    for index, image in enumerate(
+        tqdm(
+            images_hwc,
+            desc="Preprocessing datacubes",
+            disable=not verbose,
+        )
+    ):
+        invalid = masks_hwc[index] if masks_hwc is not None else np.zeros_like(
+            image, dtype=bool
+        )
+        invalid |= ~np.isfinite(image)
+        invalid |= image < WAC_NODATA_THRESHOLD
+        valid = ~invalid
+        def _range(values):
+            finite_values = values[np.isfinite(values)]
+            if finite_values.size == 0:
+                return "[empty]"
+            return f"[{finite_values.min():.6g}, {finite_values.max():.6g}]"
+
+        # The first seven canonical channels are WAC (VIS 0-4, UV 0-1);
+        # remaining channels are static. Keep these ranges separate so a
+        # static sentinel cannot obscure the WAC diagnostic.
+        wac_channels = min(7, image.shape[-1])
+        wac_image = image[:, :, :wac_channels]
+        wac_valid = valid[:, :, :wac_channels]
+        static_image = image[:, :, wac_channels:]
+        static_valid = valid[:, :, wac_channels:]
+        if verbose:
+            print(
+                f"Datacube {index}: "
+                f"WAC raw range {_range(wac_image)} | "
+                f"WAC valid range {_range(wac_image[wac_valid])} | "
+                f"Static raw range {_range(static_image)} | "
+                f"Static valid range {_range(static_image[static_valid])}"
+            )
+        # Match the configured training scaling behavior. Invalid pixels are
+        # filled with their per-band mean before z-score normalization so
+        # extreme raster sentinels cannot create NaNs in the model forward
+        # pass; nodata_masks still control output masking.
+        scaled = image.copy()
+        if scale_inputs:
+            for channel in range(image.shape[-1]):
+                channel_valid = valid[:, :, channel]
+                if not np.any(channel_valid):
+                    continue
+                valid_band = image[:, :, channel][channel_valid]
+                band_min, band_max = valid_band.min(), valid_band.max()
+                if band_max > band_min:
+                    scaled[channel_valid, channel] = (
+                        image[channel_valid, channel] - band_min
+                    ) / (band_max - band_min)
+        images_normalized[index] = scaled
+        if means is not None and stds is not None:
+            mean = np.asarray(means, dtype=np.float32)
+            std = np.asarray(stds, dtype=np.float32)
+            for channel in range(image.shape[-1]):
+                channel_valid = valid[:, :, channel]
+                # Mean-impute in the pre-z-score (min-max) domain. This makes
+                # every invalid pixel exactly zero after z-score normalization
+                # for its own band, without exposing raster sentinels to the
+                # model.
+                channel_values = scaled[:, :, channel]
+                channel_values[~channel_valid] = mean[channel]
+                images_normalized[index][:, :, channel] = (
+                    channel_values - mean[channel]
+                ) / std[channel]
+        else:
+            # With no pretrained stats, retain the historical [-1, 1]
+            # fallback. This path still uses optional valid-pixel min-max
+            # scaling when requested.
+            for channel in range(image.shape[-1]):
+                channel_valid = valid[:, :, channel]
+                if np.any(channel_valid):
+                    images_normalized[index][channel_valid, channel] = (
+                        2.0 * scaled[channel_valid, channel] - 1.0
+                    )
+            images_normalized[index][invalid] = 0.0
+        normalized_valid = images_normalized[index][valid]
+        if verbose:
+            print(
+                f"Datacube {index}: model-input valid range "
+                f"{_range(normalized_valid)}"
+            )
+    return images_normalized
+
+
+def plot_inference_results(
+    images_raw,
+    predictions,
+    file_pairs,
+    output_dir,
+    n_channels: int,
+    nodata_masks=None,
+    static_band_number: int = 59,
+    verbose: bool = True,
+):
+    """Plot VIS, a static band, and binary predictions.
+
+    The static band is read from the paired static GeoTIFF so its original
+    Rasterio metadata and NoData mask are available for visualization.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True, parents=True)
+    max_samples = 4
+    images_raw = images_raw[:max_samples]
+    predictions = predictions[:max_samples]
+    file_pairs = file_pairs[:max_samples]
+    if nodata_masks is not None:
+        nodata_masks = nodata_masks[:max_samples]
+    fig, axes = plt.subplots(
+        3,
+        len(file_pairs),
+        figsize=(6 * len(file_pairs), 14),
+        squeeze=False,
+    )
+    for index, ((wac_file, static_file), image, prediction) in enumerate(
+        zip(file_pairs, images_raw, predictions)
+    ):
+        # Read canonical VIS band 0 directly from source WAC band 3. This
+        # guarantees that the diagnostic colorbar is in raw WAC units rather
+        # than accidentally using normalized model input or another channel.
+        with rasterio.open(wac_file) as src:
+            vis_data = src.read(3, masked=True)
+            vis_name = src.tags(3).get("Name", "VIS band 0")
+        vis_mask = np.ma.getmaskarray(vis_data)
+        vis_values_raw = np.ma.getdata(vis_data)
+        vis_mask |= ~np.isfinite(vis_values_raw)
+        vis_mask |= vis_values_raw < WAC_NODATA_THRESHOLD
+        if nodata_masks is not None:
+            # VIS should only be masked by WAC invalidity. Using the union of
+            # all static masks here can erase otherwise valid VIS pixels.
+            vis_mask |= np.any(
+                nodata_masks[index][: min(7, image.shape[0])], axis=0
+            )
+        vis_data = np.ma.array(vis_values_raw, mask=vis_mask)
+        vis_values = vis_data.compressed()
+        vis_vmin, vis_vmax = (
+            (float(vis_values.min()), float(vis_values.max()))
+        if vis_values.size
+        else (0.0, 1.0)
+        )
+        if verbose:
+            print(
+                f"Plot {index}: raw VIS band 0 range "
+                f"[{vis_vmin:.6g}, {vis_vmax:.6g}]"
+            )
+        with rasterio.open(static_file) as src:
+            static_data = src.read(static_band_number, masked=True)
+            static_name = src.tags(static_band_number).get(
+                "Name", f"band_{static_band_number}"
+            )
+            static_data = np.ma.array(
+                static_data,
+                mask=(
+                    np.ma.getmaskarray(static_data)
+                    | ~np.isfinite(np.ma.getdata(static_data))
+                    | (np.ma.getdata(static_data) < WAC_NODATA_THRESHOLD)
+                ),
+            )
+        static_values = static_data.compressed()
+        static_vmin, static_vmax = (
+            (float(static_values.min()), float(static_values.max()))
+            if static_values.size
+            else (0.0, 1.0)
+        )
+        vis_plot = axes[0, index].imshow(
+            vis_data, cmap="gray", vmin=vis_vmin, vmax=vis_vmax
+        )
+        axes[0, index].set_title(f"VIS band 0: {vis_name}")
+        fig.colorbar(vis_plot, ax=axes[0, index], fraction=0.046, pad=0.04)
+
+        static_plot = axes[1, index].imshow(
+            static_data, cmap="gray", vmin=static_vmin, vmax=static_vmax
+        )
+        axes[1, index].set_title(
+            f"Static band {static_band_number}: {static_name}"
+        )
+        fig.colorbar(static_plot, ax=axes[1, index], fraction=0.046, pad=0.04)
+
+        prediction_display = create_binary_colormap(
+            np.nan_to_num(prediction, nan=0.0)
+        )
+        if nodata_masks is not None:
+            wac_channel_count = min(7, nodata_masks[index].shape[0])
+            prediction_mask = np.any(
+                nodata_masks[index][:wac_channel_count], axis=0
+            )
+            prediction_display[prediction_mask] = (0.65, 0.65, 0.65)
+        axes[2, index].imshow(prediction_display)
+        axes[2, index].set_title(
+            f"Graha prediction ({int(prediction.sum()):,} positive pixels)"
+        )
+        for row in axes[:, index]:
+            row.axis("off")
+    fig.suptitle(f"Graha inference: {n_channels} input channels", y=1.0)
+    fig.tight_layout()
+    output_path = output_dir / "graha_inference_viz.png"
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.show()
+    if verbose:
+        print(f"Saved visualization to {output_path}")
+    return fig

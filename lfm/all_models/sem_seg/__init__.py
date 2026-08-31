@@ -24,6 +24,7 @@ from lfm.all_models.sem_seg.sweep_config import (
     SemanticCheckpointSweepConfig,
     build_checkpoint_sweep_config_from_args,
 )
+from lfm.all_models.sem_seg.graha_inference import GrahaLogitModel
 
 __all__ = [
     "GrahaSemanticNotebookConfigs",
@@ -40,4 +41,5 @@ __all__ = [
     "build_checkpoint_sweep_config_from_args",
     "build_graha_notebook_configs",
     "build_gfft_notebook_configs",
+    "GrahaLogitModel",
 ]
