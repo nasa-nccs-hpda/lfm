@@ -1285,6 +1285,19 @@ def preprocess_datacubes(images_raw, means=None, stds=None, nodata_masks=None):
             image, dtype=bool
         )
         valid = ~invalid
+        raw_min, raw_max = np.nanmin(image), np.nanmax(image)
+        valid_values = image[valid]
+        if valid_values.size:
+            valid_min, valid_max = valid_values.min(), valid_values.max()
+            print(
+                f"Datacube {index}: raw range [{raw_min:.6g}, {raw_max:.6g}] | "
+                f"valid range [{valid_min:.6g}, {valid_max:.6g}]"
+            )
+        else:
+            print(
+                f"Datacube {index}: raw range [{raw_min:.6g}, {raw_max:.6g}] | "
+                "no valid pixels"
+            )
         # Start with the original values so Graha can see its NoData sentinels.
         images_normalized[index] = image
         if means is not None and stds is not None:
@@ -1328,6 +1341,12 @@ def plot_inference_results(
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
+    max_samples = 4
+    images_raw = images_raw[:max_samples]
+    predictions = predictions[:max_samples]
+    file_pairs = file_pairs[:max_samples]
+    if nodata_masks is not None:
+        nodata_masks = nodata_masks[:max_samples]
     fig, axes = plt.subplots(
         3,
         len(file_pairs),
