@@ -37,35 +37,58 @@ def _wac_is_fully_valid(
     return not np.any(invalid)
 
 
-def _select_valid_wac_product_group(
-    wac_files: list[str],
+def _select_valid_wac_products_across_tiles(
+    cubes_by_tile: dict,
     *,
-    required_count: int = 4,
+    required_tiles: int = 4,
+    required_products: int = 4,
     excluded_nodata_values=None,
     verbose: bool = True,
-) -> list[str]:
-    """Select the first product group with enough fully valid WAC cubes."""
-    grouped: dict[str, list[str]] = {}
-    for filepath in wac_files:
-        product_id = _product_id(filepath)
-        if product_id is not None:
-            grouped.setdefault(product_id, []).append(filepath)
+) -> dict[str, dict[str, str]]:
+    """Greedily select products valid on every tile.
 
-    for product_id, candidates in grouped.items():
-        valid_files = [
-            filepath
-            for filepath in candidates
-            if _wac_is_fully_valid(filepath, excluded_nodata_values)
-        ]
+    A product is accepted only when one fully valid WAC cube exists for each
+    tile. Selection stops immediately after ``required_products`` product IDs
+    have been accepted.
+    """
+    tile_ids = sorted(cubes_by_tile)
+    if len(tile_ids) != required_tiles:
         if verbose:
             print(
-                f"  Product {product_id}: {len(valid_files)}/{len(candidates)} "
-                "WAC cube(s) are 100% valid"
+                f"  ⚠ Found {len(tile_ids)} tile(s); expected "
+                f"exactly {required_tiles} for product selection"
             )
-        if len(valid_files) >= required_count:
-            return valid_files[:required_count]
+        return {}
 
-    return []
+    product_tiles: dict[str, dict[str, list[str]]] = {}
+    for tile_id in tile_ids:
+        for filepath in cubes_by_tile[tile_id]["wac"]:
+            product_id = _product_id(filepath)
+            if product_id is not None:
+                product_tiles.setdefault(product_id, {}).setdefault(
+                    tile_id, []
+                ).append(filepath)
+
+    selected_products: dict[str, dict[str, str]] = {}
+    for product_id, tiles in product_tiles.items():
+        selected: dict[str, str] = {}
+        for tile_id in tile_ids:
+            candidates = tiles.get(tile_id, [])
+            for filepath in candidates:
+                if _wac_is_fully_valid(filepath, excluded_nodata_values):
+                    selected[tile_id] = filepath
+                    break
+        if verbose:
+            print(
+                f"  Product {product_id}: valid on "
+                f"{len(selected)}/{len(tile_ids)} tile(s)"
+            )
+        if len(selected) == required_tiles:
+            selected_products[product_id] = selected
+            if len(selected_products) == required_products:
+                break
+
+    return selected_products
 
 # ============================================================
 # DATA LOADING
@@ -289,25 +312,24 @@ def get_datacube_data(
     all_nodata_masks = []
     file_pairs = []
 
-    # Select one product ID per tile, requiring four completely valid WAC
-    # datacubes. Static NoData is intentionally not part of this filter.
-    for tile_id, dataset_dict in cubes_by_tile.items():
-        selected_wac_files = _select_valid_wac_product_group(
-            dataset_dict["wac"],
-            required_count=4,
-            excluded_nodata_values=excluded_nodata_values,
-            verbose=verbose,
-        )
-        if not selected_wac_files:
-            if verbose:
-                print(
-                    f"  ⚠ No product ID for tile {tile_id} has "
-                    "four fully valid WAC cubes; skipping tile"
-                )
-            continue
+    # Select up to four product IDs, each requiring a fully valid WAC cube on
+    # every tile. Static NoData is intentionally not part of this filter.
+    selected_products = _select_valid_wac_products_across_tiles(
+        cubes_by_tile,
+        required_tiles=4,
+        required_products=4,
+        excluded_nodata_values=excluded_nodata_values,
+        verbose=verbose,
+    )
+    if not selected_products:
+        if verbose:
+            print("  ⚠ No product ID is valid on all four tiles")
+        return np.array([]), file_pairs
 
-        static_file = dataset_dict["static"][0]
-        for wac_file in selected_wac_files:
+    for product_id, selected_wac_by_tile in selected_products.items():
+        for tile_id, dataset_dict in cubes_by_tile.items():
+            wac_file = selected_wac_by_tile[tile_id]
+            static_file = dataset_dict["static"][0]
             if verbose:
                 print(f"\n{'='*60}")
                 print(f"Processing tile_id: {tile_id}")
