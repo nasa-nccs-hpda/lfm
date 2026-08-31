@@ -393,8 +393,10 @@ def get_datacube_data(
                 invalid |= combined_values == nodata_value
             for value in excluded_nodata_values or ():
                 invalid |= combined_values == float(value)
+            # Apply the WAC validity cutoff while the first seven canonical
+            # channels are still identifiable, then apply the user's band
+            # filter to both data and mask.
             invalid[:7] |= combined_values[:7] < wac_nodata_threshold
-
             if band_filter is not None:
                 combined_ds = combined_ds.isel(band=band_filter)
                 invalid = invalid[band_filter]
@@ -1301,19 +1303,27 @@ def preprocess_datacubes(images_raw, means=None, stds=None, nodata_masks=None):
             image, dtype=bool
         )
         valid = ~invalid
-        raw_min, raw_max = np.nanmin(image), np.nanmax(image)
-        valid_values = image[valid]
-        if valid_values.size:
-            valid_min, valid_max = valid_values.min(), valid_values.max()
-            print(
-                f"Datacube {index}: raw range [{raw_min:.6g}, {raw_max:.6g}] | "
-                f"valid range [{valid_min:.6g}, {valid_max:.6g}]"
-            )
-        else:
-            print(
-                f"Datacube {index}: raw range [{raw_min:.6g}, {raw_max:.6g}] | "
-                "no valid pixels"
-            )
+        def _range(values):
+            finite_values = values[np.isfinite(values)]
+            if finite_values.size == 0:
+                return "[empty]"
+            return f"[{finite_values.min():.6g}, {finite_values.max():.6g}]"
+
+        # The first seven canonical channels are WAC (VIS 0-4, UV 0-1);
+        # remaining channels are static. Keep these ranges separate so a
+        # static sentinel cannot obscure the WAC diagnostic.
+        wac_channels = min(7, image.shape[-1])
+        wac_image = image[:, :, :wac_channels]
+        wac_valid = valid[:, :, :wac_channels]
+        static_image = image[:, :, wac_channels:]
+        static_valid = valid[:, :, wac_channels:]
+        print(
+            f"Datacube {index}: "
+            f"WAC raw range {_range(wac_image)} | "
+            f"WAC valid range {_range(wac_image[wac_valid])} | "
+            f"Static raw range {_range(static_image)} | "
+            f"Static valid range {_range(static_image[static_valid])}"
+        )
         # Start with the original values so Graha can see its NoData sentinels.
         images_normalized[index] = image
         if means is not None and stds is not None:
@@ -1338,6 +1348,11 @@ def preprocess_datacubes(images_raw, means=None, stds=None, nodata_masks=None):
                         / (band_max - band_min)
                         - 1.0
                     )
+        normalized_valid = images_normalized[index][valid]
+        print(
+            f"Datacube {index}: model-input valid range "
+            f"{_range(normalized_valid)}"
+        )
     return images_normalized
 
 
@@ -1348,7 +1363,7 @@ def plot_inference_results(
     output_dir,
     n_channels: int,
     nodata_masks=None,
-    static_band_number: int = 58,
+    static_band_number: int = 59,
 ):
     """Plot VIS, a static band, and binary predictions.
 
@@ -1372,8 +1387,10 @@ def plot_inference_results(
     for index, ((wac_file, static_file), image, prediction) in enumerate(
         zip(file_pairs, images_raw, predictions)
     ):
+        # VIS should only be masked by WAC invalidity. Using the union of all
+        # static masks here can erase otherwise valid VIS pixels.
         vis_mask = (
-            np.any(nodata_masks[index], axis=0)
+            np.any(nodata_masks[index][: min(7, image.shape[0])], axis=0)
             if nodata_masks is not None
             else ~np.isfinite(image[0])
         )
@@ -1388,6 +1405,14 @@ def plot_inference_results(
             static_data = src.read(static_band_number, masked=True)
             static_name = src.tags(static_band_number).get(
                 "Name", f"band_{static_band_number}"
+            )
+            static_data = np.ma.array(
+                static_data,
+                mask=(
+                    np.ma.getmaskarray(static_data)
+                    | ~np.isfinite(np.ma.getdata(static_data))
+                    | (np.ma.getdata(static_data) < WAC_NODATA_THRESHOLD)
+                ),
             )
         static_values = static_data.compressed()
         static_vmin, static_vmax = (
