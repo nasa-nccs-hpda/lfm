@@ -130,7 +130,10 @@ def resolve_inference_checkpoint(
             reverse=True,
         )
         if checkpoints:
-            return checkpoints[0].resolve()
+            selected_checkpoint = checkpoints[0].resolve()
+            print(f"Discovered experiment directory: {experiment_dir.resolve()}")
+            print(f"Discovered checkpoint: {selected_checkpoint.name}")
+            return selected_checkpoint
 
     raise FileNotFoundError(
         "No non-empty .ckpt or .pt files were found in any experiment under "

@@ -44,7 +44,10 @@ def test_explicit_checkpoint_takes_precedence(tmp_path: Path) -> None:
     assert resolved == explicit.resolve()
 
 
-def test_discovers_checkpoint_from_latest_valid_experiment(tmp_path: Path) -> None:
+def test_discovers_checkpoint_from_latest_valid_experiment(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     task_dir = tmp_path / "outputs" / "semantic_seg_finetuning"
     older = _write_checkpoint(
         task_dir / "date_2026_08_29-time_10_00_00" / "checkpoints" / "old.ckpt"
@@ -67,6 +70,9 @@ def test_discovers_checkpoint_from_latest_valid_experiment(tmp_path: Path) -> No
 
     assert resolved == latest_valid.resolve()
     assert resolved != older.resolve()
+    output = capsys.readouterr().out
+    assert f"Discovered experiment directory: {latest_valid.parents[2]}" in output
+    assert "Discovered checkpoint: latest.pt" in output
 
 
 def test_chooses_newest_checkpoint_within_latest_experiment(tmp_path: Path) -> None:
