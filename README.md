@@ -50,11 +50,12 @@ Feel free to create a new directory to run these workflows as well. To create a 
 
 8. Close the terminal tab by clicking "x" on the top tab.
 
-9. Using the file explorer interface again, navigate to the folder at: `<your_folder>/lfm/notebooks/`, where `<your_folder>` is the same one you created in step 6. Following the example from earlier, the full path would look like `/explore/nobackup/people/my_username/lunar_fm/lfm/notebooks`. The `notebooks/` folder contains Jupyter Notebooks for the IBM/Graha model finetuning workflows across two machine learning tasks (instance/semantic segmentation).
+9. Using the file explorer interface again, navigate to the folder at: `<your_folder>/lfm/notebooks/`, where `<your_folder>` is the same one you created in step 6. Following the example from earlier, the full path would look like `/explore/nobackup/people/my_username/lunar_fm/lfm/notebooks`. The `notebooks/` folder contains Jupyter Notebooks for the IBM/Graha model finetuning and inference workflows across two machine learning tasks (instance/semantic segmentation).
 
 **Note: the structure of the folders is such that we have 2 lfm/ folders; the outermost lfm/ folder contains the notebooks/ directory.**
 
-- The two notebooks available for the IBM model are called instance_ibm_train.ipynb and semantic_ibm_train.ipynb. Each runs training for that machine learning task.
+- The two finetuning notebooks available for the IBM/"graha" model are called instance_ibm_train.ipynb and semantic_ibm_train.ipynb. Each runs training for that machine learning task.
+- The inference notebook for the IBM model is called inference_sseg.ipynb. It performs inference on the "data cubes" created from the LTM tiling scheme after the semantic finetuning notebook has been run. **This notebook requires you to manually set the checkpoint path to a previously created finetuning checkpoint. You need to both run the finetuning notebook, and change the GRAHA_LIGHTNING_CHECKPOINT variable in the inference notebook to run inference.**
 
 **Note 2: toy model notebooks are still found under <your_folder>/lfm/notebooks/toy_model. These are no longer supported in this release.**
 
