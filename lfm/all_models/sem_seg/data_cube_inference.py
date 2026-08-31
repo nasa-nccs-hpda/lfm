@@ -49,7 +49,7 @@ def _select_valid_wac_products_across_tiles(
     cubes_by_tile: dict,
     *,
     required_tiles: int = 4,
-    required_products: int = 4,
+    required_products: int = 1,
     excluded_nodata_values=None,
     nodata_threshold: float = WAC_NODATA_THRESHOLD,
     verbose: bool = True,
@@ -326,12 +326,12 @@ def get_datacube_data(
     all_nodata_masks = []
     file_pairs = []
 
-    # Select up to four product IDs, each requiring a fully valid WAC cube on
-    # every tile. Static NoData is intentionally not part of this filter.
+    # Select one product ID requiring a fully valid WAC cube on every tile.
+    # Static NoData is intentionally not part of this filter.
     selected_products = _select_valid_wac_products_across_tiles(
         cubes_by_tile,
         required_tiles=4,
-        required_products=4,
+        required_products=1,
         excluded_nodata_values=excluded_nodata_values,
         nodata_threshold=wac_nodata_threshold,
         verbose=verbose,
@@ -1387,19 +1387,32 @@ def plot_inference_results(
     for index, ((wac_file, static_file), image, prediction) in enumerate(
         zip(file_pairs, images_raw, predictions)
     ):
-        # VIS should only be masked by WAC invalidity. Using the union of all
-        # static masks here can erase otherwise valid VIS pixels.
-        vis_mask = (
-            np.any(nodata_masks[index][: min(7, image.shape[0])], axis=0)
-            if nodata_masks is not None
-            else ~np.isfinite(image[0])
-        )
-        vis_data = np.ma.array(image[0], mask=vis_mask)
+        # Read canonical VIS band 0 directly from source WAC band 3. This
+        # guarantees that the diagnostic colorbar is in raw WAC units rather
+        # than accidentally using normalized model input or another channel.
+        with rasterio.open(wac_file) as src:
+            vis_data = src.read(3, masked=True)
+            vis_name = src.tags(3).get("Name", "VIS band 0")
+        vis_mask = np.ma.getmaskarray(vis_data)
+        vis_values_raw = np.ma.getdata(vis_data)
+        vis_mask |= ~np.isfinite(vis_values_raw)
+        vis_mask |= vis_values_raw < WAC_NODATA_THRESHOLD
+        if nodata_masks is not None:
+            # VIS should only be masked by WAC invalidity. Using the union of
+            # all static masks here can erase otherwise valid VIS pixels.
+            vis_mask |= np.any(
+                nodata_masks[index][: min(7, image.shape[0])], axis=0
+            )
+        vis_data = np.ma.array(vis_values_raw, mask=vis_mask)
         vis_values = vis_data.compressed()
         vis_vmin, vis_vmax = (
             (float(vis_values.min()), float(vis_values.max()))
-            if vis_values.size
-            else (0.0, 1.0)
+        if vis_values.size
+        else (0.0, 1.0)
+        )
+        print(
+            f"Plot {index}: raw VIS band 0 range "
+            f"[{vis_vmin:.6g}, {vis_vmax:.6g}]"
         )
         with rasterio.open(static_file) as src:
             static_data = src.read(static_band_number, masked=True)
@@ -1420,10 +1433,6 @@ def plot_inference_results(
             if static_values.size
             else (0.0, 1.0)
         )
-        with rasterio.open(wac_file) as src:
-            # The canonical VIS band 0 comes from source WAC band 3.
-            vis_name = src.tags(3).get("Name", "VIS band 0")
-
         vis_plot = axes[0, index].imshow(
             vis_data, cmap="gray", vmin=vis_vmin, vmax=vis_vmax
         )
