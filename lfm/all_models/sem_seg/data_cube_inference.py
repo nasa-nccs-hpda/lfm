@@ -728,11 +728,13 @@ def sliding_window_inference(
 
                 # Run inference
                 logits = model(tile_tensor)
-                probs = torch.sigmoid(logits)
-
-                # Get crater class
-                if probs.shape[1] == 2:
-                    probs = probs[:, 1:2]
+                # Match the training/validation probability convention:
+                # two-class heads use softmax and select class 1, while a
+                # single-channel head uses sigmoid.
+                if logits.shape[1] == 2:
+                    probs = torch.softmax(logits, dim=1)[:, 1:2]
+                else:
+                    probs = torch.sigmoid(logits)
 
                 # Convert to numpy
                 probs_np = probs.cpu().numpy()
@@ -1285,7 +1287,12 @@ def run_datacube_inference(
 
 
 def preprocess_datacubes(images_raw, means=None, stds=None, nodata_masks=None):
-    """Convert BCHW cubes to normalized BHWC tensors for Graha inference."""
+    """Convert BCHW cubes to training-equivalent normalized BHWC tensors.
+
+    Training applies per-band min-max scaling followed by pretrained z-score
+    normalization. NoData pixels are excluded from min-max statistics and are
+    preserved for Graha's NoData-aware input handling.
+    """
     from tqdm import tqdm
 
     images_hwc = np.transpose(images_raw, (0, 2, 3, 1)).astype(np.float32)
@@ -1324,29 +1331,37 @@ def preprocess_datacubes(images_raw, means=None, stds=None, nodata_masks=None):
             f"Static raw range {_range(static_image)} | "
             f"Static valid range {_range(static_image[static_valid])}"
         )
-        # Start with the original values so Graha can see its NoData sentinels.
-        images_normalized[index] = image
+        # Match LunarSegmentationDataset.min_max_scale_bands before applying
+        # the z-score statistics. Preserve invalid pixels for Graha's
+        # NoData-aware input handling.
+        scaled = image.copy()
+        for channel in range(image.shape[-1]):
+            channel_valid = valid[:, :, channel]
+            if not np.any(channel_valid):
+                continue
+            valid_band = image[:, :, channel][channel_valid]
+            band_min, band_max = valid_band.min(), valid_band.max()
+            if band_max > band_min:
+                scaled[channel_valid, channel] = (
+                    image[channel_valid, channel] - band_min
+                ) / (band_max - band_min)
+        images_normalized[index] = scaled
         if means is not None and stds is not None:
             mean = np.asarray(means, dtype=np.float32)
             std = np.asarray(stds, dtype=np.float32)
             for channel in range(image.shape[-1]):
                 channel_valid = valid[:, :, channel]
                 images_normalized[index][channel_valid, channel] = (
-                    image[channel_valid, channel] - mean[channel]
+                    scaled[channel_valid, channel] - mean[channel]
                 ) / std[channel]
         else:
+            # With no pretrained stats, retain the historical [-1, 1]
+            # fallback, applied after the same valid-pixel min-max statistics.
             for channel in range(image.shape[-1]):
                 channel_valid = valid[:, :, channel]
-                if not np.any(channel_valid):
-                    continue
-                valid_band = image[:, :, channel][channel_valid]
-                band_min, band_max = valid_band.min(), valid_band.max()
-                if band_max > band_min:
+                if np.any(channel_valid):
                     images_normalized[index][channel_valid, channel] = (
-                        2.0
-                        * (image[channel_valid, channel] - band_min)
-                        / (band_max - band_min)
-                        - 1.0
+                        2.0 * scaled[channel_valid, channel] - 1.0
                     )
         normalized_valid = images_normalized[index][valid]
         print(
@@ -1440,7 +1455,7 @@ def plot_inference_results(
         fig.colorbar(vis_plot, ax=axes[0, index], fraction=0.046, pad=0.04)
 
         static_plot = axes[1, index].imshow(
-            static_data, cmap="viridis", vmin=static_vmin, vmax=static_vmax
+            static_data, cmap="gray", vmin=static_vmin, vmax=static_vmax
         )
         axes[1, index].set_title(
             f"Static band {static_band_number}: {static_name}"
