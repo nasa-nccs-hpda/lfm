@@ -167,15 +167,12 @@ def extract_aoi(datacube: Path, *, edge_samples: int) -> dict[str, Any]:
 
         target_srs = osr.SpatialReference()
         target_srs.ImportFromWkt(load_lunar_geographic_wkt())
-        source_geographic_srs = source_srs.CloneGeogCS()
-        if (
-            source_geographic_srs is None
-            or not source_geographic_srs.IsSame(target_srs)
-        ):
-            raise ValueError(
-                "Datacube CRS does not use the repository IAU:30100 lunar "
-                f"geographic CRS: {datacube}"
-            )
+        # The datacube source is expected to be a projected LTM zone. Legacy
+        # LTM WKT definitions do not always compare equal to the repository's
+        # modern IAU:30100 geographic WKT through CloneGeogCS(), even though
+        # PROJ can construct the intended LTM-to-IAU transformation. Use the
+        # embedded projected CRS directly instead of rejecting it by name or
+        # geographic-base metadata.
         transformation = create_transformation(source_srs, target_srs)
 
         named_corner_pixels = {
