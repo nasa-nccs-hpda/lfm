@@ -251,7 +251,10 @@ the output contract, use
 `scripts/shell/all_tasks/sbatch_diagnose_static_source_ranges.sh` to sample
 native static sources, report per-band valid ranges, and identify sampled
 collisions with candidate NoData values. This diagnostic intentionally does
-not change the tiling policy.
+not change the tiling policy. Follow that source-level sample with
+`scripts/shell/all_tasks/sbatch_diagnose_static_cube_nodata.sh`, which creates
+representative static LTM cubes and compares source, intended output,
+persisted GeoTIFF, and pixel-level sentinel behavior for every canonical band.
 
 ## Phase T7 — Modernize the tiling example notebook `[Planned]`
 
