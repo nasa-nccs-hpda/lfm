@@ -23,95 +23,162 @@ preceding sub-step is `[Complete]`, and start a phase only after every sub-step
 in the preceding phase is `[Complete]`. Only one sub-step should be `[In-P]` at
 a time. A phase becomes `[Complete]` when all of its sub-steps are complete.
 
-## Phase T0 — Preserve and define the existing contract `[Planned]`
+## Baseline contract and modernization boundary
 
-- `[Planned]` **T0.1** Inventory the behavior of `Pipeline`,
+The legacy implementation has the following observable contract:
+
+- `Pipeline(tileDbPath, outDir, debug=False, targetProductID=None)` accepts one
+  dynamic raster index and obtains contextual rasters from the hard-coded
+  `Pipeline.STATIC_FILE_DB` path.
+- `runTileIndex`, `runPoint`, and `run` are the public query entry points. They
+  return `list[Path]`; callers recover modality, zone, zoom, tile coordinates,
+  and product identity by parsing filenames.
+- TMS JSON files define LTM zones and zoom matrices. Every current tile is
+  512×512 pixels; cell size and matrix dimensions vary by zoom.
+- The shared lunar geographic CRS is repository data in
+  `TMS/IAU_30100_2015.wkt`.
+  Code loads that file instead of embedding IAU:30100 WKT string literals. The
+  cloned repository is therefore part of the public tiling runtime contract.
+- A geographic AOI may cross zones and tiles. `TmsIntersector` finds zones,
+  `TmsTileDef` identifies tiles, and `Pipeline` processes them in the returned
+  order.
+- Dynamic rasters are grouped into one cube per filename-derived product ID.
+  `targetProductID`, when present, filters every non-static source before
+  warping.
+- Contextual rasters are grouped into one multi-band `StaticCube` per tile and
+  are never product-filtered.
+- Every intersecting source raster is warped directly onto the LTM tile grid
+  with bilinear resampling. Empty bands are omitted.
+- Output files are tiled, LZW-compressed GeoTIFFs with LTM CRS, tile-grid
+  transform, band `Name` metadata, and group-writable permissions.
+- Static data defaults to `-32768` NoData, except selected Mini-RF products
+  that preserve their source sentinel. Dynamic bands preserve source NoData.
+- Existing tests are predominantly HPC integration tests tied to `/explore`
+  WAC, NAC, and static data. Modernization needs local configuration and
+  contract tests in addition to retaining those integration checks.
+
+The modern boundary is:
+
+```text
+query + TileConfig + per-source query selectors
+    -> TMS zone/tile discovery
+    -> source-index queries
+    -> LTM cube creation
+    -> ordered TileCubeRecord results and GeoTIFFs
+```
+
+Reference TIFFs, final target-grid reprojection, label handling, and training
+dataset layout remain outside this boundary.
+
+Temporary compatibility covers the legacy constructor and its three query
+methods while repository callers migrate. New code uses configuration objects,
+format-independent indexes, explicit source policies, and structured results.
+
+Acceptance scenarios are applied in this order:
+
+1. WAC-only: a product selector produces only that product's seven-band cubes.
+2. NAC-only: the same public API produces product-scoped NAC cubes without a
+   WAC alias or static database.
+3. WAC plus static: one query produces independently identified WAC and static
+   records for each intersecting tile, with declared source order and NoData.
+
+## Phase T0 — Preserve and define the existing contract `[Complete]`
+
+- `[Complete]` **T0.1** Inventory the behavior of `Pipeline`,
   `TmsIntersector`, `TmsZoneDef`, and `TmsTileDef`, including tile dimensions,
   filenames, band metadata, product filtering, permissions, and NoData output.
-- `[Planned]` **T0.2** Record the current public entry points for tile-index,
+- `[Complete]` **T0.2** Record the current public entry points for tile-index,
   point, and geographic-AOI queries and identify which behaviors require a
   temporary compatibility adapter.
-- `[Planned]` **T0.3** Define the tiling boundary: inputs are a query, a
+- `[Complete]` **T0.3** Define the tiling boundary: inputs are a query, a
   `TileConfig`, and optional per-query selectors; outputs are structured cube
   records plus files on disk.
-- `[Planned]` **T0.4** Define acceptance examples for WAC-only, NAC-only, and
+- `[Complete]` **T0.4** Define acceptance examples for WAC-only, NAC-only, and
   WAC-plus-static tiling before changing implementation code.
+- `[Complete]` **T0.5** Store the shared IAU:30100 lunar geographic CRS in a
+  repository `.wkt` file and use one loader instead of inline WKT strings.
 
-## Phase T1 — Introduce tiling configuration objects `[Planned]`
+## Phase T1 — Introduce tiling configuration objects `[Complete]`
 
-- `[Planned]` **T1.1** Add a `TileSourceConfig` dataclass containing the source
+- `[Complete]` **T1.1** Add a `TileSourceConfig` dataclass containing the source
   name, data directory, vector-index path, optional layer name, raster-location
   field, and selection mode.
-- `[Planned]` **T1.2** Add per-source band selection, resampling, source NoData,
+- `[Complete]` **T1.2** Add per-source band selection, resampling, source NoData,
   output NoData, and any required per-band override fields.
-- `[Planned]` **T1.3** Add a `TileConfig` dataclass containing the ordered source
+- `[Complete]` **T1.3** Add a `TileConfig` dataclass containing the ordered source
   configurations, output directory, zoom level, and debug settings.
-- `[Planned]` **T1.4** Add a small dictionary-to-config constructor so notebooks
+- `[Complete]` **T1.4** Add a small dictionary-to-config constructor so notebooks
   can express source definitions as plain Python while backend functions
   receive validated config objects.
-- `[Planned]` **T1.5** Add focused tests for valid configs, missing required
+- `[Complete]` **T1.5** Add focused tests for valid configs, missing required
   fields, duplicate source names, unsupported selection modes, and invalid
   resampling or NoData settings.
 
-## Phase T2 — Generalize vector-index access `[Planned]`
+## Phase T2 — Generalize vector-index access `[Complete]`
 
-- `[Planned]` **T2.1** Replace the explicitly selected ESRI Shapefile driver
+- `[Complete]` **T2.1** Replace the explicitly selected ESRI Shapefile driver
   with format-independent GDAL/OGR dataset opening.
-- `[Planned]` **T2.2** Support both `.shp` and `.gpkg` indexes, including an
+- `[Complete]` **T2.2** Support both `.shp` and `.gpkg` indexes, including an
   optional configured GeoPackage layer and a configurable raster-location
   field.
-- `[Planned]` **T2.3** Resolve relative raster paths against the configured data
+- `[Complete]` **T2.3** Resolve relative raster paths against the configured data
   directory while preserving support for absolute paths stored in an index.
-- `[Planned]` **T2.4** Separate index creation or refresh from tile generation;
+- `[Complete]` **T2.4** Separate index creation or refresh from tile generation;
   tiling will consume an existing declared index and will not silently rebuild
   it.
-- `[Planned]` **T2.5** Add equivalent query tests using minimal Shapefile and
+- `[Complete]` **T2.5** Add equivalent query tests using minimal Shapefile and
   GeoPackage fixtures.
 
-## Phase T3 — Replace static/dynamic branching with source policies `[Planned]`
+## Phase T3 — Replace static/dynamic branching with source policies `[Complete]`
 
-- `[Planned]` **T3.1** Replace the hard-coded WAC database and static database
+- `[Complete]` **T3.1** Replace the hard-coded WAC database and static database
   with ordered iteration over `TileConfig.sources`.
-- `[Planned]` **T3.2** Implement `product_id` selection for product-scoped
+- `[Complete]` **T3.2** Implement `product_id` selection for product-scoped
   modalities such as WAC and NAC.
-- `[Planned]` **T3.3** Implement `all_intersecting` selection for contextual
+- `[Complete]` **T3.3** Implement `all_intersecting` selection for contextual
   modalities such as static lunar layers.
-- `[Planned]` **T3.4** Pass per-query product IDs or equivalent selectors by
+- `[Complete]` **T3.4** Pass per-query product IDs or equivalent selectors by
   source name rather than through the pipeline constructor.
-- `[Planned]` **T3.5** Apply each source's configured bands, resampling method,
+- `[Complete]` **T3.5** Apply each source's configured bands, resampling method,
   and NoData policy while warping source rasters to the LTM tile grid.
-- `[Planned]` **T3.6** Preserve ordered, meaningful band metadata independently
+- `[Complete]` **T3.6** Preserve ordered, meaningful band metadata independently
   for every source modality.
-- `[Planned]` **T3.7** Verify WAC-only, NAC-only, static-only, and mixed-source
+- `[Complete]` **T3.7** Verify WAC-only, NAC-only, static-only, and mixed-source
   behavior with focused tests.
 
-## Phase T4 — Introduce structured tiling results `[Planned]`
+## Phase T4 — Introduce structured tiling results `[Complete]`
 
-- `[Planned]` **T4.1** Add a `TileCubeRecord` containing source name, LTM zone,
+- `[Complete]` **T4.1** Add a `TileCubeRecord` containing source name, LTM zone,
   zoom level, tile coordinates, optional product ID, output path, band names,
   CRS, and NoData information.
-- `[Planned]` **T4.2** Make tile-index, point, and AOI queries return ordered
+- `[Complete]` **T4.2** Make tile-index, point, and AOI queries return ordered
   `TileCubeRecord` collections instead of requiring callers to parse filenames.
-- `[Planned]` **T4.3** Define generic, deterministic filenames that retain zone,
+- `[Complete]` **T4.3** Define generic, deterministic filenames that retain zone,
   zoom, tile, source, and optional product identity for human inspection.
-- `[Planned]` **T4.4** Ensure an empty intersection, skipped raster, partial
+- `[Complete]` **T4.4** Ensure an empty intersection, skipped raster, partial
   source result, and fatal source failure have explicit result or exception
   behavior.
-- `[Planned]` **T4.5** Add tests proving that structured records and written
+- `[Complete]` **T4.5** Add tests proving that structured records and written
   raster metadata agree.
 
-## Phase T5 — Stabilize the public tiling API `[Planned]`
+## Phase T5 — Stabilize the public tiling API `[In-P]`
 
-- `[Planned]` **T5.1** Add clear public functions for tile-index, point, and AOI
+- `[Complete]` **T5.1** Add clear public functions for tile-index, point, and AOI
   creation that accept `TileConfig`.
-- `[Planned]` **T5.2** Keep the TMS geometry classes responsible only for zone,
+- `[Complete]` **T5.2** Keep the TMS geometry classes responsible only for zone,
   coordinate, and tile calculations.
-- `[Planned]` **T5.3** Isolate GDAL raster reading, warping, and writing from
+- `[Complete]` **T5.3** Isolate GDAL raster reading, warping, and writing from
   query orchestration so each layer can be tested independently.
-- `[Planned]` **T5.4** Add temporary compatibility wrappers for legacy callers
+- `[Complete]` **T5.4** Add temporary compatibility wrappers for legacy callers
   identified in T0, with deprecation guidance pointing to the new API.
-- `[Planned]` **T5.5** Run the existing tiling test suite and resolve regressions
+- `[In-P]` **T5.5** Run the existing tiling test suite and resolve regressions
   without restoring WAC-specific branching.
+
+T5.5 checkpoint: 42 modern contract tests pass locally. Three GDAL-backed
+tests are present but skipped because the local environment does not provide
+`osgeo`. The legacy integration suite cannot import for the same reason and
+also requires its `/explore` fixtures; it must be completed on HPC before T5
+is marked `[Complete]`.
 
 ## Phase T6 — Validate on representative lunar data `[Planned]`
 

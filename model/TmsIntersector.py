@@ -2,8 +2,8 @@
 from pathlib import Path
 from typing import List
 
-from lfm.model.TmsTileDef import TmsTileDef
-from lfm.model.TmsZoneDef import TmsZoneDef
+from .TmsTileDef import TmsTileDef
+from .TmsZoneDef import TmsZoneDef
 
 
 # ----------------------------------------------------------------------------
@@ -77,4 +77,3 @@ class TmsIntersector:
     def zones(self) -> str:
 
         return self._zones
-

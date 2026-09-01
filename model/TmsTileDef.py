@@ -8,6 +8,8 @@ from typing import Tuple
 
 from osgeo import osr
 
+from .lunar_crs import load_lunar_geographic_wkt
+
 
 # ----------------------------------------------------------------------------
 # Class TmsTileDef
@@ -93,7 +95,7 @@ class TmsTileDef:
         srs.ImportFromWkt(tms[TmsTileDef.CRS])
 
         geoSrs = osr.SpatialReference()
-        geoSrs.ImportFromWkt(tms[TmsTileDef.GEO_CRS])
+        geoSrs.ImportFromWkt(load_lunar_geographic_wkt())
 
         return TmsTileDef.initFromJson(tms, srs, geoSrs, zone, zoomLevel)
 

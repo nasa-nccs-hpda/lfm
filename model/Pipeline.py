@@ -1,9 +1,8 @@
 from pathlib import Path
 from typing import List
 
-import os
 import numpy as np
-import grp
+import warnings
 
 from osgeo import gdal
 from osgeo import gdal_array
@@ -11,8 +10,13 @@ from osgeo import gdalconst
 from osgeo import ogr
 from osgeo import osr
 
-from lfm.model.TmsIntersector import TmsIntersector
-from lfm.model.TmsTileDef import TmsTileDef
+from .TmsIntersector import TmsIntersector
+from .TmsTileDef import TmsTileDef
+from .lunar_crs import (
+    LUNAR_GEOGRAPHIC_WKT_PATH,
+    load_lunar_geographic_wkt,
+)
+from .vector_index import open_vector_layer
 
 gdal.UseExceptions()
 
@@ -20,23 +24,15 @@ gdal.UseExceptions()
 # Class Pipeline
 # ----------------------------------------------------------------------------
 class Pipeline:
+    """Legacy WAC/static tiler retained as a migration compatibility adapter.
 
-    MOON_SRS = ('GEOGCRS["Moon (2015) - Sphere / Ocentric",'
-                'DATUM["Moon (2015) - Sphere",'
-                'ELLIPSOID["Moon (2015) - Sphere",1737400,0,'
-                'LENGTHUNIT["metre",1]]],'
-                'PRIMEM["Reference Meridian",0,'
-                'ANGLEUNIT["degree",0.0174532925199433]],'
-                'CS[ellipsoidal,2],'
-                'AXIS["geodetic latitude (Lat)",north,'
-                'ORDER[1],'
-                'ANGLEUNIT["degree",0.0174532925199433]],'
-                'AXIS["geodetic longitude (Lon)",east,'
-                'ORDER[2],'
-                'ANGLEUNIT["degree",0.0174532925199433]],'
-                'ID["IAU",30100,2015],'
-                'REMARK["Source of IAU Coordinate systems:'
-                ' https://doi.org/10.1007/s10569-017-9805-5"]]')
+    New code should use ``TileConfig`` with ``create_tiles_for_index``,
+    ``create_tiles_for_point``, or ``create_tiles_for_aoi`` from
+    :mod:`lfm.model`.
+    """
+
+    MOON_SRS_PATH = LUNAR_GEOGRAPHIC_WKT_PATH
+    MOON_SRS = load_lunar_geographic_wkt()
 
     STATIC_FILE_DB = Path('/explore/nobackup/projects/lfm/staticLinks')
 
@@ -49,6 +45,13 @@ class Pipeline:
     # ------------------------------------------------------------------------
     def __init__(self, tileDbPath: Path, outDir: Path, debug: bool = False,
                  targetProductID: str = None):
+
+        warnings.warn(
+            "Pipeline(tileDbPath, outDir, ...) is deprecated; use TileConfig "
+            "with the create_tiles_for_* API.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         if not tileDbPath.exists():
             raise ValueError('Invalid tile DB path: ', tileDbPath)
@@ -64,10 +67,11 @@ class Pipeline:
         # ---
         # When you return an ogr.Layer object from a function, the underlying
         # DataSource that owns the layer may be getting garbage collected,
-        # making the layer invalid.  Attach the datasource to the layer to
-        # prevent garbage collection.  This happens in _query().
+        # making the layer invalid. Retain the current datasource on the
+        # Pipeline for at least as long as its layer is in use.
         # ---
         self._layer = None
+        self._indexDataset = None
 
     # ------------------------------------------------------------------------
     # clip
@@ -381,40 +385,10 @@ class Pipeline:
         if not dbFile.exists():
             raise FileNotFoundError(f"Tile database file not found: {dbFile}")
 
-        driver: ogr.Driver = ogr.GetDriverByName('ESRI Shapefile')
-        ds: ogr.Dataset = driver.Open(str(dbFile), 0)
-
-        if ds is None:
-            # Get the last GDAL error
-            err = gdal.GetLastErrorMsg()
-            err_num = gdal.GetLastErrorNo()
-
-            # Build informative error message
-            error_msg = f"Failed to open shapefile: {dbFile}"
-
-            if err:
-                error_msg += f"\nGDAL Error ({err_num}): {err}"
-
-            # Check for common issues
-            if not os.access(str(dbFile), os.R_OK):
-                error_msg += f"\n  → Permission denied: You don't have read access to this file"
-                error_msg += f"\n  → Current permissions: {oct(os.stat(dbFile).st_mode)[-3:]}"
-            elif not dbFile.stat().st_size > 0:
-                error_msg += f"\n  → File is empty or corrupted"
-            else:
-                error_msg += f"\n  → The file may be corrupted or in an unsupported format"
-
-            raise RuntimeError(error_msg)
-
-        layer: ogr.Layer = ds.GetLayer()
-
-        if layer is None:
-            raise RuntimeError(f"No layers found in shapefile: {dbFile}")
+        self._indexDataset, layer = open_vector_layer(dbFile)
 
         # minX, minY, maxX, maxY
         layer.SetSpatialFilterRect(ulLon, lrLat, lrLon, ulLat)
-
-        layer._ds = ds
 
         return layer
 
