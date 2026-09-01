@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=tiling_modernization_tests
-#SBATCH --partition=compute
+#SBATCH --partition=grace
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
 #SBATCH --time=02:00:00
