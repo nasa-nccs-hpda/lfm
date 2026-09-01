@@ -97,8 +97,19 @@ class TmsTileDef:
         srs = osr.SpatialReference()
         srs.ImportFromWkt(tms[TmsTileDef.CRS])
 
-        geoSrs = osr.SpatialReference()
-        geoSrs.ImportFromWkt(load_lunar_geographic_wkt())
+        repositoryGeoSrs = osr.SpatialReference()
+        repositoryGeoSrs.ImportFromWkt(load_lunar_geographic_wkt())
+
+        # Build transformations from the geographic CRS embedded in this LTM
+        # projected CRS. PROJ can then use the projection's defining conversion
+        # directly instead of searching its database for an operation involving
+        # the custom USGSLGS projected authority. The repository WKT remains the
+        # canonical lunar geographic CRS and must be equivalent to that base.
+        geoSrs = srs.CloneGeogCS()
+        if geoSrs is None or not geoSrs.IsSame(repositoryGeoSrs):
+            raise ValueError(
+                f"LTM zone {zone} does not use the repository IAU:30100 CRS."
+            )
 
         return TmsTileDef.initFromJson(tms, srs, geoSrs, zone, zoomLevel)
 

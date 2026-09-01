@@ -16,14 +16,6 @@ from .tiling_results import TileCubeRecord
 
 gdal.UseExceptions()
 
-GDAL_RESAMPLING = {
-    "nearest": gdal.GRA_NearestNeighbour,
-    "bilinear": gdal.GRA_Bilinear,
-    "cubic": gdal.GRA_Cubic,
-    "average": gdal.GRA_Average,
-}
-
-
 @dataclass(frozen=True)
 class WarpedBand:
     name: str
@@ -137,7 +129,7 @@ def warp_source_to_tile(
             "width": tile_def.tileWidth,
             "height": tile_def.tileHeight,
             "format": "MEM",
-            "resampleAlg": GDAL_RESAMPLING[source.resampling],
+            "resampleAlg": gdal.GRA_Bilinear,
         }
         source_arg = _gdal_nodata_argument(source_nodata)
         output_arg = _gdal_nodata_argument(output_nodata)

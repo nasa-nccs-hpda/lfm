@@ -48,9 +48,11 @@ class TileConfigTestCase(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "selection_mode"):
             self.source(selection_mode="dynamic")
 
-    def test_source_rejects_unknown_resampling(self):
-        with self.assertRaisesRegex(ValueError, "resampling"):
-            self.source(resampling="mode")
+    def test_source_requires_bilinear_resampling(self):
+        for method in ("nearest", "cubic", "average", "mode"):
+            with self.subTest(method=method):
+                with self.assertRaisesRegex(ValueError, "bilinear"):
+                    self.source(resampling=method)
 
     def test_source_finds_band_nodata_override(self):
         override = BandNoDataOverride(
@@ -109,7 +111,7 @@ class TileConfigTestCase(unittest.TestCase):
                         "index": {"path": "/data/static/index.shp"},
                         "selection_mode": "all_intersecting",
                         "bands": {"names": ["elevation", "slope"]},
-                        "resampling": "nearest",
+                        "resampling": "bilinear",
                         "nodata": {
                             "output_value": -32768,
                             "band_overrides": {
@@ -127,7 +129,7 @@ class TileConfigTestCase(unittest.TestCase):
         self.assertEqual(config.zoom_level, 5)
         self.assertEqual([source.name for source in config.sources], ["wac", "static"])
         self.assertEqual(config.source("wac").band_indices, tuple(range(1, 8)))
-        self.assertEqual(config.source("static").resampling, "nearest")
+        self.assertEqual(config.source("static").resampling, "bilinear")
         self.assertTrue(
             config.source("static")
             .nodata_override_for("delta_cpr")

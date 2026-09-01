@@ -233,6 +233,8 @@ def main() -> None:
         zoom_level=args.zoom_level,
         sources=(source,),
     )
+    if config.source("wac").resampling != "bilinear":
+        raise AssertionError("WAC tiling must use bilinear resampling.")
     ul_lat, ul_lon, lr_lat, lr_lon = args.bounds
     records = create_tiles_for_aoi(
         config,
@@ -280,6 +282,7 @@ def main() -> None:
             "index_path": str(wac_index),
             "index_layer": args.index_layer,
             "location_field": args.location_field,
+            "resampling": source.resampling,
         },
         "record_count": len(record_details),
         "records": record_details,

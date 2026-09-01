@@ -11,7 +11,7 @@ from typing import Any, Literal
 SelectionMode = Literal["product_id", "all_intersecting"]
 
 SELECTION_MODES = ("product_id", "all_intersecting")
-RESAMPLING_METHODS = ("nearest", "bilinear", "cubic", "average")
+RESAMPLING_METHODS = ("bilinear",)
 SUPPORTED_INDEX_SUFFIXES = (".gpkg", ".shp")
 
 
@@ -171,10 +171,10 @@ class TileSourceConfig:
         )
         if self.band_names is not None and self.band_indices is not None:
             raise ValueError("Configure band_names or band_indices, not both.")
-        if self.resampling not in RESAMPLING_METHODS:
-            valid = ", ".join(RESAMPLING_METHODS)
+        if self.resampling != "bilinear":
             raise ValueError(
-                f"resampling must be one of {valid}, got {self.resampling!r}."
+                "Tiling resampling must be 'bilinear', got "
+                f"{self.resampling!r}."
             )
         object.__setattr__(
             self,

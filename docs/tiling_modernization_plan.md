@@ -5,8 +5,8 @@
 Replace the WAC-specific, partially hard-coded tiling interface with a
 configuration-driven interface that can create LTM datacubes for any declared
 lunar raster modality. Each source modality will declare its own raster
-directory, vector index, selection behavior, bands, resampling method, and
-NoData policy.
+directory, vector index, selection behavior, bands, and NoData policy. All
+tiling warps use bilinear resampling.
 
 This plan covers tiling only: geographic or tile queries through creation of
 LTM datacubes. Reference-image alignment and final training-chip creation are
@@ -103,8 +103,9 @@ Acceptance scenarios are applied in this order:
 - `[Complete]` **T1.1** Add a `TileSourceConfig` dataclass containing the source
   name, data directory, vector-index path, optional layer name, raster-location
   field, and selection mode.
-- `[Complete]` **T1.2** Add per-source band selection, resampling, source NoData,
-  output NoData, and any required per-band override fields.
+- `[Complete]` **T1.2** Add per-source band selection, source NoData, output
+  NoData, and any required per-band override fields; validate bilinear as the
+  tiling resampling contract.
 - `[Complete]` **T1.3** Add a `TileConfig` dataclass containing the ordered source
   configurations, output directory, zoom level, and debug settings.
 - `[Complete]` **T1.4** Add a small dictionary-to-config constructor so notebooks
@@ -139,8 +140,8 @@ Acceptance scenarios are applied in this order:
   modalities such as static lunar layers.
 - `[Complete]` **T3.4** Pass per-query product IDs or equivalent selectors by
   source name rather than through the pipeline constructor.
-- `[Complete]` **T3.5** Apply each source's configured bands, resampling method,
-  and NoData policy while warping source rasters to the LTM tile grid.
+- `[Complete]` **T3.5** Apply each source's configured bands and NoData policy
+  while warping source rasters to the LTM tile grid with bilinear resampling.
 - `[Complete]` **T3.6** Preserve ordered, meaningful band metadata independently
   for every source modality.
 - `[Complete]` **T3.7** Verify WAC-only, NAC-only, static-only, and mixed-source
@@ -203,6 +204,13 @@ geotransform, 512×512 shape, band names, and NoData metadata, then writes a
 JSON report. Submit it on Explore with
 `scripts/shell/all_tasks/sbatch_validate_wac_tiling.sh`; T6.1 remains in
 progress until that HPC report passes inspection.
+
+The first Explore attempt (job 37921020) reached zone `42N` but failed while
+PROJ constructed a transformation from the standalone IAU:30100 CRS to the
+custom-authority LTM CRS after OSR exceptions were enabled. `TmsTileDef` now
+builds the transform from the geographic CRS cloned from the LTM definition
+after verifying it is equivalent to the repository IAU:30100 WKT. A rerun is
+pending. The validation report also records and asserts bilinear resampling.
 
 ## Phase T7 — Modernize the tiling example notebook `[Planned]`
 
