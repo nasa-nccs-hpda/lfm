@@ -9,12 +9,10 @@ HAS_OSGEO = importlib.util.find_spec("osgeo") is not None
 
 @unittest.skipUnless(HAS_OSGEO, "GDAL/OGR is required for raster cube tests")
 class RasterCubeTestCase(unittest.TestCase):
-    def test_explicit_multiband_nodata_preserves_independent_band_masks(self):
+    def _warp_kwargs(self, source):
         import numpy as np
-        from osgeo import gdal
 
         from lfm.model.raster_cube import warp_source_to_tile
-        from lfm.model.tiling_config import TileSourceConfig
 
         class SourceBand:
             def __init__(self, name):
@@ -53,14 +51,6 @@ class RasterCubeTestCase(unittest.TestCase):
             tileHeight = 2
             srs = object()
 
-        source = TileSourceConfig(
-            name="wac",
-            data_dir=Path("/data/wac"),
-            index_path=Path("/data/wac/index.shp"),
-            selection_mode="product_id",
-            preserve_source_nodata=True,
-        )
-
         with (
             mock.patch(
                 "lfm.model.raster_cube.gdal.Open",
@@ -79,10 +69,43 @@ class RasterCubeTestCase(unittest.TestCase):
             )
 
         self.assertEqual([band.name for band in bands], ["first", "second"])
-        warp_kwargs = warp.call_args.kwargs
+        return warp.call_args.kwargs
+
+    def test_metadata_preserving_nodata_uses_intrinsic_gdal_path(self):
+        from osgeo import gdal
+
+        from lfm.model.tiling_config import TileSourceConfig
+
+        source = TileSourceConfig(
+            name="wac",
+            data_dir=Path("/data/wac"),
+            index_path=Path("/data/wac/index.shp"),
+            selection_mode="product_id",
+            preserve_source_nodata=True,
+        )
+
+        warp_kwargs = self._warp_kwargs(source)
+        self.assertEqual(warp_kwargs["resampleAlg"], gdal.GRA_Bilinear)
+        self.assertNotIn("srcNodata", warp_kwargs)
+        self.assertNotIn("dstNodata", warp_kwargs)
+        self.assertNotIn("warpOptions", warp_kwargs)
+
+    def test_explicit_multiband_nodata_preserves_independent_band_masks(self):
+        from osgeo import gdal
+
+        from lfm.model.tiling_config import TileSourceConfig
+
+        source = TileSourceConfig(
+            name="static",
+            data_dir=Path("/data/static"),
+            index_path=Path("/data/static/index.shp"),
+            output_nodata=-32768.0,
+        )
+
+        warp_kwargs = self._warp_kwargs(source)
         self.assertEqual(warp_kwargs["resampleAlg"], gdal.GRA_Bilinear)
         self.assertEqual(warp_kwargs["srcNodata"], [-9999.0, -9999.0])
-        self.assertEqual(warp_kwargs["dstNodata"], [-9999.0, -9999.0])
+        self.assertEqual(warp_kwargs["dstNodata"], [-32768.0, -32768.0])
         self.assertEqual(
             warp_kwargs["warpOptions"],
             ["UNIFIED_SRC_NODATA=PARTIAL"],

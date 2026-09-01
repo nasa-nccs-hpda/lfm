@@ -33,6 +33,14 @@ def _gdal_nodata_argument(values: list[float | None]):
     return values
 
 
+def _same_nodata_value(first: float | None, second: float | None) -> bool:
+    if first is None or second is None:
+        return first is second
+    if np.isnan(first) or np.isnan(second):
+        return bool(np.isnan(first) and np.isnan(second))
+    return first == second
+
+
 def _band_name(dataset, path: Path, band_index: int) -> str:
     band = dataset.GetRasterBand(band_index)
     metadata_name = band.GetMetadataItem("Name")
@@ -113,13 +121,21 @@ def warp_source_to_tile(
             _band_name(dataset, path, index)
             for index in range(1, dataset.RasterCount + 1)
         ]
+        metadata_source_nodata = [
+            dataset.GetRasterBand(index).GetNoDataValue()
+            for index in range(1, dataset.RasterCount + 1)
+        ]
         nodata_pairs = [
             band_nodata_values(
                 source,
                 band_name=name,
-                metadata_source_nodata=dataset.GetRasterBand(index).GetNoDataValue(),
+                metadata_source_nodata=metadata_nodata,
             )
-            for index, name in enumerate(names, start=1)
+            for name, metadata_nodata in zip(
+                names,
+                metadata_source_nodata,
+                strict=True,
+            )
         ]
         source_nodata = [pair[0] for pair in nodata_pairs]
         output_nodata = [pair[1] for pair in nodata_pairs]
@@ -133,7 +149,19 @@ def warp_source_to_tile(
         }
         source_arg = _gdal_nodata_argument(source_nodata)
         output_arg = _gdal_nodata_argument(output_nodata)
-        if source_arg is not None:
+        # Let GDAL consume native band metadata directly when the configured
+        # contract does not alter it. Besides avoiding redundant arguments,
+        # this preserves intrinsic validity masks and matches the legacy path.
+        uses_intrinsic_nodata = all(
+            _same_nodata_value(source_value, metadata_value)
+            and _same_nodata_value(output_value, metadata_value)
+            for (source_value, output_value), metadata_value in zip(
+                nodata_pairs,
+                metadata_source_nodata,
+                strict=True,
+            )
+        )
+        if source_arg is not None and not uses_intrinsic_nodata:
             warp_kwargs["srcNodata"] = source_arg
             # Passing srcNodata explicitly changes GDAL's default multi-band
             # behavior to UNIFIED_SRC_NODATA=YES.  Lunar modalities such as
@@ -145,7 +173,7 @@ def warp_source_to_tile(
             # NoData.  This matches GDAL's intrinsic-NoData behavior used by
             # the legacy tiler.
             warp_kwargs["warpOptions"] = ["UNIFIED_SRC_NODATA=PARTIAL"]
-        if output_arg is not None:
+        if output_arg is not None and not uses_intrinsic_nodata:
             warp_kwargs["dstNodata"] = output_arg
         warped = gdal.Warp("", dataset, **warp_kwargs)
         if warped is None:

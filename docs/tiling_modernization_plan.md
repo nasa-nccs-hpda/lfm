@@ -282,9 +282,18 @@ passing explicit per-band `srcNodata` to GDAL, which otherwise changes the
 multi-band default to `UNIFIED_SRC_NODATA=YES`. Since WAC bands have independent
 valid footprints, that policy allowed one band's NoData sentinel to enter
 bilinear interpolation whenever another band was valid. The raster backend now
-sets `UNIFIED_SRC_NODATA=PARTIAL`, matching the legacy intrinsic-NoData behavior
-while retaining the explicit modern contract. T6.4 remains in progress pending
-a comparison rerun.
+sets `UNIFIED_SRC_NODATA=PARTIAL` to reproduce the legacy intrinsic-NoData
+behavior while retaining the explicit modern contract. T6.4 remains in
+progress pending a comparison rerun.
+
+The second comparison run (job 37921397) confirmed that `PARTIAL` removed the
+sentinel contamination from the later bands of each WAC source, but the leading
+UV and VIS bands and a small number of mask pixels still differed from the
+legacy intrinsic-metadata path. The backend now omits explicit GDAL NoData
+arguments when resolved source and output values exactly match each band's
+native metadata. Explicit source overrides and output normalization continue to
+use `UNIFIED_SRC_NODATA=PARTIAL`. T6.4 remains in progress pending another
+comparison rerun.
 
 ## Phase T7 — Modernize the tiling example notebook `[Planned]`
 
