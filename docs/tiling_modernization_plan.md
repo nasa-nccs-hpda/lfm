@@ -191,9 +191,9 @@ excluded from routine validation.
 - `[Complete]` **T6.1** Run a WAC product-scoped AOI query on the HPC data and
   inspect zone, tile, band, CRS, transform, shape, and NoData metadata.
 - `[Complete]` **T6.2** Run the equivalent NAC query through the same public API.
-- `[In-P]` **T6.3** Run a mixed WAC-plus-static query with explicitly ordered
+- `[Complete]` **T6.3** Run a mixed WAC-plus-static query with explicitly ordered
   static bands and per-band NoData considerations.
-- `[Planned]` **T6.4** Compare representative new WAC/static cubes against legacy
+- `[In-P]` **T6.4** Compare representative new WAC/static cubes against legacy
   outputs and document any intentional differences.
 - `[Planned]` **T6.5** Confirm that repeated runs are deterministic and do not
   depend on filename parsing or implicit index creation.
@@ -246,8 +246,8 @@ declares WAC first and static second, uses the staticLinks `db2.shp` index,
 requires the exact static band order, applies `-32768` output NoData to all
 bands, declares the Mini-RF source sentinel separately for DeltaCPR and
 DeltaS1, and asserts bilinear resampling for both sources. Submit
-`scripts/shell/all_tasks/sbatch_validate_mixed_wac_static_tiling.sh`; T6.3
-remains in progress. The first mixed run exposed the GeoTIFF constraint that a
+`scripts/shell/all_tasks/sbatch_validate_mixed_wac_static_tiling.sh`. The first
+mixed run exposed the GeoTIFF constraint that a
 multiband dataset persists only one `TIFFTAG_GDAL_NODATA` value. Before revising
 the output contract, use
 `scripts/shell/all_tasks/sbatch_diagnose_static_source_ranges.sh` to sample
@@ -262,7 +262,20 @@ The source diagnostic sampled all 63 canonical bands and found no valid
 collision with `-32768`; the cube diagnostic then isolated the mixed-output
 metadata problem to DeltaCPR and DeltaS1. The static output contract now uses
 `-32768` for every band while retaining `-3.4e38` as the source-only NoData for
-those two Mini-RF bands. A mixed validation rerun is pending.
+those two Mini-RF bands.
+
+The standardized mixed validation rerun passed: all 63 static bands write and
+reopen with `-32768` NoData while Mini-RF source pixels are still masked using
+their declared source sentinel. T6.3 is complete.
+
+T6.4 checkpoint: `scripts/python/all_tasks/compare_legacy_modern_tiling.py`
+runs the representative two-tile AOI through both the legacy compatibility
+`Pipeline` and modern `TileConfig` API. It pairs outputs by modality and LTM
+tile, aligns bands by `Name`, compares CRS, transform, shape, NoData masks, and
+valid pixels, and records filename, band-order, canonical-selection, and dtype
+differences separately. Submit it with
+`scripts/shell/all_tasks/sbatch_compare_legacy_modern_tiling.sh`; T6.4 remains
+in progress pending the Explore report.
 
 ## Phase T7 — Modernize the tiling example notebook `[Planned]`
 
