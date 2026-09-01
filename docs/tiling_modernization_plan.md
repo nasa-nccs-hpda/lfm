@@ -344,6 +344,12 @@ colorbars and robust limits. Optional point and tile-index examples demonstrate
 the other public query entry points without running by default. T7.6 remains in
 progress pending a top-to-bottom Explore execution.
 
+To select a replacement example AOI from an existing legacy cube,
+`scripts/python/all_tasks/extract_datacube_aoi.py` transforms a densified raster
+perimeter from the cube's embedded CRS to the repository IAU:30100 definition
+and prints notebook-ready `AOI_BOUNDS`. Submit it through
+`scripts/shell/all_tasks/sbatch_extract_datacube_aoi.sh` on Explore.
+
 ## Phase T8 — Complete the tiling migration `[Planned]`
 
 - `[Planned]` **T8.1** Update backend docstrings and user documentation with the
