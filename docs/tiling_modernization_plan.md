@@ -186,9 +186,9 @@ excluded from routine validation.
 
 ## Phase T6 — Validate on representative lunar data `[In-P]`
 
-- `[In-P]` **T6.1** Run a WAC product-scoped AOI query on the HPC data and
+- `[Complete]` **T6.1** Run a WAC product-scoped AOI query on the HPC data and
   inspect zone, tile, band, CRS, transform, shape, and NoData metadata.
-- `[Planned]` **T6.2** Run the equivalent NAC query through the same public API.
+- `[In-P]` **T6.2** Run the equivalent NAC query through the same public API.
 - `[Planned]` **T6.3** Run a mixed WAC-plus-static query with explicitly ordered
   static bands and per-band NoData considerations.
 - `[Planned]` **T6.4** Compare representative new WAC/static cubes against legacy
@@ -202,8 +202,7 @@ the modern `TileConfig` and `create_tiles_for_aoi` API with WAC product
 seven-band records in LTM zone `42N` against their written raster CRS,
 geotransform, 512×512 shape, band names, and NoData metadata, then writes a
 JSON report. Submit it on Explore with
-`scripts/shell/all_tasks/sbatch_validate_wac_tiling.sh`; T6.1 remains in
-progress until that HPC report passes inspection.
+`scripts/shell/all_tasks/sbatch_validate_wac_tiling.sh`.
 
 The first two Explore attempts (jobs 37921020 and 37921024) reached zone `42N`
 but failed while PROJ constructed a transformation to the custom-authority LTM
@@ -222,6 +221,21 @@ the WAC vector-index query, then failed because the older `lfm-container`
 runtime could not locate `proj.db`. Repository batch scripts now default to the
 fixed `lfm-container-ipyleaflet` runtime used by the successful T5 regression
 run. A rerun is pending.
+
+The final T6.1 run (job 37921233) passed in 20 seconds with
+`lfm-container-ipyleaflet`. It produced deterministically ordered tiles
+`(1, 62)` and `(1, 63)`, each with a 512×512 seven-band WAC cube in LTM zone
+`42N`. Both records and files agreed on CRS, geotransform, band names, and the
+source-preserved NoData value `-3.4028226550889045e+38`; the report confirmed
+bilinear resampling.
+
+T6.2 checkpoint: `scripts/python/all_tasks/validate_nac_tiling.py` applies the
+same public AOI API and metadata inspection to known NAC product
+`M1117899885LE`. Because NAC observations are sparse, an AOI tile without that
+product is skipped explicitly while at least one single-band output is
+required. Submit it with
+`scripts/shell/all_tasks/sbatch_validate_nac_tiling.sh`; T6.2 remains in
+progress pending its Explore report.
 
 ## Phase T7 — Modernize the tiling example notebook `[Planned]`
 

@@ -85,6 +85,7 @@ def _same_optional_number(left: float | None, right: float | None) -> bool:
 def inspect_record(
     record: TileCubeRecord,
     *,
+    expected_source_name: str,
     expected_zone: str,
     expected_product_id: str,
     expected_band_count: int,
@@ -96,8 +97,11 @@ def inspect_record(
 
     gdal.UseExceptions()
 
-    if record.source_name != "wac":
-        raise AssertionError(f"Unexpected source name: {record.source_name!r}")
+    if record.source_name != expected_source_name:
+        raise AssertionError(
+            f"Expected source {expected_source_name!r}, "
+            f"got {record.source_name!r}."
+        )
     if record.zone != expected_zone:
         raise AssertionError(
             f"Expected zone {expected_zone!r}, got {record.zone!r}."
@@ -253,6 +257,7 @@ def main() -> None:
     record_details = [
         inspect_record(
             record,
+            expected_source_name="wac",
             expected_zone=args.expected_zone,
             expected_product_id=args.product_id,
             expected_band_count=args.expected_band_count,
