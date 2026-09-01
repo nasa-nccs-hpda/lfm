@@ -186,7 +186,7 @@ products. The unfiltered legacy tests that generate hundreds or thousands of
 cubes and the test with another user's hard-coded output directory remain
 excluded from routine validation.
 
-## Phase T6 — Validate on representative lunar data `[In-P]`
+## Phase T6 — Validate on representative lunar data `[Complete]`
 
 - `[Complete]` **T6.1** Run a WAC product-scoped AOI query on the HPC data and
   inspect zone, tile, band, CRS, transform, shape, and NoData metadata.
@@ -195,7 +195,7 @@ excluded from routine validation.
   static bands and per-band NoData considerations.
 - `[Complete]` **T6.4** Compare representative new WAC/static cubes against legacy
   outputs and document any intentional differences.
-- `[In-P]` **T6.5** Confirm that repeated runs are deterministic and do not
+- `[Complete]` **T6.5** Confirm that repeated runs are deterministic and do not
   depend on filename parsing or implicit index creation.
 
 T6.1 checkpoint: `scripts/python/all_tasks/validate_wac_tiling.py` exercises
@@ -310,24 +310,39 @@ compares record order and metadata, requires byte-identical GeoTIFF SHA-256
 digests, and verifies that declared index files and the visible index inventory
 are unchanged. It also rejects any index artifact created in either tiling
 output. Submit it with
-`scripts/shell/all_tasks/sbatch_validate_tiling_determinism.sh`; T6.5 remains in
-progress pending the Explore report.
+`scripts/shell/all_tasks/sbatch_validate_tiling_determinism.sh`.
 
-## Phase T7 — Modernize the tiling example notebook `[Planned]`
+The Explore validation (job 37921401) passed every determinism check. The two
+runs returned identical structured record order and metadata and produced
+byte-identical GeoTIFF SHA-256 digests. Declared index contents and the visible
+index inventory were unchanged, and neither output directory contained a new
+index artifact. T6.5 and Phase T6 are complete.
 
-- `[Planned]` **T7.1** Create `notebooks/tiling_example.ipynb` while retaining the
+## Phase T7 — Modernize the tiling example notebook `[In-P]`
+
+- `[Complete]` **T7.1** Create `notebooks/tiling_example.ipynb` while retaining the
   legacy notebook until migration is complete.
-- `[Planned]` **T7.2** Use the repository-root convention from
+- `[Complete]` **T7.2** Use the repository-root convention from
   `notebooks/instance_ibm_train.ipynb` and derive repository-owned paths from
   `repo_root`.
-- `[Planned]` **T7.3** Put HPC source paths, indexes, output paths, and modality
+- `[Complete]` **T7.3** Put HPC source paths, indexes, output paths, and modality
   declarations in one visible configuration section.
-- `[Planned]` **T7.4** Demonstrate tile-index, point, and AOI queries with
+- `[Complete]` **T7.4** Demonstrate tile-index, point, and AOI queries with
   `TileConfig` and structured results.
-- `[Planned]` **T7.5** Add compact visual and metadata inspection of generated
+- `[Complete]` **T7.5** Add compact visual and metadata inspection of generated
   cubes, including band names and NoData counts.
-- `[Planned]` **T7.6** Execute the notebook top-to-bottom on the HPC system and
+- `[In-P]` **T7.6** Execute the notebook top-to-bottom on the HPC system and
   clear stale outputs before committing the modern copy.
+
+T7.1–T7.5 checkpoint: the new top-level `notebooks/tiling_example.ipynb`
+retains the legacy nested notebook, follows the repository-root and
+`/panfs`-to-`/explore` discovery convention, and exposes all user-editable data,
+index, selector, AOI, and output paths in one section. It uses `TileConfig` for
+representative WAC-plus-static and NAC-plus-static AOI runs, pairs outputs from
+structured records, and plots masked dynamic and static bands with per-panel
+colorbars and robust limits. Optional point and tile-index examples demonstrate
+the other public query entry points without running by default. T7.6 remains in
+progress pending a top-to-bottom Explore execution.
 
 ## Phase T8 — Complete the tiling migration `[Planned]`
 
