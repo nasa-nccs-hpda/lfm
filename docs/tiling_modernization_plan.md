@@ -350,6 +350,12 @@ perimeter from the cube's embedded CRS to the repository IAU:30100 definition
 and prints notebook-ready `AOI_BOUNDS`. Submit it through
 `scripts/shell/all_tasks/sbatch_extract_datacube_aoi.sh` on Explore.
 
+Given those bounds, `scripts/python/all_tasks/find_geotiffs_intersecting_aoi.py`
+lists GeoTIFFs intersecting the AOI. It uses an existing `output_index.shp` or
+`.gpkg` by default and never creates one; direct footprint scanning is available
+when an index is absent or explicitly bypassed. Submit it through
+`scripts/shell/all_tasks/sbatch_find_geotiffs_intersecting_aoi.sh`.
+
 ## Phase T8 — Complete the tiling migration `[Planned]`
 
 - `[Planned]` **T8.1** Update backend docstrings and user documentation with the
