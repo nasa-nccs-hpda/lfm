@@ -245,7 +245,13 @@ requires the exact static band order, applies `-32768`
 NoData ordinarily, preserves the declared Mini-RF source sentinel for DeltaCPR
 and DeltaS1, and asserts bilinear resampling for both sources. Submit
 `scripts/shell/all_tasks/sbatch_validate_mixed_wac_static_tiling.sh`; T6.3
-remains in progress pending its Explore report.
+remains in progress. The first mixed run exposed the GeoTIFF constraint that a
+multiband dataset persists only one `TIFFTAG_GDAL_NODATA` value. Before revising
+the output contract, use
+`scripts/shell/all_tasks/sbatch_diagnose_static_source_ranges.sh` to sample
+native static sources, report per-band valid ranges, and identify sampled
+collisions with candidate NoData values. This diagnostic intentionally does
+not change the tiling policy.
 
 ## Phase T7 — Modernize the tiling example notebook `[Planned]`
 
