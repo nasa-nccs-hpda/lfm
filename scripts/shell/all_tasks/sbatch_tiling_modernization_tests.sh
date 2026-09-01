@@ -58,6 +58,9 @@ from lfm.model.lunar_crs import (
     load_lunar_geographic_wkt,
 )
 
+gdal.UseExceptions()
+osr.UseExceptions()
+
 wkt = load_lunar_geographic_wkt()
 srs = osr.SpatialReference()
 assert srs.ImportFromWkt(wkt) == 0

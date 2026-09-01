@@ -11,6 +11,9 @@ from osgeo import osr
 from .lunar_crs import load_lunar_geographic_wkt
 
 
+osr.UseExceptions()
+
+
 # ----------------------------------------------------------------------------
 # Class TmsTileDef
 # ----------------------------------------------------------------------------

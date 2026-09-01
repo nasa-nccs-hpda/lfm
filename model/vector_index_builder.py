@@ -35,6 +35,8 @@ def create_vector_index(config: VectorIndexBuildConfig) -> Path:
     """Create a new raster vector index; never overwrite an existing index."""
     from osgeo import gdal
 
+    gdal.UseExceptions()
+
     if not config.data_dir.is_dir():
         raise FileNotFoundError(f"Raster data directory does not exist: {config.data_dir}")
     if config.index_path.exists():

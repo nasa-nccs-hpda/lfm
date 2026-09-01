@@ -38,6 +38,8 @@ def open_vector_layer(
     """
     from osgeo import gdal
 
+    gdal.UseExceptions()
+
     index_path = Path(index_path)
     if not index_path.exists():
         raise FileNotFoundError(f"Raster vector index does not exist: {index_path}")

@@ -161,7 +161,7 @@ Acceptance scenarios are applied in this order:
 - `[Complete]` **T4.5** Add tests proving that structured records and written
   raster metadata agree.
 
-## Phase T5 — Stabilize the public tiling API `[In-P]`
+## Phase T5 — Stabilize the public tiling API `[Complete]`
 
 - `[Complete]` **T5.1** Add clear public functions for tile-index, point, and AOI
   creation that accept `TileConfig`.
@@ -171,18 +171,21 @@ Acceptance scenarios are applied in this order:
   query orchestration so each layer can be tested independently.
 - `[Complete]` **T5.4** Add temporary compatibility wrappers for legacy callers
   identified in T0, with deprecation guidance pointing to the new API.
-- `[In-P]` **T5.5** Run the existing tiling test suite and resolve regressions
+- `[Complete]` **T5.5** Run the existing tiling test suite and resolve regressions
   without restoring WAC-specific branching.
 
-T5.5 checkpoint: 42 modern contract tests pass locally. Three GDAL-backed
-tests are present but skipped because the local environment does not provide
-`osgeo`. The legacy integration suite cannot import for the same reason and
-also requires its `/explore` fixtures; it must be completed on HPC before T5
-is marked `[Complete]`.
+T5.5 checkpoint: the Explore run on 2026-09-01 used GDAL 3.8.4 and the
+repository `TMS/IAU_30100_2015.wkt`. All 42 modern contract tests passed with
+the GDAL-backed tests enabled, all 25 selected legacy geometry and pipeline
+regressions passed, and the filtered one-tile legacy integration test passed.
+That integration produced one selected WAC product and 63 intersecting static
+products. The unfiltered legacy tests that generate hundreds or thousands of
+cubes and the test with another user's hard-coded output directory remain
+excluded from routine validation.
 
-## Phase T6 — Validate on representative lunar data `[Planned]`
+## Phase T6 — Validate on representative lunar data `[In-P]`
 
-- `[Planned]` **T6.1** Run a WAC product-scoped AOI query on the HPC data and
+- `[In-P]` **T6.1** Run a WAC product-scoped AOI query on the HPC data and
   inspect zone, tile, band, CRS, transform, shape, and NoData metadata.
 - `[Planned]` **T6.2** Run the equivalent NAC query through the same public API.
 - `[Planned]` **T6.3** Run a mixed WAC-plus-static query with explicitly ordered
@@ -191,6 +194,15 @@ is marked `[Complete]`.
   outputs and document any intentional differences.
 - `[Planned]` **T6.5** Confirm that repeated runs are deterministic and do not
   depend on filename parsing or implicit index creation.
+
+T6.1 checkpoint: `scripts/python/all_tasks/validate_wac_tiling.py` exercises
+the modern `TileConfig` and `create_tiles_for_aoi` API with WAC product
+`M1187363083CE` over the established two-tile AOI at zoom 5. It validates two
+seven-band records in LTM zone `42N` against their written raster CRS,
+geotransform, 512×512 shape, band names, and NoData metadata, then writes a
+JSON report. Submit it on Explore with
+`scripts/shell/all_tasks/sbatch_validate_wac_tiling.sh`; T6.1 remains in
+progress until that HPC report passes inspection.
 
 ## Phase T7 — Modernize the tiling example notebook `[Planned]`
 

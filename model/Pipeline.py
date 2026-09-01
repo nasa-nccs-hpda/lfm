@@ -340,7 +340,7 @@ class Pipeline:
             if skippedCount > 0:  # NEW: Report skipped count
                 print('Skipped count (non-matching product ID):', skippedCount)
 
-        if nullCount == rasterCount:
+        if rasterCount > 0 and nullCount == rasterCount:
             print('All bands were filled with no-data values.')
 
         modality = "WAC" if not is_static else "Static"
