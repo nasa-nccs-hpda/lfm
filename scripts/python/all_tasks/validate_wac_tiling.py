@@ -95,7 +95,6 @@ def inspect_record(
     from lfm.model.TmsTileDef import TmsTileDef
 
     gdal.UseExceptions()
-    osr.UseExceptions()
 
     if record.source_name != "wac":
         raise AssertionError(f"Unexpected source name: {record.source_name!r}")

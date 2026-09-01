@@ -205,12 +205,17 @@ JSON report. Submit it on Explore with
 `scripts/shell/all_tasks/sbatch_validate_wac_tiling.sh`; T6.1 remains in
 progress until that HPC report passes inspection.
 
-The first Explore attempt (job 37921020) reached zone `42N` but failed while
-PROJ constructed a transformation from the standalone IAU:30100 CRS to the
-custom-authority LTM CRS after OSR exceptions were enabled. `TmsTileDef` now
-builds the transform from the geographic CRS cloned from the LTM definition
-after verifying it is equivalent to the repository IAU:30100 WKT. A rerun is
-pending. The validation report also records and asserts bilinear resampling.
+The first two Explore attempts (jobs 37921020 and 37921024) reached zone `42N`
+but failed while PROJ constructed a transformation to the custom-authority LTM
+CRS with OSR's Python exception mode enabled; cloning the LTM geographic base
+did not change that behavior. The earlier Explore regression run had already
+verified the same transformations against expected numeric coordinates with
+OSR's non-exception behavior. `TmsTileDef` now scopes that behavior to
+transformation construction with `osr.ExceptionMgr`, restores raster exception
+handling immediately afterward, uses the repository IAU:30100 WKT directly,
+caches both transformations, rejects missing transformation objects, and
+rejects non-finite results. A rerun is pending. The validation report also
+records and asserts bilinear resampling.
 
 ## Phase T7 — Modernize the tiling example notebook `[Planned]`
 
