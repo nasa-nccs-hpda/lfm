@@ -87,7 +87,7 @@ def inspect_record(
     *,
     expected_source_name: str,
     expected_zone: str,
-    expected_product_id: str,
+    expected_product_id: str | None,
     expected_band_count: int,
 ) -> dict[str, object]:
     """Validate one written cube against its structured result metadata."""

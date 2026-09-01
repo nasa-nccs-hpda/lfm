@@ -188,8 +188,8 @@ excluded from routine validation.
 
 - `[Complete]` **T6.1** Run a WAC product-scoped AOI query on the HPC data and
   inspect zone, tile, band, CRS, transform, shape, and NoData metadata.
-- `[In-P]` **T6.2** Run the equivalent NAC query through the same public API.
-- `[Planned]` **T6.3** Run a mixed WAC-plus-static query with explicitly ordered
+- `[Complete]` **T6.2** Run the equivalent NAC query through the same public API.
+- `[In-P]` **T6.3** Run a mixed WAC-plus-static query with explicitly ordered
   static bands and per-band NoData considerations.
 - `[Planned]` **T6.4** Compare representative new WAC/static cubes against legacy
   outputs and document any intentional differences.
@@ -234,8 +234,18 @@ same public AOI API and metadata inspection to known NAC product
 `M1117899885LE`. Because NAC observations are sparse, an AOI tile without that
 product is skipped explicitly while at least one single-band output is
 required. Submit it with
-`scripts/shell/all_tasks/sbatch_validate_nac_tiling.sh`; T6.2 remains in
-progress pending its Explore report.
+`scripts/shell/all_tasks/sbatch_validate_nac_tiling.sh`. The Explore validation
+passed, confirming that the product-scoped source policy is modality-neutral
+and that sparse NAC coverage is handled through explicit optional-tile skips.
+
+T6.3 checkpoint: the 63-band order from `docs/wac_static_bands.md` is now a
+repository contract in `model/static_band_contract.py`. The mixed validator
+declares WAC first and static second, uses the staticLinks `db2.shp` index,
+requires the exact static band order, applies `-32768`
+NoData ordinarily, preserves the declared Mini-RF source sentinel for DeltaCPR
+and DeltaS1, and asserts bilinear resampling for both sources. Submit
+`scripts/shell/all_tasks/sbatch_validate_mixed_wac_static_tiling.sh`; T6.3
+remains in progress pending its Explore report.
 
 ## Phase T7 — Modernize the tiling example notebook `[Planned]`
 

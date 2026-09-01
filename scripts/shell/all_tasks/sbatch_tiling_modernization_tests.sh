@@ -74,6 +74,7 @@ echo
 echo "Running the modern tiling contract tests..."
 "${APPTAINER_BIN}" "${APPTAINER_ARGS[@]}" python -m unittest \
   lfm.model.tests.test_tiling_config \
+  lfm.model.tests.test_static_band_contract \
   lfm.model.tests.test_lunar_crs \
   lfm.model.tests.test_vector_index \
   lfm.model.tests.test_vector_index_builder \
