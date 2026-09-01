@@ -16,6 +16,7 @@ from .lunar_crs import (
     LUNAR_GEOGRAPHIC_WKT_PATH,
     load_lunar_geographic_wkt,
 )
+from .static_band_contract import STATIC_OUTPUT_NODATA as STATIC_CUBE_OUTPUT_NODATA
 from .vector_index import open_vector_layer
 
 gdal.UseExceptions()
@@ -37,8 +38,7 @@ class Pipeline:
     STATIC_FILE_DB = Path('/explore/nobackup/projects/lfm/staticLinks')
 
     PROJECT_GROUP = 'j1123'
-    STATIC_OUTPUT_NODATA = np.float32(-32768.0)
-    STATIC_PRESERVE_SOURCE_NODATA_MARKERS = ('deltacpr', 'deltas1')
+    STATIC_OUTPUT_NODATA = np.float32(STATIC_CUBE_OUTPUT_NODATA)
 
     # ------------------------------------------------------------------------
     # __init__
@@ -114,15 +114,11 @@ class Pipeline:
     def _getStaticOutputNodata(self,
                                fileName: Path,
                                sourceNoDataValue):
+        """Return the shared static-cube output NoData value.
 
-        if sourceNoDataValue is not None:
-
-            name = fileName.name.lower()
-            if any(marker in name for marker in
-                   Pipeline.STATIC_PRESERVE_SOURCE_NODATA_MARKERS):
-
-                return np.float32(sourceNoDataValue)
-
+        ``fileName`` and ``sourceNoDataValue`` remain in the legacy signature;
+        source NoData is still passed separately to GDAL during the warp.
+        """
         return Pipeline.STATIC_OUTPUT_NODATA
 
     # ------------------------------------------------------------------------

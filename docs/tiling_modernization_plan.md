@@ -51,8 +51,10 @@ The legacy implementation has the following observable contract:
   with bilinear resampling. Empty bands are omitted.
 - Output files are tiled, LZW-compressed GeoTIFFs with LTM CRS, tile-grid
   transform, band `Name` metadata, and group-writable permissions.
-- Static data defaults to `-32768` NoData, except selected Mini-RF products
-  that preserve their source sentinel. Dynamic bands preserve source NoData.
+- Every static output band uses `-32768` NoData. Per-band source NoData remains
+  explicit so values such as the Mini-RF `-3.4e38` sentinel are masked before
+  bilinear resampling and converted to `-32768` in the output. Dynamic bands
+  preserve source NoData.
 - Existing tests are predominantly HPC integration tests tied to `/explore`
   WAC, NAC, and static data. Modernization needs local configuration and
   contract tests in addition to retaining those integration checks.
@@ -241,9 +243,9 @@ and that sparse NAC coverage is handled through explicit optional-tile skips.
 T6.3 checkpoint: the 63-band order from `docs/wac_static_bands.md` is now a
 repository contract in `model/static_band_contract.py`. The mixed validator
 declares WAC first and static second, uses the staticLinks `db2.shp` index,
-requires the exact static band order, applies `-32768`
-NoData ordinarily, preserves the declared Mini-RF source sentinel for DeltaCPR
-and DeltaS1, and asserts bilinear resampling for both sources. Submit
+requires the exact static band order, applies `-32768` output NoData to all
+bands, declares the Mini-RF source sentinel separately for DeltaCPR and
+DeltaS1, and asserts bilinear resampling for both sources. Submit
 `scripts/shell/all_tasks/sbatch_validate_mixed_wac_static_tiling.sh`; T6.3
 remains in progress. The first mixed run exposed the GeoTIFF constraint that a
 multiband dataset persists only one `TIFFTAG_GDAL_NODATA` value. Before revising
@@ -255,6 +257,12 @@ not change the tiling policy. Follow that source-level sample with
 `scripts/shell/all_tasks/sbatch_diagnose_static_cube_nodata.sh`, which creates
 representative static LTM cubes and compares source, intended output,
 persisted GeoTIFF, and pixel-level sentinel behavior for every canonical band.
+
+The source diagnostic sampled all 63 canonical bands and found no valid
+collision with `-32768`; the cube diagnostic then isolated the mixed-output
+metadata problem to DeltaCPR and DeltaS1. The static output contract now uses
+`-32768` for every band while retaining `-3.4e38` as the source-only NoData for
+those two Mini-RF bands. A mixed validation rerun is pending.
 
 ## Phase T7 — Modernize the tiling example notebook `[Planned]`
 

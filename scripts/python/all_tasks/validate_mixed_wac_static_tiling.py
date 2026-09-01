@@ -16,10 +16,10 @@ if str(REPO_ROOT.parent) not in sys.path:
 
 from lfm.model import (
     BandNoDataOverride,
-    MINIRF_PRESERVE_SOURCE_NODATA_BANDS,
-    MINIRF_STATIC_NODATA,
+    MINIRF_SOURCE_NODATA,
+    MINIRF_SOURCE_NODATA_BANDS,
     STATIC_BAND_NAMES,
-    STATIC_DEFAULT_NODATA,
+    STATIC_OUTPUT_NODATA,
     TileConfig,
     TileSourceConfig,
     create_tiles_for_aoi,
@@ -77,14 +77,8 @@ def _assert_nodata(name: str, actual: float | None, expected: float) -> None:
 def validate_static_policy(record) -> None:
     if record.band_names != STATIC_BAND_NAMES:
         raise AssertionError("Static output does not follow STATIC_BAND_NAMES order.")
-    preserve_names = set(MINIRF_PRESERVE_SOURCE_NODATA_BANDS)
     for name, nodata in zip(record.band_names, record.nodata_values, strict=True):
-        expected = (
-            MINIRF_STATIC_NODATA
-            if name in preserve_names
-            else STATIC_DEFAULT_NODATA
-        )
-        _assert_nodata(name, nodata, expected)
+        _assert_nodata(name, nodata, STATIC_OUTPUT_NODATA)
 
 
 def main() -> None:
@@ -123,14 +117,13 @@ def main() -> None:
         selection_mode="all_intersecting",
         band_names=STATIC_BAND_NAMES,
         resampling="bilinear",
-        output_nodata=STATIC_DEFAULT_NODATA,
+        output_nodata=STATIC_OUTPUT_NODATA,
         band_nodata_overrides=tuple(
             BandNoDataOverride(
                 band_name=name,
-                source_value=MINIRF_STATIC_NODATA,
-                preserve_source=True,
+                source_value=MINIRF_SOURCE_NODATA,
             )
-            for name in MINIRF_PRESERVE_SOURCE_NODATA_BANDS
+            for name in MINIRF_SOURCE_NODATA_BANDS
         ),
     )
     config = TileConfig(
@@ -220,10 +213,11 @@ def main() -> None:
                 "index_path": str(static_index),
                 "resampling": static_source.resampling,
                 "band_count": len(STATIC_BAND_NAMES),
-                "default_nodata": STATIC_DEFAULT_NODATA,
-                "preserve_source_nodata_bands": list(
-                    MINIRF_PRESERVE_SOURCE_NODATA_BANDS
-                ),
+                "output_nodata": STATIC_OUTPUT_NODATA,
+                "source_nodata_overrides": {
+                    name: MINIRF_SOURCE_NODATA
+                    for name in MINIRF_SOURCE_NODATA_BANDS
+                },
             },
         ],
         "record_count": len(details),

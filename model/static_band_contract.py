@@ -66,17 +66,21 @@ STATIC_BAND_NAMES = (
     "lola_kaguya_60mpp_slp",
 )
 
-STATIC_DEFAULT_NODATA = -32768.0
-MINIRF_STATIC_NODATA = -3.4028230607370965e38
-MINIRF_PRESERVE_SOURCE_NODATA_BANDS = (
+# Every band in a written static LTM cube uses this destination sentinel.
+STATIC_OUTPUT_NODATA = -32768.0
+
+# These are source-only overrides. They are masked during the warp and
+# converted to STATIC_OUTPUT_NODATA in the destination cube.
+MINIRF_SOURCE_NODATA = -3.4028230607370965e38
+MINIRF_SOURCE_NODATA_BANDS = (
     "GlobeNoPolesDeltaCPR_v2-offsetto49d.iau",
     "GlobeNoPolesDeltaS1_v2.iau",
 )
 
 
 __all__ = [
-    "MINIRF_PRESERVE_SOURCE_NODATA_BANDS",
-    "MINIRF_STATIC_NODATA",
+    "MINIRF_SOURCE_NODATA",
+    "MINIRF_SOURCE_NODATA_BANDS",
     "STATIC_BAND_NAMES",
-    "STATIC_DEFAULT_NODATA",
+    "STATIC_OUTPUT_NODATA",
 ]

@@ -33,9 +33,9 @@ if str(REPO_ROOT.parent) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT.parent))
 
 from lfm.model.static_band_contract import (  # noqa: E402
-    MINIRF_STATIC_NODATA,
+    MINIRF_SOURCE_NODATA,
     STATIC_BAND_NAMES,
-    STATIC_DEFAULT_NODATA,
+    STATIC_OUTPUT_NODATA,
 )
 from lfm.model.vector_index import (  # noqa: E402
     open_vector_layer,
@@ -45,9 +45,9 @@ from lfm.model.vector_index import (  # noqa: E402
 
 DEFAULT_STATIC_DATA_DIR = Path("/explore/nobackup/projects/lfm/staticLinks")
 DEFAULT_CANDIDATES = (
-    STATIC_DEFAULT_NODATA,
+    STATIC_OUTPUT_NODATA,
     -32767.0,
-    MINIRF_STATIC_NODATA,
+    MINIRF_SOURCE_NODATA,
 )
 QUANTILES = (0.001, 0.01, 0.5, 0.99, 0.999)
 

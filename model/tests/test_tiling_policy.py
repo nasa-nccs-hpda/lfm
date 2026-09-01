@@ -103,6 +103,26 @@ class TilingPolicyTestCase(unittest.TestCase):
             (-3.4e38, -3.4e38),
         )
 
+    def test_source_override_normalizes_to_shared_output_nodata(self):
+        source = self.source(
+            output_nodata=-32768,
+            band_nodata_overrides=(
+                BandNoDataOverride(
+                    "delta_cpr",
+                    source_value=-3.4e38,
+                ),
+            ),
+        )
+
+        self.assertEqual(
+            band_nodata_values(
+                source,
+                band_name="delta_cpr",
+                metadata_source_nodata=-9999,
+            ),
+            (-3.4e38, -32768),
+        )
+
     def test_wac_only_selector_contract(self):
         selectors = validate_source_selectors(
             [self.source(name="wac")],

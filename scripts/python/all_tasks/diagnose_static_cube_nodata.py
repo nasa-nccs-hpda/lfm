@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Create static LTM cubes and diagnose their per-band NoData behavior.
 
-The diagnostic intentionally uses the current mixed-tiling static contract:
-most bands normalize invalid source pixels to ``-32768``, while the two
-Mini-RF bands preserve their source sentinel. It then reopens each written
-GeoTIFF and compares, per band:
+The diagnostic uses the standardized static tiling contract: every band writes
+invalid output pixels as ``-32768``. The two Mini-RF bands still declare their
+``-3.4e38`` source sentinel so it is masked before bilinear resampling. The
+script then reopens each written GeoTIFF and compares, per band:
 
 * source NoData metadata and the resolved source NoData policy;
 * intended output NoData retained by :class:`TileCubeRecord`;
@@ -38,10 +38,10 @@ if str(REPO_ROOT.parent) not in sys.path:
 
 from lfm.model import (  # noqa: E402
     BandNoDataOverride,
-    MINIRF_PRESERVE_SOURCE_NODATA_BANDS,
-    MINIRF_STATIC_NODATA,
+    MINIRF_SOURCE_NODATA,
+    MINIRF_SOURCE_NODATA_BANDS,
     STATIC_BAND_NAMES,
-    STATIC_DEFAULT_NODATA,
+    STATIC_OUTPUT_NODATA,
     TileConfig,
     TileSourceConfig,
     create_tiles_for_aoi,
@@ -83,7 +83,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--standardized-nodata",
         type=float,
-        default=STATIC_DEFAULT_NODATA,
+        default=STATIC_OUTPUT_NODATA,
         help="Candidate common output NoData value. Default: -32768.",
     )
     parser.add_argument("--report-path", type=Path, default=None)
@@ -147,14 +147,13 @@ def build_static_source(
         selection_mode="all_intersecting",
         band_names=STATIC_BAND_NAMES,
         resampling="bilinear",
-        output_nodata=STATIC_DEFAULT_NODATA,
+        output_nodata=STATIC_OUTPUT_NODATA,
         band_nodata_overrides=tuple(
             BandNoDataOverride(
                 band_name=name,
-                source_value=MINIRF_STATIC_NODATA,
-                preserve_source=True,
+                source_value=MINIRF_SOURCE_NODATA,
             )
-            for name in MINIRF_PRESERVE_SOURCE_NODATA_BANDS
+            for name in MINIRF_SOURCE_NODATA_BANDS
         ),
     )
 
