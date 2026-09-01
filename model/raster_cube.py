@@ -135,6 +135,16 @@ def warp_source_to_tile(
         output_arg = _gdal_nodata_argument(output_nodata)
         if source_arg is not None:
             warp_kwargs["srcNodata"] = source_arg
+            # Passing srcNodata explicitly changes GDAL's default multi-band
+            # behavior to UNIFIED_SRC_NODATA=YES.  Lunar modalities such as
+            # WAC have independent valid footprints in each band, so treating
+            # a pixel as valid whenever any band is valid lets sentinel-scale
+            # values contaminate bilinear interpolation in the other bands.
+            # PARTIAL retains independent per-band NoData masks while also
+            # marking a source pixel globally transparent when every band is
+            # NoData.  This matches GDAL's intrinsic-NoData behavior used by
+            # the legacy tiler.
+            warp_kwargs["warpOptions"] = ["UNIFIED_SRC_NODATA=PARTIAL"]
         if output_arg is not None:
             warp_kwargs["dstNodata"] = output_arg
         warped = gdal.Warp("", dataset, **warp_kwargs)

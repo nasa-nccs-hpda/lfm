@@ -274,8 +274,17 @@ runs the representative two-tile AOI through both the legacy compatibility
 tile, aligns bands by `Name`, compares CRS, transform, shape, NoData masks, and
 valid pixels, and records filename, band-order, canonical-selection, and dtype
 differences separately. Submit it with
-`scripts/shell/all_tasks/sbatch_compare_legacy_modern_tiling.sh`; T6.4 remains
-in progress pending the Explore report.
+`scripts/shell/all_tasks/sbatch_compare_legacy_modern_tiling.sh`.
+
+The first comparison run (job 37921387) passed both 63-band static cubes but
+found sentinel-scale differences in all seven WAC bands. The modern path was
+passing explicit per-band `srcNodata` to GDAL, which otherwise changes the
+multi-band default to `UNIFIED_SRC_NODATA=YES`. Since WAC bands have independent
+valid footprints, that policy allowed one band's NoData sentinel to enter
+bilinear interpolation whenever another band was valid. The raster backend now
+sets `UNIFIED_SRC_NODATA=PARTIAL`, matching the legacy intrinsic-NoData behavior
+while retaining the explicit modern contract. T6.4 remains in progress pending
+a comparison rerun.
 
 ## Phase T7 — Modernize the tiling example notebook `[Planned]`
 
