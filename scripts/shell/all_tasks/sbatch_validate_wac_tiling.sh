@@ -28,7 +28,7 @@ fi
 cd "${REPO_DIR}"
 mkdir -p scripts/logs
 
-CONTAINER_PATH="${CONTAINER_PATH:-/explore/nobackup/projects/lfm/containers/lfm-container}"
+CONTAINER_PATH="${CONTAINER_PATH:-/explore/nobackup/projects/lfm/containers/lfm-container-ipyleaflet}"
 APPTAINER_BIN="${APPTAINER_BIN:-apptainer}"
 APPTAINER_BIND_PATHS="${APPTAINER_BIND_PATHS:-/panfs/ccds02/nobackup:/explore/nobackup}"
 OUTPUT_DIR="${OUTPUT_DIR:-/explore/nobackup/people/${USER}/lfm_tiling_validation/t6_1_wac_${SLURM_JOB_ID:-manual}}"

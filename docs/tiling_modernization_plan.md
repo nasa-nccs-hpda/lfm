@@ -217,6 +217,12 @@ caches both transformations, rejects missing transformation objects, and
 rejects non-finite results. A rerun is pending. The validation report also
 records and asserts bilinear resampling.
 
+The third attempt (job 37921176) passed coordinate transformation and reached
+the WAC vector-index query, then failed because the older `lfm-container`
+runtime could not locate `proj.db`. Repository batch scripts now default to the
+fixed `lfm-container-ipyleaflet` runtime used by the successful T5 regression
+run. A rerun is pending.
+
 ## Phase T7 — Modernize the tiling example notebook `[Planned]`
 
 - `[Planned]` **T7.1** Create `notebooks/tiling_example.ipynb` while retaining the
