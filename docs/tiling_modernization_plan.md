@@ -193,9 +193,9 @@ excluded from routine validation.
 - `[Complete]` **T6.2** Run the equivalent NAC query through the same public API.
 - `[Complete]` **T6.3** Run a mixed WAC-plus-static query with explicitly ordered
   static bands and per-band NoData considerations.
-- `[In-P]` **T6.4** Compare representative new WAC/static cubes against legacy
+- `[Complete]` **T6.4** Compare representative new WAC/static cubes against legacy
   outputs and document any intentional differences.
-- `[Planned]` **T6.5** Confirm that repeated runs are deterministic and do not
+- `[In-P]` **T6.5** Confirm that repeated runs are deterministic and do not
   depend on filename parsing or implicit index creation.
 
 T6.1 checkpoint: `scripts/python/all_tasks/validate_wac_tiling.py` exercises
@@ -294,6 +294,24 @@ arguments when resolved source and output values exactly match each band's
 native metadata. Explicit source overrides and output normalization continue to
 use `UNIFIED_SRC_NODATA=PARTIAL`. T6.4 remains in progress pending another
 comparison rerun.
+
+The final comparison run (job 37921398) passed all four representative cubes in
+22 seconds. Both seven-band WAC cubes matched legacy output with no failed bands,
+and both 63-band static cubes matched in band order, grid, CRS, NoData masks, and
+valid pixel values. The documented intentional static difference is output
+dtype: legacy selects `float32` from its first band, while the modern writer
+uses a common safe result dtype (`float64`) for the mixed source-band dtypes.
+T6.4 is complete.
+
+T6.5 checkpoint: `scripts/python/all_tasks/validate_tiling_determinism.py` runs
+the representative mixed WAC/static AOI twice into independent output
+directories. It pairs outputs only through returned `TileCubeRecord` fields,
+compares record order and metadata, requires byte-identical GeoTIFF SHA-256
+digests, and verifies that declared index files and the visible index inventory
+are unchanged. It also rejects any index artifact created in either tiling
+output. Submit it with
+`scripts/shell/all_tasks/sbatch_validate_tiling_determinism.sh`; T6.5 remains in
+progress pending the Explore report.
 
 ## Phase T7 — Modernize the tiling example notebook `[Planned]`
 
