@@ -340,9 +340,15 @@ retains the legacy nested notebook, follows the repository-root and
 index, selector, AOI, and output paths in one section. It uses `TileConfig` for
 representative WAC-plus-static and NAC-plus-static AOI runs, pairs outputs from
 structured records, and plots masked dynamic and static bands with per-panel
-colorbars and robust limits. Optional point and tile-index examples demonstrate
-the other public query entry points without running by default. T7.6 remains in
-progress pending a top-to-bottom Explore execution.
+colorbars and robust limits. Reusable record pairing, masked-band inspection,
+NoData summaries, and plotting now live in
+`lfm/all_models/all_tasks/viz/tiling_viz.py`. The canonical static source,
+labeled-path validation, timestamped run ID, and notebook display/zoom defaults
+now live in `lfm/all_models/all_tasks/tiling_utils.py`. AOI tiling discovers its
+LTM zones; optional point and tile-index examples derive their required zone and
+tile coordinates from an AOI result rather than a hard-coded expected zone.
+Those examples do not run by default. T7.6 remains in progress pending a
+top-to-bottom Explore execution.
 
 To select a replacement example AOI from an existing legacy cube,
 `scripts/python/all_tasks/extract_datacube_aoi.py` transforms a densified raster
