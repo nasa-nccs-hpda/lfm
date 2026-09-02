@@ -3,7 +3,9 @@
 from .tiling_viz import (
     pair_dynamic_and_static,
     plot_cube_pairs,
+    plot_modern_legacy_cube_comparison,
     print_record_summary,
+    read_raster_band,
     read_record_band,
     robust_limits,
     tile_key,
@@ -12,7 +14,9 @@ from .tiling_viz import (
 __all__ = [
     "pair_dynamic_and_static",
     "plot_cube_pairs",
+    "plot_modern_legacy_cube_comparison",
     "print_record_summary",
+    "read_raster_band",
     "read_record_band",
     "robust_limits",
     "tile_key",

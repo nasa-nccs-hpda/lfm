@@ -107,6 +107,44 @@ def read_record_band(
     return image, name, band_number
 
 
+def read_raster_band(
+    path: str | Path,
+    *,
+    band_number: int | None = None,
+    band_name: str | None = None,
+) -> tuple[np.ma.MaskedArray, str, int]:
+    """Read a masked raster band by 1-based number or ``Name`` metadata."""
+    if (band_number is None) == (band_name is None):
+        raise ValueError("Provide exactly one of band_number or band_name.")
+    path = Path(path)
+    with rasterio.open(path) as source:
+        if band_name is not None:
+            matching_numbers = [
+                number
+                for number in range(1, source.count + 1)
+                if source.tags(number).get("Name") == band_name
+                or source.descriptions[number - 1] == band_name
+            ]
+            if not matching_numbers:
+                raise KeyError(f"Band {band_name!r} is not present in {path}")
+            if len(matching_numbers) > 1:
+                raise ValueError(f"Band {band_name!r} is duplicated in {path}")
+            band_number = matching_numbers[0]
+        if band_number is None or band_number < 1:
+            raise ValueError("band_number must be a positive 1-based index.")
+        if band_number > source.count:
+            raise IndexError(
+                f"Band {band_number} exceeds the {source.count} bands in {path}."
+            )
+        image = source.read(band_number, masked=True)
+        name = (
+            source.tags(band_number).get("Name")
+            or source.descriptions[band_number - 1]
+            or f"band_{band_number}"
+        )
+    return image, name, band_number
+
+
 def plot_cube_pairs(
     pairs: Sequence[tuple[Any, Any]],
     *,
@@ -177,10 +215,76 @@ def plot_cube_pairs(
     return figure
 
 
+def plot_modern_legacy_cube_comparison(
+    comparisons: Sequence[tuple[Any, Any, Path, Path]],
+    *,
+    product_id: str,
+    dynamic_band_number: int,
+    static_band_name: str,
+    output_path: str | Path,
+    max_tiles: int = 2,
+):
+    """Plot current and legacy WAC/static cubes as four ordered rows."""
+    if max_tiles < 1:
+        raise ValueError("max_tiles must be positive.")
+    selected = list(comparisons)[:max_tiles]
+    if not selected:
+        raise ValueError("No matched current/legacy cube sets are available to plot.")
+
+    figure = plt.figure(
+        figsize=(6 * len(selected), 20),
+        constrained_layout=True,
+    )
+    grid = figure.add_gridspec(
+        4,
+        2 * len(selected),
+        width_ratios=[value for _ in selected for value in (1.0, 0.05)],
+    )
+
+    for column, comparison in enumerate(selected):
+        current_wac, current_static, legacy_wac, legacy_static = comparison
+        images = (
+            (*read_record_band(current_wac, band_number=dynamic_band_number),
+             "gray", "Current WAC"),
+            (*read_record_band(current_static, band_name=static_band_name),
+             "terrain", "Current STATIC"),
+            (*read_raster_band(legacy_wac, band_number=dynamic_band_number),
+             "gray", "Legacy WAC"),
+            (*read_raster_band(legacy_static, band_name=static_band_name),
+             "terrain", "Legacy STATIC"),
+        )
+        tile_title = (
+            f"LTM{current_wac.zone} z{current_wac.zoom_level} "
+            f"tile ({current_wac.tile_x}, {current_wac.tile_y})"
+        )
+
+        for row, (image, name, number, cmap, label) in enumerate(images):
+            axis = figure.add_subplot(grid[row, 2 * column])
+            colorbar_axis = figure.add_subplot(grid[row, 2 * column + 1])
+            vmin, vmax = robust_limits(image)
+            rendered = axis.imshow(image, cmap=cmap, vmin=vmin, vmax=vmax)
+            axis.set_title(f"{tile_title}\n{label} band {number}: {name}")
+            axis.set_xlim(-0.5, image.shape[1] - 0.5)
+            axis.set_ylim(image.shape[0] - 0.5, -0.5)
+            axis.set_aspect("equal", adjustable="box")
+            axis.axis("off")
+            figure.colorbar(rendered, cax=colorbar_axis)
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure.suptitle(f"Modern vs legacy WAC/static cubes: {product_id}", y=1.005)
+    figure.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.show()
+    print(f"Saved comparison visualization: {output_path}")
+    return figure
+
+
 __all__ = [
     "pair_dynamic_and_static",
     "plot_cube_pairs",
+    "plot_modern_legacy_cube_comparison",
     "print_record_summary",
+    "read_raster_band",
     "read_record_band",
     "robust_limits",
     "tile_key",

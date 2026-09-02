@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 import traceback
 import warnings
@@ -42,7 +43,7 @@ from lfm.all_models.all_tasks.tiling_utils import (  # noqa: E402
 )
 from lfm.all_models.all_tasks.viz import (  # noqa: E402
     pair_dynamic_and_static,
-    plot_cube_pairs,
+    plot_modern_legacy_cube_comparison,
     print_record_summary,
 )
 
@@ -60,6 +61,11 @@ STATIC_BAND_TO_PLOT = "lola_kaguya_60mpp_elv"
 MAX_PLOT_TILES = 2
 
 AOI_KEYS = ("ul_lat", "ul_lon", "lr_lat", "lr_lon")
+LEGACY_CUBE_NAME = re.compile(
+    r"^(?P<prefix>StaticCube|Cube)-LTM(?P<zone>\d+[NS])"
+    r"_Zoom-(?P<zoom>\d+)_Tile-(?P<tile_x>\d+)-(?P<tile_y>\d+)"
+    r"(?:_ProdId-.+)?\.tif$"
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -172,6 +178,59 @@ def run_legacy_tiling(
         Pipeline.STATIC_FILE_DB = original_static_index
 
 
+def match_modern_and_legacy_cubes(
+    modern_pairs: list[tuple[Any, Any]],
+    legacy_paths: list[Path],
+) -> list[tuple[Any, Any, Path, Path]]:
+    """Match current and legacy WAC/static cubes by structured tile identity."""
+    legacy_by_tile: dict[tuple[str, int, int, int], dict[str, Path]] = {}
+    for path in legacy_paths:
+        match = LEGACY_CUBE_NAME.fullmatch(path.name)
+        if match is None:
+            raise ValueError(f"Unrecognized legacy cube filename: {path.name}")
+        tile = (
+            match.group("zone"),
+            int(match.group("zoom")),
+            int(match.group("tile_x")),
+            int(match.group("tile_y")),
+        )
+        source_name = "static" if match.group("prefix") == "StaticCube" else "wac"
+        sources = legacy_by_tile.setdefault(tile, {})
+        if source_name in sources:
+            raise ValueError(f"Duplicate legacy {source_name} cube for tile {tile}.")
+        sources[source_name] = path
+
+    comparisons: list[tuple[Any, Any, Path, Path]] = []
+    missing: list[str] = []
+    for current_wac, current_static in modern_pairs:
+        tile = (
+            current_wac.zone,
+            current_wac.zoom_level,
+            current_wac.tile_x,
+            current_wac.tile_y,
+        )
+        legacy_sources = legacy_by_tile.get(tile, {})
+        if "wac" not in legacy_sources or "static" not in legacy_sources:
+            missing.append(str(tile))
+            continue
+        comparisons.append(
+            (
+                current_wac,
+                current_static,
+                legacy_sources["wac"],
+                legacy_sources["static"],
+            )
+        )
+    if missing:
+        raise ValueError(
+            "Legacy WAC/static counterparts are missing for current tiles: "
+            + ", ".join(missing)
+        )
+    if not comparisons:
+        raise ValueError("No current and legacy WAC/static tile sets matched.")
+    return comparisons
+
+
 def log_iteration_traceback(
     *,
     traceback_path: Path,
@@ -249,6 +308,7 @@ def main() -> None:
         print(f"AOI: {aoi}")
 
         modern_records = None
+        modern_pairs = None
         try:
             tile_config = TileConfig(
                 output_dir=output_dir / "modern_cubes" / product_id,
@@ -263,26 +323,13 @@ def main() -> None:
             print("Modern tiler records:")
             print_record_summary(modern_records)
 
-            pairs = pair_dynamic_and_static(modern_records, "wac")
-            print(f"Modern WAC/static pairs available for plotting: {len(pairs)}")
-            plot_path = (
-                output_dir / "plots" / f"wac_static_cubes_{product_id}.png"
-            )
-            figure = plot_cube_pairs(
-                pairs,
-                dynamic_label=f"WAC {product_id}",
-                dynamic_band_number=WAC_BAND_NUMBER,
-                static_band_name=STATIC_BAND_TO_PLOT,
-                output_path=plot_path,
-                max_tiles=MAX_PLOT_TILES,
-            )
-            plt.close(figure)
-            plot_paths.append(plot_path)
+            modern_pairs = pair_dynamic_and_static(modern_records, "wac")
+            print(f"Modern WAC/static tile pairs: {len(modern_pairs)}")
         except Exception:
             failed_steps.append(f"{product_id} (modern)")
             log_iteration_traceback(
                 traceback_path=traceback_path,
-                phase="modern tiling and plotting",
+                phase="modern tiling",
                 request_number=number,
                 request_count=len(entries),
                 product_id=product_id,
@@ -325,6 +372,49 @@ def main() -> None:
             print(
                 "Cube inventory for comparison: "
                 f"modern={len(modern_records)}, legacy={len(legacy_paths)}"
+            )
+        if modern_pairs is not None and legacy_paths is not None:
+            try:
+                comparisons = match_modern_and_legacy_cubes(
+                    modern_pairs,
+                    legacy_paths,
+                )
+                plot_path = (
+                    output_dir
+                    / "plots"
+                    / f"wac_static_comparison_{product_id}.png"
+                )
+                figure = plot_modern_legacy_cube_comparison(
+                    comparisons,
+                    product_id=product_id,
+                    dynamic_band_number=WAC_BAND_NUMBER,
+                    static_band_name=STATIC_BAND_TO_PLOT,
+                    output_path=plot_path,
+                    max_tiles=MAX_PLOT_TILES,
+                )
+                plt.close(figure)
+                plot_paths.append(plot_path)
+            except Exception:
+                failed_steps.append(f"{product_id} (comparison visualization)")
+                log_iteration_traceback(
+                    traceback_path=traceback_path,
+                    phase="modern/legacy comparison visualization",
+                    request_number=number,
+                    request_count=len(entries),
+                    product_id=product_id,
+                    aoi=aoi,
+                )
+                plt.close("all")
+                print(
+                    f"COMPARISON PLOT FAILED for {product_id}; continuing with "
+                    f"the next AOI. Traceback appended to {traceback_path}",
+                    file=sys.stderr,
+                )
+        else:
+            print(
+                f"Skipping comparison plot for {product_id} because one tiler "
+                "did not produce a complete result.",
+                file=sys.stderr,
             )
 
     print(f"\nProcessed {len(entries)} WAC/static tiling requests.")
