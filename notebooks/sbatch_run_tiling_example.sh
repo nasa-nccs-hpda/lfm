@@ -9,14 +9,25 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SUBMIT_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
+
+if [[ -f "${SUBMIT_DIR}/notebooks/tiling_example.ipynb" ]]; then
+  REPO_DIR="${SUBMIT_DIR}"
+elif [[ -f "${SUBMIT_DIR}/tiling_example.ipynb" ]]; then
+  REPO_DIR="$(cd "${SUBMIT_DIR}/.." && pwd)"
+else
+  echo "Could not locate notebooks/tiling_example.ipynb from: ${SUBMIT_DIR}" >&2
+  echo "Submit from the repository root or its notebooks/ directory." >&2
+  exit 1
+fi
+
+NOTEBOOK_DIR="${REPO_DIR}/notebooks"
 
 CONTAINER_PATH="${CONTAINER_PATH:-/explore/nobackup/projects/lfm/containers/lfm-container-ipyleaflet}"
 APPTAINER_BIN="${APPTAINER_BIN:-apptainer}"
 APPTAINER_BIND_PATHS="${APPTAINER_BIND_PATHS:-/panfs/ccds02/nobackup:/explore/nobackup}"
 KERNEL_NAME="${KERNEL_NAME:-lfm}"
-EXECUTED_NOTEBOOK_DIR="${EXECUTED_NOTEBOOK_DIR:-${SCRIPT_DIR}/executed}"
+EXECUTED_NOTEBOOK_DIR="${EXECUTED_NOTEBOOK_DIR:-${NOTEBOOK_DIR}/executed}"
 EXECUTED_NOTEBOOK_NAME="tiling_example_executed_${SLURM_JOB_ID:-manual}"
 
 mkdir -p "${EXECUTED_NOTEBOOK_DIR}"
@@ -29,7 +40,7 @@ echo "Executed notebook: ${EXECUTED_NOTEBOOK_DIR}/${EXECUTED_NOTEBOOK_NAME}.ipyn
 "${APPTAINER_BIN}" exec \
   --bind "${APPTAINER_BIND_PATHS}" \
   --bind "${REPO_DIR}" \
-  --pwd "${SCRIPT_DIR}" \
+  --pwd "${NOTEBOOK_DIR}" \
   "${CONTAINER_PATH}" \
   jupyter nbconvert \
     --to notebook \
