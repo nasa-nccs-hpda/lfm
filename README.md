@@ -50,11 +50,21 @@ Feel free to create a new directory to run these workflows as well. To create a 
 
 8. Close the terminal tab by clicking "x" on the top tab.
 
-9. Using the file explorer interface again, navigate to the folder at: `<your_folder>/lfm/notebooks/`, where `<your_folder>` is the same one you created in step 6. Following the example from earlier, the full path would look like `/explore/nobackup/people/my_username/lunar_fm/lfm/notebooks`. The `notebooks/` folder contains Jupyter Notebooks for the IBM/Graha model finetuning workflows across two machine learning tasks (instance/semantic segmentation).
+9. Using the file explorer interface again, navigate to the folder at
+   `<your_folder>/lfm/notebooks/`, where `<your_folder>` is the same one you
+   created in step 6. Following the example from earlier, the full path would
+   look like
+   `/explore/nobackup/people/my_username/lunar_fm/lfm/notebooks`. The
+   `notebooks/` folder contains Jupyter notebooks for the IBM/"graha" model
+   finetuning and inference workflows across two machine learning tasks
+   (instance/semantic segmentation), as well as a notebook demonstrating the
+   Armstrong tiling scheme.
 
 **Note: the structure of the folders is such that we have 2 lfm/ folders; the outermost lfm/ folder contains the notebooks/ directory.**
 
-- The two notebooks available for the IBM model are called instance_ibm_train.ipynb and semantic_ibm_train.ipynb. Each runs training for that machine learning task.
+- The two finetuning notebooks available for the IBM/"graha" model are called instance_ibm_train.ipynb and semantic_ibm_train.ipynb. Each runs training for that machine learning task.
+- The inference notebook for the IBM model is called inference_sseg.ipynb. It performs inference on the "data cubes" created from the LTM tiling scheme after the semantic finetuning notebook has been run. **This notebook requires you to manually set the checkpoint path to a previously created finetuning checkpoint. You need to both run the finetuning notebook, and change the GRAHA_LIGHTNING_CHECKPOINT variable in the inference notebook to run inference.**
+- The tiling notebook demonstrates how you can select a specific dynamic (WAC/NAC) product ID and area of interest (AOI), and create "datacubes"/tiles using the Armstrong Tiling Scheme. For details about LTM zones, zoom levels, tile addresses, and the repository implementation, see [`TMS/README.md`](TMS/README.md).
 
 **Note 2: toy model notebooks are still found under <your_folder>/lfm/notebooks/toy_model. These are no longer supported in this release.**
 
@@ -71,7 +81,7 @@ There are 3 datasets currently supported by the LFM: WAC crater detection, NAC c
 
 ### More on the data dictionary
 
-The notebook data dictionary tells the model how to match files and which stored chip bands to use. `selected_modalities` controls which frontend modalities are loaded from the chip, and backend Graha/TerraTorch modalities are inferred by default (`vis` -> `vis`, `uv` -> `uv`, `static` -> `static`, `pho` -> `nac`, `dtm` -> `dtm`). `band_filters` are modality-local indices. For example, WAC VIS has 5 stored VIS bands, so `"vis": [0, 1, 2, 3, 4]` selects all 5 VIS bands. NAC PHO and DTM are single-band modalities, so use `[0]` for each selected modality. File suffixes are inferred automatically from common terminal names such as `_input_nac_chip`, `_input_wac_chip`, `_input_wac_static_chip`, `_label`, `_mask`, `_mask_orig`, and `_img`; add `image_suffix` or `label_suffix` only for unusual datasets. Normalization source defaults to `"pretrain"`. Normalization modality is inferred from `dataset_modality`: `"wac"` uses internal `"vis_uv"`, while `"nac"` and `"nac_dtm"` use `"nac"`. Multi-modality Graha features use `"concat"` merging by default; override `graha_vis_uv_merge_method` only when comparing merge strategies. For semantic segmentation, label source is inferred automatically: `.npz` labels are treated as instance archives and `.npy` labels are treated as semantic masks.
+The notebook data dictionary tells the model how to match files and which stored chip bands to use. `selected_modalities` controls which frontend modalities are loaded from the chip, and backend modalities are inferred by default (`vis` -> `vis`, `uv` -> `uv`, `static` -> `static`, `pho` -> `nac`, `dtm` -> `dtm`). `band_filters` are modality-local indices. For example, WAC VIS has 5 stored VIS bands, so `"vis": [0, 1, 2, 3, 4]` selects all 5 VIS bands. NAC PHO and DTM are single-band modalities, so use `[0]` for each selected modality. File suffixes are inferred automatically from common terminal names such as `_input_nac_chip`, `_input_wac_chip`, `_input_wac_static_chip`, `_label`, `_mask`, `_mask_orig`, and `_img`; add `image_suffix` or `label_suffix` only for unusual datasets. Normalization source defaults to `"pretrain"`. Normalization modality is inferred from `dataset_modality`: `"wac"` uses internal `"vis_uv"`, while `"nac"` and `"nac_dtm"` use `"nac"`. Multi-modal features use `"concat"` merging by default; override `graha_vis_uv_merge_method` only when comparing merge strategies. For semantic segmentation, label source is inferred automatically: `.npz` labels are treated as instance archives and `.npy` labels are treated as semantic masks.
 
 ### WAC crater dataset
 WAC crater data has 2 versions: the first consists of 5 VIS bands followed by 2 UV bands, saved as 7-band chips. The second contains the same VIS and UV bands, but also contains all 63 static data bands, for a total of 70 bands per chip. STATIC data has multiple nodata values in the latest code version, so you need to explicitly state which values are nodata in the data dictionary (see below).
