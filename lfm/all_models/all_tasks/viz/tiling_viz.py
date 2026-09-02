@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -240,6 +242,8 @@ def plot_modern_legacy_cube_comparison(
         2 * len(selected),
         width_ratios=[value for _ in selected for value in (1.0, 0.05)],
     )
+    band_diagnostics: list[dict[str, Any]] = []
+    render_warnings: list[Any] = []
 
     for column, comparison in enumerate(selected):
         current_wac, current_static, legacy_wac, legacy_static = comparison
@@ -262,18 +266,81 @@ def plot_modern_legacy_cube_comparison(
             axis = figure.add_subplot(grid[row, 2 * column])
             colorbar_axis = figure.add_subplot(grid[row, 2 * column + 1])
             vmin, vmax = robust_limits(image)
-            rendered = axis.imshow(image, cmap=cmap, vmin=vmin, vmax=vmax)
+            finite_values = np.asarray(image.compressed(), dtype=np.float64)
+            finite_values = finite_values[np.isfinite(finite_values)]
+            band_diagnostics.append(
+                {
+                    "tile": tile_title,
+                    "label": label,
+                    "band_number": number,
+                    "band_name": name,
+                    "dtype": str(image.dtype),
+                    "finite_min": (
+                        float(finite_values.min()) if finite_values.size else None
+                    ),
+                    "finite_max": (
+                        float(finite_values.max()) if finite_values.size else None
+                    ),
+                    "display_min": vmin,
+                    "display_max": vmax,
+                }
+            )
+            with warnings.catch_warnings(record=True) as image_warnings:
+                warnings.simplefilter("always", RuntimeWarning)
+                rendered = axis.imshow(image, cmap=cmap, vmin=vmin, vmax=vmax)
+            render_warnings.extend(image_warnings)
             axis.set_title(f"{tile_title}\n{label} band {number}: {name}")
             axis.set_xlim(-0.5, image.shape[1] - 0.5)
             axis.set_ylim(image.shape[0] - 0.5, -0.5)
             axis.set_aspect("equal", adjustable="box")
             axis.axis("off")
-            figure.colorbar(rendered, cax=colorbar_axis)
+            with warnings.catch_warnings(record=True) as colorbar_warnings:
+                warnings.simplefilter("always", RuntimeWarning)
+                figure.colorbar(rendered, cax=colorbar_axis)
+            render_warnings.extend(colorbar_warnings)
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     figure.suptitle(f"Modern vs legacy WAC/static cubes: {product_id}", y=1.005)
-    figure.savefig(output_path, dpi=150, bbox_inches="tight")
+    with warnings.catch_warnings(record=True) as save_warnings:
+        warnings.simplefilter("always", RuntimeWarning)
+        figure.savefig(output_path, dpi=150, bbox_inches="tight")
+
+    caught_warnings = [*render_warnings, *save_warnings]
+    colors_runtime_warnings = [
+        warning
+        for warning in caught_warnings
+        if issubclass(warning.category, RuntimeWarning)
+        and Path(warning.filename).name == "colors.py"
+        and "matplotlib" in Path(warning.filename).parts
+    ]
+    if colors_runtime_warnings:
+        print(
+            f"Matplotlib colors RuntimeWarning for product {product_id} while "
+            f"saving {output_path.name}:",
+            file=sys.stderr,
+        )
+        for warning in colors_runtime_warnings:
+            print(f"  warning: {warning.message}", file=sys.stderr)
+        print("  Plotted-band value ranges:", file=sys.stderr)
+        for diagnostic in band_diagnostics:
+            print(
+                f"    {diagnostic['tile']} | {diagnostic['label']} | "
+                f"band {diagnostic['band_number']} "
+                f"({diagnostic['band_name']}) | dtype={diagnostic['dtype']} | "
+                f"finite_min={diagnostic['finite_min']} | "
+                f"finite_max={diagnostic['finite_max']} | "
+                f"display_min={diagnostic['display_min']} | "
+                f"display_max={diagnostic['display_max']}",
+                file=sys.stderr,
+            )
+    for warning in caught_warnings:
+        warnings.warn_explicit(
+            warning.message,
+            warning.category,
+            warning.filename,
+            warning.lineno,
+        )
     plt.show()
     print(f"Saved comparison visualization: {output_path}")
     return figure
