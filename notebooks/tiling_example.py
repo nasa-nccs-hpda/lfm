@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create and plot WAC/static LTM cubes for AOIs declared in JSON."""
+"""Run modern and legacy WAC/static tiling for AOIs declared in JSON."""
 
 from __future__ import annotations
 
@@ -32,6 +32,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from model import TileConfig, TileSourceConfig, create_tiles_for_aoi  # noqa: E402
+from model.Pipeline import Pipeline  # noqa: E402
 from lfm.all_models.all_tasks.tiling_utils import (  # noqa: E402
     DEFAULT_WAC_BAND_NUMBER,
     DEFAULT_ZOOM_LEVEL,
@@ -64,8 +65,8 @@ AOI_KEYS = ("ul_lat", "ul_lon", "lr_lat", "lr_lon")
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Create WAC/static LTM cubes and one plot for every product/AOI "
-            "entry in a JSON configuration file."
+            "Create modern WAC/static LTM cubes and plots plus legacy Pipeline "
+            "cubes for every product/AOI entry in a JSON configuration file."
         )
     )
     parser.add_argument(
@@ -141,6 +142,59 @@ def load_entries(config_path: Path) -> list[dict[str, Any]]:
     return entries
 
 
+def run_legacy_tiling(
+    *,
+    product_id: str,
+    aoi: dict[str, float],
+    output_dir: Path,
+) -> list[Path]:
+    """Run the legacy WAC/static Pipeline for one product-scoped AOI."""
+    output_dir.mkdir(parents=True, exist_ok=False)
+    original_static_index = Pipeline.STATIC_FILE_DB
+    try:
+        Pipeline.STATIC_FILE_DB = STATIC_INDEX
+        pipeline = Pipeline(
+            WAC_INDEX,
+            output_dir,
+            targetProductID=product_id,
+        )
+        return [
+            Path(path)
+            for path in pipeline.run(
+                aoi["ul_lat"],
+                aoi["ul_lon"],
+                aoi["lr_lat"],
+                aoi["lr_lon"],
+                ZOOM_LEVEL,
+            )
+        ]
+    finally:
+        Pipeline.STATIC_FILE_DB = original_static_index
+
+
+def log_iteration_traceback(
+    *,
+    traceback_path: Path,
+    phase: str,
+    request_number: int,
+    request_count: int,
+    product_id: str,
+    aoi: dict[str, float],
+) -> None:
+    """Append the active exception traceback with request context."""
+    traceback_path.parent.mkdir(parents=True, exist_ok=True)
+    with traceback_path.open("a", encoding="utf-8") as error_log:
+        error_log.write("=" * 80)
+        error_log.write("\n")
+        error_log.write(
+            f"Request {request_number}/{request_count}: WAC product {product_id}\n"
+        )
+        error_log.write(f"Phase: {phase}\n")
+        error_log.write(f"AOI: {json.dumps(aoi, sort_keys=True)}\n\n")
+        error_log.write(traceback.format_exc())
+        error_log.write("\n")
+
+
 def main() -> None:
     args = parse_args()
     config_path = args.config.expanduser().resolve()
@@ -186,7 +240,7 @@ def main() -> None:
     print(f"Outputs: {output_dir}")
 
     plot_paths: list[Path] = []
-    failed_product_ids: list[str] = []
+    failed_steps: list[str] = []
     traceback_path = output_dir / "errors" / "tracebacks.log"
     for number, entry in enumerate(entries, start=1):
         product_id = entry["product_id"]
@@ -194,21 +248,23 @@ def main() -> None:
         print(f"\n[{number}/{len(entries)}] Tiling WAC product {product_id}")
         print(f"AOI: {aoi}")
 
+        modern_records = None
         try:
             tile_config = TileConfig(
-                output_dir=output_dir / "cubes" / product_id,
+                output_dir=output_dir / "modern_cubes" / product_id,
                 zoom_level=ZOOM_LEVEL,
                 sources=(wac_source, static_source),
             )
-            records = create_tiles_for_aoi(
+            modern_records = create_tiles_for_aoi(
                 tile_config,
                 **aoi,
                 selectors={"wac": product_id},
             )
-            print_record_summary(records)
+            print("Modern tiler records:")
+            print_record_summary(modern_records)
 
-            pairs = pair_dynamic_and_static(records, "wac")
-            print(f"WAC/static pairs available for plotting: {len(pairs)}")
+            pairs = pair_dynamic_and_static(modern_records, "wac")
+            print(f"Modern WAC/static pairs available for plotting: {len(pairs)}")
             plot_path = (
                 output_dir / "plots" / f"wac_static_cubes_{product_id}.png"
             )
@@ -223,33 +279,62 @@ def main() -> None:
             plt.close(figure)
             plot_paths.append(plot_path)
         except Exception:
-            failed_product_ids.append(product_id)
-            formatted_traceback = traceback.format_exc()
-            traceback_path.parent.mkdir(parents=True, exist_ok=True)
-            with traceback_path.open("a", encoding="utf-8") as error_log:
-                error_log.write("=" * 80)
-                error_log.write("\n")
-                error_log.write(
-                    f"Request {number}/{len(entries)}: WAC product {product_id}\n"
-                )
-                error_log.write(f"AOI: {json.dumps(aoi, sort_keys=True)}\n\n")
-                error_log.write(formatted_traceback)
-                error_log.write("\n")
+            failed_steps.append(f"{product_id} (modern)")
+            log_iteration_traceback(
+                traceback_path=traceback_path,
+                phase="modern tiling and plotting",
+                request_number=number,
+                request_count=len(entries),
+                product_id=product_id,
+                aoi=aoi,
+            )
             plt.close("all")
             print(
-                f"FAILED {product_id}; continuing with the next AOI. "
+                f"MODERN FAILED for {product_id}; attempting legacy tiling. "
                 f"Traceback appended to {traceback_path}",
                 file=sys.stderr,
+            )
+
+        legacy_paths = None
+        try:
+            legacy_paths = run_legacy_tiling(
+                product_id=product_id,
+                aoi=aoi,
+                output_dir=output_dir / "legacy_cubes" / product_id,
+            )
+            print(f"Legacy Pipeline created {len(legacy_paths)} cube(s):")
+            for legacy_path in legacy_paths:
+                print(f"  {legacy_path}")
+        except Exception:
+            failed_steps.append(f"{product_id} (legacy)")
+            log_iteration_traceback(
+                traceback_path=traceback_path,
+                phase="legacy Pipeline tiling",
+                request_number=number,
+                request_count=len(entries),
+                product_id=product_id,
+                aoi=aoi,
+            )
+            print(
+                f"LEGACY FAILED for {product_id}; continuing with the next AOI. "
+                f"Traceback appended to {traceback_path}",
+                file=sys.stderr,
+            )
+
+        if modern_records is not None and legacy_paths is not None:
+            print(
+                "Cube inventory for comparison: "
+                f"modern={len(modern_records)}, legacy={len(legacy_paths)}"
             )
 
     print(f"\nProcessed {len(entries)} WAC/static tiling requests.")
     print(f"Created {len(plot_paths)} plots:")
     for plot_path in plot_paths:
         print(f"  {plot_path}")
-    if failed_product_ids:
+    if failed_steps:
         print(
-            f"Failed {len(failed_product_ids)} request(s): "
-            f"{', '.join(failed_product_ids)}",
+            f"Failed {len(failed_steps)} tiling step(s): "
+            f"{', '.join(failed_steps)}",
             file=sys.stderr,
         )
         print(f"Full tracebacks: {traceback_path}", file=sys.stderr)
