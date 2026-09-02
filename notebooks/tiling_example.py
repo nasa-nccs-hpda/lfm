@@ -60,7 +60,7 @@ LOCATION_FIELD = "location"
 ZOOM_LEVEL = DEFAULT_ZOOM_LEVEL
 WAC_BAND_NUMBER = DEFAULT_WAC_BAND_NUMBER
 STATIC_BAND_TO_PLOT = "lola_kaguya_60mpp_elv"
-MAX_PLOT_TILES = 2
+MAX_PLOT_TILES = 4
 
 AOI_KEYS = ("ul_lat", "ul_lon", "lr_lat", "lr_lon")
 LEGACY_CUBE_NAME = re.compile(

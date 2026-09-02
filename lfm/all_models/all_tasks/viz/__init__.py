@@ -1,6 +1,7 @@
 """Shared visualization helpers for model-agnostic workflows."""
 
 from .tiling_viz import (
+    display_array,
     pair_dynamic_and_static,
     plot_cube_pairs,
     plot_modern_legacy_cube_comparison,
@@ -12,6 +13,7 @@ from .tiling_viz import (
 )
 
 __all__ = [
+    "display_array",
     "pair_dynamic_and_static",
     "plot_cube_pairs",
     "plot_modern_legacy_cube_comparison",

@@ -80,6 +80,13 @@ def robust_limits(image: np.ma.MaskedArray) -> tuple[float, float]:
     return float(lower), float(upper)
 
 
+def display_array(image: np.ma.MaskedArray) -> np.ndarray:
+    """Return a float64 display copy with masked pixels replaced by NaN."""
+    values = np.asarray(image.data, dtype=np.float64).copy()
+    values[np.ma.getmaskarray(image)] = np.nan
+    return values
+
+
 def read_record_band(
     record: Any,
     *,
@@ -154,7 +161,7 @@ def plot_cube_pairs(
     dynamic_band_number: int,
     static_band_name: str,
     output_path: str | Path,
-    max_tiles: int = 2,
+    max_tiles: int = 4,
 ):
     """Plot paired dynamic/static cube bands with masks and colorbars."""
     if max_tiles < 1:
@@ -200,10 +207,11 @@ def plot_cube_pairs(
             axis = figure.add_subplot(grid[row, 2 * column])
             colorbar_axis = figure.add_subplot(grid[row, 2 * column + 1])
             vmin, vmax = robust_limits(image)
-            rendered = axis.imshow(image, cmap=cmap, vmin=vmin, vmax=vmax)
+            plotted = display_array(image)
+            rendered = axis.imshow(plotted, cmap=cmap, vmin=vmin, vmax=vmax)
             axis.set_title(f"{tile_title}\n{label} band {number}: {name}")
-            axis.set_xlim(-0.5, image.shape[1] - 0.5)
-            axis.set_ylim(image.shape[0] - 0.5, -0.5)
+            axis.set_xlim(-0.5, plotted.shape[1] - 0.5)
+            axis.set_ylim(plotted.shape[0] - 0.5, -0.5)
             axis.set_aspect("equal", adjustable="box")
             axis.axis("off")
             figure.colorbar(rendered, cax=colorbar_axis)
@@ -224,7 +232,7 @@ def plot_modern_legacy_cube_comparison(
     dynamic_band_number: int,
     static_band_name: str,
     output_path: str | Path,
-    max_tiles: int = 2,
+    max_tiles: int = 4,
 ):
     """Plot current and legacy WAC/static cubes as four ordered rows."""
     if max_tiles < 1:
@@ -285,13 +293,19 @@ def plot_modern_legacy_cube_comparison(
                     "display_max": vmax,
                 }
             )
+            plotted = display_array(image)
             with warnings.catch_warnings(record=True) as image_warnings:
                 warnings.simplefilter("always", RuntimeWarning)
-                rendered = axis.imshow(image, cmap=cmap, vmin=vmin, vmax=vmax)
+                rendered = axis.imshow(
+                    plotted,
+                    cmap=cmap,
+                    vmin=vmin,
+                    vmax=vmax,
+                )
             render_warnings.extend(image_warnings)
             axis.set_title(f"{tile_title}\n{label} band {number}: {name}")
-            axis.set_xlim(-0.5, image.shape[1] - 0.5)
-            axis.set_ylim(image.shape[0] - 0.5, -0.5)
+            axis.set_xlim(-0.5, plotted.shape[1] - 0.5)
+            axis.set_ylim(plotted.shape[0] - 0.5, -0.5)
             axis.set_aspect("equal", adjustable="box")
             axis.axis("off")
             with warnings.catch_warnings(record=True) as colorbar_warnings:
@@ -347,6 +361,7 @@ def plot_modern_legacy_cube_comparison(
 
 
 __all__ = [
+    "display_array",
     "pair_dynamic_and_static",
     "plot_cube_pairs",
     "plot_modern_legacy_cube_comparison",
