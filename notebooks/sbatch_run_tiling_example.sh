@@ -26,11 +26,18 @@ NOTEBOOK_DIR="${REPO_DIR}/notebooks"
 CONTAINER_PATH="${CONTAINER_PATH:-/explore/nobackup/projects/lfm/containers/lfm-container-ipyleaflet}"
 APPTAINER_BIN="${APPTAINER_BIN:-apptainer}"
 APPTAINER_BIND_PATHS="${APPTAINER_BIND_PATHS:-/panfs/ccds02/nobackup:/explore/nobackup}"
-KERNEL_NAME="${KERNEL_NAME:-lfm}"
+KERNEL_NAME="${KERNEL_NAME:-python3}"
 EXECUTED_NOTEBOOK_DIR="${EXECUTED_NOTEBOOK_DIR:-${NOTEBOOK_DIR}/executed}"
 EXECUTED_NOTEBOOK_NAME="tiling_example_executed_${SLURM_JOB_ID:-manual}"
+JUPYTER_STATE_DIR="/tmp/lfm-jupyter-${USER}-${SLURM_JOB_ID:-manual}"
 
 mkdir -p "${EXECUTED_NOTEBOOK_DIR}"
+mkdir -p \
+  "${JUPYTER_STATE_DIR}/config" \
+  "${JUPYTER_STATE_DIR}/data" \
+  "${JUPYTER_STATE_DIR}/ipython" \
+  "${JUPYTER_STATE_DIR}/runtime"
+chmod 700 "${JUPYTER_STATE_DIR}/runtime"
 
 echo "Repository: ${REPO_DIR}"
 echo "Container: ${CONTAINER_PATH}"
@@ -42,6 +49,11 @@ echo "Executed notebook: ${EXECUTED_NOTEBOOK_DIR}/${EXECUTED_NOTEBOOK_NAME}.ipyn
   --bind "${REPO_DIR}" \
   --pwd "${NOTEBOOK_DIR}" \
   "${CONTAINER_PATH}" \
+  env \
+    IPYTHONDIR="${JUPYTER_STATE_DIR}/ipython" \
+    JUPYTER_CONFIG_DIR="${JUPYTER_STATE_DIR}/config" \
+    JUPYTER_DATA_DIR="${JUPYTER_STATE_DIR}/data" \
+    JUPYTER_RUNTIME_DIR="${JUPYTER_STATE_DIR}/runtime" \
   jupyter nbconvert \
     --to notebook \
     --execute tiling_example.ipynb \
