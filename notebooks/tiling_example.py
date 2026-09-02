@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 import matplotlib
+import numpy as np
+import rasterio
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -231,6 +233,240 @@ def match_modern_and_legacy_cubes(
     return comparisons
 
 
+def resolve_band_number(
+    source: rasterio.io.DatasetReader,
+    *,
+    band_number: int | None = None,
+    band_name: str | None = None,
+) -> int:
+    """Resolve exactly one 1-based band number or metadata name."""
+    if (band_number is None) == (band_name is None):
+        raise ValueError("Provide exactly one of band_number or band_name.")
+    if band_name is not None:
+        matches = [
+            number
+            for number in range(1, source.count + 1)
+            if source.tags(number).get("Name") == band_name
+            or source.descriptions[number - 1] == band_name
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"Expected one band named {band_name!r} in {source.name}, "
+                f"found {len(matches)}."
+            )
+        return matches[0]
+    if band_number is None or not 1 <= band_number <= source.count:
+        raise IndexError(
+            f"Band {band_number} is outside the 1..{source.count} range "
+            f"for {source.name}."
+        )
+    return band_number
+
+
+def read_band_diagnostics(
+    path: Path,
+    *,
+    band_number: int | None = None,
+    band_name: str | None = None,
+) -> tuple[dict[str, Any], np.ma.MaskedArray]:
+    """Inspect raw values, declared NoData, and the effective raster mask."""
+    with rasterio.open(path) as source:
+        number = resolve_band_number(
+            source,
+            band_number=band_number,
+            band_name=band_name,
+        )
+        raw = source.read(number, masked=False)
+        masked = source.read(number, masked=True)
+        name = (
+            source.tags(number).get("Name")
+            or source.descriptions[number - 1]
+            or f"band_{number}"
+        )
+        nodata = source.nodatavals[number - 1]
+
+    mask = np.ma.getmaskarray(masked)
+    if nodata is None:
+        nodata_pixels = np.zeros(raw.shape, dtype=bool)
+        nodata_value: float | str | None = None
+    elif math.isnan(float(nodata)):
+        nodata_pixels = np.isnan(raw)
+        nodata_value = "NaN"
+    else:
+        converted_nodata = np.asarray(nodata, dtype=raw.dtype).item()
+        nodata_pixels = raw == converted_nodata
+        nodata_value = float(nodata)
+
+    raw_finite = np.asarray(raw, dtype=np.float64)
+    raw_finite = raw_finite[np.isfinite(raw_finite)]
+    valid_values = np.asarray(masked.compressed(), dtype=np.float64)
+    valid_values = valid_values[np.isfinite(valid_values)]
+    nodata_count = int(np.count_nonzero(nodata_pixels))
+    nodata_masked_count = int(np.count_nonzero(nodata_pixels & mask))
+    nodata_unmasked_count = int(np.count_nonzero(nodata_pixels & ~mask))
+    raw_min = float(raw_finite.min()) if raw_finite.size else None
+    raw_max = float(raw_finite.max()) if raw_finite.size else None
+    nodata_is_raw_extreme = None
+    if nodata_count and nodata is not None and math.isfinite(float(nodata)):
+        nodata_is_raw_extreme = bool(
+            float(nodata) == raw_min or float(nodata) == raw_max
+        )
+
+    result = {
+        "path": str(path),
+        "band_number": number,
+        "band_name": name,
+        "dtype": str(raw.dtype),
+        "declared_nodata": nodata_value,
+        "raw_finite_min": raw_min,
+        "raw_finite_max": raw_max,
+        "valid_finite_min": (
+            float(valid_values.min()) if valid_values.size else None
+        ),
+        "valid_finite_max": (
+            float(valid_values.max()) if valid_values.size else None
+        ),
+        "masked_pixel_count": int(np.count_nonzero(mask)),
+        "nodata_pixel_count": nodata_count,
+        "nodata_masked_count": nodata_masked_count,
+        "nodata_unmasked_count": nodata_unmasked_count,
+        "all_nodata_occurrences_masked": nodata_unmasked_count == 0,
+        "nodata_is_raw_extreme": nodata_is_raw_extreme,
+    }
+    return result, masked
+
+
+def compare_diagnostic_bands(
+    current: np.ma.MaskedArray,
+    legacy: np.ma.MaskedArray,
+    *,
+    absolute_tolerance: float = 1.0e-6,
+    relative_tolerance: float = 1.0e-6,
+) -> dict[str, Any]:
+    """Compare current and legacy masks and jointly valid pixel values."""
+    if current.shape != legacy.shape:
+        return {
+            "passed": False,
+            "shape_matches": False,
+            "current_shape": list(current.shape),
+            "legacy_shape": list(legacy.shape),
+        }
+
+    current_mask = np.ma.getmaskarray(current)
+    legacy_mask = np.ma.getmaskarray(legacy)
+    mask_mismatch = current_mask ^ legacy_mask
+    jointly_valid = ~current_mask & ~legacy_mask
+    current_values = np.asarray(current.data[jointly_valid], dtype=np.float64)
+    legacy_values = np.asarray(legacy.data[jointly_valid], dtype=np.float64)
+    close = np.isclose(
+        current_values,
+        legacy_values,
+        rtol=relative_tolerance,
+        atol=absolute_tolerance,
+        equal_nan=False,
+    )
+    differences = np.abs(current_values - legacy_values)
+    mask_mismatch_count = int(np.count_nonzero(mask_mismatch))
+    value_mismatch_count = int(np.count_nonzero(~close))
+    return {
+        "passed": mask_mismatch_count == 0 and value_mismatch_count == 0,
+        "shape_matches": True,
+        "current_shape": list(current.shape),
+        "legacy_shape": list(legacy.shape),
+        "mask_mismatch_count": mask_mismatch_count,
+        "jointly_valid_pixel_count": int(current_values.size),
+        "value_mismatch_count": value_mismatch_count,
+        "maximum_absolute_difference": (
+            float(differences.max()) if differences.size else None
+        ),
+        "absolute_tolerance": absolute_tolerance,
+        "relative_tolerance": relative_tolerance,
+    }
+
+
+def diagnose_modern_legacy_cubes(
+    *,
+    product_id: str,
+    comparisons: list[tuple[Any, Any, Path, Path]],
+) -> dict[str, Any]:
+    """Diagnose plotted bands and compare current outputs to legacy outputs."""
+    tile_results: list[dict[str, Any]] = []
+    for current_wac, current_static, legacy_wac, legacy_static in comparisons:
+        tile = {
+            "zone": current_wac.zone,
+            "zoom_level": current_wac.zoom_level,
+            "tile_x": current_wac.tile_x,
+            "tile_y": current_wac.tile_y,
+        }
+        modalities: dict[str, Any] = {}
+        for modality, current_path, legacy_path, selector in (
+            (
+                "wac",
+                current_wac.path,
+                legacy_wac,
+                {"band_number": WAC_BAND_NUMBER},
+            ),
+            (
+                "static",
+                current_static.path,
+                legacy_static,
+                {"band_name": STATIC_BAND_TO_PLOT},
+            ),
+        ):
+            current_stats, current_band = read_band_diagnostics(
+                current_path,
+                **selector,
+            )
+            legacy_stats, legacy_band = read_band_diagnostics(
+                legacy_path,
+                **selector,
+            )
+            comparison = compare_diagnostic_bands(current_band, legacy_band)
+            passed = bool(
+                current_stats["all_nodata_occurrences_masked"]
+                and legacy_stats["all_nodata_occurrences_masked"]
+                and comparison["passed"]
+            )
+            modalities[modality] = {
+                "passed": passed,
+                "current": current_stats,
+                "legacy": legacy_stats,
+                "comparison": comparison,
+            }
+            print(
+                f"Diagnostic {product_id} LTM{tile['zone']} "
+                f"z{tile['zoom_level']} tile ({tile['tile_x']}, "
+                f"{tile['tile_y']}) {modality.upper()}: "
+                f"{'PASS' if passed else 'FAIL'}"
+            )
+            for label, stats in (("current", current_stats), ("legacy", legacy_stats)):
+                print(
+                    f"  {label}: nodata={stats['declared_nodata']}, "
+                    f"raw=[{stats['raw_finite_min']}, "
+                    f"{stats['raw_finite_max']}], "
+                    f"nodata_pixels={stats['nodata_pixel_count']}, "
+                    f"unmasked_nodata={stats['nodata_unmasked_count']}"
+                )
+            print(
+                f"  comparison: mask_mismatches="
+                f"{comparison.get('mask_mismatch_count')}, "
+                f"value_mismatches={comparison.get('value_mismatch_count')}, "
+                f"max_abs_diff={comparison.get('maximum_absolute_difference')}"
+            )
+        tile_results.append(
+            {
+                "tile": tile,
+                "passed": all(result["passed"] for result in modalities.values()),
+                "modalities": modalities,
+            }
+        )
+    return {
+        "product_id": product_id,
+        "passed": all(result["passed"] for result in tile_results),
+        "tiles": tile_results,
+    }
+
+
 def log_iteration_traceback(
     *,
     traceback_path: Path,
@@ -379,6 +615,19 @@ def main() -> None:
                     modern_pairs,
                     legacy_paths,
                 )
+                diagnostic_report = diagnose_modern_legacy_cubes(
+                    product_id=product_id,
+                    comparisons=comparisons,
+                )
+                diagnostic_path = (
+                    output_dir / "diagnostics" / f"{product_id}.json"
+                )
+                diagnostic_path.parent.mkdir(parents=True, exist_ok=True)
+                diagnostic_path.write_text(
+                    json.dumps(diagnostic_report, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                print(f"Diagnostic report: {diagnostic_path}")
                 plot_path = (
                     output_dir
                     / "plots"
@@ -395,10 +644,10 @@ def main() -> None:
                 plt.close(figure)
                 plot_paths.append(plot_path)
             except Exception:
-                failed_steps.append(f"{product_id} (comparison visualization)")
+                failed_steps.append(f"{product_id} (diagnostics/visualization)")
                 log_iteration_traceback(
                     traceback_path=traceback_path,
-                    phase="modern/legacy comparison visualization",
+                    phase="modern/legacy comparison diagnostics/visualization",
                     request_number=number,
                     request_count=len(entries),
                     product_id=product_id,
