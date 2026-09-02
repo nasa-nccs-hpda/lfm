@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 import sys
+import traceback
 import warnings
 from pathlib import Path
 from typing import Any
@@ -185,42 +186,74 @@ def main() -> None:
     print(f"Outputs: {output_dir}")
 
     plot_paths: list[Path] = []
+    failed_product_ids: list[str] = []
+    traceback_path = output_dir / "errors" / "tracebacks.log"
     for number, entry in enumerate(entries, start=1):
         product_id = entry["product_id"]
         aoi = entry["aoi"]
         print(f"\n[{number}/{len(entries)}] Tiling WAC product {product_id}")
         print(f"AOI: {aoi}")
 
-        tile_config = TileConfig(
-            output_dir=output_dir / "cubes" / product_id,
-            zoom_level=ZOOM_LEVEL,
-            sources=(wac_source, static_source),
-        )
-        records = create_tiles_for_aoi(
-            tile_config,
-            **aoi,
-            selectors={"wac": product_id},
-        )
-        print_record_summary(records)
+        try:
+            tile_config = TileConfig(
+                output_dir=output_dir / "cubes" / product_id,
+                zoom_level=ZOOM_LEVEL,
+                sources=(wac_source, static_source),
+            )
+            records = create_tiles_for_aoi(
+                tile_config,
+                **aoi,
+                selectors={"wac": product_id},
+            )
+            print_record_summary(records)
 
-        pairs = pair_dynamic_and_static(records, "wac")
-        print(f"WAC/static pairs available for plotting: {len(pairs)}")
-        plot_path = output_dir / "plots" / f"wac_static_cubes_{product_id}.png"
-        figure = plot_cube_pairs(
-            pairs,
-            dynamic_label=f"WAC {product_id}",
-            dynamic_band_number=WAC_BAND_NUMBER,
-            static_band_name=STATIC_BAND_TO_PLOT,
-            output_path=plot_path,
-            max_tiles=MAX_PLOT_TILES,
-        )
-        plt.close(figure)
-        plot_paths.append(plot_path)
+            pairs = pair_dynamic_and_static(records, "wac")
+            print(f"WAC/static pairs available for plotting: {len(pairs)}")
+            plot_path = (
+                output_dir / "plots" / f"wac_static_cubes_{product_id}.png"
+            )
+            figure = plot_cube_pairs(
+                pairs,
+                dynamic_label=f"WAC {product_id}",
+                dynamic_band_number=WAC_BAND_NUMBER,
+                static_band_name=STATIC_BAND_TO_PLOT,
+                output_path=plot_path,
+                max_tiles=MAX_PLOT_TILES,
+            )
+            plt.close(figure)
+            plot_paths.append(plot_path)
+        except Exception:
+            failed_product_ids.append(product_id)
+            formatted_traceback = traceback.format_exc()
+            traceback_path.parent.mkdir(parents=True, exist_ok=True)
+            with traceback_path.open("a", encoding="utf-8") as error_log:
+                error_log.write("=" * 80)
+                error_log.write("\n")
+                error_log.write(
+                    f"Request {number}/{len(entries)}: WAC product {product_id}\n"
+                )
+                error_log.write(f"AOI: {json.dumps(aoi, sort_keys=True)}\n\n")
+                error_log.write(formatted_traceback)
+                error_log.write("\n")
+            plt.close("all")
+            print(
+                f"FAILED {product_id}; continuing with the next AOI. "
+                f"Traceback appended to {traceback_path}",
+                file=sys.stderr,
+            )
 
-    print(f"\nCompleted {len(entries)} WAC/static tiling requests.")
+    print(f"\nProcessed {len(entries)} WAC/static tiling requests.")
     print(f"Created {len(plot_paths)} plots:")
     for plot_path in plot_paths:
         print(f"  {plot_path}")
+    if failed_product_ids:
+        print(
+            f"Failed {len(failed_product_ids)} request(s): "
+            f"{', '.join(failed_product_ids)}",
+            file=sys.stderr,
+        )
+        print(f"Full tracebacks: {traceback_path}", file=sys.stderr)
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
