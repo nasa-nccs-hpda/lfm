@@ -11,16 +11,16 @@ model-ready samples.
 
 ## Starting point and prerequisite
 
-The configuration-driven tiling backend is complete and regression-tested
-through **Phase T6** of `tiling_modernization_plan.md`. That is the prerequisite
-for this plan, and chip modernization may start now. It does not need to wait
-for the final tiling-notebook execution or Phase T8 cleanup.
+The tiling modernization plan is `[Complete]` as of 2026-09-03. Its
+configuration-driven backend was regression-tested through **Phase T6**, and
+the supported notebook and migration closeout were completed in Phases T7 and
+T8. The stable T0–T6 contract is the integration prerequisite for this plan,
+and chip modernization may start now.
 
-The previous dependency on tiling **T8.5** was circular: T8 includes migration
-of legacy repository callers, while chip creation is one of those callers.
-This plan now owns migration of the chip acquisition path. It will consume the
-stable `TileConfig`, public `create_tiles_for_*` API, and structured
-`TileCubeRecord` contract rather than maintaining a second tiler.
+The earlier dependency on tiling **T8.5** was resolved by assigning migration
+of the legacy chip acquisition path to this plan. It will consume the stable
+`TileConfig`, public `create_tiles_for_*` API, and structured `TileCubeRecord`
+contract rather than maintaining a second tiler.
 
 The source of truth for the tiling handoff is the **Stable tiling contract for
 chip creation** section in
@@ -338,5 +338,6 @@ tiling defect is demonstrated and added to the tiling regression suite.
 - `[Planned]` **C10.4** Run formatting, unit tests, dataset loading smoke tests,
   and the final HPC notebook validation.
 - `[Planned]` **C10.5** Mark this plan complete and archive the legacy notebook
-  workflow according to the repository's chosen deprecation policy, then
-  reconcile the remaining tiling T8 status.
+  workflow according to the repository's chosen deprecation policy. Confirm
+  that the completed chip migration still consumes the stable, completed
+  tiling contract.
