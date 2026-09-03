@@ -489,7 +489,7 @@ implying that external rasters and labels are checked into this repository.
   also passed all 67 tests in the project's GDAL-enabled HPC container on
   2026-09-03, with no failures or skips reported.
 
-## Phase C2 — Build requests, AOIs, and target grids `[In Progress]`
+## Phase C2 — Build requests, AOIs, and target grids `[Complete]`
 
 - `[Complete]` **C2.1** Materialize explicit `ChipRequest` iterables
   deterministically. Also provide reference-TIFF directory and path-iterable
@@ -538,7 +538,7 @@ implying that external rasters and labels are checked into this repository.
   `.npz` labels, treat the structured sample/manifest association plus exact
   identity and shape as the verifiable boundary, without claiming an
   independent CRS match.
-- `[In Progress]` **C2.8** Add tests with projected lunar raster fixtures to verify
+- `[Complete]` **C2.8** Add tests with projected lunar raster fixtures to verify
   geographic AOIs, round-trip coverage of the target extent, axis order,
   zone-boundary behavior, antimeridian query splitting, and polar rejection.
   Add label-preflight tests for missing, duplicate, misidentified, malformed,
@@ -569,21 +569,21 @@ implying that external rasters and labels are checked into this repository.
   geography, unassigned splits, and label mismatches without importing or
   invoking the tiler and without creating output directories.
 - The expanded modern suite passes 97 tests locally, with 17 tests skipped
-  because the lightweight environment lacks GDAL and NumPy. C2.8 remains in
-  progress until the same suite passes in the project's HPC container, where
-  the projected GeoTIFF, CRS-axis, zone-boundary, antimeridian, polar, and full
-  label-validation cases are enabled.
+  because the lightweight environment lacks GDAL and NumPy. On 2026-09-03, all
+  30 focused C2 request, split, and label tests passed in the project's HPC
+  container with GDAL and NumPy available. Combined with the previously passed
+  67-test C1/tiling suite, those runs cover the complete 97-test C2 inventory.
 
-## Phase C3 — Acquire cubes through the tiling API `[Planned]`
+## Phase C3 — Acquire cubes through the tiling API `[In Progress]`
 
-- `[Planned]` **C3.1** Derive per-source query selectors, including product IDs,
+- `[Complete]` **C3.1** Derive per-source query selectors, including product IDs,
   only after the request and its label pass preflight. Derive them from each
   request and `ChipConfig`. Built-in WAC and NAC sources derive the product ID
   from the first filename component before an underscore while preserving the
   full row/column-qualified stem as the sample ID. Other modalities default to
   `all_intersecting`, as do static/context sources; a new product-scoped
   modality must declare its own selector rule.
-- `[Planned]` **C3.2** Call the public AOI tiling function with the composed
+- `[Complete]` **C3.2** Call the public AOI tiling function with the composed
   `TileConfig`; do not instantiate or reach into legacy pipeline internals.
   Derive a unique sample/acquisition-group output directory and create a
   sample-specific config, for example with `dataclasses.replace`, before each
@@ -592,26 +592,47 @@ implying that external rasters and labels are checked into this repository.
   group's cube files; do not add product, zone, or tile subdirectories. For an
   antimeridian-crossing logical AOI, call the public function once per query
   part, then combine and deduplicate records by their structured identity.
-- `[Planned]` **C3.3** Group returned `TileCubeRecord` objects by source, zone,
+- `[Complete]` **C3.3** Group returned `TileCubeRecord` objects by source, zone,
   zoom, and tile coordinates without parsing filenames. Keep records from
   different acquisition groups separate when their zooms differ.
-- `[Planned]` **C3.4** Define explicit behavior for absent required modalities,
+- `[Complete]` **C3.4** Define explicit behavior for absent required modalities,
   optional modalities, multiple LTM zones, incomplete tile coverage, and
   `completed_records` attached to a source error. `run_aoi()` continues to stop
   at the first source failure, but add a focused tiling regression and narrowly
   update its exception propagation so `completed_records` includes records
   from earlier successful tiles as well as sources completed within the
   failing tile. Tiles after the failure remain unattempted.
-- `[Planned]` **C3.5** Return and retain structured acquisition diagnostics,
+- `[Complete]` **C3.5** Return and retain structured acquisition diagnostics,
   including selectors, AOI, acquisition group, zoom, records, and any partial
   files, so a batch failure can be reproduced without parsing log text.
   Inventory the current sample/acquisition-group directory after an exception
   to account for files whose writes failed before a `TileCubeRecord` could be
   produced. Use this inventory only for diagnostics and bounded cleanup, never
   to reconstruct structured tile identity by parsing filenames.
-- `[Planned]` **C3.6** Add orchestration tests using synthetic structured tiling
+- `[In Progress]` **C3.6** Add orchestration tests using synthetic structured tiling
   results, including missing required WAC, optional sparse NAC, colliding tile
   addresses in separate sample directories, and multiple acquisition zooms.
+
+### C3 implementation evidence
+
+- `model/chip_acquisition.py` derives effective product selectors only for
+  requests eligible after label preflight, uses the public
+  `create_tiles_for_aoi()` API with a replaced sample/group output directory,
+  splits antimeridian queries, and deduplicates returned records by structured
+  acquisition-group, source, zone, zoom, and tile identity.
+- Acquisition results retain the logical AOI, query parts, effective selectors,
+  records, structured record groups, partial-file inventory, and typed
+  diagnostics. Required-source failures stop later groups for that sample;
+  absent or tile-sparse optional sources produce structured warnings without
+  failing acquisition.
+- `ConfiguredTiler.run_aoi()` now augments a `TileSourceError` with records from
+  earlier successful tiles while retaining records completed within the
+  failing tile. It still stops at the first failed source and leaves later
+  tiles unattempted.
+- The 110-test modern suite passes locally with 18 GDAL/NumPy-dependent tests
+  skipped. The twelve synthetic C3 acquisition tests pass locally. C3.6 remains
+  in progress until the fully enabled HPC run passes the new `run_aoi()`
+  exception-propagation regression.
 
 ## Phase C4 — Generalize merge and reprojection `[Planned]`
 
