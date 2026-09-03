@@ -635,7 +635,7 @@ implying that external rasters and labels are checked into this repository.
   the project's fully enabled HPC container, including the new `run_aoi()`
   exception-propagation regression.
 
-## Phase C4 — Generalize merge and reprojection `[In Progress]`
+## Phase C4 — Generalize merge and reprojection `[Complete]`
 
 - `[Complete]` **C4.1** Replace fixed `wac_files` and `static_files` parameters
   with ordered source-to-cube mappings.
@@ -652,9 +652,9 @@ implying that external rasters and labels are checked into this repository.
   continuous image/context data and nearest-neighbor for categorical data.
 - `[Complete]` **C4.5** Verify spatial shape, transform, CRS, and extent against the
   target grid before assembly.
-- `[In Progress]` **C4.6** Add tests for continuous and categorical resampling,
+- `[Complete]` **C4.6** Add tests for continuous and categorical resampling,
   modality-specific NoData, and multi-tile target extents.
-- `[Planned]` **C4.7** Add a request crossing an LTM zone boundary and verify
+- `[Complete]` **C4.7** Add a request crossing an LTM zone boundary and verify
   that independently reprojected zone groups composite correctly on the one
   authoritative target grid.
 
@@ -673,30 +673,58 @@ implying that external rasters and labels are checked into this repository.
   chip-stage resampling, and zone results are composited deterministically on
   that one grid.
 - The 120-test modern suite passes locally with 26 GDAL/NumPy-dependent tests
-  skipped. Both dependency-free C4 mapping tests pass; eight raster-backed C4
-  tests await the fully enabled HPC environment before C4.6 and C4.7 are
-  completed.
+  skipped. Both dependency-free C4 mapping tests pass. On 2026-09-03, all ten
+  focused C4 tests passed in the project's fully enabled HPC container,
+  including the multi-zone lunar reprojection regression.
 
-## Phase C5 — Assemble and write model-ready chips `[Planned]`
+## Phase C5 — Assemble and write model-ready chips `[In Progress]`
 
-- `[Planned]` **C5.1** Select and order bands within each modality from explicit
+- `[Complete]` **C5.1** Select and order bands within each modality from explicit
   configuration or cube metadata.
-- `[Planned]` **C5.2** Concatenate modalities in `ChipConfig` order and construct
+- `[Complete]` **C5.2** Concatenate modalities in `ChipConfig` order and construct
   the final ordered band-name list.
-- `[Planned]` **C5.3** Write a compressed GeoTIFF with the target grid, common
+- `[Complete]` **C5.3** Write a compressed GeoTIFF with the target grid, common
   output NoData, deterministic dtype, and per-band descriptions. Convert every
   input sentinel to the chosen common value before writing because GeoTIFF's
   persisted `TIFFTAG_GDAL_NODATA` is dataset-wide. Make any downcast from the
   modern static cube's safe `float64` dtype explicit and range-checked. Write a
   final dataset chip only after label preflight and split assignment have
   succeeded.
-- `[Planned]` **C5.4** Use dataset-compatible sample IDs and terminal filename
+- `[Complete]` **C5.4** Use dataset-compatible sample IDs and terminal filename
   suffixes such as `_input_wac_static_chip.tif`.
-- `[Planned]` **C5.5** Reopen each written chip and verify channel count, shape,
+- `[Complete]` **C5.5** Reopen each written chip and verify channel count, shape,
   CRS, transform, dataset-wide NoData, band descriptions, per-band masks, and
   finite-data coverage.
-- `[Planned]` **C5.6** Add regression tests for band order, including the legacy
+- `[In Progress]` **C5.6** Add regression tests for band order, including the legacy
   WAC VIS-then-UV ordering where required.
+
+### C5 implementation evidence
+
+- `model/chip_assembly.py` selects bands by configured names or one-based
+  indices, concatenates modalities in configuration order, and preserves cube
+  metadata order when no narrower selection is configured. Automatic names
+  that collide across modalities are qualified with their unique modality
+  aliases; explicit output names remain authoritative and must be unique.
+- Missing optional modalities become stable all-NoData placeholder channels
+  only when configuration or cube metadata defines their band contract. A
+  missing required modality or an unknowable optional channel contract is a
+  typed per-sample failure.
+- Final arrays convert every invalid pixel to the configured common NoData and
+  use an explicit range-checked output cast. Integer output additionally
+  rejects fractional values, and all dtypes reject a NoData value that cannot
+  be represented exactly or valid data that would collide with it.
+- Compressed, tiled GeoTIFFs are written to deterministic per-sample staging
+  paths under the intermediate root only for requests whose label preflight
+  passed and whose split was assigned. C6 remains responsible for publishing
+  the validated chip and preserved label together into `train/val/test`.
+- Every staged chip is reopened before it is accepted. Validation covers band
+  count, dimensions, semantic CRS, affine and extent, dtype, LZW compression,
+  dataset-wide NoData, ordered descriptions and `Name` metadata, per-band
+  validity masks, finite valid pixels, and nonempty coverage for required
+  bands. A failed write or validation removes its temporary GeoTIFF.
+- The 130-test modern suite passes locally with 34 GDAL/NumPy-dependent tests
+  skipped. Both dependency-free C5 path tests pass; eight raster-backed C5
+  tests await the fully enabled HPC environment before C5.6 is completed.
 
 ## Phase C6 — Publish validated pairs and dataset splits `[Planned]`
 
