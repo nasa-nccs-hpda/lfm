@@ -1,0 +1,173 @@
+CHIP CREATION ACCEPTANCE EXAMPLES
+=================================
+
+Purpose
+-------
+This file keeps concrete seed values for the C0 acceptance contract in
+chip_creation_modernization_plan.md. It is a reference for local fixtures,
+notebooks, and Explore/HPC validation. Paths and training-sample filenames
+marked "illustrative" are not repository files and must be resolved against
+the validation dataset before a run.
+
+Identity rule used by every example
+-----------------------------------
+The full normalized stem, including row/column offsets, is the sample and label
+key. For example:
+
+  image:  M1187363083CE_r0_c0_input_wac_chip.tif
+  label:  M1187363083CE_r0_c0_label.npy
+  sample: M1187363083CE_r0_c0
+  WAC product selector: M1187363083CE
+
+The first filename component is a product selector only for built-in WAC and
+NAC sources. It is not a unique sample ID. Other modalities default to
+all_intersecting and use their full normalized filename stem for label pairing.
+Two requests such as M1187363083CE_r0_c0 and M1187363083CE_r300_c0 are valid
+distinct samples that reuse the M1187363083CE product selector and resolve
+different labels.
+
+Common synthetic target-grid convention
+---------------------------------------
+Where an example does not point to an existing reference TIFF, use a 300 x 300
+north-up target grid in the repository IAU:30100 geographic CRS. The AOI bounds
+and dimensions must be converted into a complete affine transform before label
+preflight. These geographic grids are contract fixtures, not a recommendation
+that every production dataset store final chips in degrees.
+
+Example 1: WAC only, known two-tile acquisition
+------------------------------------------------
+Status: acquisition AOI and product verified by validate_wac_tiling.py;
+training filename and label path illustrative.
+
+  reference/sample filename: M1187363083CE_r0_c0_input_wac_chip.tif
+  label filename:            M1187363083CE_r0_c0_label.npy
+  sample ID:                 M1187363083CE_r0_c0
+  split-group key example:   M1187363083CE
+  source:                    wac (product_id)
+  product selector:          M1187363083CE
+  zoom:                      5 (general default)
+  AOI in IAU:30100:
+    ul_lat = 1.3
+    ul_lon = 149.7
+    lr_lat = 1.1
+    lr_lon = 149.9
+  synthetic target size:     300 x 300
+  synthetic geotransform:    (149.7, 0.0006666666666667, 0.0,
+                              1.3, 0.0, -0.0006666666666667)
+  expected acquisition:      two WAC records in LTM42N at zoom 5
+  expected final output:     one 300 x 300 seven-band WAC chip
+  compatible band order:     five VIS bands, then two UV bands
+
+Example 2: NAC only, known 1 m product
+--------------------------------------
+Status: acquisition AOI and product copied from tiling_example.ipynb;
+training filename and label path illustrative and must be verified on Explore.
+
+  reference/sample filename: M1117899885LE_r0_c0_input_nac_chip.tif
+  label filename:            M1117899885LE_r0_c0_label.npz
+  sample ID:                 M1117899885LE_r0_c0
+  split-group key example:   M1117899885LE
+  source:                    nac (product_id)
+  product selector:          M1117899885LE
+  zoom:                      11 (built-in NAC default)
+  AOI in IAU:30100:
+    ul_lat = 1.0786543156953
+    ul_lon = 149.752054273755
+    lr_lat = 1.0586543156953
+    lr_lon = 149.772054273755
+  synthetic target size:     300 x 300
+  synthetic geotransform:    (149.752054273755, 0.0000666666666667, 0.0,
+                              1.0786543156953, 0.0, -0.0000666666666667)
+  expected final output:     one 300 x 300 one-band NAC chip
+
+Example 3: WAC plus canonical static
+------------------------------------
+Use Example 1's request and WAC selector.
+
+  acquisition group:         wac_grid
+  group zoom:                5
+  ordered sources:           wac, static
+  static selection:          all_intersecting
+  expected acquisition:      paired WAC/static records per intersecting tile
+  expected final output:     one 300 x 300, 70-band chip
+  expected modality order:   seven WAC bands, 63 canonical static bands
+  expected filename:         M1187363083CE_r0_c0_input_wac_static_chip.tif
+
+Example 4: NAC plus canonical static
+------------------------------------
+Use Example 2's request and NAC selector.
+
+  acquisition group:         nac_grid
+  group zoom:                11
+  ordered sources:           nac, static
+  static selection:          all_intersecting
+  expected final output:     one 300 x 300, 64-band chip
+  expected modality order:   one NAC band, 63 canonical static bands
+  expected filename:         M1117899885LE_r0_c0_input_nac_static_chip.tif
+
+Example 5: non-WAC/NAC dynamic modality
+---------------------------------------
+Status: synthetic contract fixture.
+
+  reference/sample filename: custom_scene_0042_input_chip.tif
+  label filename:            custom_scene_0042_label.npy
+  sample ID:                 custom_scene_0042
+  source selection:          all_intersecting
+  product selector:          none
+  zoom:                      5 unless the user overrides the group
+  expected behavior:         use only indexed rasters intersecting the AOI;
+                             do not apply WAC/NAC first-token PID semantics
+
+Negative example A: label identity or shape mismatch
+----------------------------------------------------
+Given the Example 1 request, any label that normalizes to a different full
+sample ID, or whose mask is not exactly 300 x 300, raises LabelMismatchError.
+Tiling is not invoked, no final chip or copied label is written, the failed
+request and its planned split remain in the manifest, and the batch continues.
+
+Boundary example B: antimeridian acquisition
+---------------------------------------------
+Status: synthetic contract fixture.
+
+  logical AOI: ul_lat=1.0, ul_lon=179.8, lr_lat=0.8, lr_lon=180.2
+  query part 1: ul_lat=1.0, ul_lon=179.8, lr_lat=0.8, lr_lon=180.0
+  query part 2: ul_lat=1.0, ul_lon=-180.0, lr_lat=0.8, lr_lon=-179.8
+
+The two public tiling results are combined and deduplicated structurally, then
+reprojected to one final target grid. A longitude span of 180 degrees or more
+is rejected as ambiguous.
+
+Negative example C: unsupported polar coverage
+-----------------------------------------------
+Any densified target footprint extending north of +82 degrees or south of -82
+degrees fails before tiling with unsupported_polar_coverage. The 80-to-82
+degree numbered-LTM overlap requires its dedicated regression before use.
+
+Default split example
+---------------------
+Use MixedPercentageNumberSplitConfig with:
+
+  fixed targets:       test=100 samples
+  fixed priority:      test
+  remaining ratios:    train=0.90, val=0.10, test=0.0
+  group key:           a scientifically justified product/site/campaign/AOI key
+  seed:                explicit dataset-creation seed
+
+Whole split groups remain atomic. If exactly 100 test samples cannot be
+realized, record the requested and realized counts and emit a warning; do not
+fail the batch. Percentage assignment applies only to the groups remaining
+after fixed-target assignment.
+
+Authoritative existing references
+---------------------------------
+  scripts/python/all_tasks/validate_wac_tiling.py
+    product M1187363083CE; AOI (1.3, 149.7, 1.1, 149.9); two LTM42N tiles
+
+  scripts/python/all_tasks/validate_mixed_wac_static_tiling.py
+    same WAC product/AOI; WAC plus canonical 63-band static source
+
+  notebooks/tiling_example.ipynb
+    NAC product M1117899885LE; small product-intersecting AOI; zoom 11 example
+
+Before Phase C8, replace or supplement illustrative filenames with actual
+row/column-qualified reference and label pairs selected for HPC validation.
