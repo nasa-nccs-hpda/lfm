@@ -574,7 +574,7 @@ implying that external rasters and labels are checked into this repository.
   container with GDAL and NumPy available. Combined with the previously passed
   67-test C1/tiling suite, those runs cover the complete 97-test C2 inventory.
 
-## Phase C3 — Acquire cubes through the tiling API `[In Progress]`
+## Phase C3 — Acquire cubes through the tiling API `[Complete]`
 
 - `[Complete]` **C3.1** Derive per-source query selectors, including product IDs,
   only after the request and its label pass preflight. Derive them from each
@@ -609,7 +609,7 @@ implying that external rasters and labels are checked into this repository.
   to account for files whose writes failed before a `TileCubeRecord` could be
   produced. Use this inventory only for diagnostics and bounded cleanup, never
   to reconstruct structured tile identity by parsing filenames.
-- `[In Progress]` **C3.6** Add orchestration tests using synthetic structured tiling
+- `[Complete]` **C3.6** Add orchestration tests using synthetic structured tiling
   results, including missing required WAC, optional sparse NAC, colliding tile
   addresses in separate sample directories, and multiple acquisition zooms.
 
@@ -630,32 +630,52 @@ implying that external rasters and labels are checked into this repository.
   failing tile. It still stops at the first failed source and leaves later
   tiles unattempted.
 - The 110-test modern suite passes locally with 18 GDAL/NumPy-dependent tests
-  skipped. The twelve synthetic C3 acquisition tests pass locally. C3.6 remains
-  in progress until the fully enabled HPC run passes the new `run_aoi()`
+  skipped. The twelve synthetic C3 acquisition tests pass locally. On
+  2026-09-03, all 14 focused acquisition and configured-tiler tests passed in
+  the project's fully enabled HPC container, including the new `run_aoi()`
   exception-propagation regression.
 
-## Phase C4 — Generalize merge and reprojection `[Planned]`
+## Phase C4 — Generalize merge and reprojection `[In Progress]`
 
-- `[Planned]` **C4.1** Replace fixed `wac_files` and `static_files` parameters
+- `[Complete]` **C4.1** Replace fixed `wac_files` and `static_files` parameters
   with ordered source-to-cube mappings.
-- `[Planned]` **C4.2** Merge adjacent LTM cubes independently for each configured
+- `[Complete]` **C4.2** Merge adjacent LTM cubes independently for each configured
   source modality, zone, and zoom. Never place cubes from different LTM CRSs or
   zoom grids into one source-space mosaic merely because their filenames share
   tile numbers.
-- `[Planned]` **C4.3** Normalize or preserve source NoData according to each
+- `[Complete]` **C4.3** Normalize or preserve source NoData according to each
   `TileSourceConfig`, `TileCubeRecord.nodata_values`, and reopened raster
   metadata before interpolation. Do not infer NoData from pixel magnitude.
-- `[Planned]` **C4.4** Reproject each merged modality onto the request's
+- `[Complete]` **C4.4** Reproject each merged modality onto the request's
   exact CRS, transform, width, and height. Keep this chip-stage resampling
   choice separate from the tiler's fixed bilinear warp: use bilinear for
   continuous image/context data and nearest-neighbor for categorical data.
-- `[Planned]` **C4.5** Verify spatial shape, transform, CRS, and extent against the
+- `[Complete]` **C4.5** Verify spatial shape, transform, CRS, and extent against the
   target grid before assembly.
-- `[Planned]` **C4.6** Add tests for continuous and categorical resampling,
+- `[In Progress]` **C4.6** Add tests for continuous and categorical resampling,
   modality-specific NoData, and multi-tile target extents.
 - `[Planned]` **C4.7** Add a request crossing an LTM zone boundary and verify
   that independently reprojected zone groups composite correctly on the one
   authoritative target grid.
+
+### C4 implementation evidence
+
+- `model/chip_reprojection.py` maps configured output modalities to structured
+  acquisition-group/source records in configuration order and partitions each
+  source by LTM zone and zoom before any mosaic is built.
+- Every reopened cube is checked against its `TileCubeRecord` band, CRS, grid,
+  and NoData metadata and against the configured source NoData policy. Declared
+  sentinels, nonfinite values, and GDAL validity masks are normalized before
+  interpolation; pixel-magnitude thresholds are not used.
+- Each zone mosaic is warped independently into an existing in-memory dataset
+  with the target grid's exact CRS, affine, width, and height. Continuous and
+  categorical modalities use their configured bilinear or nearest-neighbor
+  chip-stage resampling, and zone results are composited deterministically on
+  that one grid.
+- The 120-test modern suite passes locally with 26 GDAL/NumPy-dependent tests
+  skipped. Both dependency-free C4 mapping tests pass; eight raster-backed C4
+  tests await the fully enabled HPC environment before C4.6 and C4.7 are
+  completed.
 
 ## Phase C5 — Assemble and write model-ready chips `[Planned]`
 
