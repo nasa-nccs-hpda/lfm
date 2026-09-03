@@ -106,6 +106,8 @@ class ChipTypesTestCase(unittest.TestCase):
             sample_id="M1_r0_c0",
             target_grid=self.grid(),
             geographic_aoi=self.aoi(),
+            band_count=1,
+            band_descriptions=("reference",),
         )
         diagnostic = LabelValidationDiagnostic(
             code="shape_mismatch",
@@ -130,12 +132,14 @@ class ChipTypesTestCase(unittest.TestCase):
             "label mismatch",
             sample_id="M1_r0_c0",
             diagnostics=(diagnostic,),
+            label_path="/labels/M1_r0_c0_label.npy",
         )
 
         self.assertEqual(reference.path, Path("/references/M1_r0_c0.tif"))
         self.assertEqual(result.preflight.label_diagnostics, (diagnostic,))
         self.assertEqual(error.sample_id, "M1_r0_c0")
         self.assertEqual(error.diagnostics, (diagnostic,))
+        self.assertEqual(error.label_path, Path("/labels/M1_r0_c0_label.npy"))
 
 
 if __name__ == "__main__":

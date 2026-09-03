@@ -13,11 +13,11 @@ from .chip_config import SPLIT_NAMES, SplitName
 from .tiling_results import TileCubeRecord
 
 
-PreflightStatus = Literal["pending", "passed", "failed"]
+PreflightStatus = Literal["pending", "passed", "failed", "skipped"]
 ChipStatus = Literal["pending", "success", "skipped", "partial", "failed"]
 DiagnosticSeverity = Literal["info", "warning", "error"]
 
-PREFLIGHT_STATUSES = ("pending", "passed", "failed")
+PREFLIGHT_STATUSES = ("pending", "passed", "failed", "skipped")
 CHIP_STATUSES = ("pending", "success", "skipped", "partial", "failed")
 DIAGNOSTIC_SEVERITIES = ("info", "warning", "error")
 
@@ -175,6 +175,8 @@ class ReferenceSample:
     sample_id: str
     target_grid: TargetGrid
     geographic_aoi: GeographicAOI
+    band_count: int
+    band_descriptions: tuple[str | None, ...]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "path", Path(self.path))
@@ -183,6 +185,23 @@ class ReferenceSample:
             raise TypeError("target_grid must be a TargetGrid.")
         if not isinstance(self.geographic_aoi, GeographicAOI):
             raise TypeError("geographic_aoi must be a GeographicAOI.")
+        if isinstance(self.band_count, bool) or not isinstance(self.band_count, int):
+            raise TypeError("band_count must be an integer.")
+        if self.band_count < 1:
+            raise ValueError("band_count must be positive.")
+        descriptions = tuple(self.band_descriptions)
+        if len(descriptions) != self.band_count:
+            raise ValueError(
+                "band_descriptions length must equal band_count."
+            )
+        object.__setattr__(
+            self,
+            "band_descriptions",
+            tuple(
+                None if item is None or not str(item).strip() else str(item).strip()
+                for item in descriptions
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -224,6 +243,7 @@ class ChipRequest:
     geographic_aoi: GeographicAOI
     split_group_key: str
     label_path: Path | None = None
+    label_grid: TargetGrid | None = None
     assigned_split: SplitName | None = None
     source_selectors: tuple[SourceSelector, ...] = ()
     reference_path: Path | None = None
@@ -244,6 +264,8 @@ class ChipRequest:
         )
         if self.label_path is not None:
             object.__setattr__(self, "label_path", Path(self.label_path))
+        if self.label_grid is not None and not isinstance(self.label_grid, TargetGrid):
+            raise TypeError("label_grid must be a TargetGrid or None.")
         if self.reference_path is not None:
             object.__setattr__(self, "reference_path", Path(self.reference_path))
         if self.assigned_split is not None:
@@ -374,9 +396,11 @@ class LabelMismatchError(ValueError):
         *,
         sample_id: str,
         diagnostics: tuple[LabelValidationDiagnostic, ...] = (),
+        label_path: Path | None = None,
     ) -> None:
         super().__init__(message)
         self.sample_id = _sample_id(sample_id)
+        self.label_path = None if label_path is None else Path(label_path)
         self.diagnostics = tuple(diagnostics)
         if any(
             not isinstance(item, LabelValidationDiagnostic)

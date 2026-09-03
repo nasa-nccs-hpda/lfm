@@ -374,10 +374,11 @@ implying that external rasters and labels are checked into this repository.
   `(target_height, target_width)`. An instance label is an `.npz` archive with
   a two-dimensional integer `mask`, `bboxes` shaped `(N, 4)`, and scalar
   `num_craters == N`; positive mask instance IDs follow the documented `1..N`
-  convention. Boxes must be finite, ordered, and within the target pixel
-  extent.
-- Label grid metadata supplied by a manifest, sidecar, or georeferenced label
-  is compared with the target CRS, affine transform, dimensions, and footprint.
+  convention. Boxes use the repository's existing COCO
+  `(x, y, width, height)` representation and must be finite, positive-area,
+  and within the target pixel extent.
+- Label grid metadata supplied by a manifest or sidecar is compared with the
+  target CRS, affine transform, dimensions, and footprint.
   Plain `.npy` and `.npz` labels do not independently prove a CRS; for them the
   structured request/manifest association, normalized identity, and exact
   spatial shape are the verifiable boundary and this limitation is recorded.
@@ -484,25 +485,24 @@ implying that external rasters and labels are checked into this repository.
   validation permits multiple row/column-qualified samples to share a WAC/NAC
   product selector while rejecting duplicate full sample IDs and conflicting
   explicit assignments within one split group.
-- The focused C1 tests pass locally. The broader non-GDAL configuration/result
-  regression set also passes; complete legacy model discovery still requires
-  the repository's GDAL-enabled environment because four pre-existing test
-  modules import `osgeo` during collection.
+- The focused C1 tests pass locally. The modern C1/tiling regression command
+  also passed all 67 tests in the project's GDAL-enabled HPC container on
+  2026-09-03, with no failures or skips reported.
 
-## Phase C2 — Build requests, AOIs, and target grids `[Planned]`
+## Phase C2 — Build requests, AOIs, and target grids `[In Progress]`
 
-- `[Planned]` **C2.1** Materialize explicit `ChipRequest` iterables
+- `[Complete]` **C2.1** Materialize explicit `ChipRequest` iterables
   deterministically. Also provide reference-TIFF directory and path-iterable
   conveniences, including caller-side glob results, without loading a training
   GeoDataFrame in the backend.
-- `[Planned]` **C2.2** Validate explicit AOI requests and reference TIFFs. An
+- `[Complete]` **C2.2** Validate explicit AOI requests and reference TIFFs. An
   explicit AOI supplies a CRS, rectangular bounds, width, and height and may
   supply an exact affine transform; otherwise derive its north-up transform so
   the raster bounds exactly equal the AOI. A reference TIFF supplies its exact
   CRS, affine transform, bounds, width, height, and band metadata. Reject
   missing, non-finite, non-invertible, empty, or inconsistent grid metadata
   before creating intermediate cubes.
-- `[Planned]` **C2.3** Transform the densified target-grid perimeter to lunar geographic
+- `[Complete]` **C2.3** Transform the densified target-grid perimeter to lunar geographic
   `IAU:30100` coordinates using the repository WKT loader and express them in
   the tiling API's upper-left and lower-right AOI convention. Follow the
   densified-perimeter behavior already exercised by
@@ -511,14 +511,14 @@ implying that external rasters and labels are checked into this repository.
   geographic AOI for diagnostics, but represent an antimeridian-crossing AOI
   as two non-wrapping tiling-query parts split at +180/-180 degrees. Reject
   ambiguous footprints spanning 180 degrees or more.
-- `[Planned]` **C2.4** Retain the request's target grid as the exact destination
+- `[Complete]` **C2.4** Retain the request's target grid as the exact destination
   grid for final chip creation. Preserve a reference TIFF's original grid; for
   an explicit AOI request use its validated or derived grid. Do not substitute
   LTM tile boundaries for the requested final extent.
-- `[Planned]` **C2.5** Verify that each geographic AOI falls within supported
+- `[Complete]` **C2.5** Verify that each geographic AOI falls within supported
   numbered LTM coverage before acquisition and return a specific unsupported
   status for polar-only requests.
-- `[Planned]` **C2.6** Assign every request with a valid identity, target grid,
+- `[Complete]` **C2.6** Assign every request with a valid identity, target grid,
   and split-group key from an explicit or prior-manifest assignment, or apply
   the configured simple-percentage, mixed-number/percentage, or number-only
   policy. Use versioned stable digest namespaces for ratio thresholds and
@@ -527,17 +527,18 @@ implying that external rasters and labels are checked into this repository.
   number-policy remainder without a configured destination as unassigned and
   ineligible for acquisition. Retain every planned assignment in diagnostics
   even if label preflight, acquisition, or writing later fails.
-- `[Planned]` **C2.7** Resolve exactly one label from the configured label source
+- `[Complete]` **C2.7** Resolve exactly one label from the configured label source
   before acquiring any cubes. Validate its normalized sample identity and
   spatial array shape against the authoritative target-grid width and height;
   preserve semantic `.npy` arrays and require instance `.npz` archives to
   contain the documented `mask`, `bboxes`, and `num_craters` fields with
   mutually consistent dimensions and counts. When label geospatial metadata
-  is available, also compare its CRS, transform, and footprint to the target
-  grid. For non-georeferenced `.npy` or `.npz` labels, treat the structured
-  sample/manifest association plus exact identity and shape as the verifiable
-  boundary, without claiming an independent CRS match.
-- `[Planned]` **C2.8** Add tests with projected lunar raster fixtures to verify
+  is available from a structured association or sidecar, also compare its CRS,
+  transform, and footprint to the target grid. For non-georeferenced `.npy` or
+  `.npz` labels, treat the structured sample/manifest association plus exact
+  identity and shape as the verifiable boundary, without claiming an
+  independent CRS match.
+- `[In Progress]` **C2.8** Add tests with projected lunar raster fixtures to verify
   geographic AOIs, round-trip coverage of the target extent, axis order,
   zone-boundary behavior, antimeridian query splitting, and polar rejection.
   Add label-preflight tests for missing, duplicate, misidentified, malformed,
@@ -550,6 +551,28 @@ implying that external rasters and labels are checked into this repository.
   shared group key. Include two row/column-qualified WAC or NAC requests from
   the same product and verify that each resolves its own full-ID label and
   produces its own result while both use the shared product selector.
+
+### C2 implementation evidence
+
+- `model/chip_requests.py` implements deterministic request and reference-TIFF
+  discovery, exact target grids, north-up affine derivation, densified GDAL
+  transformation with round-trip checks, antimeridian query splitting, and
+  typed ambiguous-longitude and unsupported-polar failures.
+- `model/chip_splits.py` implements stable BLAKE2b percentage thresholds,
+  prioritized best-effort fixed sample counts, atomic leakage groups,
+  caller/prior-manifest locks, structured and emitted target warnings, and
+  explicit unassigned remainder handling.
+- `model/chip_labels.py` validates full offset-qualified label identity,
+  semantic arrays, instance archives using the existing COCO
+  `(x, y, width, height)` box convention, and optional structured or sidecar
+  grid metadata. `model/chip_preflight.py` isolates invalid grids, unsupported
+  geography, unassigned splits, and label mismatches without importing or
+  invoking the tiler and without creating output directories.
+- The expanded modern suite passes 97 tests locally, with 17 tests skipped
+  because the lightweight environment lacks GDAL and NumPy. C2.8 remains in
+  progress until the same suite passes in the project's HPC container, where
+  the projected GeoTIFF, CRS-axis, zone-boundary, antimeridian, polar, and full
+  label-validation cases are enabled.
 
 ## Phase C3 — Acquire cubes through the tiling API `[Planned]`
 
