@@ -278,6 +278,7 @@ class ChipLabelTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             np.save(root / "M1_r0_c0_label.npy", np.zeros((3, 4), dtype=np.uint8))
+            np.save(root / "M2_r0_c0_label.npy", np.zeros((3, 4), dtype=np.uint8))
             config = self.config(
                 root,
                 NumberSplitConfig(
@@ -286,10 +287,14 @@ class ChipLabelTestCase(unittest.TestCase):
                 ),
             )
 
-            result = preflight_chip_requests(
-                (self.request("M1_r0_c0"), self.request("M2_r0_c0")),
-                config,
-            )
+            with mock.patch(
+                "lfm.model.chip_labels.resolve_label_path",
+                wraps=resolve_label_path,
+            ) as resolve_label:
+                result = preflight_chip_requests(
+                    (self.request("M1_r0_c0"), self.request("M2_r0_c0")),
+                    config,
+                )
 
         statuses = {item.preflight.status for item in result.requests}
         self.assertEqual(statuses, {"passed", "skipped"})
@@ -297,6 +302,14 @@ class ChipLabelTestCase(unittest.TestCase):
             sum(item.eligible_for_acquisition for item in result.requests),
             1,
         )
+        resolve_label.assert_called_once()
+        resolved_request = resolve_label.call_args.args[0]
+        assigned_request = next(
+            item.request
+            for item in result.requests
+            if item.assignment.assigned_split is not None
+        )
+        self.assertEqual(resolved_request.sample_id, assigned_request.sample_id)
         self.assertEqual(validate_request_geographic_aoi.call_count, 2)
 
     @mock.patch("lfm.model.chip_preflight.validate_request_geographic_aoi")
