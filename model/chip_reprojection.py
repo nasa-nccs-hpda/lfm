@@ -513,7 +513,7 @@ def _warp_zone_group(
                     code="mosaic_failed",
                 )
             destination = _target_dataset(target_grid, nodata, gdal)
-            warped = gdal.Warp(
+            warp_result = gdal.Warp(
                 destination,
                 vrt,
                 options=gdal.WarpOptions(
@@ -526,18 +526,21 @@ def _warp_zone_group(
                     warpOptions=["INIT_DEST=NO_DATA", "UNIFIED_SRC_NODATA=YES"],
                 ),
             )
-            if warped is None:
+            if warp_result is None or (
+                isinstance(warp_result, (bool, int)) and not warp_result
+            ):
                 raise _error(
                     mapping,
                     f"Could not reproject {zone_group.zone} band {band_index}.",
                     code="warp_failed",
                 )
-            _validate_target_dataset(warped, target_grid, osr)
-            pixels = np.asarray(warped.GetRasterBand(1).ReadAsArray())
+            destination.FlushCache()
+            _validate_target_dataset(destination, target_grid, osr)
+            pixels = np.asarray(destination.GetRasterBand(1).ReadAsArray())
             valid = np.isfinite(pixels) & (pixels != nodata)
             arrays.append(pixels)
             masks.append(valid)
-            warped = None
+            warp_result = None
             destination = None
             vrt = None
             normalized.clear()
