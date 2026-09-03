@@ -23,6 +23,24 @@ preceding sub-step is `[Complete]`, and start a phase only after every sub-step
 in the preceding phase is `[Complete]`. Only one sub-step should be `[In-P]` at
 a time. A phase becomes `[Complete]` when all of its sub-steps are complete.
 
+## Current handoff status (2026-09-03)
+
+- The configuration-driven tiling backend is complete and regression-tested
+  through **Phase T6**. Its public contract is stable enough for the chip
+  creation modernization to consume now.
+- The top-level tiling notebook is complete through **T7.5**. **T7.6** remains
+  `[In-P]` because the actual `.ipynb` still needs a clean top-to-bottom Explore
+  run after the final NAC AOI and differential-zoom changes.
+- Phase T8 remains cleanup and repository migration work. It is not a blocker
+  for starting chip creation. In particular, chip creation is itself one of the
+  important legacy callers that must migrate before T8 can close.
+- New chip code must use `TileConfig`, `TileSourceConfig`, the public
+  `create_tiles_for_*` functions, and `TileCubeRecord`. It must not build new
+  functionality on the deprecated `Pipeline` constructor.
+- [`TMS/README.md`](../TMS/README.md) is the detailed reference for IAU:30100,
+  LTM zones, zoom matrices, tile addressing, the implementation path, and the
+  currently unsupported LPN/LPS production path.
+
 ## Baseline contract and modernization boundary
 
 The legacy implementation has the following observable contract:
@@ -83,6 +101,11 @@ Acceptance scenarios are applied in this order:
    WAC alias or static database.
 3. WAC plus static: one query produces independently identified WAC and static
    records for each intersecting tile, with declared source order and NoData.
+4. NAC plus static: a separate `TileConfig` can use a NAC-appropriate zoom
+   while keeping NAC and static on the same grid.
+5. Missing coverage: required dynamic coverage raises an explicit source error,
+   while an optional sparse source may be skipped without hiding the records
+   already created for other sources.
 
 ## Phase T0 — Preserve and define the existing contract `[Complete]`
 
@@ -215,14 +238,15 @@ OSR's non-exception behavior. `TmsTileDef` now scopes that behavior to
 transformation construction with `osr.ExceptionMgr`, restores raster exception
 handling immediately afterward, uses the repository IAU:30100 WKT directly,
 caches both transformations, rejects missing transformation objects, and
-rejects non-finite results. A rerun is pending. The validation report also
-records and asserts bilinear resampling.
+rejects non-finite results. This intermediate failure was resolved by the final
+T6.1 run described below. The validation report also records and asserts
+bilinear resampling.
 
 The third attempt (job 37921176) passed coordinate transformation and reached
 the WAC vector-index query, then failed because the older `lfm-container`
 runtime could not locate `proj.db`. Repository batch scripts now default to the
 fixed `lfm-container-ipyleaflet` runtime used by the successful T5 regression
-run. A rerun is pending.
+run. The subsequent final rerun passed.
 
 The final T6.1 run (job 37921233) passed in 20 seconds with
 `lfm-container-ipyleaflet`. It produced deterministically ordered tiles
@@ -283,8 +307,8 @@ multi-band default to `UNIFIED_SRC_NODATA=YES`. Since WAC bands have independent
 valid footprints, that policy allowed one band's NoData sentinel to enter
 bilinear interpolation whenever another band was valid. The raster backend now
 sets `UNIFIED_SRC_NODATA=PARTIAL` to reproduce the legacy intrinsic-NoData
-behavior while retaining the explicit modern contract. T6.4 remains in
-progress pending a comparison rerun.
+behavior while retaining the explicit modern contract. At this checkpoint,
+T6.4 still required a comparison rerun; the final result is recorded below.
 
 The second comparison run (job 37921397) confirmed that `PARTIAL` removed the
 sentinel contamination from the later bands of each WAC source, but the leading
@@ -292,8 +316,8 @@ UV and VIS bands and a small number of mask pixels still differed from the
 legacy intrinsic-metadata path. The backend now omits explicit GDAL NoData
 arguments when resolved source and output values exactly match each band's
 native metadata. Explicit source overrides and output normalization continue to
-use `UNIFIED_SRC_NODATA=PARTIAL`. T6.4 remains in progress pending another
-comparison rerun.
+use `UNIFIED_SRC_NODATA=PARTIAL`. At this checkpoint, one final comparison
+rerun remained; the next paragraph records its successful result.
 
 The final comparison run (job 37921398) passed all four representative cubes in
 22 seconds. Both seven-band WAC cubes matched legacy output with no failed bands,
@@ -318,6 +342,67 @@ byte-identical GeoTIFF SHA-256 digests. Declared index contents and the visible
 index inventory were unchanged, and neither output directory contained a new
 index artifact. T6.5 and Phase T6 are complete.
 
+## Stable tiling contract for chip creation
+
+The following is the backend handoff contract. Chip modernization may rely on
+these behaviors without waiting for the tiling notebook or legacy cleanup:
+
+- Public objects and functions are exported from `model/__init__.py`. Scripts
+  that add the repository parent to `sys.path` import the equivalent package as
+  `lfm.model`.
+- `TileSourceConfig` describes one modality. It owns the modality name, raster
+  directory, existing `.shp` or `.gpkg` index, optional index layer,
+  `location_field`, selection mode, requested bands, NoData policy, bilinear
+  resampling, and required/optional behavior. Band indices are 1-based.
+- `TileConfig` owns one output directory, one zoom level, and an ordered tuple
+  of sources. Every source in one `TileConfig` is warped onto the same LTM
+  grid. Different acquisition resolutions therefore require separate
+  `TileConfig` runs; the example uses WAC at zoom 5 and 1 m NAC at zoom 11.
+- `create_tiles_for_aoi`, `create_tiles_for_point`, and
+  `create_tiles_for_index` are the supported entry points. AOI bounds use
+  `(ul_lat, ul_lon, lr_lat, lr_lon)` in repository IAU:30100 coordinates.
+  Point and explicit-index queries require an LTM zone; AOI queries discover
+  intersecting zones.
+- AOI acquisition returns deterministically ordered `TileCubeRecord` objects.
+  Chip code must group with `(record.zone, record.zoom_level, record.tile_x,
+  record.tile_y)` and `record.source_name`, never by parsing filenames.
+- Each record also carries its product ID, path, ordered band names, CRS WKT,
+  and per-band output NoData values. Raster dimensions and transform should be
+  read from the written GeoTIFF when constructing a merge grid.
+- Source vector indexes are read-only inputs. Their footprints must be in the
+  geographic coordinates expected by the AOI filter, and their configured
+  location field may contain absolute paths or paths relative to `data_dir`.
+  Tiling never creates or refreshes an index.
+- `product_id` sources require a selector keyed by source name.
+  `all_intersecting` sources reject selectors. A missing required source raises
+  `MissingRequiredSourceError`; an optional source may yield no record for a
+  tile while other source records are still written. Chip orchestration must
+  decide whether such a partial result is usable and must not assume one record
+  per configured source.
+- Every output is a 512×512, tiled, LZW-compressed GeoTIFF on the exact LTM
+  zone/zoom/tile grid. Tiling resampling is always bilinear.
+- WAC and NAC examples preserve their native source NoData. The canonical
+  63-band static source uses the exact order in
+  `model/static_band_contract.py`, masks the two Mini-RF source sentinel bands
+  explicitly, and writes `-32768` for every static output band. This uniform
+  static value is required because GeoTIFF persists only one dataset-wide
+  `TIFFTAG_GDAL_NODATA` value.
+- `lfm/all_models/all_tasks/tiling_utils.py` provides the canonical
+  `make_static_source` helper, path validation, notebook band defaults, and a
+  timestamp run ID. Backend chip code may reuse `make_static_source`, but
+  should create a unique per-sample intermediate output directory rather than
+  share the notebook-level `RUN_ID` across a batch.
+- The modern path currently supports the numbered LTM geometry. The LPN/LPS
+  JSON files are retained in `TMS/RG`, but polar acquisition was not
+  implemented because its geometry differs from the LTM longitude-band grids.
+  Reference TIFFs requiring polar coverage must fail clearly until a dedicated
+  polar path is designed and tested.
+
+The deprecated `model/Pipeline.py` remains only as a regression and temporary
+compatibility adapter. Its hard-coded static path, WAC-oriented constructor,
+`list[Path]` results, and filename-parsing expectations must not be copied into
+`ChipConfig` or the new chip orchestration.
+
 ## Phase T7 — Modernize the tiling example notebook `[In-P]`
 
 - `[Complete]` **T7.1** Create `notebooks/tiling_example.ipynb` while retaining the
@@ -325,30 +410,56 @@ index artifact. T6.5 and Phase T6 are complete.
 - `[Complete]` **T7.2** Use the repository-root convention from
   `notebooks/instance_ibm_train.ipynb` and derive repository-owned paths from
   `repo_root`.
-- `[Complete]` **T7.3** Put HPC source paths, indexes, output paths, and modality
-  declarations in one visible configuration section.
+- `[Complete]` **T7.3** Separate user-editable data paths, product IDs, and AOIs
+  from derived index/default/output values and path-resolution checks. Explain
+  every configuration variable in Markdown and with concise inline comments.
 - `[Complete]` **T7.4** Demonstrate tile-index, point, and AOI queries with
   `TileConfig` and structured results.
 - `[Complete]` **T7.5** Add compact visual and metadata inspection of generated
-  cubes, including band names and NoData counts.
+  cubes, including band names, NoData counts, NaN-masked display arrays, and a
+  four-tile-per-AOI display limit.
 - `[In-P]` **T7.6** Execute the notebook top-to-bottom on the HPC system and
-  clear stale outputs before committing the modern copy.
+  clear stale outputs before committing the modern copy. Confirm both the
+  zoom-5 WAC/static and zoom-11 NAC/static examples after the latest changes.
 
 T7.1–T7.5 checkpoint: the new top-level `notebooks/tiling_example.ipynb`
 retains the legacy nested notebook, follows the repository-root and
-`/panfs`-to-`/explore` discovery convention, and exposes all user-editable data,
-index, selector, AOI, and output paths in one section. It uses `TileConfig` for
-representative WAC-plus-static and NAC-plus-static AOI runs, pairs outputs from
-structured records, and plots masked dynamic and static bands with per-panel
-colorbars and robust limits. Reusable record pairing, masked-band inspection,
-NoData summaries, and plotting now live in
+`/panfs`-to-`/explore` discovery convention. Its opening workflow is divided
+into **User configuration**, **Setting up variable values**, and **Resolve data
+paths** sections. Users edit only project/source directories, WAC/NAC product
+IDs, and WAC/NAC AOIs; index locations, output directories, display controls,
+validation, and static-source creation are derived below. Each variable is
+documented in a configuration glossary and annotated at its assignment, with
+special attention to AOI corner order, 1-based display bands, zoom resolution,
+and controls that affect visualization but not cube creation. Timestamped
+results are written beneath `repo_root/outputs/tiling/<RUN_ID>/`, and the
+notebook prints that location before processing.
+
+The WAC example uses product `M1107459759CE` and the first regression AOI at
+zoom 5. The NAC example uses product `M1117899885LE` and a small AOI centered
+inside its indexed footprint near 1.07° latitude and 149.76° longitude. Its
+source raster is 1 m/pixel, so NAC plus static now runs at zoom 11
+(approximately 1.185 m/pixel) instead of sharing WAC's zoom 5. This avoids
+placing the narrow NAC footprint inside a 38.8 km-wide zoom-5 tile. A
+`TileConfig` still has only one zoom, so the WAC/static and NAC/static examples
+correctly use separate configurations.
+
+Both examples pair outputs from structured records and plot masked dynamic and
+static bands with per-panel colorbars and robust limits. Plotting converts
+masked sentinel pixels to `float64` NaN before Matplotlib normalization and
+limits each AOI to four displayed tiles. This prevents source-scale Float32
+NoData sentinels from causing display-only overflow warnings without changing
+the written cubes. Reusable record pairing, masked-band inspection, NoData
+summaries, and plotting live in
 `lfm/all_models/all_tasks/viz/tiling_viz.py`. The canonical static source,
-labeled-path validation, timestamped run ID, and notebook display/zoom defaults
-now live in `lfm/all_models/all_tasks/tiling_utils.py`. AOI tiling discovers its
+labeled-path validation, timestamped run ID, band defaults, and shared zoom-5
+default live in `lfm/all_models/all_tasks/tiling_utils.py`; the modality-specific
+NAC zoom 11 is explicit in the notebook. AOI tiling discovers its
 LTM zones; optional point and tile-index examples derive their required zone and
 tile coordinates from an AOI result rather than a hard-coded expected zone.
-Those examples do not run by default. T7.6 remains in progress pending a
-top-to-bottom Explore execution.
+Those examples do not run by default. T7.6 remains in progress pending a clean
+top-to-bottom execution of the actual notebook on Explore; execution of the
+temporary generated Python regression harness does not complete T7.6.
 
 To select a replacement example AOI from an existing legacy cube,
 `scripts/python/all_tasks/extract_datacube_aoi.py` transforms a densified raster
@@ -362,14 +473,31 @@ lists GeoTIFFs intersecting the AOI. It uses an existing `output_index.shp` or
 when an index is absent or explicitly bypassed. Submit it through
 `scripts/shell/all_tasks/sbatch_find_geotiffs_intersecting_aoi.sh`.
 
+`notebooks/tiling_example.py`, `notebooks/bad_cube_aoi.json`, and the notebook
+Slurm wrapper were used as temporary regression tooling. The Python harness
+runs each AOI independently with traceback logging, executes modern and legacy
+WAC/static tiling, and plots current WAC, current static, legacy WAC, and legacy
+static rows after both paths finish. Three of the five listed products produced
+exact modern/legacy plotted-band values and masks. Two entries had no matching
+WAC coverage: the modern path rejected the missing required source while the
+legacy path silently emitted static-only cubes. That difference is intentional
+and must be retained by chip orchestration as an explicit failed/skipped sample
+decision. These temporary notebook-directory files should be moved to a
+diagnostic/test location or removed during T8; they are not a public chip API.
+
 ## Phase T8 — Complete the tiling migration `[Planned]`
 
 - `[Planned]` **T8.1** Update backend docstrings and user documentation with the
-  final config schema and public API.
-- `[Planned]` **T8.2** Update repository callers to use `TileConfig` or an
-  intentional compatibility wrapper.
+  final config schema and public API. Preserve `TMS/README.md` as the detailed
+  scheme/implementation reference and link it from the repository README.
+- `[Planned]` **T8.2** Update non-chip repository callers to use `TileConfig` or
+  an intentional compatibility wrapper. Chip acquisition migrates in Phase C3
+  of the chip creation plan and must not be a prerequisite for starting that
+  plan.
 - `[Planned]` **T8.3** Mark legacy hard-coded constructor arguments and notebook
   paths as deprecated or remove them after all callers migrate.
 - `[Planned]` **T8.4** Run formatting, unit tests, and the final HPC smoke test.
-- `[Planned]` **T8.5** Mark this plan complete and unblock Phase C0 of the chip
-  creation modernization plan.
+- `[Planned]` **T8.5** Mark the tiling migration complete after T7, non-chip
+  cleanup, and the chip acquisition migration tracked by chip Phases C3/C10
+  finish. Chip modernization is already unblocked by the stable T0–T6 backend
+  contract documented above; it does not wait for this bookkeeping step.
