@@ -29,7 +29,7 @@ fi
 cd "${REPO_DIR}"
 mkdir -p scripts/logs
 
-CONTAINER_PATH="${CONTAINER_PATH:-/explore/nobackup/projects/lfm/containers/lfm-container}"
+CONTAINER_PATH="${CONTAINER_PATH:-/explore/nobackup/projects/lfm/containers/lfm-container-ipyleaflet}"
 APPTAINER_BIND_PATHS="${APPTAINER_BIND_PATHS:-/panfs/ccds02/nobackup:/explore/nobackup}"
 
 echo "Job started at: ${START_READABLE}"
