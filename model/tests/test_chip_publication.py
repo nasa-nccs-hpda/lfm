@@ -3,6 +3,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 from unittest import mock
 import unittest
@@ -339,6 +341,30 @@ class ChipPublicationRasterTestCase(unittest.TestCase):
             height=2,
         )
 
+    def run_training_loader(self, script, *arguments):
+        repo_root = Path(__file__).resolve().parents[2]
+        environment = os.environ.copy()
+        existing_pythonpath = environment.get("PYTHONPATH")
+        environment["PYTHONPATH"] = str(repo_root) + (
+            ""
+            if not existing_pythonpath
+            else os.pathsep + existing_pythonpath
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", script, *(str(item) for item in arguments)],
+            cwd=repo_root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            self.fail(
+                "Training-package loader smoke test failed:\n"
+                f"stdout:\n{completed.stdout}\n"
+                f"stderr:\n{completed.stderr}"
+            )
+
     def request(self, sample_id, split):
         return ChipRequest(
             sample_id=sample_id,
@@ -413,10 +439,6 @@ class ChipPublicationRasterTestCase(unittest.TestCase):
         return path
 
     def test_semantic_pairs_publish_and_load_from_every_split(self):
-        from lfm.all_models.sem_seg.data.semantic_dataset import (
-            SemanticSegmentationDataset,
-        )
-
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config = simple_config(root)
@@ -466,22 +488,29 @@ class ChipPublicationRasterTestCase(unittest.TestCase):
                     result.effective_selectors[0].product_id,
                     result.request.sample_id.split("_")[0],
                 )
-                dataset = SemanticSegmentationDataset(
-                    result.chip_path.parent.parent,
-                    target_size=(2, 3),
-                    spatial_transform="crop",
-                    scale_inputs=False,
-                    require_all_labels=True,
-                )
-                sample = dataset[0]
-                self.assertEqual(tuple(sample["image"].shape), (1, 2, 3))
-                self.assertEqual(tuple(sample["mask"].shape), (2, 3))
+            self.run_training_loader(
+                """
+import sys
+from pathlib import Path
+from lfm.all_models.sem_seg.data.semantic_dataset import SemanticSegmentationDataset
+
+dataset_root = Path(sys.argv[1])
+for split in ("train", "val", "test"):
+    dataset = SemanticSegmentationDataset(
+        dataset_root / split,
+        target_size=(2, 3),
+        spatial_transform="crop",
+        scale_inputs=False,
+        require_all_labels=True,
+    )
+    sample = dataset[0]
+    assert tuple(sample["image"].shape) == (1, 2, 3)
+    assert tuple(sample["mask"].shape) == (2, 3)
+""",
+                config.output_root,
+            )
 
     def test_instance_archive_is_preserved_and_loaded_without_data_key(self):
-        from lfm.all_models.inst_seg.data.instance_dataset import (
-            LunarInstanceMaskDataset,
-        )
-
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config = simple_config(root)
@@ -495,17 +524,25 @@ class ChipPublicationRasterTestCase(unittest.TestCase):
             )
 
             result = publish_chip_pair(written, config)
-            dataset = LunarInstanceMaskDataset(
-                config.output_root / "test",
-                target_size=(2, 3),
-                scale_inputs=False,
-            )
-            sample = dataset[0]
-
             self.assertEqual(result.label_path.read_bytes(), source_label.read_bytes())
-            self.assertEqual(tuple(sample["image"].shape), (1, 2, 3))
-            self.assertEqual(tuple(sample["mask"].shape), (2, 3))
-            self.assertEqual(int(sample["num_craters"]), 1)
+            self.run_training_loader(
+                """
+import sys
+from pathlib import Path
+from lfm.all_models.inst_seg.data.instance_dataset import LunarInstanceMaskDataset
+
+dataset = LunarInstanceMaskDataset(
+    Path(sys.argv[1]),
+    target_size=(2, 3),
+    scale_inputs=False,
+)
+sample = dataset[0]
+assert tuple(sample["image"].shape) == (1, 2, 3)
+assert tuple(sample["mask"].shape) == (2, 3)
+assert int(sample["num_craters"]) == 1
+""",
+                config.output_root / "test",
+            )
 
     def test_second_publication_failure_rolls_back_first_artifact(self):
         with tempfile.TemporaryDirectory() as directory:
