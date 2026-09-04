@@ -18,6 +18,7 @@ from lfm.model.chip_config import (
     AcquisitionGroupConfig,
     ChipConfig,
     MixedPercentageNumberSplitConfig,
+    NoSplitConfig,
     NumberSplitConfig,
     OutputModalityConfig,
     SimpleSplitConfig,
@@ -122,6 +123,38 @@ def failed_prepared(
 
 
 class ChipManifestTestCase(unittest.TestCase):
+    def test_no_split_manifest_uses_root_layout_and_distinct_assignment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = replace(simple_config(root), split_config=NoSplitConfig())
+            request = failed_prepared("M1_r0_c0", None, group="site-a").request
+            plan = plan_splits((request,), config.split_config)
+            assignment = plan.assignments[0]
+            prepared = PreparedChipRequest(
+                request,
+                assignment,
+                ChipPreflight(status="failed", assigned_split="unsplit"),
+            )
+            result = ChipResult(request, "failed", prepared.preflight)
+
+            document = build_dataset_manifest(
+                (prepared,),
+                (result,),
+                plan,
+                config,
+            )
+
+            self.assertEqual(document["split_policy"]["type"], "no_split")
+            self.assertEqual(
+                document["split_policy"]["realized_counts"],
+                {"unsplit": 1},
+            )
+            self.assertEqual(document["samples"][0]["assigned_split"], "unsplit")
+            self.assertEqual(
+                document["configuration"]["split_config"]["layout"],
+                "unsplit",
+            )
+
     def test_manifest_serializes_mixed_and_number_split_contracts(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -322,6 +355,28 @@ class ChipManifestTestCase(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "membership mismatch"):
                 build_dataset_manifest((prepared,), (result,), plan, config)
 
+    def test_manifest_overwrite_is_explicit_and_byte_deterministic(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = simple_config(root)
+            prepared = failed_prepared("M1_r0_c0", "train", group="site-a")
+            result = ChipResult(prepared.request, "failed", prepared.preflight)
+            plan = SplitPlan(assignments=(prepared.assignment,))
+            path = write_dataset_manifest((prepared,), (result,), plan, config)
+            original = path.read_bytes()
+
+            with self.assertRaises(FileExistsError):
+                write_dataset_manifest((prepared,), (result,), plan, config)
+            replaced = write_dataset_manifest(
+                (prepared,),
+                (result,),
+                plan,
+                config,
+                overwrite=True,
+            )
+
+            self.assertEqual(replaced.read_bytes(), original)
+
 
 @unittest.skipUnless(HAS_RASTER_DEPS, "GDAL, NumPy, Rasterio, and Torch required")
 class ChipPublicationRasterTestCase(unittest.TestCase):
@@ -510,6 +565,56 @@ for split in ("train", "val", "test"):
                 config.output_root,
             )
 
+    def test_unsplit_pair_publishes_and_loads_from_dataset_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = replace(simple_config(root), split_config=NoSplitConfig())
+            request = self.request("M8_r0_c0", None)
+            self.make_semantic_label(config, request.sample_id)
+            plan = plan_splits((request,), config.split_config)
+            prepared, written = self.written_chip(
+                request,
+                plan.assignments[0],
+                config,
+            )
+
+            result = publish_chip_pair(written, config)
+            manifest_path = write_dataset_manifest(
+                (prepared,),
+                (result,),
+                plan,
+                config,
+            )
+
+            self.assertEqual(result.chip_path.parent, config.output_root / "chips")
+            self.assertEqual(result.label_path.parent, config.output_root / "labels")
+            self.assertFalse((config.output_root / "unsplit").exists())
+            validate_dataset_publication(
+                (prepared,),
+                (result,),
+                plan,
+                config,
+                manifest_path=manifest_path,
+            )
+            self.run_training_loader(
+                """
+import sys
+from pathlib import Path
+from lfm.all_models.sem_seg.data.semantic_dataset import SemanticSegmentationDataset
+
+dataset = SemanticSegmentationDataset(
+    Path(sys.argv[1]),
+    target_size=(2, 3),
+    spatial_transform="crop",
+    scale_inputs=False,
+    require_all_labels=True,
+)
+assert len(dataset) == 1
+assert tuple(dataset[0]["image"].shape) == (1, 2, 3)
+""",
+                config.output_root,
+            )
+
     def test_instance_archive_is_preserved_and_loaded_without_data_key(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -582,6 +687,41 @@ assert int(sample["num_craters"]) == 1
                 tuple((config.output_root / "train/labels").iterdir()),
                 (),
             )
+
+    def test_explicit_pair_overwrite_restores_previous_pair_on_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = simple_config(root)
+            request = self.request("M9_r0_c0", "train")
+            self.make_semantic_label(config, request.sample_id)
+            plan = plan_splits((request,), config.split_config)
+            _, written = self.written_chip(
+                request,
+                plan.assignments[0],
+                config,
+            )
+            original = publish_chip_pair(written, config)
+            chip_bytes = original.chip_path.read_bytes()
+            label_bytes = original.label_path.read_bytes()
+            real_link = os.link
+            calls = 0
+
+            def fail_second_link(source, destination):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise OSError("injected replacement failure")
+                return real_link(source, destination)
+
+            with mock.patch(
+                "lfm.model.chip_publication.os.link",
+                side_effect=fail_second_link,
+            ):
+                with self.assertRaises(ChipPublicationError):
+                    publish_chip_pair(written, config, overwrite=True)
+
+            self.assertEqual(original.chip_path.read_bytes(), chip_bytes)
+            self.assertEqual(original.label_path.read_bytes(), label_bytes)
 
 
 if __name__ == "__main__":

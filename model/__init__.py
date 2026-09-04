@@ -17,9 +17,11 @@ from .chip_acquisition import (
     selectors_for_group,
 )
 from .chip_config import (
+    AssignmentName,
     AcquisitionGroupConfig,
     ChipConfig,
     MixedPercentageNumberSplitConfig,
+    NoSplitConfig,
     NumberSplitConfig,
     OutputModalityConfig,
     SimpleSplitConfig,
@@ -34,6 +36,8 @@ from .chip_config import (
     split_config_from_dict,
 )
 from .chip_types import (
+    ChipDiagnostic,
+    ChipDiagnosticStage,
     ChipPreflight,
     ChipRequest,
     ChipResult,
@@ -44,6 +48,13 @@ from .chip_types import (
     SourceSelector,
     TargetGrid,
     validate_request_contracts,
+)
+from .chip_creation import (
+    CHIP_DIAGNOSTIC_VERSION,
+    ChipBatchResult,
+    create_chip,
+    create_chips,
+    create_chips_from_reference_directory,
 )
 from .chip_labels import preflight_label, resolve_label_path, validate_label
 from .chip_preflight import (
@@ -104,6 +115,7 @@ from .chip_publication import (
 )
 from .chip_splits import (
     SplitAssignment,
+    SplitLayout,
     SplitPlan,
     SplitTargetWarning,
     SplitWarning,
@@ -143,11 +155,15 @@ __all__ = [
     "AcquisitionStatus",
     "AmbiguousLongitudeError",
     "AssembledChip",
+    "AssignmentName",
     "BandNoDataOverride",
     "BatchPreflightResult",
     "ChipConfig",
+    "ChipBatchResult",
     "ChipAcquisitionResult",
     "ChipAssemblyError",
+    "ChipDiagnostic",
+    "ChipDiagnosticStage",
     "ChipPreflight",
     "ChipPublicationError",
     "ChipRequest",
@@ -156,6 +172,7 @@ __all__ = [
     "ChipResult",
     "ChipWriteValidation",
     "CONFIGURATION_ID_ALGORITHM",
+    "CHIP_DIAGNOSTIC_VERSION",
     "DATASET_MANIFEST_VERSION",
     "DatasetPublicationValidation",
     "GeographicAOI",
@@ -169,6 +186,7 @@ __all__ = [
     "MINIRF_SOURCE_NODATA_BANDS",
     "MissingRequiredSourceError",
     "MixedPercentageNumberSplitConfig",
+    "NoSplitConfig",
     "ModalityCubeMapping",
     "ModalityReprojectionStatus",
     "NumberSplitConfig",
@@ -186,6 +204,7 @@ __all__ = [
     "SplitName",
     "SplitPercentages",
     "SplitAssignment",
+    "SplitLayout",
     "SplitPlan",
     "SplitTargetWarning",
     "SplitWarning",
@@ -211,6 +230,9 @@ __all__ = [
     "chip_requests_from_reference_directory",
     "chip_requests_from_reference_paths",
     "create_vector_index",
+    "create_chip",
+    "create_chips",
+    "create_chips_from_reference_directory",
     "create_tiles_for_aoi",
     "create_tiles_for_index",
     "create_tiles_for_point",

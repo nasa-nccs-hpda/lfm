@@ -2,6 +2,7 @@ from pathlib import Path
 import unittest
 
 from lfm.model.chip_types import (
+    ChipDiagnostic,
     ChipPreflight,
     ChipRequest,
     ChipResult,
@@ -130,6 +131,13 @@ class ChipTypesTestCase(unittest.TestCase):
             ),
             message="label mismatch",
             elapsed_seconds=0.25,
+            diagnostics=(
+                ChipDiagnostic(
+                    stage="preflight",
+                    code="shape_mismatch",
+                    message="Label shape does not match target grid.",
+                ),
+            ),
         )
         error = LabelMismatchError(
             "label mismatch",
@@ -140,6 +148,7 @@ class ChipTypesTestCase(unittest.TestCase):
 
         self.assertEqual(reference.path, Path("/references/M1_r0_c0.tif"))
         self.assertEqual(result.preflight.label_diagnostics, (diagnostic,))
+        self.assertEqual(result.diagnostics[0].stage, "preflight")
         self.assertEqual(
             result.effective_selectors[0].product_id,
             "M1187363083CE",

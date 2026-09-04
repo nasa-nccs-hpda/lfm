@@ -8,7 +8,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-from .chip_config import SplitName
+from .chip_config import AssignmentName
 from .chip_requests import (
     normalize_sample_id,
     validate_target_grid_consistency,
@@ -458,7 +458,7 @@ def preflight_label(
     request: ChipRequest,
     *,
     label_source: str | Path,
-    assigned_split: SplitName,
+    assigned_split: AssignmentName,
 ) -> ChipPreflight:
     """Resolve and validate one label, raising a typed per-sample error."""
     path = resolve_label_path(request, label_source)

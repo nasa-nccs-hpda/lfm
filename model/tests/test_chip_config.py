@@ -5,6 +5,7 @@ from lfm.model.chip_config import (
     AcquisitionGroupConfig,
     ChipConfig,
     MixedPercentageNumberSplitConfig,
+    NoSplitConfig,
     NumberSplitConfig,
     OutputModalityConfig,
     SimpleSplitConfig,
@@ -262,10 +263,14 @@ class SplitConfigTestCase(unittest.TestCase):
             remainder_split="train",
             seed=4,
         )
+        unsplit = NoSplitConfig()
 
         self.assertEqual(simple.percentages.train, 0.7)
         self.assertEqual(mixed.fixed_priority, ("test", "val"))
         self.assertEqual(numbered.remainder_split, "train")
+        self.assertEqual(unsplit.group_key_policy, "request")
+        with self.assertRaisesRegex(ValueError, "prior split manifest"):
+            NoSplitConfig(prior_manifest_path="/tmp/prior.json")
 
     def test_percentage_config_rejects_invalid_ratios(self):
         with self.assertRaisesRegex(ValueError, "sum to 1"):
@@ -311,11 +316,13 @@ class SplitConfigTestCase(unittest.TestCase):
                     "fixed_priority": ["train", "test"],
                 }
             ),
+            split_config_from_dict({"type": "no_split"}),
         )
 
         self.assertIsInstance(configs[0], SimpleSplitConfig)
         self.assertIsInstance(configs[1], MixedPercentageNumberSplitConfig)
         self.assertIsInstance(configs[2], NumberSplitConfig)
+        self.assertIsInstance(configs[3], NoSplitConfig)
 
 
 if __name__ == "__main__":

@@ -16,10 +16,12 @@ from .tiling_config import TileConfig, tile_config_from_dict
 ChipResampling = Literal["bilinear", "nearest"]
 IntermediateRetention = Literal["never", "on_failure", "always"]
 SplitName = Literal["train", "val", "test"]
+AssignmentName = Literal["train", "val", "test", "unsplit"]
 
 CHIP_RESAMPLING_METHODS = ("bilinear", "nearest")
 INTERMEDIATE_RETENTION_POLICIES = ("never", "on_failure", "always")
 SPLIT_NAMES: tuple[SplitName, ...] = ("train", "val", "test")
+ASSIGNMENT_NAMES: tuple[AssignmentName, ...] = (*SPLIT_NAMES, "unsplit")
 SPLIT_HASH_VERSION = "blake2b-v1"
 DEFAULT_SPLIT_SEED = 0
 SUPPORTED_OUTPUT_DTYPES = (
@@ -413,10 +415,26 @@ class NumberSplitConfig:
         _validate_split_common(self)
 
 
+@dataclass(frozen=True)
+class NoSplitConfig:
+    """Assign every request to the dataset root without creating partitions."""
+
+    seed: int = DEFAULT_SPLIT_SEED
+    group_key_policy: str = "request"
+    hash_version: str = SPLIT_HASH_VERSION
+    prior_manifest_path: Path | None = None
+
+    def __post_init__(self) -> None:
+        _validate_split_common(self)
+        if self.prior_manifest_path is not None:
+            raise ValueError("NoSplitConfig does not accept a prior split manifest.")
+
+
 SplitConfigType: TypeAlias = (
     SimpleSplitConfig
     | MixedPercentageNumberSplitConfig
     | NumberSplitConfig
+    | NoSplitConfig
 )
 
 
@@ -528,6 +546,7 @@ class ChipConfig:
                 SimpleSplitConfig,
                 MixedPercentageNumberSplitConfig,
                 NumberSplitConfig,
+                NoSplitConfig,
             ),
         ):
             raise TypeError("split_config must be a supported split config object.")
@@ -716,9 +735,16 @@ def split_config_from_dict(value: Mapping[str, Any]) -> SplitConfigType:
             remainder_split=values.get("remainder_split"),
             **common,
         )
+    if config_type == "no_split":
+        _reject_unknown_keys(
+            values,
+            allowed=common_keys,
+            field_name="no-split config",
+        )
+        return NoSplitConfig(**common)
     raise ValueError(
-        "split config type must be 'simple', 'mixed_percentage_number', or "
-        f"'number', got {values['type']!r}."
+        "split config type must be 'simple', 'mixed_percentage_number', "
+        f"'number', or 'no_split', got {values['type']!r}."
     )
 
 
@@ -859,7 +885,9 @@ def chip_config_from_dict(value: Mapping[str, Any]) -> ChipConfig:
 
 
 __all__ = [
+    "ASSIGNMENT_NAMES",
     "AcquisitionGroupConfig",
+    "AssignmentName",
     "CHIP_RESAMPLING_METHODS",
     "ChipConfig",
     "ChipResampling",
@@ -867,6 +895,7 @@ __all__ = [
     "INTERMEDIATE_RETENTION_POLICIES",
     "IntermediateRetention",
     "MixedPercentageNumberSplitConfig",
+    "NoSplitConfig",
     "NumberSplitConfig",
     "OutputModalityConfig",
     "SPLIT_HASH_VERSION",

@@ -91,6 +91,8 @@ class AcquisitionGroupResult:
     record_groups: tuple[CubeRecordGroup, ...] = ()
     inventory_paths: tuple[Path, ...] = ()
     diagnostics: tuple[AcquisitionDiagnostic, ...] = ()
+    attempted_query_parts: tuple[GeographicAOI, ...] = ()
+    failed_query_part: GeographicAOI | None = None
 
     @property
     def selector_mapping(self) -> dict[str, str]:
@@ -371,8 +373,11 @@ def _acquire_group(
     tile_config = replace(group.tile_config, output_dir=output_dir)
     records: tuple[TileCubeRecord, ...] = ()
     failure: Exception | None = None
+    attempted_query_parts: list[GeographicAOI] = []
+    failed_query_part: GeographicAOI | None = None
 
     for part in query_parts:
+        attempted_query_parts.append(part)
         try:
             part_records = create_tiles_for_aoi(
                 tile_config,
@@ -388,6 +393,7 @@ def _acquire_group(
             )
         except Exception as exc:
             failure = exc
+            failed_query_part = part
             partial_records = getattr(exc, "completed_records", ())
             try:
                 records = deduplicate_cube_records(
@@ -424,6 +430,8 @@ def _acquire_group(
         record_groups=group_cube_records(group.name, records),
         inventory_paths=_inventory(output_dir),
         diagnostics=tuple(diagnostics),
+        attempted_query_parts=tuple(attempted_query_parts),
+        failed_query_part=failed_query_part,
     )
 
 

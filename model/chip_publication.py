@@ -18,6 +18,7 @@ from .chip_assembly import WrittenChip, validate_written_chip
 from .chip_config import (
     ChipConfig,
     MixedPercentageNumberSplitConfig,
+    NoSplitConfig,
     NumberSplitConfig,
     SimpleSplitConfig,
     SplitConfigType,
@@ -32,6 +33,7 @@ from .chip_types import ChipResult, GeographicAOI, SourceSelector, TargetGrid
 DATASET_MANIFEST_VERSION = 1
 CONFIGURATION_ID_ALGORITHM = "sha256"
 SPLIT_HASH_ALGORITHM = "blake2b"
+PUBLICATION_ASSIGNMENTS = ("train", "val", "test", "unsplit")
 
 
 class ChipPublicationError(RuntimeError):
@@ -88,6 +90,27 @@ def _label_output_name(sample_id: str, source_path: Path) -> str:
     return f"{sample_id}_label{suffix}"
 
 
+def _assignment_root(config: ChipConfig, assignment: str) -> Path:
+    if assignment == "unsplit":
+        if not isinstance(config.split_config, NoSplitConfig):
+            raise ValueError("Only NoSplitConfig may publish an unsplit sample.")
+        return config.output_root
+    if isinstance(config.split_config, NoSplitConfig):
+        raise ValueError("NoSplitConfig cannot publish a partitioned sample.")
+    if assignment not in {"train", "val", "test"}:
+        raise ValueError(f"Unknown publication assignment {assignment!r}.")
+    return config.output_root / assignment
+
+
+def _assignment_root_for_scan(config: ChipConfig, assignment: str) -> Path:
+    """Resolve every supported layout without asserting the active policy."""
+    return (
+        config.output_root
+        if assignment == "unsplit"
+        else config.output_root / assignment
+    )
+
+
 def _effective_selectors(written: WrittenChip) -> tuple[SourceSelector, ...]:
     selectors = tuple(
         selector
@@ -117,12 +140,19 @@ def _remove_paths(paths: Sequence[Path]) -> tuple[OSError, ...]:
     return tuple(failures)
 
 
-def publish_chip_pair(written: WrittenChip, config: ChipConfig) -> ChipResult:
+def publish_chip_pair(
+    written: WrittenChip,
+    config: ChipConfig,
+    *,
+    overwrite: bool = False,
+) -> ChipResult:
     """Publish one chip and byte-preserved label as a rollback-safe pair."""
     if not isinstance(written, WrittenChip):
         raise TypeError("written must be a WrittenChip.")
     if not isinstance(config, ChipConfig):
         raise TypeError("config must be a ChipConfig.")
+    if not isinstance(overwrite, bool):
+        raise TypeError("overwrite must be a boolean.")
     assembled = written.assembled
     if assembled.config != config:
         raise _publication_error(
@@ -177,12 +207,44 @@ def publish_chip_pair(written: WrittenChip, config: ChipConfig) -> ChipResult:
     validated_label_hash = _sha256(source_label)
     effective_selectors = _effective_selectors(written)
 
-    split_root = config.output_root / split
+    try:
+        split_root = _assignment_root(config, split)
+    except ValueError as exc:
+        raise _publication_error(
+            request.sample_id,
+            str(exc),
+            code="publication_layout_mismatch",
+        ) from exc
     chip_path = split_root / "chips" / expected_chip_name
     label_path = split_root / "labels" / _label_output_name(
         request.sample_id,
         source_label,
     )
+    possible_paths = tuple(
+        candidate
+        for split_name in PUBLICATION_ASSIGNMENTS
+        for candidate_root in (_assignment_root_for_scan(config, split_name),)
+        for candidate in (
+            candidate_root
+            / "chips"
+            / f"{request.sample_id}{config.final_output_suffix}",
+            candidate_root / "labels" / f"{request.sample_id}_label.npy",
+            candidate_root / "labels" / f"{request.sample_id}_label.npz",
+        )
+    )
+    conflicts = tuple(
+        path
+        for path in possible_paths
+        if path not in {chip_path, label_path}
+        and (path.exists() or path.is_symlink())
+    )
+    if conflicts:
+        raise _publication_error(
+            request.sample_id,
+            "Refusing to delete or relocate existing sample artifacts implicitly: "
+            + ", ".join(str(path) for path in conflicts),
+            code="conflicting_publication_output",
+        )
     result = ChipResult(
         request=request,
         status="success",
@@ -192,8 +254,21 @@ def publish_chip_pair(written: WrittenChip, config: ChipConfig) -> ChipResult:
         cube_records=assembled.reprojection.acquisition.records,
         effective_selectors=effective_selectors,
     )
-    for destination in (chip_path, label_path):
-        if destination.exists() or destination.is_symlink():
+    destinations = (chip_path, label_path)
+    for destination in destinations:
+        if destination.is_symlink():
+            raise _publication_error(
+                request.sample_id,
+                f"Refusing to replace symlinked dataset artifact {destination}.",
+                code="unsafe_publication_output",
+            )
+        if destination.exists() and not destination.is_file():
+            raise _publication_error(
+                request.sample_id,
+                f"Refusing to replace non-file dataset artifact {destination}.",
+                code="unsafe_publication_output",
+            )
+        if destination.exists() and not overwrite:
             raise _publication_error(
                 request.sample_id,
                 f"Refusing to overwrite existing dataset artifact {destination}.",
@@ -209,7 +284,12 @@ def publish_chip_pair(written: WrittenChip, config: ChipConfig) -> ChipResult:
         f".{label_path.name}.{uuid4().hex}.publishing"
     )
     staged = (staged_chip, staged_label)
+    backups = tuple(
+        destination.with_name(f".{destination.name}.{uuid4().hex}.previous")
+        for destination in destinations
+    )
     published: list[Path] = []
+    replaced: list[tuple[Path, Path]] = []
     try:
         shutil.copyfile(written.path, staged_chip)
         shutil.copyfile(source_label, staged_label)
@@ -234,14 +314,25 @@ def publish_chip_pair(written: WrittenChip, config: ChipConfig) -> ChipResult:
                 "A source artifact changed during pair publication.",
                 code="publication_source_changed",
             )
+        if overwrite:
+            for destination, backup in zip(destinations, backups):
+                if destination.exists():
+                    os.replace(destination, backup)
+                    replaced.append((destination, backup))
         # A hard link within each destination directory gives no-overwrite
-        # publication. If the second link fails, the first is rolled back.
+        # publication. If the second link fails, the first is rolled back and
+        # any explicitly replaced pair is restored.
         os.link(staged_chip, chip_path)
         published.append(chip_path)
         os.link(staged_label, label_path)
         published.append(label_path)
     except Exception as exc:
-        rollback_failures = _remove_paths((*published, *staged))
+        rollback_failures = list(_remove_paths((*published, *staged)))
+        for destination, backup in reversed(replaced):
+            try:
+                os.replace(backup, destination)
+            except OSError as rollback_exc:
+                rollback_failures.append(rollback_exc)
         if rollback_failures:
             raise _publication_error(
                 request.sample_id,
@@ -258,7 +349,12 @@ def publish_chip_pair(written: WrittenChip, config: ChipConfig) -> ChipResult:
         ) from exc
     cleanup_failures = _remove_paths(staged)
     if cleanup_failures:
-        rollback_failures = _remove_paths((*published, *staged))
+        rollback_failures = list(_remove_paths((*published, *staged)))
+        for destination, backup in reversed(replaced):
+            try:
+                os.replace(backup, destination)
+            except OSError as rollback_exc:
+                rollback_failures.append(rollback_exc)
         if rollback_failures:
             raise _publication_error(
                 request.sample_id,
@@ -272,6 +368,7 @@ def publish_chip_pair(written: WrittenChip, config: ChipConfig) -> ChipResult:
             "failed.",
             code="publication_staging_cleanup_failed",
         )
+    _remove_paths(tuple(backup for _, backup in replaced))
 
     return result
 
@@ -316,6 +413,8 @@ def _json_number(value: float | None) -> float | str | None:
 
 
 def _split_type(config: SplitConfigType) -> str:
+    if isinstance(config, NoSplitConfig):
+        return "no_split"
     if isinstance(config, SimpleSplitConfig):
         return "simple"
     if isinstance(config, MixedPercentageNumberSplitConfig):
@@ -340,6 +439,8 @@ def _split_policy_document(config: SplitConfigType, plan: SplitPlan) -> dict[str
         fixed_counts = config.fixed_counts
         fixed_priority = config.fixed_priority
         remainder_split = config.remainder_split
+    elif isinstance(config, NoSplitConfig):
+        pass
     else:
         raise TypeError("config must be a supported split configuration.")
     return {
@@ -512,6 +613,8 @@ def _split_configuration_document(config: SplitConfigType) -> dict[str, Any]:
                 "remainder_split": config.remainder_split,
             }
         )
+    elif isinstance(config, NoSplitConfig):
+        document["layout"] = "unsplit"
     return document
 
 
@@ -585,7 +688,7 @@ def _expected_paths(
     source_label = prepared.preflight.resolved_label_path
     if split is None or source_label is None:
         return None
-    split_root = config.output_root / split
+    split_root = _assignment_root(config, split)
     return (
         split_root
         / "chips"
@@ -598,9 +701,9 @@ def _expected_paths(
 
 def _actual_split_files(config: ChipConfig) -> dict[tuple[str, str], set[Path]]:
     files: dict[tuple[str, str], set[Path]] = {}
-    for split in ("train", "val", "test"):
+    for split in PUBLICATION_ASSIGNMENTS:
         for role in ("chips", "labels"):
-            directory = config.output_root / split / role
+            directory = _assignment_root_for_scan(config, split) / role
             entries = set(directory.iterdir()) if directory.is_dir() else set()
             nonfiles = sorted(
                 path for path in entries if not path.is_file() and not path.is_symlink()
@@ -619,13 +722,21 @@ def _validate_membership(
     plan: SplitPlan,
     config: ChipConfig,
 ) -> DatasetPublicationValidation:
+    expected_layout = (
+        "unsplit" if isinstance(config.split_config, NoSplitConfig) else "partitioned"
+    )
+    if plan.layout != expected_layout:
+        raise ValueError(
+            f"SplitPlan layout {plan.layout!r} does not match configured "
+            f"layout {expected_layout!r}."
+        )
     plan_by_sample = {
         assignment.sample_id.casefold(): assignment for assignment in plan.assignments
     }
     group_splits: dict[str, str] = {}
     expected_files = {
         (split, role): set()
-        for split in ("train", "val", "test")
+        for split in PUBLICATION_ASSIGNMENTS
         for role in ("chips", "labels")
     }
     status_counts: Counter[str] = Counter()
@@ -639,6 +750,8 @@ def _validate_membership(
                 f"Prepared assignment for {request.sample_id!r} differs from SplitPlan."
             )
         split = assignment.assigned_split
+        if split is not None:
+            _assignment_root(config, split)
         if prepared.preflight.assigned_split != split and not (
             prepared.preflight.status == "failed" and split is None
         ):
@@ -691,7 +804,12 @@ def _validate_membership(
         successful_count=status_counts["success"],
         status_counts=tuple(sorted(status_counts.items())),
         split_counts=tuple(
-            (name, split_counts[name]) for name in ("train", "val", "test")
+            (name, split_counts[name])
+            for name in (
+                ("unsplit",)
+                if isinstance(config.split_config, NoSplitConfig)
+                else ("train", "val", "test")
+            )
         ),
     )
 
@@ -746,6 +864,21 @@ def _sample_document(
                 "actual": diagnostic.actual,
             }
             for diagnostic in prepared.preflight.label_diagnostics
+        ],
+        "diagnostics": [
+            {
+                "stage": diagnostic.stage,
+                "code": diagnostic.code,
+                "message": diagnostic.message,
+                "severity": diagnostic.severity,
+                "acquisition_group": diagnostic.acquisition_group,
+                "source_name": diagnostic.source_name,
+                "zone": diagnostic.zone,
+                "zoom_level": diagnostic.zoom_level,
+                "tile_x": diagnostic.tile_x,
+                "tile_y": diagnostic.tile_y,
+            }
+            for diagnostic in result.diagnostics
         ],
         "diagnostic_path": (
             None if result.diagnostic_path is None else str(result.diagnostic_path)
@@ -827,14 +960,19 @@ def write_dataset_manifest(
     config: ChipConfig,
     *,
     output_path: Path | None = None,
+    overwrite: bool = False,
 ) -> Path:
-    """Atomically write a deterministic manifest without replacing one."""
+    """Atomically write a deterministic manifest, replacing only when explicit."""
+    if not isinstance(overwrite, bool):
+        raise TypeError("overwrite must be a boolean.")
     path = (
         config.output_root / "dataset_manifest.json"
         if output_path is None
         else Path(output_path)
     )
-    if path.exists() or path.is_symlink():
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise FileExistsError(f"Refusing to replace unsafe manifest path {path}.")
+    if path.exists() and not overwrite:
         raise FileExistsError(f"Refusing to overwrite dataset manifest {path}.")
     document = build_dataset_manifest(
         prepared_requests,
@@ -845,22 +983,19 @@ def write_dataset_manifest(
     payload = _canonical_json(document, pretty=True)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid4().hex}.publishing")
+    backup = path.with_name(f".{path.name}.{uuid4().hex}.previous")
     published = False
+    replaced = False
     try:
         with temporary.open("xb") as stream:
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
+        if overwrite and path.exists():
+            os.replace(path, backup)
+            replaced = True
         os.link(temporary, path)
         published = True
-    finally:
-        try:
-            temporary.unlink(missing_ok=True)
-        except Exception:
-            if published:
-                path.unlink(missing_ok=True)
-            raise
-    try:
         validate_dataset_publication(
             prepared_requests,
             results,
@@ -868,9 +1003,15 @@ def write_dataset_manifest(
             config,
             manifest_path=path,
         )
+        temporary.unlink(missing_ok=True)
+        if replaced:
+            backup.unlink(missing_ok=True)
     except Exception:
         if published:
             path.unlink(missing_ok=True)
+        if replaced:
+            os.replace(backup, path)
+        temporary.unlink(missing_ok=True)
         raise
     return path
 

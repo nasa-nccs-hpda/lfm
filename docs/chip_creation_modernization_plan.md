@@ -176,7 +176,8 @@ tiling defect is demonstrated and added to the tiling regression suite.
   mismatched sample writes neither a final chip nor a copied output label.
 - `[Complete]` **C0.8** Define explicit dataset-creation split policies. Support
   caller-assigned membership plus deterministic percentage, mixed fixed-count
-  and percentage, and fixed-count policies. The default tries to assign 100
+  and percentage, fixed-count, and intentionally unsplit policies. The default
+  tries to assign 100
   test samples first, then assigns 90 percent of the remaining samples to train
   and 10 percent to validation. All policies use a dataset-creation seed and a
   leakage-prevention group key; fixed targets are best effort and report
@@ -266,6 +267,11 @@ dataset_root/
     chips/
     labels/
 ```
+
+With `NoSplitConfig`, the same pairing contract uses the intentionally flat
+alternative `dataset_root/{chips,labels}` layout. The manifest and diagnostics
+remain at the dataset root; the logical assignment is `"unsplit"`, while a
+null assignment continues to mean that processing was skipped.
 
 - Successful chips use `<sample-id><terminal-input-suffix>.tif`; the default
   suffix is derived from configured output modality aliases, for example
@@ -410,6 +416,10 @@ implying that external rasters and labels are checked into this repository.
   `train`, then `test`, then `val`. When targets cover fewer samples than are
   available, remaining requests are recorded as unassigned by policy and are
   not acquired or published unless an explicit remainder split is configured.
+- `NoSplitConfig` assigns every eligible request to the logical `"unsplit"`
+  destination and publishes directly under `dataset_root/{chips,labels}`. It
+  rejects caller-assigned partitions and prior split manifests rather than
+  mixing flat and partitioned layouts.
 - All requests sharing a group key receive the same split. Explicit assignments
   that place one group in multiple splits are invalid. Grouping should occur at
   the product, study-site, campaign, parent-AOI, or another scientifically
@@ -459,7 +469,8 @@ implying that external rasters and labels are checked into this repository.
   label-validation diagnostics in these contracts.
 - `[Complete]` **C1.4** Add a split-config protocol and validated
   `SimpleSplitConfig`, `MixedPercentageNumberSplitConfig`, and
-  `NumberSplitConfig` dataclasses. Support explicit assignments, percentage
+  `NumberSplitConfig` dataclasses, later extended with `NoSplitConfig` for the
+  C7 singleton/root-layout workflow. Support explicit assignments, percentage
   ratios, best-effort number targets, fixed-target priority, optional remainder
   handling, a stable group-key policy, versioned deterministic hashing, prior
   manifest locks, warnings for unrealized number targets, and the default of
@@ -727,13 +738,14 @@ implying that external rasters and labels are checked into this repository.
   focused C5 tests passed in the project's fully enabled HPC container,
   including GeoTIFF write/reopen validation and legacy WAC VIS-then-UV order.
 
-## Phase C6 — Publish validated pairs and dataset splits `[In Progress]`
+## Phase C6 — Publish validated pairs and dataset splits `[Complete]`
 
 - `[Complete]` **C6.1** Preserve each preflight-valid semantic `.npy` label or
   instance `.npz` archive without rewriting its contents or assuming the
   legacy `data` key.
 - `[Complete]` **C6.2** Publish each validated image-label pair into its assigned
-  `train/val/test/{chips,labels}` directories. Use bounded staging and cleanup
+  `train/val/test/{chips,labels}` directories, or directly into
+  `dataset_root/{chips,labels}` for `NoSplitConfig`. Use bounded staging and cleanup
   so a per-sample publication error does not leave an orphan final chip or
   label, and never publish either file for a label-preflight failure.
 - `[Complete]` **C6.3** Write a deterministic split manifest containing at least
@@ -747,7 +759,7 @@ implying that external rasters and labels are checked into this repository.
   every successful sample appears exactly once, samples sharing a group key do
   not cross splits, and no failed or mismatched sample has a final dataset
   artifact.
-- `[In Progress]` **C6.5** Confirm that the shared semantic and instance datasets can
+- `[Complete]` **C6.5** Confirm that the shared semantic and instance datasets can
   discover and load representative generated pairs from every populated split.
 
 ### C6 implementation evidence
@@ -779,30 +791,34 @@ implying that external rasters and labels are checked into this repository.
   caller-provided request overrides so the manifest can audit derived WAC/NAC
   product IDs as well as explicit selectors.
 - The 139-test modern suite passes locally with 37 GDAL/NumPy-dependent tests
-  skipped. All six dependency-free C6 manifest tests pass; three
-  raster-and-loader-backed C6 tests await the fully enabled HPC environment
-  before C6.5 is completed.
+  skipped. All six dependency-free C6 manifest tests pass. On 2026-09-04, all
+  nine focused C6 tests passed in the project's fully enabled HPC container,
+  including semantic and instance dataset discovery and loading from every
+  populated split.
 
-## Phase C7 — Add sequential batch orchestration `[Planned]`
+## Phase C7 — Add sequential batch orchestration `[In Progress]`
 
-- `[Planned]` **C7.1** Add a single-request `create_chip` operation returning a
+- `[Complete]` **C7.1** Add a single-request `create_chip` operation returning a
   structured result with paths, assigned split, status, timing, cube records,
   and diagnostics. Let its label preflight raise a typed label-mismatch error
   before acquisition or final writing.
-- `[Planned]` **C7.2** Add deterministic iterable-level `create_chips`
+- `[Complete]` **C7.2** Add deterministic iterable-level `create_chips`
   orchestration plus a reference-directory convenience that processes TIFFs in
   sorted order. Catch typed per-sample label errors, record the failed result
-  and planned split, and continue with the remaining samples.
-- `[Planned]` **C7.3** Define clear skipped, partial, and failed statuses and
+  and planned split, and continue with the remaining samples. Support
+  `NoSplitConfig` as an assigned root-level destination for singleton examples
+  and intentionally unsplit datasets; do not overload the unassigned/skipped
+  state.
+- `[Complete]` **C7.3** Define clear skipped, partial, and failed statuses and
   ensure resources are closed on every path. Preserve tiling error context and
   account for all prior-tile and failing-tile `completed_records`, files
   discovered in the isolated acquisition-group directory, and query parts or
   later tiles that were not attempted after a failure. Persist diagnostics
   outside an intermediate directory when that directory may be cleaned up.
-- `[Planned]` **C7.4** Add safe overwrite and intermediate-cube retention
+- `[Complete]` **C7.4** Add safe overwrite and intermediate-cube retention
   behavior without deleting output implicitly. Limit cleanup to the current
   sample's explicitly resolved intermediate directory.
-- `[Planned]` **C7.5** Validate the serial workflow before introducing any
+- `[In-P]` **C7.5** Validate the serial workflow before introducing any
   optional multiprocessing adapter.
 - `[Planned]` **C7.6** Prove that repeated serial runs with the same inputs,
   split configuration, and seed produce byte-identical manifests and identical
@@ -812,6 +828,35 @@ implying that external rasters and labels are checked into this repository.
   that unmet number targets warn without stopping later samples.
 - `[Planned]` **C7.7** If still needed after profiling, add multiprocessing using
   the same single-request operation and result contract.
+
+### C7 implementation evidence
+
+- `model/chip_creation.py` exposes one prepared-request `create_chip` operation,
+  deterministic iterable-level `create_chips`, and a sorted reference-directory
+  convenience. `ChipBatchResult` retains the prepared requests, per-sample
+  structured results, split plan, manifest path, and batch timing.
+- Batch orchestration catches typed label mismatches, records the planned split
+  and failed result, writes no final pair, and continues. Acquisition failures
+  are `partial` only when structured records or inventoried files exist;
+  unassigned work is `skipped`, failures without partial artifacts are
+  `failed`, and only published pairs are `success`.
+- Versioned per-sample JSON diagnostics live under `dataset_root/diagnostics`,
+  outside the cleanup boundary. They retain completed records, the complete
+  isolated-directory inventory, attempted/failed/unattempted query parts, the
+  failing tile context, and acquisition groups not attempted after failure.
+- Intermediate retention implements `never`, `on_failure`, and `always` while
+  resolving and checking only `<intermediate-root>/<sample-id>` before recursive
+  cleanup. Existing final pairs, manifests, and diagnostics are replaced only
+  through explicit `overwrite=True`; pair and manifest replacement preserve a
+  prior artifact for rollback and reject symlinks, non-files, or conflicting
+  artifacts in another split rather than deleting them implicitly.
+- The 157-test modern suite passes locally with 42 dependency-backed tests
+  skipped. Seven dependency-free orchestration tests pass, including batch
+  continuation, bounded retention, unattempted-work diagnostics, sorted
+  reference-directory forwarding, all four deterministic split modes, and
+  nonfatal unmet number targets. The complete raster stage-integration test and
+  overwrite rollback test await the fully enabled HPC environment before C7.5
+  is completed.
 
 ## Phase C8 — Validate complete datasets on HPC `[Planned]`
 

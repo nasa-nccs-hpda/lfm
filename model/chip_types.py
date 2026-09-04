@@ -9,17 +9,35 @@ from pathlib import Path
 import re
 from typing import Literal
 
-from .chip_config import SPLIT_NAMES, SplitName
+from .chip_config import ASSIGNMENT_NAMES, SPLIT_NAMES, AssignmentName, SplitName
 from .tiling_results import TileCubeRecord
 
 
 PreflightStatus = Literal["pending", "passed", "failed", "skipped"]
 ChipStatus = Literal["pending", "success", "skipped", "partial", "failed"]
 DiagnosticSeverity = Literal["info", "warning", "error"]
+ChipDiagnosticStage = Literal[
+    "preflight",
+    "acquisition",
+    "reprojection",
+    "assembly",
+    "publication",
+    "cleanup",
+    "orchestration",
+]
 
 PREFLIGHT_STATUSES = ("pending", "passed", "failed", "skipped")
 CHIP_STATUSES = ("pending", "success", "skipped", "partial", "failed")
 DIAGNOSTIC_SEVERITIES = ("info", "warning", "error")
+CHIP_DIAGNOSTIC_STAGES = (
+    "preflight",
+    "acquisition",
+    "reprojection",
+    "assembly",
+    "publication",
+    "cleanup",
+    "orchestration",
+)
 
 _SAFE_SAMPLE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
@@ -313,7 +331,7 @@ class ChipPreflight:
     """Resolved split and label state established before acquisition."""
 
     status: PreflightStatus
-    assigned_split: SplitName | None = None
+    assigned_split: AssignmentName | None = None
     resolved_label_path: Path | None = None
     label_diagnostics: tuple[LabelValidationDiagnostic, ...] = ()
 
@@ -323,8 +341,8 @@ class ChipPreflight:
             raise ValueError(f"preflight status must be one of {valid}.")
         if self.assigned_split is not None:
             split = str(self.assigned_split).strip().lower()
-            if split not in SPLIT_NAMES:
-                valid = ", ".join(SPLIT_NAMES)
+            if split not in ASSIGNMENT_NAMES:
+                valid = ", ".join(ASSIGNMENT_NAMES)
                 raise ValueError(f"assigned_split must be one of {valid}.")
             object.__setattr__(self, "assigned_split", split)
         if self.resolved_label_path is not None:
@@ -344,6 +362,50 @@ class ChipPreflight:
 
 
 @dataclass(frozen=True)
+class ChipDiagnostic:
+    """One typed observation retained across the complete chip lifecycle."""
+
+    stage: ChipDiagnosticStage
+    code: str
+    message: str
+    severity: DiagnosticSeverity = "error"
+    acquisition_group: str | None = None
+    source_name: str | None = None
+    zone: str | None = None
+    zoom_level: int | None = None
+    tile_x: int | None = None
+    tile_y: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.stage not in CHIP_DIAGNOSTIC_STAGES:
+            valid = ", ".join(CHIP_DIAGNOSTIC_STAGES)
+            raise ValueError(f"chip diagnostic stage must be one of {valid}.")
+        object.__setattr__(
+            self,
+            "code",
+            _non_empty_text(self.code, field_name="diagnostic code"),
+        )
+        object.__setattr__(
+            self,
+            "message",
+            _non_empty_text(self.message, field_name="diagnostic message"),
+        )
+        if self.severity not in DIAGNOSTIC_SEVERITIES:
+            valid = ", ".join(DIAGNOSTIC_SEVERITIES)
+            raise ValueError(f"diagnostic severity must be one of {valid}.")
+        for name in ("acquisition_group", "source_name", "zone"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, str(value).strip() or None)
+        for name in ("zoom_level", "tile_x", "tile_y"):
+            value = getattr(self, name)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int)
+            ):
+                raise TypeError(f"{name} must be an integer or None.")
+
+
+@dataclass(frozen=True)
 class ChipResult:
     """Structured outcome for one request; no status-string tuples required."""
 
@@ -357,6 +419,7 @@ class ChipResult:
     diagnostic_path: Path | None = None
     message: str | None = None
     elapsed_seconds: float | None = None
+    diagnostics: tuple[ChipDiagnostic, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.request, ChipRequest):
@@ -388,6 +451,10 @@ class ChipResult:
                 "effective_selectors must be unique by acquisition group and source."
             )
         object.__setattr__(self, "effective_selectors", selectors)
+        diagnostics = tuple(self.diagnostics)
+        if any(not isinstance(item, ChipDiagnostic) for item in diagnostics):
+            raise TypeError("diagnostics must contain ChipDiagnostic objects.")
+        object.__setattr__(self, "diagnostics", diagnostics)
         if self.message is not None:
             object.__setattr__(self, "message", str(self.message))
         if self.elapsed_seconds is not None:
@@ -427,9 +494,12 @@ class LabelMismatchError(ValueError):
 
 
 __all__ = [
+    "CHIP_DIAGNOSTIC_STAGES",
     "CHIP_STATUSES",
     "DIAGNOSTIC_SEVERITIES",
     "PREFLIGHT_STATUSES",
+    "ChipDiagnostic",
+    "ChipDiagnosticStage",
     "ChipPreflight",
     "ChipRequest",
     "ChipResult",

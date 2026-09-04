@@ -12,7 +12,10 @@ from typing import Literal
 import warnings as warnings_module
 
 from .chip_config import (
+    ASSIGNMENT_NAMES,
+    AssignmentName,
     MixedPercentageNumberSplitConfig,
+    NoSplitConfig,
     NumberSplitConfig,
     SPLIT_NAMES,
     SimpleSplitConfig,
@@ -31,8 +34,10 @@ AssignmentSource = Literal[
     "automatic_fixed",
     "automatic_percentage",
     "automatic_remainder",
+    "no_split",
     "unassigned",
 ]
+SplitLayout = Literal["partitioned", "unsplit"]
 
 
 class SplitTargetWarning(UserWarning):
@@ -45,8 +50,20 @@ class SplitAssignment:
 
     sample_id: str
     split_group_key: str
-    assigned_split: SplitName | None
+    assigned_split: AssignmentName | None
     source: AssignmentSource
+
+    def __post_init__(self) -> None:
+        if self.assigned_split is not None:
+            normalized = str(self.assigned_split).strip().lower()
+            if normalized not in ASSIGNMENT_NAMES:
+                valid = ", ".join(ASSIGNMENT_NAMES)
+                raise ValueError(f"assigned_split must be one of {valid}.")
+            object.__setattr__(self, "assigned_split", normalized)
+        if self.source == "no_split" and self.assigned_split != "unsplit":
+            raise ValueError("A no_split assignment must use the unsplit destination.")
+        if self.assigned_split == "unsplit" and self.source != "no_split":
+            raise ValueError("The unsplit destination requires a no_split assignment.")
 
 
 @dataclass(frozen=True)
@@ -67,6 +84,25 @@ class SplitPlan:
 
     assignments: tuple[SplitAssignment, ...]
     warnings: tuple[SplitWarning, ...] = ()
+    layout: SplitLayout = "partitioned"
+
+    def __post_init__(self) -> None:
+        if self.layout not in {"partitioned", "unsplit"}:
+            raise ValueError("split-plan layout must be partitioned or unsplit.")
+        assignments = tuple(self.assignments)
+        if any(not isinstance(item, SplitAssignment) for item in assignments):
+            raise TypeError("assignments must contain SplitAssignment objects.")
+        split_names = {
+            item.assigned_split
+            for item in assignments
+            if item.assigned_split is not None
+        }
+        if self.layout == "unsplit" and split_names - {"unsplit"}:
+            raise ValueError("An unsplit plan cannot contain partition assignments.")
+        if self.layout == "partitioned" and "unsplit" in split_names:
+            raise ValueError("A partitioned plan cannot contain unsplit assignments.")
+        object.__setattr__(self, "assignments", assignments)
+        object.__setattr__(self, "warnings", tuple(self.warnings))
 
     def assignment_for(self, sample_id: str) -> SplitAssignment:
         """Return one assignment using case-insensitive sample identity."""
@@ -86,7 +122,8 @@ class SplitPlan:
             for item in self.assignments
             if item.assigned_split is not None
         )
-        return {name: int(counts.get(name, 0)) for name in SPLIT_NAMES}
+        names = ("unsplit",) if self.layout == "unsplit" else SPLIT_NAMES
+        return {name: int(counts.get(name, 0)) for name in names}
 
 
 @dataclass
@@ -348,10 +385,35 @@ def plan_splits(
             SimpleSplitConfig,
             MixedPercentageNumberSplitConfig,
             NumberSplitConfig,
+            NoSplitConfig,
         ),
     ):
         raise TypeError("config must be a supported split configuration.")
     ordered_requests = materialize_requests(requests)
+    if isinstance(config, NoSplitConfig):
+        explicitly_split = tuple(
+            request.sample_id
+            for request in ordered_requests
+            if request.assigned_split is not None
+        )
+        if explicitly_split:
+            raise ValueError(
+                "NoSplitConfig does not accept caller-assigned train/val/test "
+                "membership: "
+                + ", ".join(explicitly_split)
+            )
+        return SplitPlan(
+            assignments=tuple(
+                SplitAssignment(
+                    sample_id=request.sample_id,
+                    split_group_key=request.split_group_key,
+                    assigned_split="unsplit",
+                    source="no_split",
+                )
+                for request in ordered_requests
+            ),
+            layout="unsplit",
+        )
     groups = _request_groups(ordered_requests)
     _apply_locked_assignments(
         groups,
@@ -419,6 +481,7 @@ __all__ = [
     "SplitAssignment",
     "SplitPlan",
     "SplitTargetWarning",
+    "SplitLayout",
     "SplitWarning",
     "plan_splits",
 ]
