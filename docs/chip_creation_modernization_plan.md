@@ -677,7 +677,7 @@ implying that external rasters and labels are checked into this repository.
   focused C4 tests passed in the project's fully enabled HPC container,
   including the multi-zone lunar reprojection regression.
 
-## Phase C5 — Assemble and write model-ready chips `[In Progress]`
+## Phase C5 — Assemble and write model-ready chips `[Complete]`
 
 - `[Complete]` **C5.1** Select and order bands within each modality from explicit
   configuration or cube metadata.
@@ -695,7 +695,7 @@ implying that external rasters and labels are checked into this repository.
 - `[Complete]` **C5.5** Reopen each written chip and verify channel count, shape,
   CRS, transform, dataset-wide NoData, band descriptions, per-band masks, and
   finite-data coverage.
-- `[In Progress]` **C5.6** Add regression tests for band order, including the legacy
+- `[Complete]` **C5.6** Add regression tests for band order, including the legacy
   WAC VIS-then-UV ordering where required.
 
 ### C5 implementation evidence
@@ -723,31 +723,65 @@ implying that external rasters and labels are checked into this repository.
   validity masks, finite valid pixels, and nonempty coverage for required
   bands. A failed write or validation removes its temporary GeoTIFF.
 - The 130-test modern suite passes locally with 34 GDAL/NumPy-dependent tests
-  skipped. Both dependency-free C5 path tests pass; eight raster-backed C5
-  tests await the fully enabled HPC environment before C5.6 is completed.
+  skipped. Both dependency-free C5 path tests pass. On 2026-09-03, all ten
+  focused C5 tests passed in the project's fully enabled HPC container,
+  including GeoTIFF write/reopen validation and legacy WAC VIS-then-UV order.
 
-## Phase C6 — Publish validated pairs and dataset splits `[Planned]`
+## Phase C6 — Publish validated pairs and dataset splits `[In Progress]`
 
-- `[Planned]` **C6.1** Preserve each preflight-valid semantic `.npy` label or
+- `[Complete]` **C6.1** Preserve each preflight-valid semantic `.npy` label or
   instance `.npz` archive without rewriting its contents or assuming the
   legacy `data` key.
-- `[Planned]` **C6.2** Publish each validated image-label pair into its assigned
+- `[Complete]` **C6.2** Publish each validated image-label pair into its assigned
   `train/val/test/{chips,labels}` directories. Use bounded staging and cleanup
   so a per-sample publication error does not leave an orphan final chip or
   label, and never publish either file for a label-preflight failure.
-- `[Planned]` **C6.3** Write a deterministic split manifest containing at least
+- `[Complete]` **C6.3** Write a deterministic split manifest containing at least
   the sample ID, split-group key, assigned or unassigned split status, concrete
   split-config type, percentages, fixed targets and their priority, requested
   and realized counts, warnings, stable hash algorithm/version and
   dataset-creation seed, AOI or target-grid identity, source label path, output
   paths, and processing status. Keep failed sample assignments in the manifest
   for auditability.
-- `[Planned]` **C6.4** Validate the produced directory membership and manifest:
+- `[Complete]` **C6.4** Validate the produced directory membership and manifest:
   every successful sample appears exactly once, samples sharing a group key do
   not cross splits, and no failed or mismatched sample has a final dataset
   artifact.
-- `[Planned]` **C6.5** Confirm that the shared semantic and instance datasets can
+- `[In Progress]` **C6.5** Confirm that the shared semantic and instance datasets can
   discover and load representative generated pairs from every populated split.
+
+### C6 implementation evidence
+
+- `model/chip_publication.py` revalidates the source label and staged chip
+  immediately before publication, records their validated SHA-256 identities,
+  and copies them into bounded per-destination staging files. It publishes both
+  through no-overwrite hard links and rolls back the first artifact if the
+  second publication fails. Semantic and instance labels retain byte-identical
+  `.npy` or `.npz` contents and receive canonical `<sample-id>_label` names.
+- Successful pairs are placed only in their assigned
+  `train/val/test/{chips,labels}` directories. Existing outputs are never
+  replaced implicitly, and a non-success result is invalid if it exposes final
+  output paths.
+- `dataset_manifest.json` has a versioned, deterministic JSON schema and no
+  volatile timestamp. It records a SHA-256 configuration identity, complete
+  chip and split configuration, stable split hash contract and seed, requested
+  and realized split counts, fixed-target warnings, target grid and geographic
+  AOI, assignment source, effective product selectors, source label and final
+  paths, preflight diagnostics, processing status, and diagnostic path. Rows
+  are case-insensitively ordered by full sample ID, including failed and
+  unassigned samples, and the output can be reused as a prior split manifest.
+- Publication validation requires exact on-disk membership: every successful
+  sample has exactly one chip and label in one split, leakage groups do not
+  cross splits, no extra split artifacts exist, and failed or mismatched
+  samples have no final artifact. An optional manifest is parsed and compared
+  with the complete expected document.
+- `ChipResult` now retains the effective acquisition selectors separately from
+  caller-provided request overrides so the manifest can audit derived WAC/NAC
+  product IDs as well as explicit selectors.
+- The 139-test modern suite passes locally with 37 GDAL/NumPy-dependent tests
+  skipped. All six dependency-free C6 manifest tests pass; three
+  raster-and-loader-backed C6 tests await the fully enabled HPC environment
+  before C6.5 is completed.
 
 ## Phase C7 — Add sequential batch orchestration `[Planned]`
 

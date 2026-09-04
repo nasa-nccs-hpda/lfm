@@ -353,6 +353,7 @@ class ChipResult:
     chip_path: Path | None = None
     label_path: Path | None = None
     cube_records: tuple[TileCubeRecord, ...] = ()
+    effective_selectors: tuple[SourceSelector, ...] = ()
     diagnostic_path: Path | None = None
     message: str | None = None
     elapsed_seconds: float | None = None
@@ -373,6 +374,20 @@ class ChipResult:
         if any(not isinstance(item, TileCubeRecord) for item in records):
             raise TypeError("cube_records must contain TileCubeRecord objects.")
         object.__setattr__(self, "cube_records", records)
+        selectors = tuple(self.effective_selectors)
+        if any(not isinstance(item, SourceSelector) for item in selectors):
+            raise TypeError(
+                "effective_selectors must contain SourceSelector objects."
+            )
+        selector_keys = [
+            (item.acquisition_group.casefold(), item.source_name.casefold())
+            for item in selectors
+        ]
+        if len(set(selector_keys)) != len(selector_keys):
+            raise ValueError(
+                "effective_selectors must be unique by acquisition group and source."
+            )
+        object.__setattr__(self, "effective_selectors", selectors)
         if self.message is not None:
             object.__setattr__(self, "message", str(self.message))
         if self.elapsed_seconds is not None:

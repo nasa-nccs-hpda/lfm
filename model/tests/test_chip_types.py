@@ -125,6 +125,9 @@ class ChipTypesTestCase(unittest.TestCase):
             request=self.request(),
             status="failed",
             preflight=preflight,
+            effective_selectors=(
+                SourceSelector("wac_grid", "wac", "M1187363083CE"),
+            ),
             message="label mismatch",
             elapsed_seconds=0.25,
         )
@@ -137,6 +140,10 @@ class ChipTypesTestCase(unittest.TestCase):
 
         self.assertEqual(reference.path, Path("/references/M1_r0_c0.tif"))
         self.assertEqual(result.preflight.label_diagnostics, (diagnostic,))
+        self.assertEqual(
+            result.effective_selectors[0].product_id,
+            "M1187363083CE",
+        )
         self.assertEqual(error.sample_id, "M1_r0_c0")
         self.assertEqual(error.diagnostics, (diagnostic,))
         self.assertEqual(error.label_path, Path("/labels/M1_r0_c0_label.npy"))
