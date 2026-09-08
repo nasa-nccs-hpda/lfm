@@ -460,7 +460,11 @@ def _apply_default_output_bands(
         )
     )
     if source.name.casefold() == "wac" and not has_explicit_policy:
-        return replace(modality, band_names=WAC_BAND_NAMES)
+        return replace(
+            modality,
+            band_names=WAC_BAND_NAMES,
+            output_band_names=WAC_BAND_NAMES,
+        )
     return modality
 
 

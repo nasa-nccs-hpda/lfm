@@ -106,6 +106,10 @@ class ChipConfigTestCase(unittest.TestCase):
         self.assertEqual(config.sample_limit, 10)
         self.assertEqual(config.acquisition_group("wac_grid").tile_config.zoom_level, 5)
         self.assertEqual(config.output_modalities[0].band_names, WAC_BAND_NAMES)
+        self.assertEqual(
+            config.output_modalities[0].output_band_names,
+            WAC_BAND_NAMES,
+        )
 
     def test_default_wac_order_is_vis_then_uv_and_explicit_policy_wins(self):
         self.assertEqual(

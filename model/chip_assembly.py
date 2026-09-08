@@ -172,12 +172,17 @@ def _selection_indices(
     available_names: tuple[str, ...],
 ) -> tuple[int, ...]:
     if modality.band_names is not None:
-        folded: dict[str, list[int]] = {}
-        for index, name in enumerate(available_names):
-            folded.setdefault(name.casefold(), []).append(index)
         selected: list[int] = []
         for requested in modality.band_names:
-            matches = folded.get(requested.casefold(), [])
+            pattern = re.compile(
+                rf"(?:^|[._-]){re.escape(requested)}$",
+                flags=re.IGNORECASE,
+            )
+            matches = [
+                index
+                for index, available in enumerate(available_names)
+                if pattern.search(available)
+            ]
             if not matches:
                 raise _error(
                     reprojection,

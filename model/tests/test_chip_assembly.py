@@ -288,7 +288,10 @@ class ChipAssemblyRasterTestCase(unittest.TestCase):
                 config,
                 (
                     (
-                        (*WAC_UV_BAND_NAMES, *WAC_VIS_BAND_NAMES),
+                        tuple(
+                            f"M1096558039CE.prj.{name}"
+                            for name in (*WAC_UV_BAND_NAMES, *WAC_VIS_BAND_NAMES)
+                        ),
                         wac_values,
                         wac_values > 0,
                         "complete",
