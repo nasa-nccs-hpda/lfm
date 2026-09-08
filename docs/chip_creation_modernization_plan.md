@@ -820,13 +820,13 @@ implying that external rasters and labels are checked into this repository.
   sample's explicitly resolved intermediate directory.
 - `[Complete]` **C7.5** Validate the serial workflow before introducing any
   optional multiprocessing adapter.
-- `[In-P]` **C7.6** Prove that repeated serial runs with the same inputs,
+- `[Complete]` **C7.6** Prove that repeated serial runs with the same inputs,
   split configuration, and seed produce byte-identical manifests and identical
   directory membership regardless of discovery order for all four split
   configs. Prove that a different dataset-creation seed may change automatic
   membership without affecting caller- or prior-manifest-assigned splits, and
   that unmet number targets warn without stopping later samples.
-- `[Planned]` **C7.7** If still needed after profiling, add multiprocessing using
+- `[In-P]` **C7.7** If still needed after profiling, add multiprocessing using
   the same single-request operation and result contract.
 
 ### C7 implementation evidence
@@ -834,7 +834,19 @@ implying that external rasters and labels are checked into this repository.
 - `model/chip_creation.py` exposes one prepared-request `create_chip` operation,
   deterministic iterable-level `create_chips`, and a sorted reference-directory
   convenience. `ChipBatchResult` retains the prepared requests, per-sample
-  structured results, split plan, manifest path, and batch timing.
+  structured results, split plan, manifest path, batch timing, and effective
+  worker count.
+- `create_chips` and its reference-directory convenience remain serial by
+  default and accept opt-in `max_workers`. Values greater than one use spawned
+  processes so workers do not inherit GDAL state established during main-process
+  preflight. Each worker disables nested GDAL threading unless the environment
+  already supplies an explicit setting. Ordered pool mapping preserves prepared
+  request/result order; split planning, label preflight, exact membership
+  validation, and manifest publication remain in the coordinator process.
+  `ChipBatchResult.elapsed_seconds`, `worker_count`, and each sample's elapsed
+  time provide the measurements for comparing serial and parallel HPC runs;
+  representative raster throughput and memory profiling remain the C7.7 exit
+  check.
 - Batch orchestration catches typed label mismatches, records the planned split
   and failed result, writes no final pair, and continues. Acquisition failures
   are `partial` only when structured records or inventoried files exist;
@@ -850,16 +862,20 @@ implying that external rasters and labels are checked into this repository.
   through explicit `overwrite=True`; pair and manifest replacement preserve a
   prior artifact for rollback and reject symlinks, non-files, or conflicting
   artifacts in another split rather than deleting them implicitly.
-- The 158-test modern suite passes locally with 42 dependency-backed tests
-  skipped. Nine dependency-free orchestration tests pass, including batch
+- The 160-test modern suite passes locally with 42 dependency-backed tests
+  skipped. Eleven dependency-free orchestration tests pass, including batch
   continuation, bounded retention, unattempted-work diagnostics, sorted
   reference-directory forwarding, all four deterministic split modes, and
-  nonfatal unmet number targets. The batch-level seed test proves that changing
-  the seed can move automatic membership while preserving caller- and
-  prior-manifest-assigned samples. On 2026-09-04, all 57 focused C7.1-C7.5
+  nonfatal unmet number targets. A real two-process spawn test proves serial and
+  parallel runs retain byte-identical manifests and deterministic result order;
+  invalid worker counts fail before preflight. The batch-level seed test proves
+  that changing the seed can move automatic membership while preserving caller-
+  and prior-manifest-assigned samples. On 2026-09-04, all 57 focused C7.1-C7.5
   validation tests passed in the project's fully enabled HPC container,
   including the complete raster stage-integration and publication
-  overwrite-rollback paths.
+  overwrite-rollback paths. On 2026-09-08, all 22 focused C7.6 orchestration
+  and split tests passed in that environment, including the batch-level
+  seed-change and nonfatal number-shortfall proofs.
 
 ## Phase C8 — Validate complete datasets on HPC `[Planned]`
 

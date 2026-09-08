@@ -1,11 +1,13 @@
-"""Sequential orchestration for target-grid-driven chip creation."""
+"""Deterministic orchestration for target-grid-driven chip creation."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, replace
 import json
 import math
+import multiprocessing
 import os
 from pathlib import Path
 import shutil
@@ -51,13 +53,14 @@ CHIP_DIAGNOSTIC_VERSION = 1
 
 @dataclass(frozen=True)
 class ChipBatchResult:
-    """Complete deterministic outcome of one sequential dataset run."""
+    """Complete deterministic outcome of one dataset run."""
 
     prepared_requests: tuple[PreparedChipRequest, ...]
     results: tuple[ChipResult, ...]
     split_plan: SplitPlan
     manifest_path: Path
     elapsed_seconds: float
+    worker_count: int = 1
 
     def __post_init__(self) -> None:
         prepared = tuple(self.prepared_requests)
@@ -79,6 +82,13 @@ class ChipBatchResult:
         if not math.isfinite(elapsed) or elapsed < 0.0:
             raise ValueError("elapsed_seconds must be finite and nonnegative.")
         object.__setattr__(self, "elapsed_seconds", elapsed)
+        if isinstance(self.worker_count, bool) or not isinstance(
+            self.worker_count,
+            int,
+        ):
+            raise TypeError("worker_count must be an integer.")
+        if self.worker_count < 1:
+            raise ValueError("worker_count must be positive.")
 
 
 def _preflight_diagnostics(prepared: PreparedChipRequest) -> tuple[ChipDiagnostic, ...]:
@@ -598,7 +608,7 @@ def create_chip(
         raise
     finally:
         # Raster datasets are closed inside their owning stage. Dropping these
-        # potentially large arrays promptly keeps sequential batches bounded.
+        # potentially large arrays promptly keeps each worker bounded.
         acquisition = None
 
 
@@ -630,46 +640,101 @@ def _label_failure_result(
     return _finish_result(prepared, result, None, config, overwrite=overwrite)
 
 
+def _run_prepared_request(
+    prepared: PreparedChipRequest,
+    config: ChipConfig,
+    overwrite: bool,
+) -> ChipResult:
+    """Run one prepared request with the batch-level label-error contract."""
+    started = time.perf_counter()
+    try:
+        return create_chip(prepared, config, overwrite=overwrite)
+    except LabelMismatchError as exc:
+        return _label_failure_result(
+            prepared,
+            exc,
+            config,
+            overwrite=overwrite,
+            elapsed_seconds=time.perf_counter() - started,
+        )
+
+
+def _initialize_chip_worker() -> None:
+    """Prevent nested GDAL threading inside each spawned worker process."""
+    os.environ.setdefault("GDAL_NUM_THREADS", "1")
+
+
+def _run_prepared_task(
+    task: tuple[PreparedChipRequest, ChipConfig, bool],
+) -> ChipResult:
+    """Picklable process-pool entry point for one isolated sample."""
+    return _run_prepared_request(*task)
+
+
+def _validate_max_workers(max_workers: int) -> None:
+    if isinstance(max_workers, bool) or not isinstance(max_workers, int):
+        raise TypeError("max_workers must be an integer.")
+    if max_workers < 1:
+        raise ValueError("max_workers must be positive.")
+
+
+def _effective_worker_count(max_workers: int, request_count: int) -> int:
+    _validate_max_workers(max_workers)
+    return min(max_workers, max(1, request_count))
+
+
 def create_chips(
     requests: Iterable[ChipRequest],
     config: ChipConfig,
     *,
     overwrite: bool = False,
+    max_workers: int = 1,
 ) -> ChipBatchResult:
-    """Create a deterministic dataset serially while isolating sample failures."""
+    """Create a deterministic dataset with opt-in process parallelism."""
     if not isinstance(config, ChipConfig):
         raise TypeError("config must be a ChipConfig.")
     if not isinstance(overwrite, bool):
         raise TypeError("overwrite must be a boolean.")
+    _validate_max_workers(max_workers)
     started = time.perf_counter()
     preflight: BatchPreflightResult = preflight_chip_requests(tuple(requests), config)
-    results: list[ChipResult] = []
-    for prepared in preflight.requests:
-        sample_started = time.perf_counter()
-        try:
-            result = create_chip(prepared, config, overwrite=overwrite)
-        except LabelMismatchError as exc:
-            result = _label_failure_result(
-                prepared,
-                exc,
-                config,
-                overwrite=overwrite,
-                elapsed_seconds=time.perf_counter() - sample_started,
+    worker_count = _effective_worker_count(max_workers, len(preflight.requests))
+    if worker_count == 1:
+        results = tuple(
+            _run_prepared_request(prepared, config, overwrite)
+            for prepared in preflight.requests
+        )
+    else:
+        context = multiprocessing.get_context("spawn")
+        tasks = (
+            (prepared, config, overwrite) for prepared in preflight.requests
+        )
+        with ProcessPoolExecutor(
+            max_workers=worker_count,
+            mp_context=context,
+            initializer=_initialize_chip_worker,
+        ) as executor:
+            results = tuple(
+                executor.map(
+                    _run_prepared_task,
+                    tasks,
+                    chunksize=1,
+                )
             )
-        results.append(result)
     manifest_path = write_dataset_manifest(
         preflight.requests,
-        tuple(results),
+        results,
         preflight.split_plan,
         config,
         overwrite=overwrite,
     )
     return ChipBatchResult(
         prepared_requests=preflight.requests,
-        results=tuple(results),
+        results=results,
         split_plan=preflight.split_plan,
         manifest_path=manifest_path,
         elapsed_seconds=time.perf_counter() - started,
+        worker_count=worker_count,
     )
 
 
@@ -681,8 +746,9 @@ def create_chips_from_reference_directory(
     recursive: bool = False,
     edge_samples: int = DEFAULT_EDGE_SAMPLES,
     overwrite: bool = False,
+    max_workers: int = 1,
 ) -> ChipBatchResult:
-    """Discover sorted reference TIFFs and create their chips serially."""
+    """Discover sorted reference TIFFs and create their chips deterministically."""
     requests = chip_requests_from_reference_directory(
         directory,
         split_group_key=split_group_key,
@@ -690,7 +756,12 @@ def create_chips_from_reference_directory(
         edge_samples=edge_samples,
         sample_limit=config.sample_limit,
     )
-    return create_chips(requests, config, overwrite=overwrite)
+    return create_chips(
+        requests,
+        config,
+        overwrite=overwrite,
+        max_workers=max_workers,
+    )
 
 
 __all__ = [

@@ -392,6 +392,7 @@ class ChipCreationTestCase(unittest.TestCase):
                 split_group_key=grouping,
                 recursive=True,
                 overwrite=True,
+                max_workers=3,
             )
 
             self.assertIs(result, expected)
@@ -402,7 +403,57 @@ class ChipCreationTestCase(unittest.TestCase):
                 edge_samples=21,
                 sample_limit=None,
             )
-            create_many.assert_called_once_with(requests, config, overwrite=True)
+            create_many.assert_called_once_with(
+                requests,
+                config,
+                overwrite=True,
+                max_workers=3,
+            )
+
+    @mock.patch("lfm.model.chip_creation.preflight_chip_requests")
+    def test_worker_count_is_validated_before_preflight(self, preflight):
+        with tempfile.TemporaryDirectory() as directory:
+            config = self.config(Path(directory))
+            for value, error in ((True, TypeError), (1.5, TypeError), (0, ValueError)):
+                with self.subTest(max_workers=value):
+                    with self.assertRaises(error):
+                        create_chips((), config, max_workers=value)
+
+        preflight.assert_not_called()
+
+    def test_spawn_workers_process_every_request_in_deterministic_order(self):
+        requests = tuple(self.request(index) for index in range(1, 4))
+        with tempfile.TemporaryDirectory() as directory:
+            config = self.config(Path(directory))
+            serial = create_chips(requests, config)
+            serial_manifest = serial.manifest_path.read_bytes()
+
+            batch = create_chips(
+                tuple(reversed(requests)),
+                config,
+                overwrite=True,
+                max_workers=2,
+            )
+
+            parallel_manifest = batch.manifest_path.read_bytes()
+            manifest = json.loads(parallel_manifest)
+
+        expected_ids = tuple(request.sample_id for request in requests)
+        self.assertEqual(batch.worker_count, 2)
+        self.assertEqual(serial.worker_count, 1)
+        self.assertEqual(serial_manifest, parallel_manifest)
+        self.assertEqual(
+            tuple(result.request.sample_id for result in batch.results),
+            expected_ids,
+        )
+        self.assertEqual(
+            tuple(item["sample_id"] for item in manifest["samples"]),
+            expected_ids,
+        )
+        self.assertEqual(
+            {result.status for result in batch.results},
+            {"failed"},
+        )
 
     def _failed_preflight_batch(self, requests, config):
         ordered = materialize_requests(requests, sample_limit=config.sample_limit)
