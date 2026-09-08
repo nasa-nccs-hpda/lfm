@@ -408,6 +408,8 @@ class ChipCreationTestCase(unittest.TestCase):
                 config,
                 overwrite=True,
                 max_workers=3,
+                progress=False,
+                progress_mode="auto",
             )
 
     @mock.patch("lfm.model.chip_creation.preflight_chip_requests")
@@ -420,6 +422,87 @@ class ChipCreationTestCase(unittest.TestCase):
                         create_chips((), config, max_workers=value)
 
         preflight.assert_not_called()
+
+    @mock.patch("lfm.model.chip_creation.preflight_chip_requests")
+    def test_progress_options_are_validated_before_preflight(self, preflight):
+        with tempfile.TemporaryDirectory() as directory:
+            config = self.config(Path(directory))
+            invalid = (
+                ("yes", "auto", TypeError),
+                (False, None, TypeError),
+                (False, "verbose", ValueError),
+            )
+            for progress, mode, error in invalid:
+                with self.subTest(progress=progress, progress_mode=mode):
+                    with self.assertRaises(error):
+                        create_chips(
+                            (),
+                            config,
+                            progress=progress,
+                            progress_mode=mode,
+                        )
+
+        preflight.assert_not_called()
+
+    @mock.patch("lfm.model.chip_creation.preflight_chip_requests")
+    def test_parallel_log_progress_reports_worker_stages_and_failures(
+        self,
+        preflight,
+    ):
+        class FakeBar:
+            def __init__(self, **kwargs):
+                self.total = kwargs["total"]
+                self.count = 0
+
+            def set_postfix(self, *_args, **_kwargs):
+                pass
+
+            def update(self, count):
+                self.count += count
+
+            def close(self):
+                pass
+
+        class FakeTqdm:
+            def __init__(self):
+                self.bars = []
+                self.messages = []
+
+            def __call__(self, **kwargs):
+                bar = FakeBar(**kwargs)
+                self.bars.append(bar)
+                return bar
+
+            def write(self, message, **_kwargs):
+                self.messages.append(message)
+
+        requests = tuple(self.request(index) for index in range(1, 3))
+        fake_tqdm = FakeTqdm()
+        with tempfile.TemporaryDirectory() as directory:
+            config = self.config(Path(directory))
+            preflight.side_effect = self._failed_preflight_batch
+            with mock.patch(
+                "lfm.model.chip_creation._load_tqdm",
+                return_value=fake_tqdm,
+            ):
+                batch = create_chips(
+                    requests,
+                    config,
+                    max_workers=2,
+                    progress=True,
+                    progress_mode="log",
+                )
+
+        output = "\n".join(fake_tqdm.messages)
+        self.assertEqual(
+            tuple(result.status for result in batch.results),
+            ("failed",) * 2,
+        )
+        self.assertEqual(fake_tqdm.bars[0].count, len(requests))
+        for request in requests:
+            self.assertIn(request.sample_id, output)
+        self.assertIn("preflight: failed", output)
+        self.assertIn("terminal: failed", output)
 
     def test_spawn_workers_process_every_request_in_deterministic_order(self):
         requests = tuple(self.request(index) for index in range(1, 4))

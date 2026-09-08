@@ -83,6 +83,39 @@ def _timing_summary(values: list[float]) -> dict[str, float | None]:
     }
 
 
+def _diagnostic_document(diagnostic: Any) -> dict[str, Any]:
+    return {
+        "stage": diagnostic.stage,
+        "code": diagnostic.code,
+        "message": diagnostic.message,
+        "severity": diagnostic.severity,
+        "acquisition_group": diagnostic.acquisition_group,
+        "source_name": diagnostic.source_name,
+        "zone": diagnostic.zone,
+        "zoom_level": diagnostic.zoom_level,
+        "tile_x": diagnostic.tile_x,
+        "tile_y": diagnostic.tile_y,
+    }
+
+
+def _result_document(result: Any, manifest_sample: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "sample_id": result.request.sample_id,
+        "assigned_split": manifest_sample["assigned_split"],
+        "processing_status": result.status,
+        "elapsed_seconds": result.elapsed_seconds,
+        "message": result.message,
+        "chip_path": None if result.chip_path is None else str(result.chip_path),
+        "label_path": None if result.label_path is None else str(result.label_path),
+        "diagnostic_path": (
+            None if result.diagnostic_path is None else str(result.diagnostic_path)
+        ),
+        "diagnostics": [
+            _diagnostic_document(diagnostic) for diagnostic in result.diagnostics
+        ],
+    }
+
+
 def _build_config(args: argparse.Namespace) -> Any:
     from lfm.model import (
         AcquisitionGroupConfig,
@@ -202,6 +235,8 @@ def _run_profile(args: argparse.Namespace) -> int:
         requests,
         config,
         max_workers=args.max_workers,
+        progress=args.progress,
+        progress_mode=args.progress_mode,
     )
     finished_at = _utc_now()
     statuses = Counter(result.status for result in batch.results)
@@ -214,7 +249,7 @@ def _run_profile(args: argparse.Namespace) -> int:
         batch.manifest_path.read_text(encoding="utf-8")
     )["samples"]
     report = {
-        "profile_version": 1,
+        "profile_version": 2,
         "case_name": args.case_name,
         "started_at_utc": started_at,
         "finished_at_utc": finished_at,
@@ -260,24 +295,38 @@ def _run_profile(args: argparse.Namespace) -> int:
             "status_counts": dict(sorted(statuses.items())),
             "manifest_path": str(batch.manifest_path),
             "manifest_sha256": _sha256(batch.manifest_path),
+            "all_samples_succeeded": statuses == {"success": len(batch.results)},
             "samples": [
-                {
-                    "sample_id": item["sample_id"],
-                    "assigned_split": item["assigned_split"],
-                    "processing_status": item["processing_status"],
-                }
-                for item in manifest_samples
+                _result_document(result, manifest_sample)
+                for result, manifest_sample in zip(
+                    batch.results,
+                    manifest_samples,
+                    strict=True,
+                )
             ],
         },
     }
     _write_json(args.report_path, report)
     print(json.dumps(report, indent=2, sort_keys=True, allow_nan=False))
 
-    if statuses != {"success": len(batch.results)}:
-        raise RuntimeError(
-            "Profiling requires every sample to succeed; see report status_counts "
-            f"at {args.report_path}."
+    failed = [result for result in batch.results if result.status != "success"]
+    if failed:
+        print(
+            f"Profile completed with {len(failed)} non-successful chip(s); "
+            f"full diagnostics: {args.report_path}",
+            file=sys.stderr,
         )
+        for result in failed:
+            errors = [
+                f"{item.stage}/{item.code}: {item.message}"
+                for item in result.diagnostics
+                if item.severity == "error"
+            ]
+            detail = "; ".join(errors) or result.message or "no error diagnostic"
+            print(
+                f"  {result.request.sample_id} [{result.status}]: {detail}",
+                file=sys.stderr,
+            )
     return 0
 
 
@@ -369,9 +418,36 @@ def _compare_profiles(args: argparse.Namespace) -> int:
     parallel = _load_json(args.parallel_report)
     serial_samples = serial["outcome"]["samples"]
     parallel_samples = parallel["outcome"]["samples"]
-    if serial_samples != parallel_samples:
+
+    def comparable(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        diagnostic_keys = (
+            "stage",
+            "code",
+            "severity",
+            "acquisition_group",
+            "source_name",
+            "zone",
+            "zoom_level",
+            "tile_x",
+            "tile_y",
+        )
+        return [
+            {
+                "sample_id": sample["sample_id"],
+                "assigned_split": sample["assigned_split"],
+                "processing_status": sample["processing_status"],
+                "diagnostics": [
+                    {key: diagnostic.get(key) for key in diagnostic_keys}
+                    for diagnostic in sample.get("diagnostics", ())
+                ],
+            }
+            for sample in samples
+        ]
+
+    if comparable(serial_samples) != comparable(parallel_samples):
         raise AssertionError(
-            "Serial and parallel sample identity, assignments, or statuses differ."
+            "Serial and parallel sample identity, assignments, statuses, or "
+            "diagnostic codes differ."
         )
     serial_measurement = _load_json(args.serial_measurement)
     parallel_measurement = _load_json(args.parallel_measurement)
@@ -400,9 +476,14 @@ def _compare_profiles(args: argparse.Namespace) -> int:
         raise ValueError("Profile timings, RSS values, and worker count must be positive.")
     speedup = serial_seconds / parallel_seconds
     report = {
-        "comparison_version": 1,
+        "comparison_version": 2,
         "created_at_utc": _utc_now(),
         "sample_count": len(serial_samples),
+        "status_counts": serial["outcome"]["status_counts"],
+        "all_samples_succeeded": serial["outcome"].get(
+            "all_samples_succeeded",
+            False,
+        ),
         "parallel_worker_count": worker_count,
         "chip_batch": {
             "serial_seconds": serial_seconds,
@@ -445,6 +526,12 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--output-root", type=Path, required=True)
     run.add_argument("--report-path", type=Path, required=True)
     run.add_argument("--max-workers", type=int, required=True)
+    run.add_argument("--progress", action="store_true")
+    run.add_argument(
+        "--progress-mode",
+        choices=("auto", "live", "log"),
+        default="auto",
+    )
     run.add_argument("--sample-limit", type=int, default=8)
     run.add_argument("--zoom-level", type=int, default=5)
     run.add_argument("--recursive", action="store_true")

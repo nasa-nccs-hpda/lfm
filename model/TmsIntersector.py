@@ -14,9 +14,10 @@ class TmsIntersector:
     # ------------------------------------------------------------------------
     # __init__
     # ------------------------------------------------------------------------
-    def __init__(self):
+    def __init__(self, *, verbose: bool = True):
 
         self._zones = {}
+        self._verbose = verbose
 
         # Load all zone JSON files
         for jsonFile in TmsTileDef.JSON_DIR.glob('*.json'):
@@ -27,7 +28,8 @@ class TmsIntersector:
                 self._zones[zoneDef.zone] = zoneDef
 
             except Exception as e:
-                print(f'Error loading {jsonFile}: {e}')
+                if self._verbose:
+                    print(f'Error loading {jsonFile}: {e}')
 
     # ------------------------------------------------------------------------
     # getTids
@@ -52,7 +54,8 @@ class TmsIntersector:
             # Check if bbox intersects this zone
             if zoneDef.intersectsBbox(ulLat, ulLon, lrLat, lrLon):
 
-                print('Found LTM zone intersection:', zone)
+                if self._verbose:
+                    print('Found LTM zone intersection:', zone)
 
                 # Get overlapping tile indices
                 indices = zoneDef.getIntersectingTiles(

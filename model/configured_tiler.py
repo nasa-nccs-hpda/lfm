@@ -166,7 +166,7 @@ class ConfiguredTiler:
         lr_lat: float,
         lr_lon: float,
     ) -> list[TileCubeRecord]:
-        tile_indexes = TmsIntersector().getTids(
+        tile_indexes = TmsIntersector(verbose=False).getTids(
             ul_lat,
             ul_lon,
             lr_lat,

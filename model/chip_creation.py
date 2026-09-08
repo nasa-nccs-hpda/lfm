@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Iterable
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from dataclasses import dataclass, replace
 import json
 import math
 import multiprocessing
 import os
 from pathlib import Path
+from queue import Empty
 import shutil
+import sys
 import time
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from .chip_acquisition import (
@@ -49,6 +52,213 @@ from .chip_types import (
 
 
 CHIP_DIAGNOSTIC_VERSION = 1
+
+ChipProgressStage = Literal[
+    "preflight",
+    "tiling",
+    "mosaic/reproject/clip",
+    "assemble/write",
+    "publish",
+    "cleanup",
+]
+ChipProgressState = Literal["started", "completed", "failed", "skipped"]
+ProgressMode = Literal["auto", "live", "log"]
+_PROGRESS_STAGES = frozenset(
+    {
+        "preflight",
+        "tiling",
+        "mosaic/reproject/clip",
+        "assemble/write",
+        "publish",
+        "cleanup",
+    }
+)
+_PROGRESS_STATES = frozenset({"started", "completed", "failed", "skipped"})
+
+
+@dataclass(frozen=True)
+class ChipProgressEvent:
+    """Picklable worker-to-coordinator update for one reference chip."""
+
+    sample_id: str
+    stage: ChipProgressStage
+    state: ChipProgressState
+    worker_pid: int
+    detail: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.sample_id, str) or not self.sample_id.strip():
+            raise ValueError("sample_id must be a nonempty string.")
+        if self.stage not in _PROGRESS_STAGES:
+            raise ValueError(f"Unsupported chip progress stage: {self.stage!r}.")
+        if self.state not in _PROGRESS_STATES:
+            raise ValueError(f"Unsupported chip progress state: {self.state!r}.")
+        if isinstance(self.worker_pid, bool) or not isinstance(self.worker_pid, int):
+            raise TypeError("worker_pid must be an integer.")
+        if self.worker_pid < 1:
+            raise ValueError("worker_pid must be positive.")
+        if self.detail is not None and not isinstance(self.detail, str):
+            raise TypeError("detail must be a string or None.")
+
+
+def _load_tqdm() -> Any:
+    try:
+        from tqdm.auto import tqdm
+    except ImportError as exc:
+        raise RuntimeError(
+            "Progress display requires tqdm; install tqdm or use progress=False."
+        ) from exc
+    return tqdm
+
+
+def _supports_live_progress() -> bool:
+    if sys.stdout.isatty():
+        return True
+    ipython = sys.modules.get("IPython")
+    get_ipython = (
+        None if ipython is None else getattr(ipython, "get_ipython", None)
+    )
+    if get_ipython is None:
+        return False
+    shell = get_ipython()
+    return shell is not None and type(shell).__name__ == "ZMQInteractiveShell"
+
+
+class _ChipProgressReporter:
+    """Render all progress from the coordinator process onto stdout."""
+
+    def __init__(
+        self,
+        total: int,
+        worker_count: int,
+        *,
+        enabled: bool,
+        mode: ProgressMode,
+    ) -> None:
+        self.enabled = enabled
+        self.mode: Literal["live", "log"] = (
+            "live"
+            if mode == "auto" and _supports_live_progress()
+            else "log"
+            if mode == "auto"
+            else mode
+        )
+        self.worker_count = worker_count
+        self._counts: Counter[str] = Counter()
+        self._completed_samples: set[str] = set()
+        self._sample_workers: dict[str, int] = {}
+        self._worker_bars: dict[int, Any] = {}
+        self._tqdm: Any | None = None
+        self._overall: Any | None = None
+        if enabled:
+            self._tqdm = _load_tqdm()
+            self._overall = self._tqdm(
+                total=total,
+                desc="Reference chips",
+                unit="chip",
+                file=sys.stdout,
+                dynamic_ncols=self.mode == "live",
+                mininterval=0.5,
+                position=0,
+                leave=True,
+            )
+
+    def _worker_bar(self, worker_pid: int) -> Any:
+        bar = self._worker_bars.get(worker_pid)
+        if bar is None:
+            position = len(self._worker_bars) + 1
+            bar = self._tqdm(
+                total=0,
+                bar_format="{desc}",
+                file=sys.stdout,
+                position=position,
+                leave=False,
+                dynamic_ncols=True,
+            )
+            self._worker_bars[worker_pid] = bar
+        return bar
+
+    def stage(self, event: ChipProgressEvent) -> None:
+        if not self.enabled or event.sample_id in self._completed_samples:
+            return
+        self._sample_workers[event.sample_id] = event.worker_pid
+        message = (
+            f"worker {event.worker_pid} | {event.sample_id} | "
+            f"{event.stage}: {event.state}"
+        )
+        if event.detail:
+            message = f"{message} ({event.detail})"
+        if self.mode == "log":
+            self._tqdm.write(message, file=sys.stdout)
+            return
+        bar = self._worker_bar(event.worker_pid)
+        bar.set_description_str(message, refresh=True)
+
+    def complete(self, result: ChipResult) -> None:
+        if not self.enabled:
+            return
+        sample_id = result.request.sample_id
+        if sample_id in self._completed_samples:
+            return
+        self._completed_samples.add(sample_id)
+        self._counts[result.status] += 1
+        worker_pid = self._sample_workers.get(sample_id, os.getpid())
+        terminal = f"worker {worker_pid} | {sample_id} | terminal: {result.status}"
+        if result.status in {"failed", "partial"}:
+            errors = [
+                f"{item.stage}/{item.code}: {item.message}"
+                for item in result.diagnostics
+                if item.severity == "error"
+            ]
+            if errors:
+                terminal = f"{terminal} ({'; '.join(errors)})"
+            elif result.message:
+                terminal = f"{terminal} ({result.message})"
+        if self.mode == "log":
+            self._tqdm.write(terminal, file=sys.stdout)
+        else:
+            bar = self._worker_bars.get(worker_pid)
+            if bar is not None:
+                bar.set_description_str(terminal, refresh=True)
+        self._overall.set_postfix(
+            dict(sorted(self._counts.items())),
+            refresh=False,
+        )
+        self._overall.update(1)
+
+    def close(self) -> None:
+        if not self.enabled:
+            return
+        for bar in self._worker_bars.values():
+            bar.close()
+        self._overall.close()
+
+
+_WORKER_PROGRESS_QUEUE: Any | None = None
+
+
+def _emit_progress(
+    callback: Callable[[ChipProgressEvent], None] | None,
+    prepared: PreparedChipRequest,
+    stage: ChipProgressStage,
+    state: ChipProgressState,
+    detail: str | None = None,
+) -> None:
+    if callback is not None:
+        callback(
+            ChipProgressEvent(
+                sample_id=prepared.request.sample_id,
+                stage=stage,
+                state=state,
+                worker_pid=os.getpid(),
+                detail=detail,
+            )
+        )
+
+
+def _queue_worker_progress(event: ChipProgressEvent) -> None:
+    if _WORKER_PROGRESS_QUEUE is not None:
+        _WORKER_PROGRESS_QUEUE.put(event)
 
 
 @dataclass(frozen=True)
@@ -421,11 +631,35 @@ def _finish_result(
     config: ChipConfig,
     *,
     overwrite: bool,
+    progress_callback: Callable[[ChipProgressEvent], None] | None = None,
 ) -> ChipResult:
+    retained = _should_retain_intermediates(config, result.status)
+    _emit_progress(
+        progress_callback,
+        prepared,
+        "cleanup",
+        "started",
+        "retaining intermediates" if retained else None,
+    )
     diagnostics = list(result.diagnostics)
     cleanup = _cleanup_intermediates(prepared, config, result.status)
     if cleanup is not None:
         diagnostics.append(cleanup)
+        _emit_progress(
+            progress_callback,
+            prepared,
+            "cleanup",
+            "failed",
+            cleanup.message,
+        )
+    else:
+        _emit_progress(
+            progress_callback,
+            prepared,
+            "cleanup",
+            "completed",
+            "retained by policy" if retained else None,
+        )
     diagnostic_path = (
         config.output_root / "diagnostics" / f"{prepared.request.sample_id}.json"
     )
@@ -464,6 +698,7 @@ def create_chip(
     config: ChipConfig,
     *,
     overwrite: bool = False,
+    _progress_callback: Callable[[ChipProgressEvent], None] | None = None,
 ) -> ChipResult:
     """Run one prepared request serially through acquisition and publication."""
     if not isinstance(prepared, PreparedChipRequest):
@@ -475,6 +710,13 @@ def create_chip(
     started = time.perf_counter()
     preflight_diagnostics = _preflight_diagnostics(prepared)
     if prepared.preflight.status == "failed":
+        _emit_progress(
+            _progress_callback,
+            prepared,
+            "preflight",
+            "failed",
+            preflight_diagnostics[0].message if preflight_diagnostics else None,
+        )
         if prepared.assignment.assigned_split is not None:
             message = (
                 preflight_diagnostics[0].message
@@ -491,8 +733,22 @@ def create_chip(
             prepared,
             elapsed_seconds=time.perf_counter() - started,
         )
-        return _finish_result(prepared, result, None, config, overwrite=overwrite)
+        return _finish_result(
+            prepared,
+            result,
+            None,
+            config,
+            overwrite=overwrite,
+            progress_callback=_progress_callback,
+        )
     if not prepared.eligible_for_acquisition:
+        _emit_progress(
+            _progress_callback,
+            prepared,
+            "preflight",
+            "skipped",
+            "not assigned to a dataset split",
+        )
         result = ChipResult(
             request=prepared.request,
             status="skipped",
@@ -501,7 +757,21 @@ def create_chip(
             message="Request was not assigned to a dataset split.",
             elapsed_seconds=time.perf_counter() - started,
         )
-        return _finish_result(prepared, result, None, config, overwrite=overwrite)
+        return _finish_result(
+            prepared,
+            result,
+            None,
+            config,
+            overwrite=overwrite,
+            progress_callback=_progress_callback,
+        )
+
+    _emit_progress(
+        _progress_callback,
+        prepared,
+        "preflight",
+        "completed",
+    )
 
     if overwrite:
         cleanup = _clear_sample_intermediates(prepared, config)
@@ -520,11 +790,18 @@ def create_chip(
                 None,
                 config,
                 overwrite=overwrite,
+                progress_callback=_progress_callback,
             )
 
     acquisition: ChipAcquisitionResult | None = None
     diagnostics = list(preflight_diagnostics)
     try:
+        _emit_progress(
+            _progress_callback,
+            prepared,
+            "tiling",
+            "started",
+        )
         acquisition = acquire_prepared_request(prepared, config)
         diagnostics.extend(_acquisition_diagnostics(acquisition, config))
         selectors = _effective_selectors(acquisition)
@@ -538,6 +815,13 @@ def create_chip(
                 ),
                 "Chip acquisition failed.",
             )
+            _emit_progress(
+                _progress_callback,
+                prepared,
+                "tiling",
+                "failed",
+                message,
+            )
             result = ChipResult(
                 request=prepared.request,
                 status=status,
@@ -549,10 +833,52 @@ def create_chip(
                 elapsed_seconds=time.perf_counter() - started,
             )
         else:
+            _emit_progress(
+                _progress_callback,
+                prepared,
+                "tiling",
+                "completed",
+            )
             try:
+                _emit_progress(
+                    _progress_callback,
+                    prepared,
+                    "mosaic/reproject/clip",
+                    "started",
+                )
                 reprojection = reproject_acquisition(acquisition, config)
+                _emit_progress(
+                    _progress_callback,
+                    prepared,
+                    "mosaic/reproject/clip",
+                    "completed",
+                )
+                _emit_progress(
+                    _progress_callback,
+                    prepared,
+                    "assemble/write",
+                    "started",
+                )
                 written = assemble_and_write_chip(reprojection, config)
+                _emit_progress(
+                    _progress_callback,
+                    prepared,
+                    "assemble/write",
+                    "completed",
+                )
+                _emit_progress(
+                    _progress_callback,
+                    prepared,
+                    "publish",
+                    "started",
+                )
                 result = publish_chip_pair(written, config, overwrite=overwrite)
+                _emit_progress(
+                    _progress_callback,
+                    prepared,
+                    "publish",
+                    "completed",
+                )
                 result = replace(
                     result,
                     diagnostics=tuple(diagnostics),
@@ -561,6 +887,13 @@ def create_chip(
             except LabelMismatchError:
                 raise
             except ChipReprojectionError as exc:
+                _emit_progress(
+                    _progress_callback,
+                    prepared,
+                    "mosaic/reproject/clip",
+                    "failed",
+                    str(exc),
+                )
                 diagnostics.append(_stage_diagnostic("reprojection", exc))
                 result = ChipResult(
                     prepared.request,
@@ -573,6 +906,13 @@ def create_chip(
                     elapsed_seconds=time.perf_counter() - started,
                 )
             except ChipAssemblyError as exc:
+                _emit_progress(
+                    _progress_callback,
+                    prepared,
+                    "assemble/write",
+                    "failed",
+                    str(exc),
+                )
                 diagnostics.append(_stage_diagnostic("assembly", exc))
                 result = ChipResult(
                     prepared.request,
@@ -585,6 +925,13 @@ def create_chip(
                     elapsed_seconds=time.perf_counter() - started,
                 )
             except ChipPublicationError as exc:
+                _emit_progress(
+                    _progress_callback,
+                    prepared,
+                    "publish",
+                    "failed",
+                    str(exc),
+                )
                 diagnostics.append(_stage_diagnostic("publication", exc))
                 result = ChipResult(
                     prepared.request,
@@ -602,6 +949,7 @@ def create_chip(
             acquisition,
             config,
             overwrite=overwrite,
+            progress_callback=_progress_callback,
         )
     except LabelMismatchError:
         _cleanup_intermediates(prepared, config, "failed")
@@ -619,6 +967,7 @@ def _label_failure_result(
     *,
     overwrite: bool,
     elapsed_seconds: float,
+    progress_callback: Callable[[ChipProgressEvent], None] | None = None,
 ) -> ChipResult:
     diagnostics = tuple(
         ChipDiagnostic(
@@ -637,18 +986,33 @@ def _label_failure_result(
         message=str(exc),
         elapsed_seconds=elapsed_seconds,
     )
-    return _finish_result(prepared, result, None, config, overwrite=overwrite)
+    return _finish_result(
+        prepared,
+        result,
+        None,
+        config,
+        overwrite=overwrite,
+        progress_callback=progress_callback,
+    )
 
 
 def _run_prepared_request(
     prepared: PreparedChipRequest,
     config: ChipConfig,
     overwrite: bool,
+    progress_callback: Callable[[ChipProgressEvent], None] | None = None,
 ) -> ChipResult:
     """Run one prepared request with the batch-level label-error contract."""
     started = time.perf_counter()
     try:
-        return create_chip(prepared, config, overwrite=overwrite)
+        if progress_callback is None:
+            return create_chip(prepared, config, overwrite=overwrite)
+        return create_chip(
+            prepared,
+            config,
+            overwrite=overwrite,
+            _progress_callback=progress_callback,
+        )
     except LabelMismatchError as exc:
         return _label_failure_result(
             prepared,
@@ -656,11 +1020,14 @@ def _run_prepared_request(
             config,
             overwrite=overwrite,
             elapsed_seconds=time.perf_counter() - started,
+            progress_callback=progress_callback,
         )
 
 
-def _initialize_chip_worker() -> None:
+def _initialize_chip_worker(progress_queue: Any | None = None) -> None:
     """Prevent nested GDAL threading inside each spawned worker process."""
+    global _WORKER_PROGRESS_QUEUE
+    _WORKER_PROGRESS_QUEUE = progress_queue
     os.environ.setdefault("GDAL_NUM_THREADS", "1")
 
 
@@ -668,7 +1035,10 @@ def _run_prepared_task(
     task: tuple[PreparedChipRequest, ChipConfig, bool],
 ) -> ChipResult:
     """Picklable process-pool entry point for one isolated sample."""
-    return _run_prepared_request(*task)
+    callback = (
+        _queue_worker_progress if _WORKER_PROGRESS_QUEUE is not None else None
+    )
+    return _run_prepared_request(*task, progress_callback=callback)
 
 
 def _validate_max_workers(max_workers: int) -> None:
@@ -683,12 +1053,87 @@ def _effective_worker_count(max_workers: int, request_count: int) -> int:
     return min(max_workers, max(1, request_count))
 
 
+def _validate_progress_options(progress: bool, progress_mode: ProgressMode) -> None:
+    if not isinstance(progress, bool):
+        raise TypeError("progress must be a boolean.")
+    if not isinstance(progress_mode, str):
+        raise TypeError("progress_mode must be a string.")
+    if progress_mode not in {"auto", "live", "log"}:
+        raise ValueError("progress_mode must be 'auto', 'live', or 'log'.")
+
+
+def _drain_progress_events(
+    progress_queue: Any,
+    reporter: _ChipProgressReporter,
+) -> None:
+    while True:
+        try:
+            event = progress_queue.get_nowait()
+        except Empty:
+            return
+        reporter.stage(event)
+
+
+def _run_parallel_requests(
+    requests: tuple[PreparedChipRequest, ...],
+    config: ChipConfig,
+    overwrite: bool,
+    worker_count: int,
+    reporter: _ChipProgressReporter,
+) -> tuple[ChipResult, ...]:
+    context = multiprocessing.get_context("spawn")
+    tasks = tuple((prepared, config, overwrite) for prepared in requests)
+    if not reporter.enabled:
+        with ProcessPoolExecutor(
+            max_workers=worker_count,
+            mp_context=context,
+            initializer=_initialize_chip_worker,
+        ) as executor:
+            return tuple(executor.map(_run_prepared_task, tasks, chunksize=1))
+
+    ordered_results: list[ChipResult | None] = [None] * len(tasks)
+    progress_queue = context.Queue()
+    try:
+        with ProcessPoolExecutor(
+            max_workers=worker_count,
+            mp_context=context,
+            initializer=_initialize_chip_worker,
+            initargs=(progress_queue,),
+        ) as executor:
+            futures = {
+                executor.submit(_run_prepared_task, task): index
+                for index, task in enumerate(tasks)
+            }
+            pending = set(futures)
+            while pending:
+                _drain_progress_events(progress_queue, reporter)
+                completed, pending = wait(
+                    pending,
+                    timeout=0.1,
+                    return_when=FIRST_COMPLETED,
+                )
+                for future in completed:
+                    result = future.result()
+                    _drain_progress_events(progress_queue, reporter)
+                    ordered_results[futures[future]] = result
+                    reporter.complete(result)
+            _drain_progress_events(progress_queue, reporter)
+    finally:
+        progress_queue.close()
+        progress_queue.join_thread()
+    if any(result is None for result in ordered_results):
+        raise RuntimeError("A chip worker completed without returning a result.")
+    return tuple(result for result in ordered_results if result is not None)
+
+
 def create_chips(
     requests: Iterable[ChipRequest],
     config: ChipConfig,
     *,
     overwrite: bool = False,
     max_workers: int = 1,
+    progress: bool = False,
+    progress_mode: ProgressMode = "auto",
 ) -> ChipBatchResult:
     """Create a deterministic dataset with opt-in process parallelism."""
     if not isinstance(config, ChipConfig):
@@ -696,38 +1141,47 @@ def create_chips(
     if not isinstance(overwrite, bool):
         raise TypeError("overwrite must be a boolean.")
     _validate_max_workers(max_workers)
+    _validate_progress_options(progress, progress_mode)
     started = time.perf_counter()
     preflight: BatchPreflightResult = preflight_chip_requests(tuple(requests), config)
     worker_count = _effective_worker_count(max_workers, len(preflight.requests))
-    if worker_count == 1:
-        results = tuple(
-            _run_prepared_request(prepared, config, overwrite)
-            for prepared in preflight.requests
-        )
-    else:
-        context = multiprocessing.get_context("spawn")
-        tasks = (
-            (prepared, config, overwrite) for prepared in preflight.requests
-        )
-        with ProcessPoolExecutor(
-            max_workers=worker_count,
-            mp_context=context,
-            initializer=_initialize_chip_worker,
-        ) as executor:
-            results = tuple(
-                executor.map(
-                    _run_prepared_task,
-                    tasks,
-                    chunksize=1,
-                )
-            )
-    manifest_path = write_dataset_manifest(
-        preflight.requests,
-        results,
-        preflight.split_plan,
-        config,
-        overwrite=overwrite,
+    reporter = _ChipProgressReporter(
+        len(preflight.requests),
+        worker_count,
+        enabled=progress,
+        mode=progress_mode,
     )
+    try:
+        if worker_count == 1:
+            callback = reporter.stage if progress else None
+            collected: list[ChipResult] = []
+            for prepared in preflight.requests:
+                result = _run_prepared_request(
+                    prepared,
+                    config,
+                    overwrite,
+                    progress_callback=callback,
+                )
+                collected.append(result)
+                reporter.complete(result)
+            results = tuple(collected)
+        else:
+            results = _run_parallel_requests(
+                preflight.requests,
+                config,
+                overwrite,
+                worker_count,
+                reporter,
+            )
+        manifest_path = write_dataset_manifest(
+            preflight.requests,
+            results,
+            preflight.split_plan,
+            config,
+            overwrite=overwrite,
+        )
+    finally:
+        reporter.close()
     return ChipBatchResult(
         prepared_requests=preflight.requests,
         results=results,
@@ -747,6 +1201,8 @@ def create_chips_from_reference_directory(
     edge_samples: int = DEFAULT_EDGE_SAMPLES,
     overwrite: bool = False,
     max_workers: int = 1,
+    progress: bool = False,
+    progress_mode: ProgressMode = "auto",
 ) -> ChipBatchResult:
     """Discover sorted reference TIFFs and create their chips deterministically."""
     requests = chip_requests_from_reference_directory(
@@ -761,12 +1217,18 @@ def create_chips_from_reference_directory(
         config,
         overwrite=overwrite,
         max_workers=max_workers,
+        progress=progress,
+        progress_mode=progress_mode,
     )
 
 
 __all__ = [
     "CHIP_DIAGNOSTIC_VERSION",
     "ChipBatchResult",
+    "ChipProgressEvent",
+    "ChipProgressStage",
+    "ChipProgressState",
+    "ProgressMode",
     "create_chip",
     "create_chips",
     "create_chips_from_reference_directory",

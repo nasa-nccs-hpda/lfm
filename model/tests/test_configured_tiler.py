@@ -141,6 +141,7 @@ class ConfiguredTilerIntegrationTestCase(unittest.TestCase):
             with self.assertRaises(MissingRequiredSourceError) as raised:
                 tiler.run_aoi(1.3, 149.7, 1.1, 149.9)
 
+        intersector_cls.assert_called_once_with(verbose=False)
         self.assertEqual(
             raised.exception.completed_records,
             (first, within_failure),

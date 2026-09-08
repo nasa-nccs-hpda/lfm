@@ -153,6 +153,8 @@ run_case() {
         --output-root "${dataset_root}" \
         --report-path "${report_path}" \
         --max-workers "${worker_count}" \
+        --progress \
+        --progress-mode log \
         "${COMMON_ARGS[@]}"
 }
 

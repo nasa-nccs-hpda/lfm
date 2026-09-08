@@ -848,7 +848,15 @@ implying that external rasters and labels are checked into this repository.
   `scripts/python/all_tasks/profile_chip_creation_parallelism.py` and its Slurm
   wrapper run clean serial and parallel reference-driven datasets, sample
   aggregate process-tree RSS through Linux `/proc`, and write a combined
-  speedup/memory report without relying on an external `time` binary.
+  speedup/memory report without relying on an external `time` binary. Optional
+  coordinator-owned progress tracks completed reference chips on stdout while
+  workers send structured stage events through a multiprocessing queue. Auto
+  mode uses fixed worker lines in a terminal or notebook and durable stage log
+  lines under Slurm; workers never own progress bars. Reported stages are
+  preflight, tiling, the actual combined mosaic/reproject/clip operation,
+  assembly/write, publication, and cleanup. Profiling reports preserve each
+  failed sample's message and typed diagnostics, and per-sample failures do not
+  prevent the serial/parallel comparison from completing.
   Representative raster throughput and memory results remain the C7.7 exit
   check.
 - Batch orchestration catches typed label mismatches, records the planned split
@@ -872,7 +880,9 @@ implying that external rasters and labels are checked into this repository.
   reference-directory forwarding, all four deterministic split modes, and
   nonfatal unmet number targets. A real two-process spawn test proves serial and
   parallel runs retain byte-identical manifests and deterministic result order;
-  invalid worker counts fail before preflight. The batch-level seed test proves
+  a real two-process progress test proves worker stage/failure events reach the
+  coordinator, and invalid worker or progress options fail before preflight.
+  The batch-level seed test proves
   that changing the seed can move automatic membership while preserving caller-
   and prior-manifest-assigned samples. On 2026-09-04, all 57 focused C7.1-C7.5
   validation tests passed in the project's fully enabled HPC container,
