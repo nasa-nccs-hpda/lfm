@@ -429,6 +429,25 @@ class ChipPublicationRasterTestCase(unittest.TestCase):
                 f"stderr:\n{completed.stderr}"
             )
 
+    def load_training_image_io(self):
+        module_path = (
+            Path(__file__).resolve().parents[2]
+            / "lfm/all_models/all_tasks/data/image_io.py"
+        )
+        specification = importlib.util.spec_from_file_location(
+            "_lfm_training_image_io_test",
+            module_path,
+        )
+        if specification is None or specification.loader is None:
+            self.fail(f"Could not load training image I/O module: {module_path}")
+        module = importlib.util.module_from_spec(specification)
+        sys.modules[specification.name] = module
+        try:
+            specification.loader.exec_module(module)
+        finally:
+            sys.modules.pop(specification.name, None)
+        return module
+
     def request(self, sample_id, split):
         return ChipRequest(
             sample_id=sample_id,
@@ -640,24 +659,18 @@ for split in ("train", "val", "test"):
 
             result = publish_chip_pair(written, config)
             self.assertEqual(result.label_path.read_bytes(), source_label.read_bytes())
-            self.run_training_loader(
-                """
-import sys
-from pathlib import Path
-from lfm.all_models.inst_seg.data.instance_dataset import LunarInstanceMaskDataset
+            with self.np.load(result.label_path, allow_pickle=False) as archive:
+                self.assertNotIn("data", archive.files)
 
-dataset = LunarInstanceMaskDataset(
-    Path(sys.argv[1]),
-    target_size=(2, 3),
-    scale_inputs=False,
-)
-sample = dataset[0]
-assert tuple(sample["image"].shape) == (1, 2, 3)
-assert tuple(sample["mask"].shape) == (2, 3)
-assert int(sample["num_craters"]) == 1
-""",
-                config.output_root / "test",
+            image_io = self.load_training_image_io()
+            loaded = image_io.read_label_file_with_metadata(result.label_path)
+            self.assertIsInstance(loaded, dict)
+            self.np.testing.assert_array_equal(
+                loaded["mask"],
+                self.np.asarray(((1, 0, 0), (0, 0, 0))),
             )
+            self.assertEqual(int(loaded["num_craters"]), 1)
+            self.assertEqual(self.np.asarray(loaded["bboxes"]).shape, (1, 4))
 
     def test_second_publication_failure_rolls_back_first_artifact(self):
         with tempfile.TemporaryDirectory() as directory:
