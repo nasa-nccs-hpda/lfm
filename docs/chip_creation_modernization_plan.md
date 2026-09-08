@@ -921,7 +921,7 @@ implying that external rasters and labels are checked into this repository.
   record its product selectors, native NoData configuration, and acquisition
   zoom. Use zoom 11 for the known 1 m processed NAC example unless the selected
   dataset establishes another resolution contract.
-- `[Planned]` **C8.3** Run WAC-plus-static creation with the intended full static
+- `[In-P]` **C8.3** Run WAC-plus-static creation with the intended full static
   band list and confirm final band order.
 - `[Planned]` **C8.4** Compare representative outputs with the legacy chip
   workflow numerically and visually, documenting intentional differences.
@@ -950,6 +950,13 @@ implying that external rasters and labels are checked into this repository.
   order, which that validator version did not reject. The built-in WAC default
   and validator assertion now require VIS-then-UV; an HPC rerun and plot review
   remain the C8.1 exit check.
+- `scripts/shell/all_tasks/sbatch_create_modern_wac_static_dataset.sh` provides
+  the C8.3 full-dataset run: one modern process-parallel pass over every
+  discovered reference TIFF, 16 workers by default, WAC plus all canonical
+  static bands, product-grouped default train/validation/test assignment,
+  worker-aware log progress, and failed-sample intermediate retention. Its
+  Python runner records the complete per-sample report without duplicating that
+  potentially large document into the Slurm log.
 
 ## Phase C9 — Modernize the chip example notebook `[Planned]`
 

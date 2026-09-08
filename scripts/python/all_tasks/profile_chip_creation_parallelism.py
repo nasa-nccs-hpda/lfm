@@ -129,6 +129,7 @@ def _build_config(args: argparse.Namespace) -> Any:
         STATIC_OUTPUT_NODATA,
         TileConfig,
         TileSourceConfig,
+        default_split_config,
     )
 
     wac_data_dir = _require_directory(args.wac_data_dir, "WAC data directory")
@@ -189,13 +190,18 @@ def _build_config(args: argparse.Namespace) -> Any:
             sources=tuple(sources),
         ),
     )
+    split_config = (
+        NoSplitConfig()
+        if args.split_policy == "no-split"
+        else default_split_config()
+    )
     return ChipConfig(
         output_root=args.output_root,
         intermediate_root=args.output_root / ".intermediate",
         label_source=args.label_source,
         acquisition_groups=(group,),
         output_modalities=tuple(modalities),
-        split_config=NoSplitConfig(),
+        split_config=split_config,
         sample_limit=args.sample_limit,
         intermediate_retention=args.intermediate_retention,
     )
@@ -211,6 +217,10 @@ def _run_profile(args: argparse.Namespace) -> int:
     args.label_source = _require_directory(args.label_source, "label directory")
     args.output_root = args.output_root.expanduser().resolve()
     args.report_path = args.report_path.expanduser().resolve()
+    if args.all_samples:
+        args.sample_limit = None
+    elif args.sample_limit is None or args.sample_limit < 1:
+        raise ValueError("--sample-limit must be positive.")
     if args.report_path.exists():
         raise FileExistsError(
             f"Refusing to overwrite an existing profile report: {args.report_path}"
@@ -276,6 +286,7 @@ def _run_profile(args: argparse.Namespace) -> int:
             ),
             "zoom_level": args.zoom_level,
             "sample_limit": args.sample_limit,
+            "split_policy": args.split_policy,
         },
         "execution": {
             "requested_max_workers": args.max_workers,
@@ -307,7 +318,23 @@ def _run_profile(args: argparse.Namespace) -> int:
         },
     }
     _write_json(args.report_path, report)
-    print(json.dumps(report, indent=2, sort_keys=True, allow_nan=False))
+    if args.summary_only:
+        print(
+            json.dumps(
+                {
+                    "report_path": str(args.report_path),
+                    "sample_count": len(batch.results),
+                    "status_counts": dict(sorted(statuses.items())),
+                    "manifest_path": str(batch.manifest_path),
+                    "elapsed_seconds": batch.elapsed_seconds,
+                },
+                indent=2,
+                sort_keys=True,
+                allow_nan=False,
+            )
+        )
+    else:
+        print(json.dumps(report, indent=2, sort_keys=True, allow_nan=False))
 
     failed = [result for result in batch.results if result.status != "success"]
     if failed:
@@ -528,11 +555,31 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--max-workers", type=int, required=True)
     run.add_argument("--progress", action="store_true")
     run.add_argument(
+        "--summary-only",
+        action="store_true",
+        help="Print only batch totals; retain full sample details in the report.",
+    )
+    run.add_argument(
         "--progress-mode",
         choices=("auto", "live", "log"),
         default="auto",
     )
-    run.add_argument("--sample-limit", type=int, default=8)
+    limits = run.add_mutually_exclusive_group()
+    limits.add_argument("--sample-limit", type=int, default=8)
+    limits.add_argument(
+        "--all-samples",
+        action="store_true",
+        help="Process every discovered reference TIFF.",
+    )
+    run.add_argument(
+        "--split-policy",
+        choices=("no-split", "default"),
+        default="no-split",
+        help=(
+            "Use a root chips/labels layout or the repository default "
+            "100-test-then-90/10 grouped train/validation/test split."
+        ),
+    )
     run.add_argument("--zoom-level", type=int, default=5)
     run.add_argument("--recursive", action="store_true")
     run.add_argument(
