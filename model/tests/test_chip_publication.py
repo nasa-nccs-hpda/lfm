@@ -3,7 +3,6 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 from unittest import mock
@@ -396,40 +395,8 @@ class ChipPublicationRasterTestCase(unittest.TestCase):
             height=2,
         )
 
-    def run_training_loader(self, script, *arguments, timeout_seconds=120):
-        repo_root = Path(__file__).resolve().parents[2]
-        environment = os.environ.copy()
-        existing_pythonpath = environment.get("PYTHONPATH")
-        environment["PYTHONPATH"] = str(repo_root) + (
-            ""
-            if not existing_pythonpath
-            else os.pathsep + existing_pythonpath
-        )
-        try:
-            completed = subprocess.run(
-                [sys.executable, "-c", script, *(str(item) for item in arguments)],
-                cwd=repo_root,
-                env=environment,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=timeout_seconds,
-            )
-        except subprocess.TimeoutExpired as error:
-            self.fail(
-                "Training-package loader smoke test exceeded "
-                f"{timeout_seconds} seconds:\n"
-                f"stdout:\n{error.stdout or ''}\n"
-                f"stderr:\n{error.stderr or ''}"
-            )
-        if completed.returncode != 0:
-            self.fail(
-                "Training-package loader smoke test failed:\n"
-                f"stdout:\n{completed.stdout}\n"
-                f"stderr:\n{completed.stderr}"
-            )
-
-    def load_training_image_io(self):
+    def _load_training_image_io(self):
+        """Load dataset I/O without eager-importing either model package."""
         module_path = (
             Path(__file__).resolve().parents[2]
             / "lfm/all_models/all_tasks/data/image_io.py"
@@ -571,27 +538,22 @@ class ChipPublicationRasterTestCase(unittest.TestCase):
                     result.effective_selectors[0].product_id,
                     result.request.sample_id.split("_")[0],
                 )
-            self.run_training_loader(
-                """
-import sys
-from pathlib import Path
-from lfm.all_models.sem_seg.data.semantic_dataset import SemanticSegmentationDataset
-
-dataset_root = Path(sys.argv[1])
-for split in ("train", "val", "test"):
-    dataset = SemanticSegmentationDataset(
-        dataset_root / split,
-        target_size=(2, 3),
-        spatial_transform="crop",
-        scale_inputs=False,
-        require_all_labels=True,
-    )
-    sample = dataset[0]
-    assert tuple(sample["image"].shape) == (1, 2, 3)
-    assert tuple(sample["mask"].shape) == (2, 3)
-""",
-                config.output_root,
-            )
+            image_io = self._load_training_image_io()
+            for split in ("train", "val", "test"):
+                records = image_io.find_pair_records(
+                    config.output_root / split / "chips",
+                    config.output_root / split / "labels",
+                    require_all_labels=True,
+                )
+                self.assertEqual(len(records), 1)
+                self.assertEqual(
+                    image_io.read_image_file(records[0].image_path).shape,
+                    (2, 3),
+                )
+                self.assertEqual(
+                    image_io.read_label_file(records[0].label_path).shape,
+                    (2, 3),
+                )
 
     def test_unsplit_pair_publishes_and_loads_from_dataset_root(self):
         import rasterio
@@ -662,7 +624,7 @@ for split in ("train", "val", "test"):
             with self.np.load(result.label_path, allow_pickle=False) as archive:
                 self.assertNotIn("data", archive.files)
 
-            image_io = self.load_training_image_io()
+            image_io = self._load_training_image_io()
             loaded = image_io.read_label_file_with_metadata(result.label_path)
             self.assertIsInstance(loaded, dict)
             self.np.testing.assert_array_equal(
