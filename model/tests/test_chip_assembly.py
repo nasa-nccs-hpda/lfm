@@ -30,6 +30,11 @@ from lfm.model.chip_types import (
     TargetGrid,
 )
 from lfm.model.tiling_config import TileConfig, TileSourceConfig
+from lfm.model.wac_band_contract import (
+    WAC_BAND_NAMES,
+    WAC_UV_BAND_NAMES,
+    WAC_VIS_BAND_NAMES,
+)
 
 
 HAS_GDAL_NUMPY = (
@@ -269,28 +274,43 @@ class ChipAssemblyRasterTestCase(unittest.TestCase):
                 (10.0, 30.0, 50.0, 40.0),
             )
 
-    def test_legacy_wac_vis_then_uv_order_is_configuration_driven(self):
+    def test_default_wac_order_is_vis_then_uv_then_later_modalities(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            modality = OutputModalityConfig(
-                "coarse",
-                "wac",
-                "wac",
-                band_names=("VIS", "UV"),
+            modalities = (
+                OutputModalityConfig("coarse", "wac", "wac"),
+                OutputModalityConfig("coarse", "static", "static"),
             )
-            config = self.config(root, (modality,))
-            values = self.values((1.0, 2.0))
+            config = self.config(root, modalities)
+            wac_values = self.values(tuple(float(i) for i in range(1, 8)))
+            static_values = self.values((8.0, 9.0))
             result = self.reprojection(
                 config,
-                ((('UV', 'VIS'), values, values > 0, "complete"),),
+                (
+                    (
+                        (*WAC_UV_BAND_NAMES, *WAC_VIS_BAND_NAMES),
+                        wac_values,
+                        wac_values > 0,
+                        "complete",
+                    ),
+                    (
+                        ("elevation", "slope"),
+                        static_values,
+                        static_values > 0,
+                        "complete",
+                    ),
+                ),
             )
 
             assembled = assemble_chip(result, config)
 
-            self.assertEqual(assembled.band_names, ("VIS", "UV"))
+            self.assertEqual(
+                assembled.band_names,
+                (*WAC_BAND_NAMES, "elevation", "slope"),
+            )
             self.assertEqual(
                 tuple(float(item) for item in assembled.pixels[:, 0, 0]),
-                (2.0, 1.0),
+                (3.0, 4.0, 5.0, 6.0, 7.0, 1.0, 2.0, 8.0, 9.0),
             )
 
     def test_missing_optional_modality_uses_nodata_placeholders(self):
@@ -373,7 +393,12 @@ class ChipAssemblyRasterTestCase(unittest.TestCase):
     def test_range_checked_downcast_leaves_no_chip(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            modality = OutputModalityConfig("coarse", "wac", "wac")
+            modality = OutputModalityConfig(
+                "coarse",
+                "wac",
+                "wac",
+                band_names=("VIS",),
+            )
             config = self.config(root, (modality,), output_dtype="float32")
             values = self.values((self.np.finfo(self.np.float64).max,))
             result = self.reprojection(
@@ -392,7 +417,12 @@ class ChipAssemblyRasterTestCase(unittest.TestCase):
     def test_integer_cast_rejects_fractional_valid_pixels(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            modality = OutputModalityConfig("coarse", "wac", "wac")
+            modality = OutputModalityConfig(
+                "coarse",
+                "wac",
+                "wac",
+                band_names=("VIS",),
+            )
             config = self.config(root, (modality,), output_dtype="int16")
             values = self.values((1.5,))
             result = self.reprojection(
@@ -410,7 +440,12 @@ class ChipAssemblyRasterTestCase(unittest.TestCase):
     def test_empty_required_band_fails_reopen_validation_and_cleans_temp(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            modality = OutputModalityConfig("coarse", "wac", "wac")
+            modality = OutputModalityConfig(
+                "coarse",
+                "wac",
+                "wac",
+                band_names=("VIS",),
+            )
             config = self.config(root, (modality,))
             values = self.values((-32768.0,))
             mask = self.np.zeros(values.shape, dtype=bool)

@@ -2,6 +2,10 @@
 
 This is a reference for anyone looking to understand what bands are present in the WAC + Static dataset.
 
+This VIS-then-UV order is the default chip-output contract for an unqualified
+built-in WAC modality. Explicit source or output band selections override it.
+Static bands follow WAC when the static modality is declared after WAC.
+
 ## VIS Bands
 
 * **0** — `vis.mos-0`

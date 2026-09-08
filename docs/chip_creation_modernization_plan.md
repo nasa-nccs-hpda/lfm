@@ -304,9 +304,9 @@ implying that external rasters and labels are checked into this repository.
 
 | Scenario | Acquisition group | Required final behavior |
 |---|---|---|
-| WAC only | WAC at zoom 5 | One seven-band chip on the request grid with explicitly configured VIS-then-UV order where legacy compatibility is requested. |
+| WAC only | WAC at zoom 5 | One seven-band chip on the request grid; an unqualified built-in WAC output defaults to five VIS bands followed by two UV bands. |
 | NAC only | NAC at zoom 11 for the known 1 m example | One configured NAC-band chip on the same request/label grid, with no WAC alias or implicit static source. |
-| WAC plus static | WAC and canonical static at zoom 5 | One 70-band chip in configured modality order: seven WAC bands followed by 63 canonical static bands. |
+| WAC plus static | WAC and canonical static at zoom 5 | One 70-band chip in configured modality order: the default five VIS and two UV bands followed by 63 canonical static bands. |
 | NAC plus static | NAC and canonical static at zoom 11 | One 64-band chip in configured modality order for the one-band NAC acceptance source and 63 canonical static bands. |
 
 - Each positive example resolves and validates its label before acquisition,
@@ -716,16 +716,20 @@ implying that external rasters and labels are checked into this repository.
 - `[Complete]` **C5.5** Reopen each written chip and verify channel count, shape,
   CRS, transform, dataset-wide NoData, band descriptions, per-band masks, and
   finite-data coverage.
-- `[Complete]` **C5.6** Add regression tests for band order, including the legacy
-  WAC VIS-then-UV ordering where required.
+- `[Complete]` **C5.6** Add regression tests for band order, including the
+  built-in WAC default of VIS then UV, followed by later configured modalities
+  such as static. Preserve explicit source or output band selections.
 
 ### C5 implementation evidence
 
 - `model/chip_assembly.py` selects bands by configured names or one-based
   indices, concatenates modalities in configuration order, and preserves cube
-  metadata order when no narrower selection is configured. Automatic names
-  that collide across modalities are qualified with their unique modality
-  aliases; explicit output names remain authoritative and must be unique.
+  metadata order when no narrower selection is configured. `ChipConfig`
+  materializes the canonical VIS-then-UV name selection for an otherwise
+  unqualified built-in WAC output; explicit source or output policies bypass
+  that default. Automatic names that collide across modalities are qualified
+  with their unique modality aliases; explicit output names remain
+  authoritative and must be unique.
 - Missing optional modalities become stable all-NoData placeholder channels
   only when configuration or cube metadata defines their band contract. A
   missing required modality or an unknowable optional channel contract is a
@@ -935,10 +939,17 @@ implying that external rasters and labels are checked into this repository.
   implement the C8.1 validation run. They process the same deterministic WAC
   sample subset through the reference-directory convenience and explicit-AOI
   request APIs, validate both complete publications, require matching sample
-  membership and pixel-identical modern outputs, verify target grids and all
-  seven WAC bands, confirm byte-identical label publication, record instance-ID
-  visibility, and create one four-panel reference/generated/label/overlay plot
-  per sample. HPC execution and manual plot review remain the C8.1 exit check.
+  membership and pixel-identical modern outputs, verify target grids and the
+  exact default VIS-then-UV WAC order, confirm byte-identical label publication,
+  record instance-ID visibility, and create one four-panel
+  reference/generated/label/overlay plot per sample. HPC job 37924350 completed
+  the initial grid, pair, and cross-API checks on 2026-09-08 in 170 seconds and
+  published its report and inspection plots under
+  `/explore/nobackup/people/ajkerr1/lfm_c8_1_wac_37924350`. Visual review exposed
+  that both equal modern outputs had preserved the native UV-then-VIS tiling
+  order, which that validator version did not reject. The built-in WAC default
+  and validator assertion now require VIS-then-UV; an HPC rerun and plot review
+  remain the C8.1 exit check.
 
 ## Phase C9 — Modernize the chip example notebook `[Planned]`
 

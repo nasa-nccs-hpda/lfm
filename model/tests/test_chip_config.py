@@ -16,6 +16,11 @@ from lfm.model.chip_config import (
     split_config_from_dict,
 )
 from lfm.model.tiling_config import TileConfig, TileSourceConfig
+from lfm.model.wac_band_contract import (
+    WAC_BAND_NAMES,
+    WAC_UV_BAND_NAMES,
+    WAC_VIS_BAND_NAMES,
+)
 
 
 class ChipConfigTestCase(unittest.TestCase):
@@ -100,6 +105,29 @@ class ChipConfigTestCase(unittest.TestCase):
         self.assertEqual(config.output_dtype, "float32")
         self.assertEqual(config.sample_limit, 10)
         self.assertEqual(config.acquisition_group("wac_grid").tile_config.zoom_level, 5)
+        self.assertEqual(config.output_modalities[0].band_names, WAC_BAND_NAMES)
+
+    def test_default_wac_order_is_vis_then_uv_and_explicit_policy_wins(self):
+        self.assertEqual(
+            WAC_BAND_NAMES,
+            (*WAC_VIS_BAND_NAMES, *WAC_UV_BAND_NAMES),
+        )
+        explicit_modality = OutputModalityConfig(
+            "wac_grid",
+            "wac",
+            "wac",
+            band_indices=(2, 1),
+        )
+        explicit_output = self.config(output_modalities=(explicit_modality,))
+        self.assertEqual(explicit_output.output_modalities[0], explicit_modality)
+
+        explicit_source = self.source("wac", band_indices=(2, 1))
+        source_selected = self.config(
+            acquisition_groups=(
+                self.group("wac_grid", 5, (explicit_source,)),
+            )
+        )
+        self.assertIsNone(source_selected.output_modalities[0].band_names)
 
     def test_output_modality_qualifies_same_source_in_different_groups(self):
         static = self.source("static")

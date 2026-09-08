@@ -150,6 +150,11 @@ from .static_band_contract import (
     STATIC_BAND_NAMES,
     STATIC_OUTPUT_NODATA,
 )
+from .wac_band_contract import (
+    WAC_BAND_NAMES,
+    WAC_UV_BAND_NAMES,
+    WAC_VIS_BAND_NAMES,
+)
 
 __all__ = [
     "AcquisitionDiagnostic",
@@ -225,6 +230,9 @@ __all__ = [
     "TileSourceError",
     "TileSourceConfig",
     "VectorIndexBuildConfig",
+    "WAC_BAND_NAMES",
+    "WAC_UV_BAND_NAMES",
+    "WAC_VIS_BAND_NAMES",
     "WrittenChip",
     "UnsupportedCoverageError",
     "acquire_prepared_request",

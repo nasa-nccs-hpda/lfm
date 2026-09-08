@@ -154,6 +154,8 @@ def _read_raster(path: Path, request: Any) -> tuple[Any, dict[str, Any]]:
     import numpy as np
     from osgeo import gdal, gdalconst
 
+    from lfm.model import WAC_BAND_NAMES
+
     dataset = gdal.Open(str(path), gdalconst.GA_ReadOnly)
     if dataset is None:
         raise AssertionError(f"GDAL could not open published chip: {path}")
@@ -170,7 +172,7 @@ def _read_raster(path: Path, request: Any) -> tuple[Any, dict[str, Any]]:
     projection = dataset.GetProjection()
     if not projection or not _same_crs(projection, grid.crs_wkt):
         raise AssertionError(f"Published chip CRS disagrees with target grid: {path}")
-    if dataset.RasterCount != 7:
+    if dataset.RasterCount != len(WAC_BAND_NAMES):
         raise AssertionError(
             f"Expected seven WAC bands in {path}, got {dataset.RasterCount}."
         )
@@ -210,6 +212,11 @@ def _read_raster(path: Path, request: Any) -> tuple[Any, dict[str, Any]]:
             }
         )
     raster = np.stack(arrays)
+    actual_names = tuple(item["name"] for item in band_reports)
+    if actual_names != WAC_BAND_NAMES:
+        raise AssertionError(
+            f"WAC output order is {actual_names!r}; expected {WAC_BAND_NAMES!r}."
+        )
     report = {
         "path": str(path),
         "sha256": _sha256(path),

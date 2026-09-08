@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import math
 import operator
 from pathlib import Path
@@ -11,6 +11,7 @@ import re
 from typing import Any, Literal, Protocol, TypeAlias, runtime_checkable
 
 from .tiling_config import TileConfig, tile_config_from_dict
+from .wac_band_contract import WAC_BAND_NAMES
 
 
 ChipResampling = Literal["bilinear", "nearest"]
@@ -443,6 +444,26 @@ def default_split_config() -> MixedPercentageNumberSplitConfig:
     return MixedPercentageNumberSplitConfig()
 
 
+def _apply_default_output_bands(
+    modality: OutputModalityConfig,
+    source: TileSourceConfig,
+) -> OutputModalityConfig:
+    """Apply built-in band order only when the user supplied no band policy."""
+    has_explicit_policy = any(
+        value is not None
+        for value in (
+            source.band_names,
+            source.band_indices,
+            modality.band_names,
+            modality.band_indices,
+            modality.output_band_names,
+        )
+    )
+    if source.name.casefold() == "wac" and not has_explicit_policy:
+        return replace(modality, band_names=WAC_BAND_NAMES)
+    return modality
+
+
 @dataclass(frozen=True)
 class ChipConfig:
     """Top-level configuration shared by every request in one chip batch."""
@@ -512,6 +533,7 @@ class ChipConfig:
                 "Output modalities must not repeat an acquisition-group/source pair."
             )
         groups_by_name = {group.name: group for group in groups}
+        normalized_modalities: list[OutputModalityConfig] = []
         for item in modalities:
             if item.acquisition_group not in groups_by_name:
                 raise ValueError(
@@ -519,7 +541,7 @@ class ChipConfig:
                     f"group {item.acquisition_group!r}."
                 )
             try:
-                groups_by_name[item.acquisition_group].tile_config.source(
+                source = groups_by_name[item.acquisition_group].tile_config.source(
                     item.source_name
                 )
             except KeyError as exc:
@@ -528,6 +550,10 @@ class ChipConfig:
                     f"{item.source_name!r} in acquisition group "
                     f"{item.acquisition_group!r}."
                 ) from exc
+            normalized_modalities.append(
+                _apply_default_output_bands(item, source)
+            )
+        modalities = tuple(normalized_modalities)
         explicit_band_names = [
             name.casefold()
             for item in modalities
