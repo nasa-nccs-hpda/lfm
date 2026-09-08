@@ -846,9 +846,11 @@ implying that external rasters and labels are checked into this repository.
   `ChipBatchResult.elapsed_seconds`, `worker_count`, and each sample's elapsed
   time provide the measurements for comparing serial and parallel HPC runs;
   `scripts/python/all_tasks/profile_chip_creation_parallelism.py` and its Slurm
-  wrapper run clean serial and parallel reference-driven datasets, collect GNU
-  `time -v` peak RSS, and write a combined speedup/memory report. Representative
-  raster throughput and memory results remain the C7.7 exit check.
+  wrapper run clean serial and parallel reference-driven datasets, sample
+  aggregate process-tree RSS through Linux `/proc`, and write a combined
+  speedup/memory report without relying on an external `time` binary.
+  Representative raster throughput and memory results remain the C7.7 exit
+  check.
 - Batch orchestration catches typed label mismatches, records the planned split
   and failed result, writes no final pair, and continues. Acquisition failures
   are `partial` only when structured records or inventoried files exist;

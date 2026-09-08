@@ -50,7 +50,7 @@ CONTAINER_PATH="${CONTAINER_PATH:-/explore/nobackup/projects/lfm/containers/lfm-
 APPTAINER_BIN="${APPTAINER_BIN:-apptainer}"
 APPTAINER_BIND_PATHS="${APPTAINER_BIND_PATHS:-/panfs/ccds02/nobackup:/explore/nobackup}"
 PROFILE_ROOT="${PROFILE_ROOT:-/explore/nobackup/people/${USER}/lfm_chip_parallel_profile_${SLURM_JOB_ID:-manual}}"
-TIME_BIN="${TIME_BIN:-/usr/bin/time}"
+HOST_PYTHON="${HOST_PYTHON:-python3}"
 
 if [[ ! -d "${REFERENCE_DIR}" ]]; then
   echo "REFERENCE_DIR does not exist: ${REFERENCE_DIR}" >&2
@@ -60,8 +60,8 @@ if [[ ! -d "${LABEL_SOURCE}" ]]; then
   echo "LABEL_SOURCE does not exist: ${LABEL_SOURCE}" >&2
   exit 1
 fi
-if [[ ! -x "${TIME_BIN}" ]]; then
-  echo "GNU time executable does not exist: ${TIME_BIN}" >&2
+if ! command -v "${HOST_PYTHON}" >/dev/null 2>&1; then
+  echo "Host Python executable does not exist: ${HOST_PYTHON}" >&2
   exit 1
 fi
 if (( PARALLEL_WORKERS < 2 )); then
@@ -135,23 +135,25 @@ run_case() {
   local worker_count="$2"
   local dataset_root="${PROFILE_ROOT}/${case_name}_dataset"
   local report_path="${PROFILE_ROOT}/${case_name}_profile.json"
-  local time_path="${PROFILE_ROOT}/${case_name}_time.txt"
+  local measurement_path="${PROFILE_ROOT}/${case_name}_measurement.json"
 
-  if [[ -e "${dataset_root}" || -e "${report_path}" || -e "${time_path}" ]]; then
+  if [[ -e "${dataset_root}" || -e "${report_path}" || -e "${measurement_path}" ]]; then
     echo "Refusing to replace an existing ${case_name} profile under ${PROFILE_ROOT}." >&2
     exit 1
   fi
 
   echo
   echo "Starting ${case_name} case with ${worker_count} worker(s)..."
-  "${TIME_BIN}" -v -o "${time_path}" \
-    "${APPTAINER_BIN}" "${APPTAINER_ARGS[@]}" \
-    python -u "${SCRIPT_REL}" run \
-      --case-name "${case_name}" \
-      --output-root "${dataset_root}" \
-      --report-path "${report_path}" \
-      --max-workers "${worker_count}" \
-      "${COMMON_ARGS[@]}"
+  "${HOST_PYTHON}" "${SCRIPT_REL}" measure \
+    --output-path "${measurement_path}" \
+    -- \
+      "${APPTAINER_BIN}" "${APPTAINER_ARGS[@]}" \
+      python -u "${SCRIPT_REL}" run \
+        --case-name "${case_name}" \
+        --output-root "${dataset_root}" \
+        --report-path "${report_path}" \
+        --max-workers "${worker_count}" \
+        "${COMMON_ARGS[@]}"
 }
 
 echo "Job started at: $(date)"
@@ -182,8 +184,8 @@ fi
   python -u "${SCRIPT_REL}" compare \
     --serial-report "${PROFILE_ROOT}/serial_profile.json" \
     --parallel-report "${PROFILE_ROOT}/parallel_profile.json" \
-    --serial-time-report "${PROFILE_ROOT}/serial_time.txt" \
-    --parallel-time-report "${PROFILE_ROOT}/parallel_time.txt" \
+    --serial-measurement "${PROFILE_ROOT}/serial_measurement.json" \
+    --parallel-measurement "${PROFILE_ROOT}/parallel_measurement.json" \
     --output-path "${PROFILE_ROOT}/comparison.json"
 
 END_TIME="$(date +%s)"

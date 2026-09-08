@@ -15,30 +15,15 @@ import platform
 import resource
 import socket
 import statistics
+import subprocess
 import sys
+import time
 from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT.parent) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT.parent))
-
-from lfm.model import (  # noqa: E402
-    AcquisitionGroupConfig,
-    BandNoDataOverride,
-    ChipConfig,
-    MINIRF_SOURCE_NODATA,
-    MINIRF_SOURCE_NODATA_BANDS,
-    NoSplitConfig,
-    OutputModalityConfig,
-    STATIC_BAND_NAMES,
-    STATIC_OUTPUT_NODATA,
-    TileConfig,
-    TileSourceConfig,
-    chip_requests_from_reference_directory,
-    create_chips,
-)
-
 
 DEFAULT_WAC_DATA_DIR = Path(
     "/explore/nobackup/projects/lfm/processed_data/Lunar/LRO_WAC_Pho_Sites"
@@ -98,7 +83,21 @@ def _timing_summary(values: list[float]) -> dict[str, float | None]:
     }
 
 
-def _build_config(args: argparse.Namespace) -> ChipConfig:
+def _build_config(args: argparse.Namespace) -> Any:
+    from lfm.model import (
+        AcquisitionGroupConfig,
+        BandNoDataOverride,
+        ChipConfig,
+        MINIRF_SOURCE_NODATA,
+        MINIRF_SOURCE_NODATA_BANDS,
+        NoSplitConfig,
+        OutputModalityConfig,
+        STATIC_BAND_NAMES,
+        STATIC_OUTPUT_NODATA,
+        TileConfig,
+        TileSourceConfig,
+    )
+
     wac_data_dir = _require_directory(args.wac_data_dir, "WAC data directory")
     wac_index = _require_file(
         args.wac_index or wac_data_dir / "output_index.shp",
@@ -170,6 +169,8 @@ def _build_config(args: argparse.Namespace) -> ChipConfig:
 
 
 def _run_profile(args: argparse.Namespace) -> int:
+    from lfm.model import chip_requests_from_reference_directory, create_chips
+
     args.reference_dir = _require_directory(
         args.reference_dir,
         "reference-chip directory",
@@ -280,29 +281,79 @@ def _run_profile(args: argparse.Namespace) -> int:
     return 0
 
 
-def _elapsed_text_seconds(value: str) -> float:
-    pieces = value.strip().split(":")
-    if len(pieces) == 2:
-        minutes, seconds = pieces
-        return float(minutes) * 60.0 + float(seconds)
-    if len(pieces) == 3:
-        hours, minutes, seconds = pieces
-        return float(hours) * 3600.0 + float(minutes) * 60.0 + float(seconds)
-    raise ValueError(f"Unrecognized GNU time elapsed value: {value!r}")
+def _process_children(pid: int) -> tuple[int, ...]:
+    path = Path(f"/proc/{pid}/task/{pid}/children")
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except (FileNotFoundError, PermissionError, ProcessLookupError):
+        return ()
+    return tuple(int(value) for value in text.split()) if text else ()
 
 
-def _read_gnu_time(path: Path) -> dict[str, float | int]:
-    elapsed = None
-    max_rss = None
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if line.startswith("Elapsed (wall clock) time"):
-            elapsed = _elapsed_text_seconds(line.rsplit(": ", 1)[1])
-        elif line.startswith("Maximum resident set size (kbytes)"):
-            max_rss = int(line.rsplit(": ", 1)[1])
-    if elapsed is None or max_rss is None:
-        raise ValueError(f"Incomplete GNU time report: {path}")
-    return {"elapsed_seconds": elapsed, "maximum_rss_kb": max_rss}
+def _process_tree(root_pid: int) -> set[int]:
+    discovered: set[int] = set()
+    pending = [root_pid]
+    while pending:
+        pid = pending.pop()
+        if pid in discovered:
+            continue
+        discovered.add(pid)
+        pending.extend(_process_children(pid))
+    return discovered
+
+
+def _resident_kb(pid: int) -> int:
+    try:
+        lines = Path(f"/proc/{pid}/status").read_text(encoding="utf-8").splitlines()
+    except (FileNotFoundError, PermissionError, ProcessLookupError):
+        return 0
+    for line in lines:
+        if line.startswith("VmRSS:"):
+            return int(line.split()[1])
+    return 0
+
+
+def _measure_command(args: argparse.Namespace) -> int:
+    command = list(args.command)
+    if command and command[0] == "--":
+        command.pop(0)
+    if not command:
+        raise ValueError("measure requires a command after --.")
+    if args.output_path.exists():
+        raise FileExistsError(
+            f"Refusing to overwrite a measurement: {args.output_path}"
+        )
+    if not math.isfinite(args.interval_seconds) or args.interval_seconds <= 0.0:
+        raise ValueError("--interval-seconds must be finite and positive.")
+    started = time.monotonic()
+    process = subprocess.Popen(command)
+    peak_rss_kb = 0
+    peak_process_count = 0
+    sample_count = 0
+    while True:
+        pids = _process_tree(process.pid)
+        current_rss_kb = sum(_resident_kb(pid) for pid in pids)
+        peak_rss_kb = max(peak_rss_kb, current_rss_kb)
+        peak_process_count = max(peak_process_count, len(pids))
+        sample_count += 1
+        return_code = process.poll()
+        if return_code is not None:
+            break
+        time.sleep(args.interval_seconds)
+    elapsed_seconds = time.monotonic() - started
+    report = {
+        "measurement_version": 1,
+        "command": command,
+        "elapsed_seconds": elapsed_seconds,
+        "peak_process_tree_rss_kb": peak_rss_kb,
+        "peak_process_count": peak_process_count,
+        "sampling_interval_seconds": args.interval_seconds,
+        "sample_count": sample_count,
+        "return_code": return_code,
+    }
+    _write_json(args.output_path, report)
+    print(json.dumps(report, indent=2, sort_keys=True, allow_nan=False))
+    return return_code
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -322,11 +373,31 @@ def _compare_profiles(args: argparse.Namespace) -> int:
         raise AssertionError(
             "Serial and parallel sample identity, assignments, or statuses differ."
         )
-    serial_time = _read_gnu_time(args.serial_time_report)
-    parallel_time = _read_gnu_time(args.parallel_time_report)
+    serial_measurement = _load_json(args.serial_measurement)
+    parallel_measurement = _load_json(args.parallel_measurement)
+    for name, measurement in (
+        ("serial", serial_measurement),
+        ("parallel", parallel_measurement),
+    ):
+        if measurement.get("return_code") != 0:
+            raise ValueError(f"The {name} measured command did not succeed.")
     serial_seconds = float(serial["execution"]["batch_elapsed_seconds"])
     parallel_seconds = float(parallel["execution"]["batch_elapsed_seconds"])
     worker_count = int(parallel["execution"]["effective_worker_count"])
+    serial_monitor_seconds = float(serial_measurement["elapsed_seconds"])
+    parallel_monitor_seconds = float(parallel_measurement["elapsed_seconds"])
+    serial_peak_rss = int(serial_measurement["peak_process_tree_rss_kb"])
+    parallel_peak_rss = int(parallel_measurement["peak_process_tree_rss_kb"])
+    if min(
+        serial_seconds,
+        parallel_seconds,
+        serial_monitor_seconds,
+        parallel_monitor_seconds,
+        serial_peak_rss,
+        parallel_peak_rss,
+        worker_count,
+    ) <= 0:
+        raise ValueError("Profile timings, RSS values, and worker count must be positive.")
     speedup = serial_seconds / parallel_seconds
     report = {
         "comparison_version": 1,
@@ -339,23 +410,17 @@ def _compare_profiles(args: argparse.Namespace) -> int:
             "speedup": speedup,
             "parallel_efficiency": speedup / worker_count,
         },
-        "whole_process_gnu_time": {
-            "serial": serial_time,
-            "parallel": parallel_time,
-            "speedup": (
-                float(serial_time["elapsed_seconds"])
-                / float(parallel_time["elapsed_seconds"])
-            ),
-            "maximum_rss_ratio": (
-                int(parallel_time["maximum_rss_kb"])
-                / int(serial_time["maximum_rss_kb"])
-            ),
+        "whole_process_monitor": {
+            "serial": serial_measurement,
+            "parallel": parallel_measurement,
+            "speedup": serial_monitor_seconds / parallel_monitor_seconds,
+            "maximum_rss_ratio": parallel_peak_rss / serial_peak_rss,
         },
         "reports": {
             "serial": str(args.serial_report),
             "parallel": str(args.parallel_report),
-            "serial_gnu_time": str(args.serial_time_report),
-            "parallel_gnu_time": str(args.parallel_time_report),
+            "serial_measurement": str(args.serial_measurement),
+            "parallel_measurement": str(args.parallel_measurement),
         },
     }
     for name, value in (
@@ -400,14 +465,23 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--static-index", type=Path, default=None)
     run.set_defaults(handler=_run_profile)
 
+    measure = subparsers.add_parser(
+        "measure",
+        help="Run a command while sampling aggregate process-tree RSS.",
+    )
+    measure.add_argument("--output-path", type=Path, required=True)
+    measure.add_argument("--interval-seconds", type=float, default=0.1)
+    measure.add_argument("command", nargs=argparse.REMAINDER)
+    measure.set_defaults(handler=_measure_command)
+
     compare = subparsers.add_parser(
         "compare",
-        help="Combine two profile and GNU time reports.",
+        help="Combine two chip profiles and process-tree measurements.",
     )
     compare.add_argument("--serial-report", type=Path, required=True)
     compare.add_argument("--parallel-report", type=Path, required=True)
-    compare.add_argument("--serial-time-report", type=Path, required=True)
-    compare.add_argument("--parallel-time-report", type=Path, required=True)
+    compare.add_argument("--serial-measurement", type=Path, required=True)
+    compare.add_argument("--parallel-measurement", type=Path, required=True)
     compare.add_argument("--output-path", type=Path, required=True)
     compare.set_defaults(handler=_compare_profiles)
     return parser
