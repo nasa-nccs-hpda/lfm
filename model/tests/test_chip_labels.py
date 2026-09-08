@@ -174,6 +174,84 @@ class ChipLabelTestCase(unittest.TestCase):
                     assigned_split="test",
                 )
 
+    def test_occluded_instance_id_is_accepted_with_warning(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            path = root / "M1_r0_c0_label.npz"
+            mask = np.zeros((3, 4), dtype=np.uint8)
+            mask[0, 0] = 2
+            np.savez(
+                path,
+                mask=mask,
+                bboxes=np.asarray(
+                    [[0, 0, 2, 2], [0, 0, 1, 1]],
+                    dtype=np.float32,
+                ),
+                num_craters=np.asarray(2, dtype=np.int64),
+            )
+
+            result = preflight_label(
+                self.request(),
+                label_source=root,
+                assigned_split="test",
+            )
+
+        diagnostics = {
+            diagnostic.code: diagnostic for diagnostic in result.label_diagnostics
+        }
+        self.assertEqual(result.status, "passed")
+        self.assertEqual(diagnostics["occluded_instance_ids"].severity, "warning")
+        self.assertIn("1->(2,)", diagnostics["occluded_instance_ids"].message)
+
+    def test_unexplained_missing_instance_id_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            path = root / "M1_r0_c0_label.npz"
+            mask = np.zeros((3, 4), dtype=np.uint8)
+            mask[0, 0] = 1
+            np.savez(
+                path,
+                mask=mask,
+                bboxes=np.asarray(
+                    [[0, 0, 1, 1], [2, 1, 1, 1]],
+                    dtype=np.float32,
+                ),
+                num_craters=np.asarray(2, dtype=np.int64),
+            )
+
+            with self.assertRaisesRegex(
+                LabelMismatchError,
+                "contain no other instance pixels: \\(2,\\)",
+            ):
+                preflight_label(
+                    self.request(),
+                    label_source=root,
+                    assigned_split="test",
+                )
+
+    def test_out_of_range_instance_id_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            path = root / "M1_r0_c0_label.npz"
+            mask = np.zeros((3, 4), dtype=np.uint8)
+            mask[0, 0] = 3
+            np.savez(
+                path,
+                mask=mask,
+                bboxes=np.asarray(
+                    [[0, 0, 1, 1], [2, 1, 1, 1]],
+                    dtype=np.float32,
+                ),
+                num_craters=np.asarray(2, dtype=np.int64),
+            )
+
+            with self.assertRaisesRegex(LabelMismatchError, "out-of-range IDs"):
+                preflight_label(
+                    self.request(),
+                    label_source=root,
+                    assigned_split="test",
+                )
+
     def test_matching_and_mismatching_geospatial_sidecars(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

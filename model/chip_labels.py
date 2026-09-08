@@ -179,7 +179,8 @@ def _validate_mask(request: ChipRequest, mask: Any) -> None:
 def _validate_instance_archive(
     request: ChipRequest,
     archive: Mapping[str, Any],
-) -> None:
+) -> tuple[LabelValidationDiagnostic, ...]:
+    """Validate archive structure and return nonfatal occlusion diagnostics."""
     np = _numpy()
     required = {"mask", "bboxes", "num_craters"}
     missing = sorted(required - set(archive))
@@ -255,15 +256,73 @@ def _validate_instance_archive(
             code="malformed_instance_label",
             message="Instance masks may contain only background 0 and IDs 1..N.",
         )
-    expected_ids = np.arange(1, count + 1, dtype=positive_ids.dtype)
-    if not np.array_equal(positive_ids, expected_ids):
+    present_ids = {int(value) for value in positive_ids}
+    expected_ids = set(range(1, count + 1))
+    out_of_range = tuple(sorted(present_ids - expected_ids))
+    if out_of_range:
         raise _label_error(
             request,
             code="malformed_instance_label",
-            message="Positive mask IDs must be contiguous 1..num_craters.",
-            expected=tuple(range(1, count + 1)),
-            actual=tuple(int(value) for value in positive_ids),
+            message=(
+                "Positive mask IDs must fall within 1..num_craters; found "
+                f"out-of-range IDs {out_of_range}."
+            ),
+            expected=tuple(sorted(expected_ids)),
+            actual=tuple(sorted(present_ids)),
         )
+
+    missing_ids = tuple(sorted(expected_ids - present_ids))
+    occluding_ids: dict[int, tuple[int, ...]] = {}
+    unexplained_ids: list[int] = []
+    for instance_id in missing_ids:
+        x, y, width, height = bboxes[instance_id - 1]
+        left = max(0, int(math.floor(float(x))))
+        top = max(0, int(math.floor(float(y))))
+        right = min(mask.shape[1], int(math.ceil(float(x + width))))
+        bottom = min(mask.shape[0], int(math.ceil(float(y + height))))
+        overlapping = tuple(
+            sorted(
+                int(value)
+                for value in np.unique(mask[top:bottom, left:right])
+                if int(value) > 0
+            )
+        )
+        if overlapping:
+            occluding_ids[instance_id] = overlapping
+        else:
+            unexplained_ids.append(instance_id)
+    if unexplained_ids:
+        unexplained = tuple(unexplained_ids)
+        raise _label_error(
+            request,
+            code="malformed_instance_label",
+            message=(
+                "Mask omits annotated instance IDs whose bounding-box regions "
+                f"contain no other instance pixels: {unexplained}."
+            ),
+            expected="every absent ID to have overlap evidence",
+            actual=unexplained,
+        )
+    if not occluding_ids:
+        return ()
+    overlap_summary = ", ".join(
+        f"{instance_id}->{values}"
+        for instance_id, values in sorted(occluding_ids.items())
+    )
+    return (
+        LabelValidationDiagnostic(
+            code="occluded_instance_ids",
+            message=(
+                f"Mask omits annotated instance IDs {missing_ids}; their "
+                "bounding-box regions contain pixels assigned to other "
+                f"instances ({overlap_summary}), consistent with overlap "
+                "during mask rasterization."
+            ),
+            severity="warning",
+            expected=str(tuple(sorted(expected_ids))),
+            actual=str(tuple(sorted(present_ids))),
+        ),
+    )
 
 
 def _sidecar_path(label_path: Path) -> Path | None:
@@ -401,6 +460,7 @@ def validate_label(
     np = _numpy()
     label_path = Path(path)
     _validate_label_identity(request, label_path)
+    content_diagnostics: tuple[LabelValidationDiagnostic, ...] = ()
     try:
         has_grid_metadata = request.label_grid is not None
         if request.label_grid is not None:
@@ -415,7 +475,7 @@ def validate_label(
         elif label_path.suffix.casefold() == ".npz":
             with np.load(label_path, allow_pickle=False) as archive:
                 arrays = {name: archive[name] for name in archive.files}
-            _validate_instance_archive(request, arrays)
+            content_diagnostics = _validate_instance_archive(request, arrays)
             has_grid_metadata = (
                 _validate_sidecar(request, label_path) or has_grid_metadata
             )
@@ -440,6 +500,7 @@ def validate_label(
             severity="info",
         )
     ]
+    diagnostics.extend(content_diagnostics)
     if not has_grid_metadata:
         diagnostics.append(
             LabelValidationDiagnostic(

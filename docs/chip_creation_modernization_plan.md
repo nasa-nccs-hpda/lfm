@@ -379,8 +379,14 @@ implying that external rasters and labels are checked into this repository.
 - A semantic label is a two-dimensional integer `.npy` mask with spatial shape
   `(target_height, target_width)`. An instance label is an `.npz` archive with
   a two-dimensional integer `mask`, `bboxes` shaped `(N, 4)`, and scalar
-  `num_craters == N`; positive mask instance IDs follow the documented `1..N`
-  convention. Boxes use the repository's existing COCO
+  `num_craters == N`. `num_craters` counts annotated crater boxes; overlap
+  during mask rasterization may leave some annotated IDs with no visible
+  pixels, and bounding-box row `i - 1` describes annotation ID `i`. Every
+  visible positive mask ID must remain within `1..N`. An absent ID is accepted
+  with an occlusion warning only when its valid bounding-box region contains
+  pixels assigned to another positive instance; an absent ID without that
+  evidence, or any out-of-range mask ID, is malformed. Boxes use the
+  repository's existing COCO
   `(x, y, width, height)` representation and must be finite, positive-area,
   and within the target pixel extent.
 - Label grid metadata supplied by a manifest or sidecar is compared with the
@@ -543,7 +549,11 @@ implying that external rasters and labels are checked into this repository.
   spatial array shape against the authoritative target-grid width and height;
   preserve semantic `.npy` arrays and require instance `.npz` archives to
   contain the documented `mask`, `bboxes`, and `num_craters` fields with
-  mutually consistent dimensions and counts. When label geospatial metadata
+  mutually consistent dimensions and counts. Treat `num_craters` as the
+  annotation/box count and permit a visible mask-ID subset of `1..N` when each
+  absent ID's box contains pixels from another instance, recording likely
+  rasterization occlusion as a warning. Reject unexplained absent IDs and
+  visible IDs outside `1..N`. When label geospatial metadata
   is available from a structured association or sidecar, also compare its CRS,
   transform, and footprint to the target grid. For non-georeferenced `.npy` or
   `.npz` labels, treat the structured sample/manifest association plus exact
@@ -874,8 +884,8 @@ implying that external rasters and labels are checked into this repository.
   through explicit `overwrite=True`; pair and manifest replacement preserve a
   prior artifact for rollback and reject symlinks, non-files, or conflicting
   artifacts in another split rather than deleting them implicitly.
-- The 160-test modern suite passes locally with 42 dependency-backed tests
-  skipped. Eleven dependency-free orchestration tests pass, including batch
+- The 163-test modern suite passes locally with 43 dependency-backed tests
+  skipped. Fourteen dependency-free orchestration tests pass, including batch
   continuation, bounded retention, unattempted-work diagnostics, sorted
   reference-directory forwarding, all four deterministic split modes, and
   nonfatal unmet number targets. A real two-process spawn test proves serial and
