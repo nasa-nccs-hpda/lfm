@@ -9,6 +9,8 @@
 
 # Required submission inputs:
 #   REFERENCE_DIR=/path/to/chips LABEL_SOURCE=/path/to/labels sbatch <this-script>
+# If assignments are separate commands, export them before calling sbatch.
+# For more workers than the SBATCH default, also pass --cpus-per-task.
 # Useful overrides:
 #   SAMPLE_LIMIT=16 PARALLEL_WORKERS=4 INCLUDE_STATIC=1 RUN_ORDER=parallel-first
 
@@ -31,8 +33,11 @@ fi
 cd "${REPO_DIR}"
 mkdir -p scripts/logs
 
-REFERENCE_DIR="${REFERENCE_DIR:?Set REFERENCE_DIR to a directory of reference TIFFs}"
-LABEL_SOURCE="${LABEL_SOURCE:?Set LABEL_SOURCE to its matching label directory}"
+if [[ -z "${REFERENCE_DIR:-}" || -z "${LABEL_SOURCE:-}" ]]; then
+  echo "REFERENCE_DIR and LABEL_SOURCE were not exported to this Slurm job." >&2
+  echo "Use inline assignments without &&, or export the variables before sbatch." >&2
+  exit 1
+fi
 PARALLEL_WORKERS="${PARALLEL_WORKERS:-4}"
 SAMPLE_LIMIT="${SAMPLE_LIMIT:-8}"
 ZOOM_LEVEL="${ZOOM_LEVEL:-5}"
