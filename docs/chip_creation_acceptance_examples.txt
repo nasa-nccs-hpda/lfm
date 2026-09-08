@@ -169,5 +169,24 @@ Authoritative existing references
   notebooks/tiling_example.ipynb
     NAC product M1117899885LE; small product-intersecting AOI; zoom 11 example
 
-Before Phase C8, replace or supplement illustrative filenames with actual
-row/column-qualified reference and label pairs selected for HPC validation.
+Verified Phase C8 WAC references
+--------------------------------
+Job 37924035 validated 16 row/column-qualified instance-segmentation pairs
+from these Explore directories through both serial and 16-worker chip creation:
+
+  reference directory:
+    /explore/nobackup/projects/lfm/model_inputs/300_300_inputs/7_band_vis_uv/inst_seg/chips
+  label directory:
+    /explore/nobackup/projects/lfm/model_inputs/300_300_inputs/7_band_vis_uv/inst_seg/labels
+
+Representative verified sample stems include:
+
+  M1096558039CE_r7650_c750
+  M1096565169CE_r7350_c900
+  M1096565169CE_r8550_c1200
+  M1096872414CE_r1500_c750
+
+The C8.1 validator uses the same selected reference grids twice: first through
+the reference-directory convenience and then as explicit target-grid/AOI
+requests. It requires exact agreement between both modern API outputs and
+writes one image/label inspection plot per sample.

@@ -806,7 +806,7 @@ implying that external rasters and labels are checked into this repository.
   including semantic and instance dataset discovery and loading from every
   populated split.
 
-## Phase C7 — Add sequential batch orchestration `[In Progress]`
+## Phase C7 — Add sequential batch orchestration `[Complete]`
 
 - `[Complete]` **C7.1** Add a single-request `create_chip` operation returning a
   structured result with paths, assigned split, status, timing, cube records,
@@ -836,8 +836,8 @@ implying that external rasters and labels are checked into this repository.
   configs. Prove that a different dataset-creation seed may change automatic
   membership without affecting caller- or prior-manifest-assigned splits, and
   that unmet number targets warn without stopping later samples.
-- `[In-P]` **C7.7** If still needed after profiling, add multiprocessing using
-  the same single-request operation and result contract.
+- `[Complete]` **C7.7** If still needed after profiling, add multiprocessing
+  using the same single-request operation and result contract.
 
 ### C7 implementation evidence
 
@@ -867,8 +867,15 @@ implying that external rasters and labels are checked into this repository.
   assembly/write, publication, and cleanup. Profiling reports preserve each
   failed sample's message and typed diagnostics, and per-sample failures do not
   prevent the serial/parallel comparison from completing.
-  Representative raster throughput and memory results remain the C7.7 exit
-  check.
+  The representative raster throughput and memory exit check passed on HPC in
+  job 37924035: both serial and 16-worker runs published all 16 requested
+  image-label pairs; chip-batch time fell from 710.320 seconds to 71.911 seconds
+  (9.878x speedup, 61.7% worker efficiency). Peak process-tree RSS increased
+  from 1,004,160 KB to 10,171,712 KB (10.13x), and the observed peak process
+  count increased from 3 to 19, confirming that all 16 workers were exercised.
+  The five previously rejected instance labels completed with explicit
+  `occluded_instance_ids` warnings, and the only stderr output was the known
+  non-pipeline Apptainer FUSE cleanup warning.
 - Batch orchestration catches typed label mismatches, records the planned split
   and failed result, writes no final pair, and continues. Acquisition failures
   are `partial` only when structured records or inventoried files exist;
@@ -901,9 +908,9 @@ implying that external rasters and labels are checked into this repository.
   and split tests passed in that environment, including the batch-level
   seed-change and nonfatal number-shortfall proofs.
 
-## Phase C8 — Validate complete datasets on HPC `[Planned]`
+## Phase C8 — Validate complete datasets on HPC `[In Progress]`
 
-- `[Planned]` **C8.1** Run a small WAC request set, including explicit AOIs and a
+- `[In-P]` **C8.1** Run a small WAC request set, including explicit AOIs and a
   reference-directory convenience, and inspect every generated image-label
   pair.
 - `[Planned]` **C8.2** Run a NAC reference directory through the same API and
@@ -921,6 +928,17 @@ implying that external rasters and labels are checked into this repository.
   `train/val/test` directory membership. Report requested versus realized
   ratios and counts, including warnings and any expected deviation caused by
   grouped assignment, insufficient samples, or failed samples.
+
+### C8 implementation evidence
+
+- `scripts/python/all_tasks/validate_wac_chip_creation.py` and its Slurm wrapper
+  implement the C8.1 validation run. They process the same deterministic WAC
+  sample subset through the reference-directory convenience and explicit-AOI
+  request APIs, validate both complete publications, require matching sample
+  membership and pixel-identical modern outputs, verify target grids and all
+  seven WAC bands, confirm byte-identical label publication, record instance-ID
+  visibility, and create one four-panel reference/generated/label/overlay plot
+  per sample. HPC execution and manual plot review remain the C8.1 exit check.
 
 ## Phase C9 — Modernize the chip example notebook `[Planned]`
 
