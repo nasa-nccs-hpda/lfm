@@ -818,11 +818,11 @@ implying that external rasters and labels are checked into this repository.
 - `[Complete]` **C7.4** Add safe overwrite and intermediate-cube retention
   behavior without deleting output implicitly. Limit cleanup to the current
   sample's explicitly resolved intermediate directory.
-- `[In-P]` **C7.5** Validate the serial workflow before introducing any
+- `[Complete]` **C7.5** Validate the serial workflow before introducing any
   optional multiprocessing adapter.
-- `[Planned]` **C7.6** Prove that repeated serial runs with the same inputs,
+- `[In-P]` **C7.6** Prove that repeated serial runs with the same inputs,
   split configuration, and seed produce byte-identical manifests and identical
-  directory membership regardless of discovery order for all three split
+  directory membership regardless of discovery order for all four split
   configs. Prove that a different dataset-creation seed may change automatic
   membership without affecting caller- or prior-manifest-assigned splits, and
   that unmet number targets warn without stopping later samples.
@@ -850,13 +850,16 @@ implying that external rasters and labels are checked into this repository.
   through explicit `overwrite=True`; pair and manifest replacement preserve a
   prior artifact for rollback and reject symlinks, non-files, or conflicting
   artifacts in another split rather than deleting them implicitly.
-- The 157-test modern suite passes locally with 42 dependency-backed tests
-  skipped. Seven dependency-free orchestration tests pass, including batch
+- The 158-test modern suite passes locally with 42 dependency-backed tests
+  skipped. Nine dependency-free orchestration tests pass, including batch
   continuation, bounded retention, unattempted-work diagnostics, sorted
   reference-directory forwarding, all four deterministic split modes, and
-  nonfatal unmet number targets. The complete raster stage-integration test and
-  overwrite rollback test await the fully enabled HPC environment before C7.5
-  is completed.
+  nonfatal unmet number targets. The batch-level seed test proves that changing
+  the seed can move automatic membership while preserving caller- and
+  prior-manifest-assigned samples. On 2026-09-04, all 57 focused C7.1-C7.5
+  validation tests passed in the project's fully enabled HPC container,
+  including the complete raster stage-integration and publication
+  overwrite-rollback paths.
 
 ## Phase C8 — Validate complete datasets on HPC `[Planned]`
 

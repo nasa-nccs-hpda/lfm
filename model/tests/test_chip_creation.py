@@ -31,7 +31,12 @@ from lfm.model.chip_creation import (
 from lfm.model.chip_preflight import BatchPreflightResult, PreparedChipRequest
 from lfm.model.lunar_crs import load_lunar_geographic_wkt
 from lfm.model.chip_requests import materialize_requests
-from lfm.model.chip_splits import SplitAssignment, SplitPlan, plan_splits
+from lfm.model.chip_splits import (
+    SplitAssignment,
+    SplitPlan,
+    SplitTargetWarning,
+    plan_splits,
+)
 from lfm.model.chip_types import (
     ChipPreflight,
     ChipRequest,
@@ -60,12 +65,12 @@ class ChipCreationTestCase(unittest.TestCase):
             height=2,
         )
 
-    def request(self, index, *, split=None):
+    def request(self, index, *, split=None, group=None):
         return ChipRequest(
             sample_id=f"M{index}_r0_c0",
             target_grid=self.grid(),
             geographic_aoi=GeographicAOI(2.0, 0.0, 0.0, 2.0),
-            split_group_key=f"site-{index}",
+            split_group_key=f"site-{index}" if group is None else group,
             assigned_split=split,
         )
 
@@ -577,6 +582,70 @@ class ChipCreationTestCase(unittest.TestCase):
                     )
 
     @mock.patch("lfm.model.chip_creation.preflight_chip_requests")
+    @mock.patch("lfm.model.chip_creation.create_chip")
+    def test_seed_change_only_moves_automatic_batch_membership(
+        self,
+        create_one,
+        preflight,
+    ):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            prior_manifest = root / "prior-manifest.json"
+            prior_manifest.write_text(
+                json.dumps(
+                    {
+                        "samples": [
+                            {
+                                "sample_id": "M1_r0_c0",
+                                "split_group_key": "prior-site",
+                                "assigned_split": "val",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            requests = (
+                self.request(1, group="prior-site"),
+                self.request(2, group="explicit-site", split="test"),
+                *(self.request(index) for index in range(3, 33)),
+            )
+            preflight.side_effect = self._passed_preflight_batch
+            create_one.side_effect = self._publish_fake_chip
+
+            batches = tuple(
+                create_chips(
+                    tuple(reversed(requests)) if seed == 1 else requests,
+                    self.config(
+                        root / f"seed-{seed}",
+                        split_config=SimpleSplitConfig(
+                            SplitPercentages(0.5, 0.25, 0.25),
+                            seed=seed,
+                            prior_manifest_path=prior_manifest,
+                        ),
+                    ),
+                )
+                for seed in (1, 2)
+            )
+
+        assignments = tuple(
+            {
+                item.sample_id: item.assigned_split
+                for item in batch.split_plan.assignments
+            }
+            for batch in batches
+        )
+        self.assertEqual(assignments[0]["M1_r0_c0"], "val")
+        self.assertEqual(assignments[1]["M1_r0_c0"], "val")
+        self.assertEqual(assignments[0]["M2_r0_c0"], "test")
+        self.assertEqual(assignments[1]["M2_r0_c0"], "test")
+        automatic_ids = set(assignments[0]) - {"M1_r0_c0", "M2_r0_c0"}
+        self.assertNotEqual(
+            {sample_id: assignments[0][sample_id] for sample_id in automatic_ids},
+            {sample_id: assignments[1][sample_id] for sample_id in automatic_ids},
+        )
+
+    @mock.patch("lfm.model.chip_creation.preflight_chip_requests")
     def test_unmet_number_target_warns_without_stopping_batch(self, preflight):
         requests = tuple(self.request(index) for index in range(1, 4))
         with tempfile.TemporaryDirectory() as directory:
@@ -589,11 +658,19 @@ class ChipCreationTestCase(unittest.TestCase):
             )
             preflight.side_effect = self._failed_preflight_batch
 
-            with self.assertWarns(UserWarning):
+            with self.assertWarns(SplitTargetWarning):
                 batch = create_chips(requests, config)
 
         self.assertEqual(len(batch.results), len(requests))
         self.assertEqual(len(batch.split_plan.warnings), 1)
+        self.assertEqual(
+            tuple(result.request.sample_id for result in batch.results),
+            tuple(request.sample_id for request in requests),
+        )
+        warning = batch.split_plan.warnings[0]
+        self.assertEqual(warning.split, "test")
+        self.assertEqual(warning.requested_count, 100)
+        self.assertEqual(warning.realized_count, len(requests))
 
 
 @unittest.skipUnless(HAS_RASTER_DEPS, "GDAL and NumPy are required")
