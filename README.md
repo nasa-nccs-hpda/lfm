@@ -8,7 +8,7 @@ To run one of the notebooks:
 
 1. Login to Explore JupyterHub: `https://jh-ml.nccs.nasa.gov` using your NCCS LDAP credentials.
 
-2. Select the JupyterHub GPU profile: "ILAB ([aarch64] 1 H100, 70 CPU Cores, 550GB Memory, 6 Hour Session)" from the dropdown menu. Click on "Start" after the selection.
+2. Select the JupyterHub GPU profile: "([aarch64] 1 H100, 70 CPU Cores, 550GB Memory, 6 Hour Session)" from the dropdown menu. Click on "Start" after the selection.
 
 3. As your session starts, your session should take you directly to a "Launcher" section. If, on the other hand, you are prompted to select a kernel, you can go ahead and click on "Select" within that window. If your session does not start, this could be related to waiting on available resources, and you will need to try again.
 
