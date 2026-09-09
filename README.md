@@ -63,8 +63,9 @@ Feel free to create a new directory to run these workflows as well. To create a 
 **Note: the structure of the folders is such that we have 2 lfm/ folders; the outermost lfm/ folder contains the notebooks/ directory.**
 
 - The two finetuning notebooks available for the IBM/"graha" model are called instance_ibm_train.ipynb and semantic_ibm_train.ipynb. Each runs training for that machine learning task.
-- The inference notebook for the IBM model is called inference_sseg.ipynb. It performs inference on the "data cubes" created from the LTM tiling scheme after the semantic finetuning notebook has been run. **This notebook requires you to manually set the checkpoint path to a previously created finetuning checkpoint. You need to both run the finetuning notebook, and change the GRAHA_LIGHTNING_CHECKPOINT variable in the inference notebook to run inference.**
+- The inference notebook for the IBM model is called inference_iseg.ipynb. It performs inference on the "data cubes" created from the LTM tiling scheme after the instance finetuning notebook has been run. **This notebook requires you to manually set the checkpoint path to a previously created finetuning checkpoint. You need to both run the finetuning notebook, and change the GRAHA_LIGHTNING_CHECKPOINT variable in the inference notebook to run inference.**
 - The tiling notebook demonstrates how you can select a specific dynamic (WAC/NAC) product ID and area of interest (AOI), and create "datacubes"/tiles using the Armstrong Tiling Scheme. For details about LTM zones, zoom levels, tile addresses, and the repository implementation, see [`TMS/README.md`](TMS/README.md).
+- The chip creation notebook demonstrates using a WAC 300x300 chip and its matching label information to create a full WAC + static chip, using the Armstrong tiling code and some reprojection operations. This notebook also contains examples on how to create a full dataset from a previous dataset, splittng chips into train/val/test.
 
 **Note 2: toy model notebooks are still found under <your_folder>/lfm/notebooks/toy_model. These are no longer supported in this release.**
 
