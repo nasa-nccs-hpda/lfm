@@ -958,27 +958,39 @@ implying that external rasters and labels are checked into this repository.
   Python runner records the complete per-sample report without duplicating that
   potentially large document into the Slurm log.
 
-## Phase C9 — Modernize the chip example notebook `[Planned]`
+## Phase C9 — Modernize the chip example notebook `[In Progress]`
 
-- `[Planned]` **C9.1** Create `notebooks/chip_example.ipynb` while retaining the
+- `[Complete]` **C9.1** Create `notebooks/chip_example.ipynb` while retaining the
   legacy notebook until migration is complete.
-- `[Planned]` **C9.2** Use the repository-root convention from
+- `[Complete]` **C9.2** Use the repository-root convention from
   `notebooks/instance_ibm_train.ipynb` and derive repository-owned paths from
   `repo_root`.
-- `[Planned]` **C9.3** Put the explicit request or reference-directory inputs,
+- `[In-P]` **C9.3** Put the explicit request or reference-directory inputs,
   label source, output root, product selectors, split mode, split ratios,
   fixed-count targets and priority, dataset-creation seed, split-group policy,
   and other true user inputs in one visible configuration section. Follow the
   tiling notebook with separate derived-variable and path-resolution sections
   for `TileConfig`, `ChipConfig`, indexes, run output, and validation.
-- `[Planned]` **C9.4** Demonstrate AOI extraction from one reference TIFF before
+- `[In-P]` **C9.4** Demonstrate AOI extraction from one reference TIFF before
   running the configured single-chip workflow.
-- `[Planned]` **C9.5** Display structured tiling and chip results rather than
+- `[In-P]` **C9.5** Display structured tiling and chip results rather than
   reconstructing state through filename parsing.
-- `[Planned]` **C9.6** Visualize selected output bands, the paired label, NoData
+- `[In-P]` **C9.6** Visualize selected output bands, the paired label, NoData
   coverage, and key grid metadata.
 - `[Planned]` **C9.7** Execute the notebook top-to-bottom on the HPC system and
   clear stale outputs before committing the modern copy.
+
+### C9 implementation evidence
+
+- The initial `notebooks/chip_example.ipynb` draft follows the repository/path
+  setup used by `notebooks/tiling_example.ipynb` and separates editable user
+  inputs from derived indexes and `ChipConfig`. It includes reference and
+  explicit-AOI request paths, preflight inspection, a one-sample modern run,
+  structured results and manifest inspection, configurable split examples,
+  worker settings, a disabled directory-batch extension, and generated/reference
+  image, label, overlay, NoData, and target-grid visualization. Its JSON and all
+  ordinary Python code cells pass local structural and syntax validation; an HPC
+  execution and user review remain before C9.3-C9.7 completion.
 
 ## Phase C10 — Complete the chip migration `[Planned]`
 
