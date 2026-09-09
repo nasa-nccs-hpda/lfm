@@ -116,7 +116,7 @@ def plot_chip_result(
     dpi: int = 150,
     show: bool = True,
 ) -> tuple[Any, Any]:
-    """Build the standard six-panel notebook inspection for one chip result.
+    """Build the standard four-panel notebook inspection for one chip result.
 
     The returned figure and axes remain available for notebook-specific edits.
     When ``figure_path`` is supplied, the figure is also saved to that path.
@@ -141,7 +141,6 @@ def plot_chip_result(
         ) from exc
 
     np = _numpy()
-    rasterio = _rasterio()
     request = result.request
     generated, generated_name = read_display_band(
         result.chip_path,
@@ -153,14 +152,11 @@ def plot_chip_result(
             f"Chip display band shape {generated.shape} does not match label "
             f"shape {label.shape}."
         )
-    with rasterio.open(result.chip_path) as dataset:
-        output_band_count = dataset.count
-
     instances = np.ma.masked_where(label == 0, (label - 1) % 20)
     absent_ids = absent_instance_ids(label, instance_count)
     vmin, vmax = _display_limits(generated)
 
-    figure, axes = plt.subplots(2, 3, figsize=(14, 9), squeeze=False)
+    figure, axes = plt.subplots(2, 2, figsize=(10, 9), squeeze=False)
     axes[0, 0].imshow(generated, cmap="gray", vmin=vmin, vmax=vmax)
     axes[0, 0].set_title(f"generated | {generated_name}")
 
@@ -186,10 +182,6 @@ def plot_chip_result(
             va="center",
         )
 
-    valid_mask = ~np.ma.getmaskarray(generated)
-    axes[0, 2].imshow(valid_mask, cmap="gray", vmin=0, vmax=1)
-    axes[0, 2].set_title(f"valid data: {valid_mask.mean():.1%}")
-
     axes[1, 0].imshow(instances, cmap="tab20", vmin=-0.5, vmax=19.5)
     axes[1, 0].set_title(
         f"label | IDs absent from mask: {list(absent_ids) or 'none'}"
@@ -203,18 +195,6 @@ def plot_chip_result(
         alpha=0.45,
     )
     axes[1, 1].set_title("diagnostic overlay")
-    axes[1, 2].text(
-        0.0,
-        1.0,
-        f"shape: {request.target_grid.height} x {request.target_grid.width}\n"
-        f"bounds: {tuple(round(value, 3) for value in request.target_grid.bounds)}\n"
-        f"output bands: {output_band_count}\n"
-        f"split: {result.preflight.assigned_split}",
-        ha="left",
-        va="top",
-        family="monospace",
-    )
-    axes[1, 2].set_title("target contract")
 
     for axis in axes.flat:
         axis.axis("off")
