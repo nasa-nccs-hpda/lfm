@@ -166,7 +166,7 @@ class ConfiguredTiler:
         lr_lat: float,
         lr_lon: float,
     ) -> list[TileCubeRecord]:
-        tile_indexes = TmsIntersector().getTids(
+        tile_indexes = TmsIntersector(verbose=False).getTids(
             ul_lat,
             ul_lon,
             lr_lat,
@@ -178,13 +178,19 @@ class ConfiguredTiler:
             tile_indexes,
             key=lambda item: (item["zone"], item["tileY"], item["tileX"]),
         ):
-            records.extend(
-                self.run_tile_index(
-                    index["tileX"],
-                    index["tileY"],
-                    index["zone"],
+            try:
+                records.extend(
+                    self.run_tile_index(
+                        index["tileX"],
+                        index["tileY"],
+                        index["zone"],
+                    )
                 )
-            )
+            except TileSourceError as exc:
+                exc.completed_records = (
+                    tuple(records) + tuple(exc.completed_records)
+                )
+                raise
         return records
 
 

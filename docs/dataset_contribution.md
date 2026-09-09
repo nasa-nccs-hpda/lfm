@@ -61,9 +61,13 @@ Instance labels:
 
 - Prefer `.npz`.
 - Required arrays:
-  - `mask`: 2D instance mask with `0` as background and `1..N` as instances.
-  - `bboxes`: shape `(N, 4)`.
-  - `num_craters`: scalar count.
+  - `mask`: 2D instance mask with `0` as background and visible instance IDs
+    drawn from `1..N`.
+  - `bboxes`: shape `(N, 4)`; row `i - 1` describes instance ID `i`.
+  - `num_craters`: scalar count `N` of annotated crater boxes. Mask
+    rasterization may omit an ID when its valid bounding-box region contains
+    pixels assigned to another instance; otherwise every annotated ID should
+    remain visible.
 
 ## Band Layout
 

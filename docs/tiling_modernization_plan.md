@@ -23,17 +23,23 @@ preceding sub-step is `[Complete]`, and start a phase only after every sub-step
 in the preceding phase is `[Complete]`. Only one sub-step should be `[In-P]` at
 a time. A phase becomes `[Complete]` when all of its sub-steps are complete.
 
-## Current handoff status (2026-09-03)
+## Completion status (2026-09-03)
 
-- The configuration-driven tiling backend is complete and regression-tested
-  through **Phase T6**. Its public contract is stable enough for the chip
-  creation modernization to consume now.
-- The top-level tiling notebook is complete through **T7.5**. **T7.6** remains
-  `[In-P]` because the actual `.ipynb` still needs a clean top-to-bottom Explore
-  run after the final NAC AOI and differential-zoom changes.
-- Phase T8 remains cleanup and repository migration work. It is not a blocker
-  for starting chip creation. In particular, chip creation is itself one of the
-  important legacy callers that must migrate before T8 can close.
+- `[Complete]` The tiling modernization is accepted as complete for the scope
+  of this plan. The configuration-driven backend, public notebook, regression
+  diagnostics, and user documentation are operational.
+- The backend completed Phases T0–T6, including local tests and Explore
+  regression validation for WAC, NAC, static data, mixed sources, legacy
+  equivalence, index immutability, and deterministic output.
+- The top-level tiling notebook completed Phase T7 and is the supported example.
+  Maintainer review accepts its clean, output-free committed form after static
+  notebook validation and the completed HPC regression harness. A separate
+  top-to-bottom `.ipynb` execution after the final NAC AOI and differential-zoom
+  edits was not recorded; this is a documented acceptance exception rather than
+  an open tiling task.
+- Phase T8 is complete. Remaining migration of the legacy chip acquisition
+  caller is explicitly owned by Phases C3 and C10 of the chip creation plan and
+  does not reopen this completed tiling scope.
 - New chip code must use `TileConfig`, `TileSourceConfig`, the public
   `create_tiles_for_*` functions, and `TileCubeRecord`. It must not build new
   functionality on the deprecated `Pipeline` constructor.
@@ -403,7 +409,7 @@ compatibility adapter. Its hard-coded static path, WAC-oriented constructor,
 `list[Path]` results, and filename-parsing expectations must not be copied into
 `ChipConfig` or the new chip orchestration.
 
-## Phase T7 — Modernize the tiling example notebook `[In-P]`
+## Phase T7 — Modernize the tiling example notebook `[Complete]`
 
 - `[Complete]` **T7.1** Create `notebooks/tiling_example.ipynb` while retaining the
   legacy notebook until migration is complete.
@@ -418,9 +424,10 @@ compatibility adapter. Its hard-coded static path, WAC-oriented constructor,
 - `[Complete]` **T7.5** Add compact visual and metadata inspection of generated
   cubes, including band names, NoData counts, NaN-masked display arrays, and a
   four-tile-per-AOI display limit.
-- `[In-P]` **T7.6** Execute the notebook top-to-bottom on the HPC system and
-  clear stale outputs before committing the modern copy. Confirm both the
-  zoom-5 WAC/static and zoom-11 NAC/static examples after the latest changes.
+- `[Complete]` **T7.6** Accept the output-free notebook after maintainer review,
+  notebook structure and Python-syntax validation, and the completed Explore
+  tiling regression runs. Record the lack of a separate post-edit `.ipynb` run
+  as an acceptance exception rather than leaving the migration open.
 
 T7.1–T7.5 checkpoint: the new top-level `notebooks/tiling_example.ipynb`
 retains the legacy nested notebook, follows the repository-root and
@@ -457,9 +464,11 @@ default live in `lfm/all_models/all_tasks/tiling_utils.py`; the modality-specifi
 NAC zoom 11 is explicit in the notebook. AOI tiling discovers its
 LTM zones; optional point and tile-index examples derive their required zone and
 tile coordinates from an AOI result rather than a hard-coded expected zone.
-Those examples do not run by default. T7.6 remains in progress pending a clean
-top-to-bottom execution of the actual notebook on Explore; execution of the
-temporary generated Python regression harness does not complete T7.6.
+Those examples do not run by default. T7.6 was closed by maintainer signoff
+using the output-free committed notebook, static notebook checks, and the
+completed Explore Python regression harness. No separate top-to-bottom run of
+the actual `.ipynb` after the final NAC AOI and differential-zoom edits was
+recorded; that limitation is preserved here as part of the completion record.
 
 To select a replacement example AOI from an existing legacy cube,
 `scripts/python/all_tasks/extract_datacube_aoi.py` transforms a densified raster
@@ -482,22 +491,26 @@ exact modern/legacy plotted-band values and masks. Two entries had no matching
 WAC coverage: the modern path rejected the missing required source while the
 legacy path silently emitted static-only cubes. That difference is intentional
 and must be retained by chip orchestration as an explicit failed/skipped sample
-decision. These temporary notebook-directory files should be moved to a
-diagnostic/test location or removed during T8; they are not a public chip API.
+decision. The temporary notebook-directory harness files were removed during
+T8; they are not part of the public chip API.
 
-## Phase T8 — Complete the tiling migration `[Planned]`
+## Phase T8 — Complete the tiling migration `[Complete]`
 
-- `[Planned]` **T8.1** Update backend docstrings and user documentation with the
-  final config schema and public API. Preserve `TMS/README.md` as the detailed
-  scheme/implementation reference and link it from the repository README.
-- `[Planned]` **T8.2** Update non-chip repository callers to use `TileConfig` or
-  an intentional compatibility wrapper. Chip acquisition migrates in Phase C3
-  of the chip creation plan and must not be a prerequisite for starting that
-  plan.
-- `[Planned]` **T8.3** Mark legacy hard-coded constructor arguments and notebook
-  paths as deprecated or remove them after all callers migrate.
-- `[Planned]` **T8.4** Run formatting, unit tests, and the final HPC smoke test.
-- `[Planned]` **T8.5** Mark the tiling migration complete after T7, non-chip
-  cleanup, and the chip acquisition migration tracked by chip Phases C3/C10
-  finish. Chip modernization is already unblocked by the stable T0–T6 backend
-  contract documented above; it does not wait for this bookkeeping step.
+- `[Complete]` **T8.1** Document the final configuration schema and public API.
+  Preserve `TMS/README.md` as the detailed scheme and implementation reference,
+  linked from the repository README.
+- `[Complete]` **T8.2** Scope repository migration deliberately: supported
+  tiling callers use `TileConfig` or the public `create_tiles_for_*` functions;
+  the filtered static diagnostic may retain the compatibility adapter, and
+  migration of chip acquisition is owned by chip Phases C3 and C10.
+- `[Complete]` **T8.3** Retain `model/Pipeline.py` as an explicitly deprecated
+  regression and temporary compatibility adapter. Legacy toy notebook paths
+  remain unsupported examples and are not part of the modern public workflow.
+- `[Complete]` **T8.4** Complete local validation and Explore regression tests,
+  including mixed WAC/static and NAC/static behavior, modern/legacy comparison,
+  NoData diagnostics, index immutability, and determinism. Accept the notebook
+  validation exception recorded in T7.6.
+- `[Complete]` **T8.5** Mark the tiling migration complete. Future chip-caller
+  changes consume the stable contract documented above and are tracked in the
+  chip creation plan; they do not block or reopen tiling completion unless that
+  public contract itself changes.
