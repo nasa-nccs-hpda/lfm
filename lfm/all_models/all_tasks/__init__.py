@@ -10,6 +10,7 @@ from lfm.all_models.all_tasks.experiments import (
     json_ready,
     load_lightning_checkpoint_state,
     parse_checkpoint_epoch,
+    resolve_inference_checkpoint,
     save_config_json,
     save_single_timing_json,
     write_checkpoint_metrics_summary,
@@ -26,6 +27,10 @@ from lfm.all_models.all_tasks.model_adapters import (
     SemanticModelAdapter,
 )
 from lfm.all_models.all_tasks.data_dictionary import resolve_data_dictionary
+from lfm.all_models.all_tasks.graha_inference import (
+    GrahaInstanceModel,
+    GrahaLogitModel,
+)
 
 __all__ = [
     "InstanceModelAdapter",
@@ -40,10 +45,13 @@ __all__ = [
     "json_ready",
     "load_lightning_checkpoint_state",
     "parse_checkpoint_epoch",
+    "resolve_inference_checkpoint",
     "save_config_json",
     "save_single_timing_json",
     "write_checkpoint_metrics_summary",
     "resolve_data_dictionary",
+    "GrahaInstanceModel",
+    "GrahaLogitModel",
     "CheckpointPipelineConfig",
     "CheckpointPipelineResult",
     "build_checkpoint_pipeline_config_from_args",

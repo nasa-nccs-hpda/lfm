@@ -8,6 +8,8 @@ from typing import Tuple
 
 from osgeo import osr
 
+from .lunar_crs import load_lunar_geographic_wkt
+
 
 # ----------------------------------------------------------------------------
 # Class TmsTileDef
@@ -48,6 +50,16 @@ class TmsTileDef:
 
         self.srs = srs
         self.geoSrs = geoSrs
+        self._geoToLtm = self._createTransformation(
+            self.geoSrs,
+            self.srs,
+            description="IAU:30100 to LTM",
+        )
+        self._ltmToGeo = self._createTransformation(
+            self.srs,
+            self.geoSrs,
+            description="LTM to IAU:30100",
+        )
 
     # ------------------------------------------------------------------------
     # initFromJson
@@ -93,9 +105,50 @@ class TmsTileDef:
         srs.ImportFromWkt(tms[TmsTileDef.CRS])
 
         geoSrs = osr.SpatialReference()
-        geoSrs.ImportFromWkt(tms[TmsTileDef.GEO_CRS])
+        geoSrs.ImportFromWkt(load_lunar_geographic_wkt())
+        projectedGeoSrs = srs.CloneGeogCS()
+        if projectedGeoSrs is None or not projectedGeoSrs.IsSame(geoSrs):
+            raise ValueError(
+                f"LTM zone {zone} does not use the repository IAU:30100 CRS."
+            )
 
         return TmsTileDef.initFromJson(tms, srs, geoSrs, zone, zoomLevel)
+
+    # ------------------------------------------------------------------------
+    # createTransformation
+    # ------------------------------------------------------------------------
+    @staticmethod
+    def _createTransformation(source, target, *, description: str):
+
+        # The GDAL 3.8/PROJ build on Explore returns a valid transformation for
+        # custom USGSLGS LTM authorities but raises during construction when
+        # Python exception mode is enabled. Scope the legacy return-code mode to
+        # construction only; ExceptionMgr restores GDAL/OGR/OSR state afterward.
+        with osr.ExceptionMgr(useExceptions=False):
+            transform = osr.CoordinateTransformation(source, target)
+        if transform is None:
+            raise RuntimeError(
+                f"Could not construct lunar coordinate transformation: "
+                f"{description}."
+            )
+        return transform
+
+    # ------------------------------------------------------------------------
+    # transformPoint
+    # ------------------------------------------------------------------------
+    @staticmethod
+    def _transformPoint(transform, x: float, y: float, *, description: str):
+
+        result = transform.TransformPoint(x, y)
+        if result is None or len(result) < 2:
+            raise RuntimeError(f"Lunar coordinate transformation failed: {description}.")
+        outX, outY = float(result[0]), float(result[1])
+        if not math.isfinite(outX) or not math.isfinite(outY):
+            raise RuntimeError(
+                f"Lunar coordinate transformation returned non-finite values "
+                f"for {description}: ({outX}, {outY})."
+            )
+        return outX, outY
 
     # ------------------------------------------------------------------------
     # cellSize
@@ -291,10 +344,12 @@ class TmsTileDef:
     # ------------------------------------------------------------------------
     def llToLtm(self, lat: float, lon: float) -> Tuple(float, float):
 
-        xform = osr.CoordinateTransformation(self.geoSrs, self.srs)
-        x, y, _ = xform.TransformPoint(lon, lat)
-
-        return x, y
+        return self._transformPoint(
+            self._geoToLtm,
+            lon,
+            lat,
+            description=f"longitude/latitude ({lon}, {lat}) to LTM{self.zone}",
+        )
 
     # ------------------------------------------------------------------------
     # llToTileIndex
@@ -328,8 +383,12 @@ class TmsTileDef:
     # ------------------------------------------------------------------------
     def ltmToLatLon(self, x: float, y: float) -> tuple[float, float]:
 
-        xform = osr.CoordinateTransformation(self.srs, self.geoSrs)
-        lon, lat, _ = xform.TransformPoint(x, y)
+        lon, lat = self._transformPoint(
+            self._ltmToGeo,
+            x,
+            y,
+            description=f"LTM{self.zone} ({x}, {y}) to longitude/latitude",
+        )
         return lat, lon
 
     # ------------------------------------------------------------------------

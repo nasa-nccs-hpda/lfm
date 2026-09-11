@@ -8,6 +8,7 @@ import time
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, is_dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +55,90 @@ class CheckpointRecord:
     path: Path
     epoch: int | None
     name: str
+
+
+_EXPERIMENT_TIMESTAMP_FORMAT = "date_%Y_%m_%d-time_%H_%M_%S"
+_INFERENCE_CHECKPOINT_SUFFIXES = frozenset({".ckpt", ".pt"})
+
+
+def _experiment_sort_key(path: Path) -> tuple[int, float, str]:
+    """Sort timestamped experiment directories before fallback directories."""
+    try:
+        timestamp = datetime.strptime(
+            path.name,
+            _EXPERIMENT_TIMESTAMP_FORMAT,
+        ).timestamp()
+        return (1, timestamp, path.name)
+    except ValueError:
+        return (0, path.stat().st_mtime, path.name)
+
+
+def _checkpoint_sort_key(path: Path) -> tuple[float, str]:
+    """Choose the most recently modified checkpoint deterministically."""
+    return (path.stat().st_mtime, str(path))
+
+
+def resolve_inference_checkpoint(
+    checkpoint_path: str | Path | None = None,
+    *,
+    task_subdir: str,
+    outputs_root: str | Path = "./outputs",
+) -> Path:
+    """Resolve an explicit checkpoint or discover the latest task checkpoint.
+
+    Automatic discovery inspects experiment directories below
+    ``outputs_root/task_subdir`` in reverse timestamp order. It returns the
+    newest non-empty ``.ckpt`` or ``.pt`` file nested in the first experiment
+    containing a supported checkpoint.
+    """
+    explicit_path = str(checkpoint_path).strip() if checkpoint_path is not None else ""
+    if explicit_path:
+        resolved = Path(explicit_path).expanduser().resolve()
+        if not resolved.is_file():
+            raise FileNotFoundError(f"Checkpoint file does not exist: {resolved}")
+        if resolved.suffix.lower() not in _INFERENCE_CHECKPOINT_SUFFIXES:
+            raise ValueError(
+                "Checkpoint must have a .ckpt or .pt extension: "
+                f"{resolved}"
+            )
+        if resolved.stat().st_size == 0:
+            raise ValueError(f"Checkpoint file is empty: {resolved}")
+        return resolved
+
+    task_dir = Path(outputs_root).expanduser().resolve() / task_subdir
+    if not task_dir.is_dir():
+        raise FileNotFoundError(
+            "No explicit checkpoint was provided and the task output directory "
+            f"does not exist: {task_dir}"
+        )
+
+    experiment_dirs = sorted(
+        (path for path in task_dir.iterdir() if path.is_dir()),
+        key=_experiment_sort_key,
+        reverse=True,
+    )
+    for experiment_dir in experiment_dirs:
+        checkpoints = sorted(
+            (
+                path
+                for path in experiment_dir.rglob("*")
+                if path.is_file()
+                and path.suffix.lower() in _INFERENCE_CHECKPOINT_SUFFIXES
+                and path.stat().st_size > 0
+            ),
+            key=_checkpoint_sort_key,
+            reverse=True,
+        )
+        if checkpoints:
+            selected_checkpoint = checkpoints[0].resolve()
+            print(f"Discovered experiment directory: {experiment_dir.resolve()}")
+            print(f"Discovered checkpoint: {selected_checkpoint.name}")
+            return selected_checkpoint
+
+    raise FileNotFoundError(
+        "No non-empty .ckpt or .pt files were found in any experiment under "
+        f"{task_dir}"
+    )
 
 
 def parse_checkpoint_epoch(path: Path) -> int | None:
