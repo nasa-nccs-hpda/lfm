@@ -15,6 +15,7 @@ class PairRecord:
 
 
 DEFAULT_SAMPLE_ID_SUFFIXES = (
+    "_input_nac_static_chip",
     "_input_wac_static_chip",
     "_input_wac_chip",
     "_input_nac_chip",

@@ -37,9 +37,9 @@ sys.path.insert(0, str(repo_root))
 from model.clustering.Clusterer import Clusterer
 from model.clustering.ImageHelperSingleBand import ImageHelper
 
-def _create_display_legend(labels, colormap: str = CLUSTER_COLORMAP):
+def _create_display_legend(labels, colormap: str = CLUSTER_COLORMAP, noDataLabel=None):
     # Unique cluster IDs, used to generate labels
-    cluster_ids = sorted(int(i) for i in np.unique(labels))
+    cluster_ids = sorted(int(i) for i in np.unique(labels) if i != noDataLabel)
     vmin = min(cluster_ids)
     vmax = max(cluster_ids)
 
@@ -94,18 +94,11 @@ def _create_display_legend(labels, colormap: str = CLUSTER_COLORMAP):
     return legend_html
 
 
-def display_images_labels(
-    inputFile: Path,
-    labelsFile: Path,
-    labels: np.array,
-    inHelper,
-    lHelper,
-    colormap: str = CLUSTER_COLORMAP,
-):
+def _create_image_map(inputFile: Path, inHelper):
+    """Create an independent map widget with the source image layer."""
     # Use localtileserver directly for raster serving. This path works with the
     # Jupyter/VS Code loopback bridge and avoids leafmap.add_raster().
     image_client = TileClient(str(inputFile), debug=True)
-    labels_client = TileClient(str(labelsFile), debug=True)
 
     image_layer = get_leaflet_tile_layer(
         image_client,
@@ -116,19 +109,8 @@ def display_images_labels(
     )
     image_layer.name = inputFile.name
 
-    labels_layer = get_leaflet_tile_layer(
-        labels_client,
-        vmin=lHelper._minValue,
-        vmax=lHelper._maxValue,
-        nodata=lHelper._noDataValue,
-        opacity=0.5,
-        colormap=colormap,
-    )
-    labels_layer.name = labelsFile.name
-
     # Don't let ipyleaflet restrict bounds, creates buggy output
     image_layer.bounds = None
-    labels_layer.bounds = None
 
     m = leafmap.Map(
         fullscreen_control=False,
@@ -147,11 +129,35 @@ def display_images_labels(
 
     # Add image/labels
     m.add(image_layer)
-    m.add(labels_layer)
 
     m.layout.height = "600px"
 
-    legend_html = _create_display_legend(labels, colormap)
+    return m
+
+
+def display_images_labels(
+    inputFile: Path,
+    labelsFile: Path,
+    labels: np.array,
+    inHelper,
+    lHelper,
+    colormap: str = CLUSTER_COLORMAP,
+):
+    m = _create_image_map(inputFile, inHelper)
+    labels_client = TileClient(str(labelsFile), debug=True)
+    labels_layer = get_leaflet_tile_layer(
+        labels_client,
+        vmin=lHelper._minValue,
+        vmax=lHelper._maxValue,
+        nodata=lHelper._noDataValue,
+        opacity=0.5,
+        colormap=colormap,
+    )
+    labels_layer.name = labelsFile.name
+    labels_layer.bounds = None
+    m.add(labels_layer)
+
+    legend_html = _create_display_legend(labels, colormap, lHelper._noDataValue)
     legend_control = WidgetControl(widget=legend_html, position="topright")
     m.add(legend_control)
     return m, legend_control
@@ -218,16 +224,16 @@ def _create_binary_legend(newClusters, class_colors: dict = FINAL_CLASS_COLORS):
     return final_legend_html
 
 def display_images_binary_labels(
-    m,
+    inputFile,
     inHelper,
     clusterMapFile,
-    labelsFile,
     newClusters,
     colormap=FINAL_TILE_COLORMAP,
-    legend_control=None,
     noDataValue: float | None = None,
 ):
-    # This is also clipped because inHelper._dataset is the 512x512 input clip.
+    """Display final labels on a fresh map, preserving the first-pass display."""
+    m = _create_image_map(inputFile, inHelper)
+    # Preserve the clipped input's extent and georeferencing.
     cmDataset = Clusterer.labelsToGeotiff(
         inHelper._dataset,
         clusterMapFile,
@@ -249,12 +255,7 @@ def display_images_binary_labels(
     )
     cluster_layer.name = clusterMapFile.name
 
-    # Remove the old first-pass legend, if the caller provides it.
-    if legend_control is not None:
-        try:
-            m.remove(legend_control)
-        except Exception:
-            pass
+    cluster_layer.bounds = None
 
     final_legend_html = _create_binary_legend(newClusters)
 
@@ -265,18 +266,7 @@ def display_images_binary_labels(
 
     m.add(final_legend_control)
 
-    # Remove original first-pass labels
-    for layer in list(m.layers):
-        if layer.name == labelsFile.name:
-            m.remove(layer)
-
-    # Remove an older final layer if this cell is being rerun
-    for layer in list(m.layers):
-        if layer.name == clusterMapFile.name:
-            m.remove(layer)
-
     # Add the newly generated final labels
     m.add(cluster_layer)
 
     return m
-

@@ -81,8 +81,10 @@ def cluster_color(cluster_id: int, cluster_ids: list[int], colormap: str = "tab2
     return mcolors.to_hex(cm.get_cmap(colormap)(t))
 
 
-def create_cluster_assignment_widget(labels: np.ndarray, colormap: str = "tab20"):
-    cluster_ids = sorted(int(i) for i in np.unique(labels))
+def create_cluster_assignment_widget(
+    labels: np.ndarray, colormap: str = "tab20", noDataLabel: int | None = None,
+):
+    cluster_ids = sorted(int(i) for i in np.unique(labels) if i != noDataLabel)
     controls = {}
     rows = []
 
@@ -127,7 +129,7 @@ def create_cluster_assignment_widget(labels: np.ndarray, colormap: str = "tab20"
 
         buttons = [crater_button, non_crater_button, ignore_button]
 
-        def make_observer(selected_button):
+        def make_observer(selected_button, buttons=buttons, ignore_button=ignore_button):
             def observe(change):
                 if not change["new"]:
                     if not any(button.value for button in buttons):

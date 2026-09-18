@@ -10,6 +10,7 @@ from osgeo import ogr
 from lfm.model.Pipeline import Pipeline
 from lfm.model.TmsIntersector import TmsIntersector
 from lfm.model.TmsTileDef import TmsTileDef
+from lfm.model.lunar_crs import load_lunar_geographic_wkt
 
 
 # -----------------------------------------------------------------------------
@@ -20,22 +21,7 @@ from lfm.model.TmsTileDef import TmsTileDef
 # -----------------------------------------------------------------------------
 class PipelineTestCase(unittest.TestCase):
 
-    MOON_SRS = ('GEOGCRS["Moon (2015) - Sphere / Ocentric",'
-                'DATUM["Moon (2015) - Sphere",'
-                'ELLIPSOID["Moon (2015) - Sphere",1737400,0,'
-                'LENGTHUNIT["metre",1]]],'
-                'PRIMEM["Reference Meridian",0,'
-                'ANGLEUNIT["degree",0.0174532925199433]],'
-                'CS[ellipsoidal,2],'
-                'AXIS["geodetic latitude (Lat)",north,'
-                'ORDER[1],'
-                'ANGLEUNIT["degree",0.0174532925199433]],'
-                'AXIS["geodetic longitude (Lon)",east,'
-                'ORDER[2],'
-                'ANGLEUNIT["degree",0.0174532925199433]],'
-                'ID["IAU",30100,2015],'
-                'REMARK["Source of IAU Coordinate systems:'
-                ' https://doi.org/10.1007/s10569-017-9805-5"]]')
+    MOON_SRS = load_lunar_geographic_wkt()
 
     # ------------------------------------------------------------------------
     # setUp
