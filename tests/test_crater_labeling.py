@@ -224,3 +224,42 @@ def test_raster_dropdown_and_default_path(tmp_path):
         assert app.files.value==str(tmp_path/'other.tiff')
     finally:
         app.close()
+
+
+def test_file_browser_navigation_selection_and_cancel(tmp_path):
+    from lfm.labeling.craters import CraterLabeler
+    default=tmp_path/'default.TIF'
+    default.touch()
+    nested=tmp_path/'another_folder'
+    nested.mkdir()
+    target=nested/'crater.TIFF'
+    target.touch()
+    (nested/'notes.txt').touch()
+    app=CraterLabeler(tmp_path,tmp_path/'labels',default_raster=default)
+    try:
+        app.widget.children[0].click()  # Browse files button
+        assert app.browser_panel.layout.display==''
+        assert app.folder.value==str(tmp_path)
+        app.browser_entries.value=str(nested)
+        app._browser_open()
+        assert app.folder.value==str(nested)
+        assert [v for _,v in app.browser_entries.options]==[str(target)]
+        app.browser_filter.value='missing'
+        assert len(app.browser_entries.options)==0
+        app.browser_filter.value='CRATER'
+        app.browser_entries.value=str(target)
+        app._browser_open()
+        assert app.path.value==str(target)
+        assert app.browser_panel.layout.display=='none'
+        app._browse_files()
+        app._browser_up()
+        assert app.folder.value==str(tmp_path)
+        app._browser_cancel()
+        assert app.path.value==str(target)
+        app.folder.value=str(tmp_path/'unavailable')
+        app._list_browser()
+        assert 'Cannot open this folder' in app.browser_message.value
+        app._browser_default()
+        assert app.folder.value==str(tmp_path)
+    finally:
+        app.close()

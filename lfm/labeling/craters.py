@@ -277,9 +277,13 @@ class CraterLabeler:
         self.default_raster=Path(default_raster).expanduser().resolve() if default_raster else None
         self.folder=w.Text(value=str(Path(data_dir).expanduser()),description='Raster folder:',layout=w.Layout(width='95%'))
         self.files=w.Dropdown(options=[],description='GeoTIFF:',layout=w.Layout(width='95%'))
-        self.path=w.Text(value='',description='Or path:',layout=w.Layout(width='95%'))
+        self.path=w.Text(value='',description='Raster:',layout=w.Layout(width='95%'))
         self.files.observe(lambda c:setattr(self.path,'value',c['new'] or ''),names='value')
         self.refresh_rasters()
+        self.browser_entries=w.Select(options=[],rows=12,description='Files:',layout=w.Layout(width='95%'))
+        self.browser_filter=w.Text(value='',description='Filter name:',placeholder='Type part of a filename',layout=w.Layout(width='95%'))
+        self.browser_message=w.HTML()
+        self.browser_filter.observe(lambda c:self._guard(self._list_browser),names='value')
         self.band=w.BoundedIntText(value=1,min=1,max=1,description='Band:')
         self.mode=w.ToggleButtons(options=['Navigate','Circle','Ellipse','Edge circle','Region grow','Edit vertices'],value='Edge circle',description='Mode:')
         self.radius=w.BoundedFloatText(value=30,min=.001,max=1e12,step=1,description='Radius:')
@@ -318,7 +322,13 @@ class CraterLabeler:
         def row(children):
             return w.HBox(children,layout=w.Layout(flex_flow="row wrap"))
         self.radius.style.description_width="initial"
-        self.widget=w.VBox([self.folder,button('Refresh raster list',self.refresh_rasters),self.files,self.path,
+        self.browser_panel=w.VBox([
+            w.HTML('<b>Browse the notebook server filesystem</b> — select a folder and click Open selected to enter it; select a GeoTIFF to use it.'),
+            self.folder,row([button('Go to folder',self._list_browser),button('Up one folder',self._browser_up),button('Explore default',self._browser_default)]),
+            self.browser_filter,self.browser_entries,
+            row([button('Open selected',self._browser_open),button('Cancel',self._browser_cancel)]),self.browser_message],
+            layout=w.Layout(display='none',border='1px solid #888',padding='10px'))
+        self.widget=w.VBox([button('Browse files…',self._browse_files),self.path,self.browser_panel,
             row([button('Load raster',self.load),self.band,button('Refresh view',self.refresh),button('Full extent',self.full_extent)]),
             self.mode,w.HTML('Edge circle fits the rim from your clicked center. Adjust the radius numerically to refine it.'),
             row([self.radius,self.ratio,self.angle]),
@@ -333,9 +343,65 @@ class CraterLabeler:
         self.mode.observe(lambda c:self._guard(self._mode_changed),names='value')
         self.band.observe(lambda c:self._guard(self._band_changed),names='value')
 
+    def _browse_files(self):
+        # Start at the selected raster's directory (the configured Explore path
+        # on first use), even when it is unavailable on the current machine.
+        if self.path.value:
+            self.folder.value=str(Path(self.path.value).expanduser().parent)
+        self.browser_panel.layout.display=''
+        self._list_browser()
+
+    def _list_browser(self):
+        from html import escape
+        folder=Path(self.folder.value).expanduser()
+        self.browser_entries.options=[]
+        try:
+            children=list(folder.iterdir())
+            query=self.browser_filter.value.casefold()
+            directories=sorted((p for p in children if p.is_dir()),key=lambda p:p.name.casefold())
+            files=sorted((p for p in children if p.is_file() and p.suffix.lower() in ('.tif','.tiff')
+                          and query in p.name.casefold()),key=lambda p:p.name.casefold())
+            self.browser_entries.options=[('📁 '+p.name,str(p)) for p in directories]+[(p.name,str(p)) for p in files]
+            self.browser_entries.value=None
+            self.browser_message.value=f'{len(directories)} folders · {len(files)} GeoTIFFs. Browsing {escape(str(folder))}'
+        except OSError as exc:
+            self.browser_message.value=f'<b>Cannot open this folder:</b> {escape(str(exc))}. Enter an accessible folder above or use Up one folder.'
+
+    def _browser_up(self):
+        self.folder.value=str(Path(self.folder.value).expanduser().parent)
+        self._list_browser()
+
+    def _browser_default(self):
+        if self.default_raster:
+            self.folder.value=str(self.default_raster.parent)
+        self.browser_filter.value=''
+        self._list_browser()
+
+    def _browser_open(self):
+        selected=self.browser_entries.value
+        if not selected:
+            self.browser_message.value='Select a folder or GeoTIFF first.'
+            return
+        path=Path(selected)
+        if path.is_dir():
+            self.folder.value=str(path)
+            self._list_browser()
+        elif path.is_file() and path.suffix.lower() in ('.tif','.tiff'):
+            self.path.value=str(path.resolve())
+            self.browser_panel.layout.display='none'
+            self.status.value='Raster selected. Click Load raster to process it.'
+        else:
+            self.browser_message.value='That file is no longer available. Refresh with Go to folder.'
+
+    def _browser_cancel(self):
+        self.browser_panel.layout.display='none'
+
     def refresh_rasters(self):
         folder=Path(self.folder.value).expanduser()
-        paths=sorted(p.resolve() for p in folder.rglob('*') if p.is_file() and p.suffix.lower() in ('.tif','.tiff'))
+        try:
+            paths=sorted(p.resolve() for p in folder.iterdir() if p.is_file() and p.suffix.lower() in ('.tif','.tiff'))
+        except OSError:
+            paths=[]
         if self.default_raster and self.default_raster not in paths:
             paths.insert(0,self.default_raster)
         previous=self.files.value
