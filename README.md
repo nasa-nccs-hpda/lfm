@@ -70,9 +70,15 @@ Feel free to create a new directory to run these workflows as well. To create a 
 
 **Note 2: toy model notebooks are still found under <your_folder>/lfm/notebooks/toy_model. These are no longer supported in this release.**
 
-10. After navigating to the `<your_folder>/lfm/notebooks/` folder, open your notebook of choice by double-clicking it. If this is your first time opening the notebook, you will get a box asking to select a kernel profile. **Select "lfm_kernel"**. If this box does not appear automatically, click the kernel name in the top-right corner (it might display "Python 3" or similar), and select "lfm_kernel" from the dropdown menu.
+10. After navigating to the <your_folder>/lfm/notebooks/ folder, open your notebook of choice by double-clicking it.
 
-**Verify that "lfm_kernel" now appears in the top-right corner.**
+    - If this is your first time opening the notebook, a box will appear asking you to select a kernel:
+
+        - For crater_labeling.ipynb, select lfm_kernel_ipyleaflet.
+        - For all other notebooks, select lfm_kernel.
+    - If this box does not appear automatically, click the kernel name in the top-right corner of the notebook (it may display "Python 3" or similar), then choose the correct kernel from the dropdown menu as described above.
+
+**Verify that the kernel you chose from the dropdown now appears in the top-right corner.**
 
 11. Run the notebook, by clicking on the restart button (looks like the fast-forward icon [>>]). You may see another dialog box pop up; if you do, click the red "restart" button to run the notebook. You should now see all cells of the notebook running in order, shown by the symbol [*] to the left of each notebook cell. **Note: only a singular notebook should be run at once, since the models take significant compute to run.**
 
