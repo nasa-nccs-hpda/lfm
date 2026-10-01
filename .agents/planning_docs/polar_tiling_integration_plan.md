@@ -588,9 +588,10 @@ job ID was supplied for this final P6 gate. This completes P6.6 and Phase P6.
 - `[Complete]` **P7.3** Replace validate-existing-index-first behavior with
   prepare-if-missing followed by validation, including visible stdout progress
   and clear reuse messages.
-- `[Complete]` **P7.4** Add an opt-in polar dynamic-only example to the
-  alternate queries section. The example must supply no polar grid identifier
-  and demonstrate automatic routing.
+- `[Complete]` **P7.4** Add opt-in automatic point, explicit tile-address, and
+  polar dynamic-only examples to the alternate queries section. The polar
+  example must supply no polar grid identifier and demonstrate automatic
+  routing; the explicit-address example must reuse structured record metadata.
 - `[Complete]` **P7.5** Preserve the P2 optional-product notebook contract
   during the polar refactor and extend it to the opt-in polar AOI example.
   Keep product-scoped discovery separate per PID and remove the legacy stacked
@@ -606,19 +607,22 @@ job ID was supplied for this final P6 gate. This completes P6.6 and Phase P6.
   supported container when representative data is available.
 
 P7.1-P7.7 implementation checkpoint: `notebooks/tiling_example.ipynb` now uses
-`create_tiles_for_query()` for its WAC, NAC, and opt-in polar examples. Its
-editable section contains source directories, geographic AOIs, optional PIDs,
+`create_tiles_for_query()` for its WAC, NAC, automatic-point, and opt-in polar
+examples. Its editable section contains source directories, geographic AOIs,
+optional PIDs,
 and dynamic/static inclusion controls; index paths, family zoom defaults,
 timestamped output paths, and display controls are derived below it. Enabled
 indexes are prepared on demand with stdout progress and reuse messages. The
 polar example supplies only a WAC directory and geographic AOI, discovers its
 PID by default, disables unverified polar static context, and relies on the
-82-degree router to select `LPS_N` zoom 4. The grid-neutral visualization
-dispatcher supports mixed, dynamic-only, and static-only records and retains
-NaN masking plus the four-sample display limit.
+82-degree router to select `LPS_N` zoom 4. An advanced explicit-index example
+replays a complete address and concrete PID from a point-query
+`TileCubeRecord`, without parsing an output filename. The grid-neutral
+visualization dispatcher supports mixed, dynamic-only, and static-only records
+and retains NaN masking plus the four-sample display limit.
 
-P7.8 static checks pass for valid notebook JSON, 18 unique cell IDs, Python
-syntax in all nine code cells after excluding IPython magics, null execution
+P7.8 static checks pass for valid notebook JSON, 20 unique cell IDs, Python
+syntax in all ten code cells after excluding IPython magics, null execution
 counts, empty committed outputs, visualization-helper compilation, and the 19
 focused workflow tests (18 pass locally and the real-GDAL test skips). Five
 visualization tests, including the three new source-mode dispatch cases, skip

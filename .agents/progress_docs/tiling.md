@@ -409,10 +409,14 @@ P1 work started:
   north-polar VRT. It supplies no grid ID, discovers its product by default,
   creates an isolated run-local index with visible progress, and documents the
   inclusive 82-degree routing boundary and full-tile behavior.
+- Extended the alternate-query section with an automatically routed geographic
+  WAC point and an advanced explicit tile-address replay. The tile-index call
+  consumes the point result's structured grid, zoom, coordinates, and resolved
+  PID rather than parsing a cube filename.
 - Made notebook visualization grid-neutral and added mixed, dynamic-only, and
   static-only dispatch while retaining float64 NaN masking and the four-sample
   limit. Added three focused dispatch tests.
-- Static notebook validation passes for JSON, 18 unique cell IDs, nine Python
+- Static notebook validation passes for JSON, 20 unique cell IDs, ten Python
   code cells, null execution counts, empty outputs, helper compilation, and
   the focused workflow suite. The local dependency-light environment reports
   18 workflow passes, one real-GDAL skip, and five visualization dependency
