@@ -122,12 +122,12 @@ numbered-LTM-only until the implementation and validation phases complete.
 - `[Complete]` **P1.8** If a custom OGR writer is required, densify raster
   perimeters before transformation so polar and longitude-seam footprints are
   not reduced incorrectly to four transformed corners.
-- `[In-Progress]` **P1.9** Compare generated indexes with GDAL TileIndex using
+- `[Complete]` **P1.9** Compare generated indexes with GDAL TileIndex using
   semantic equivalence rather than binary equality: CRS, feature count,
   location values, deterministic order, geometry validity, bounds and area
   tolerances, and AOI query results. Include ordinary LTM, polar, and
   longitude-seam fixtures.
-- `[Not Started]` **P1.10** Integrate index preparation into the high-level
+- `[In-Progress]` **P1.10** Integrate index preparation into the high-level
   workflow before source validation. Keep the lower-level tile writer and
   vector-index query APIs read-only, and skip preparation entirely for disabled
   source classes.
@@ -219,7 +219,7 @@ tolerance and a two-percent relative-area tolerance where GDAL's geometry is an
 acceptance oracle. The dedicated
 Grace/`lfm-container-ipyleaflet` wrapper is
 `scripts/shell/all_tasks/sbatch_compare_vector_index_builders.sh`. A supported
-container run is required before the tolerances or P1.9 completion are
+container run was required before the tolerances or P1.9 completion could be
 accepted.
 
 P1.9 first-run checkpoint: Explore job 37938028 passed every LTM and
@@ -238,8 +238,27 @@ fixtures. Polar GDAL area remains reported but is explicitly not an acceptance
 gate because its five-vertex chord geometry is the less accurate reference.
 Polar accuracy instead requires the production 21-sample footprint to converge
 to a higher-resolution 201-sample footprint within 0.001-degree bounds and
-0.1-percent relative area. P1.9 remains in progress until this canonical
-convergence check passes in the supported container.
+0.1-percent relative area. P1.9 remained in progress until this canonical
+convergence check passed in the supported container.
+
+Explore job 37938033 passed the revised canonical-curvature comparison. P1.9
+is complete: LTM, polar, and seam fixtures satisfy their structural, inventory,
+ordering, validity, bounds, AOI-query, and applicable area gates, and the
+21-sample polar perimeter converges to the 201-sample reference.
+
+P1.10 implementation checkpoint: `TileSourcePreparation` now derives an index
+build contract from a prospective `TileSourceConfig`, and
+`prepare_tile_config()` ensures each enabled source index in caller order before
+assembling the low-level `TileConfig`. It returns both the config and structured
+index-validation results. Disabled preparations are filtered before raster
+discovery, index creation, or validation; an all-disabled or duplicate-enabled
+request fails before filesystem mutation. The existing `create_tiles_*`,
+`ConfiguredTiler`, and `query_source_index()` paths remain unchanged and
+read-only with respect to indexes. Dependency-free tests cover derivation,
+ordering, disabled sources, and pre-mutation errors. A GDAL integration test
+creates a missing enabled GeoPackage while proving that a disabled nonexistent
+source directory remains untouched. The supported-container run remains
+required before P1.10 is complete.
 
 ## Phase P2 — Restore optional product-ID discovery `[Not Started]`
 

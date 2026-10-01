@@ -131,6 +131,11 @@ from .tiling_config import (
     TileSourceConfig,
     tile_config_from_dict,
 )
+from .tiling_preparation import (
+    TilePreparationResult,
+    TileSourcePreparation,
+    prepare_tile_config,
+)
 from .lunar_crs import LUNAR_GEOGRAPHIC_WKT_PATH, load_lunar_geographic_wkt
 from .vector_index import IndexedRaster, query_source_index
 from .vector_index_builder import (
@@ -238,8 +243,10 @@ __all__ = [
     "TargetGrid",
     "TileConfig",
     "TileCubeRecord",
+    "TilePreparationResult",
     "TileSourceError",
     "TileSourceConfig",
+    "TileSourcePreparation",
     "VectorIndexBuildConfig",
     "VectorIndexLockError",
     "VectorIndexValidationError",
@@ -280,6 +287,7 @@ __all__ = [
     "materialize_requests",
     "normalize_sample_id",
     "plan_splits",
+    "prepare_tile_config",
     "preflight_chip_requests",
     "preflight_label",
     "publish_chip_pair",

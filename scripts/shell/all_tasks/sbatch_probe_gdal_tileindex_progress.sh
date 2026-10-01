@@ -52,9 +52,10 @@ echo "Probing gdal.TileIndex callback behavior..."
   --report "${REPORT_PATH}"
 
 echo
-echo "Running vector-index builder tests with GDAL enabled..."
+echo "Running vector-index builder and preparation tests with GDAL enabled..."
 "${APPTAINER_BIN}" "${APPTAINER_ARGS[@]}" python -m unittest \
-  lfm.model.tests.test_vector_index_builder
+  lfm.model.tests.test_vector_index_builder \
+  lfm.model.tests.test_tiling_preparation
 
 echo
-echo "GDAL TileIndex progress probe and focused tests completed."
+echo "GDAL TileIndex probe and focused index tests completed."

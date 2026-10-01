@@ -170,12 +170,23 @@ P1 work started:
   gate; the production 21-sample outline must converge to a higher-resolution
   201-sample reference within 0.001 degrees and 0.1 percent relative area. The
   existing GDAL area tolerance remains active for LTM and seam fixtures.
+- Explore job 37938033 passed the canonical-curvature comparison, including
+  the 21-sample versus 201-sample polar convergence gate. P1.9 is complete.
+- Began P1.10. Added a high-level source preparation contract that ensures
+  enabled indexes before constructing the low-level `TileConfig`, returns the
+  validation results, and completely skips disabled sources. The existing tile
+  generation and vector-query APIs remain read-only.
+- Added dependency-free tests for preparation order, derived builder settings,
+  disabled-source skipping, and pre-mutation request errors. Added a GDAL
+  integration test that creates an enabled GeoPackage while proving a disabled
+  nonexistent directory is untouched. The expanded selected local suite passes
+  52 tests with eight GDAL-dependent skips.
 
 Next:
 
-- Submit
-  `scripts/shell/all_tasks/sbatch_compare_vector_index_builders.sh` on Explore
-  and inspect the dense-reference convergence fields before closing P1.9.
+- Submit `scripts/shell/all_tasks/sbatch_probe_gdal_tileindex_progress.sh` on
+  Explore. The wrapper now runs both the builder and high-level preparation
+  suites; use its enabled-create/disabled-skip integration test to close P1.10.
 
 ### 2026-09-30
 
