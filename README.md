@@ -53,20 +53,22 @@ Feel free to create a new directory to run these workflows as well. To create a 
 9. Using the file explorer interface again, navigate to the folder at
    `<your_folder>/lfm/notebooks/`, where `<your_folder>` is the same one you
    created in step 6. Following the example from earlier, the full path would
-   look like
-   `/explore/nobackup/people/my_username/lunar_fm/lfm/notebooks`. The
+   look like `/explore/nobackup/people/my_username/lunar_fm/lfm/notebooks`. The
    `notebooks/` folder contains Jupyter notebooks for the IBM/"graha" model
    finetuning and inference workflows across two machine learning tasks
    (instance/semantic segmentation), as well as a notebook demonstrating the
-   Armstrong tiling scheme.
+   Armstrong tiling scheme for LTM and LPS (Mercator and Polar) areas. It also contains
+   notebooks for creating labels manually on an existing raster, and a showcase of the
+   ML-ready dataset creation ("chip creation").
 
 **Note: the structure of the folders is such that we have 2 lfm/ folders; the outermost lfm/ folder contains the notebooks/ directory.**
 
 - `instance_ibm_train.ipynb` and `semantic_ibm_train.ipynb` run training for instance/semantic segmentation of craters.
 - `inference_iseg.ipynb` performs inference on the "data cubes" created from the LTM tiling scheme after the instance finetuning notebook has been run on **WAC data**. **This notebook allows you to manually set the checkpoint path to a previously created finetuning checkpoint. You need to both run the finetuning notebook before using this notebook, and if you would like to use a specific finetuning run, you must change the finetuning checkpoint variable to the filepath of your desired checkpoint.**
+- `inference_sseg.ipynb` performs the same inference workflow as inference_iseg.ipynb, except for the semantic segmentation task.
 - `tiling_example.ipynb` demonstrates how you can select a specific dynamic (WAC/NAC) product ID and area of interest (AOI), and create "datacubes"/tiles using the Armstrong Tiling Scheme. For details about LTM zones, zoom levels, tile addresses, and the repository implementation, see [`TMS/README.md`](TMS/README.md).
 - `chip_example.ipynb` demonstrates using a WAC 300x300 chip and its matching label information to create a full WAC + static chip, using the Armstrong tiling scheme and some reprojection operations. This notebook also contains examples on how to create a full dataset from a previous dataset, splittng chips into train/val/test. This notebook is intended to be used in a narrow context; it does not currently allow for new types of datasets to be created (a new dataset means a dataset with no baseline/reference dataset to provide AOI inputs).
-- `crater_labeling.ipynb` allows for hand-label creation directly from the source geotiffs, using an interactive notebook interface. 
+- `crater_labeling.ipynb` allows for hand-label creation directly from the source geotiffs, using an interactive notebook interface.
 
 **Note 2: toy model notebooks are still found under <your_folder>/lfm/notebooks/toy_model. These are no longer supported in this release.**
 
