@@ -354,12 +354,24 @@ P1 work started:
   that disabled data directories and indexes remain untouched.
 - Added a focused real-data north-polar WAC validation driver and `grace`
   Slurm wrapper for
-  `WAC_GLOBAL_P900N0000_100M.eqc.iau2.LPS_N.vrt`. The pending Explore run uses
+  `WAC_GLOBAL_P900N0000_100M.eqc.iau2.LPS_N.vrt`. The focused Explore run uses
   dynamic-only mode at 86 degrees north, builds an isolated one-file index,
   creates one `LPS_N` zoom-4 cube, and reopens it to validate tile geometry,
   CRS, native NoData, valid pixels, LZW compression, and permissions. This is
   exploratory evidence for later P9 and does not advance the sequential phase
   status while P5.6 remains open.
+- Explore job 37938102 completed that focused check in three seconds: it built
+  and validated the isolated one-feature index, wrote the expected `LPS_N`
+  zoom-4 tile `(8, 11)`, and passed the structural cube checks with all 262,144
+  pixels valid. Visual inspection raised a possible distortion question that
+  the original structural check could not resolve.
+- Extended the diagnostic with an equal-aspect three-panel PNG showing the
+  native-resolution source VRT window, the written tile with a shared robust
+  stretch, and absolute error against a fresh bilinear GDAL warp on the exact
+  tile grid. The JSON report now includes native-window geometry, valid-mask
+  mismatches, mean absolute error, RMSE, maximum error, and the 99.5th error
+  percentile. Local syntax and helper checks pass; the comparison plot awaits
+  an Explore run.
 
 Next:
 

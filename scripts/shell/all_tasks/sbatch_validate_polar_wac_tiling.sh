@@ -35,6 +35,7 @@ SOURCE_PATH="${SOURCE_PATH:-/explore/nobackup/projects/lfm/processed_data/Lunar/
 RUN_ID="${SLURM_JOB_ID:-$(date +%Y%m%d_%H%M%S)}"
 WORK_DIR="${WORK_DIR:-/explore/nobackup/people/${USER}/lfm_polar_wac_validation/${RUN_ID}}"
 REPORT_PATH="${REPORT_PATH:-${WORK_DIR}/validation_report.json}"
+PLOT_PATH="${PLOT_PATH:-${WORK_DIR}/polar_wac_source_tile_comparison.png}"
 
 export GDAL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
@@ -47,6 +48,7 @@ echo "Container: ${CONTAINER_PATH}"
 echo "Source VRT: ${SOURCE_PATH}"
 echo "Work directory: ${WORK_DIR}"
 echo "Report: ${REPORT_PATH}"
+echo "Comparison plot: ${PLOT_PATH}"
 echo "GDAL threads: ${GDAL_NUM_THREADS}"
 echo
 
@@ -59,6 +61,7 @@ echo
     --source-path "${SOURCE_PATH}" \
     --work-dir "${WORK_DIR}" \
     --report "${REPORT_PATH}" \
+    --plot "${PLOT_PATH}" \
     "$@"
 
 END_TIME="$(date +%s)"
@@ -72,5 +75,6 @@ printf -v ELAPSED_HMS "%02d:%02d:%02d" \
 echo
 echo "Polar WAC tiling validation completed successfully."
 echo "Report: ${REPORT_PATH}"
+echo "Comparison plot: ${PLOT_PATH}"
 echo "Job finished at: ${END_READABLE}"
 echo "Elapsed time: ${ELAPSED_HMS} (${ELAPSED_SECONDS} seconds)"
