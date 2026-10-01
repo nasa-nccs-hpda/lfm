@@ -222,6 +222,12 @@ P1 work started:
   in the index. Other rasters retain the canonical curved footprint. Added
   north/south GDAL regressions. The updated local suite passes 35 tests with
   nine GDAL-dependent skips; the container rerun is pending.
+- Real-data rerun 37938046 reached 67 percent before the initial detector tried
+  to transform an out-of-domain geographic pole into the source CRS. Replaced
+  inverse-projection probing with transformed-ring longitude winding, which
+  distinguishes an enclosed pole from a seam-only rectangle without making an
+  out-of-domain transform. The local suite now passes 36 tests with nine
+  GDAL-dependent skips; another container rerun is pending.
 
 Next:
 

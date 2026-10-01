@@ -297,6 +297,14 @@ Non-pole footprints retain the canonical densified geometry. North and south
 polar-cap regression cases are included in the pending supported-container
 rerun.
 
+Real-data rerun 37938046 reached two of three rasters but showed that the first
+pole detector was unsafe: projecting both geographic poles into an arbitrary
+source CRS can raise `Point outside of projection domain`. Detection now uses
+the already-transformed perimeter's accumulated, seam-normalized longitude
+winding. A full turn identifies an enclosed pole, while an ordinary
+antimeridian-crossing rectangle has zero net winding. Dependency-free tests
+cover north, south, and seam-only rings; the container rerun remains pending.
+
 ## Phase P2 — Restore optional product-ID discovery `[Not Started]`
 
 - `[Not Started]` **P2.1** Define modality-aware product-ID extraction without

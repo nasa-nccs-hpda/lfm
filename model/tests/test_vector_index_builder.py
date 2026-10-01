@@ -13,6 +13,7 @@ from lfm.model.vector_index_builder import (
     VectorIndexBuildConfig,
     VectorIndexLockError,
     VectorIndexValidationResult,
+    _enclosed_geographic_pole,
     _index_lock_path,
     _perimeter_pixels,
     _raster_footprint,
@@ -27,6 +28,69 @@ HAS_OSGEO = importlib.util.find_spec("osgeo") is not None
 
 
 class VectorIndexBuildConfigTestCase(unittest.TestCase):
+    def test_geographic_longitude_winding_detects_enclosed_poles(self):
+        class Ring:
+            def __init__(self, coordinates):
+                self.coordinates = coordinates
+
+            def GetPointCount(self):
+                return len(self.coordinates)
+
+            def GetX(self, index):
+                return self.coordinates[index][0]
+
+            def GetY(self, index):
+                return self.coordinates[index][1]
+
+        class Polygon:
+            def __init__(self, coordinates):
+                self.ring = Ring(coordinates)
+
+            def GetGeometryRef(self, index):
+                self.asserted_index = index
+                return self.ring
+
+            def GetEnvelope(self):
+                longitudes, latitudes = zip(*self.ring.coordinates, strict=True)
+                return (
+                    min(longitudes),
+                    max(longitudes),
+                    min(latitudes),
+                    max(latitudes),
+                )
+
+        north = Polygon(
+            (
+                (0.0, 80.0),
+                (90.0, 80.0),
+                (179.0, 80.0),
+                (-90.0, 80.0),
+                (0.0, 80.0),
+            )
+        )
+        south = Polygon(
+            (
+                (0.0, -80.0),
+                (-90.0, -80.0),
+                (-179.0, -80.0),
+                (90.0, -80.0),
+                (0.0, -80.0),
+            )
+        )
+        seam_only = Polygon(
+            (
+                (170.0, 10.0),
+                (-170.0, 10.0),
+                (-170.0, 20.0),
+                (170.0, 20.0),
+                (170.0, 10.0),
+            )
+        )
+
+        self.assertEqual(_enclosed_geographic_pole(north), 90.0)
+        self.assertEqual(_enclosed_geographic_pole(south), -90.0)
+        self.assertIsNone(_enclosed_geographic_pole(seam_only))
+
     def test_perimeter_pixels_densifies_every_edge_without_duplicate_corners(self):
         perimeter = _perimeter_pixels(10.0, 20.0, samples_per_edge=3)
 

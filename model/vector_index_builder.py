@@ -226,27 +226,37 @@ def _perimeter_pixels(
     )
 
 
-def _contained_geographic_pole(
-    source_polygon,
-    *,
-    source_srs,
-    output_srs,
-    ogr: Any,
-    osr: Any,
-) -> float | None:
-    """Return the latitude of a pole contained by a projected footprint."""
-    if not output_srs.IsGeographic():
+def _enclosed_geographic_pole(transformed_polygon) -> float | None:
+    """Infer a pole enclosed by a geographic ring from longitude winding."""
+    ring = transformed_polygon.GetGeometryRef(0)
+    if ring is None or ring.GetPointCount() < 4:
         return None
-    with osr.ExceptionMgr(useExceptions=False):
-        transformation = osr.CoordinateTransformation(output_srs, source_srs)
-    if transformation is None:
+    coordinates = tuple(
+        (ring.GetX(index), ring.GetY(index))
+        for index in range(ring.GetPointCount())
+    )
+    if any(
+        not math.isfinite(longitude) or not math.isfinite(latitude)
+        for longitude, latitude in coordinates
+    ):
         return None
-    for latitude in (90.0, -90.0):
-        pole = ogr.Geometry(ogr.wkbPoint)
-        pole.AddPoint_2D(0.0, latitude)
-        if pole.Transform(transformation) == 0 and source_polygon.Intersects(pole):
-            return latitude
-    return None
+
+    longitude_winding = 0.0
+    previous_longitude = coordinates[0][0]
+    for longitude, _ in coordinates[1:]:
+        delta = longitude - previous_longitude
+        delta = (delta + 180.0) % 360.0 - 180.0
+        longitude_winding += delta
+        previous_longitude = longitude
+    if round(longitude_winding / 360.0) == 0:
+        return None
+
+    _, _, minimum_latitude, maximum_latitude = transformed_polygon.GetEnvelope()
+    if minimum_latitude >= 0.0:
+        return 90.0
+    if maximum_latitude <= 0.0:
+        return -90.0
+    return 90.0 if abs(maximum_latitude) >= abs(minimum_latitude) else -90.0
 
 
 def _full_longitude_polar_cap(transformed_polygon, *, pole_latitude: float, ogr: Any):
@@ -336,13 +346,6 @@ def _raster_footprint(
             ring.AddPoint_2D(x, y)
         polygon = ogr.Geometry(ogr.wkbPolygon)
         polygon.AddGeometry(ring)
-        pole_latitude = _contained_geographic_pole(
-            polygon,
-            source_srs=source_srs,
-            output_srs=output_srs,
-            ogr=ogr,
-            osr=osr,
-        )
 
         with osr.ExceptionMgr(useExceptions=False):
             transformation = osr.CoordinateTransformation(source_srs, output_srs)
@@ -354,6 +357,7 @@ def _raster_footprint(
             raise RuntimeError(
                 f"Raster footprint transformation failed while indexing: {path}"
             )
+        pole_latitude = _enclosed_geographic_pole(polygon)
         if pole_latitude is not None:
             LOGGER.info(
                 "Raster %s contains the geographic pole at latitude %.0f; "
