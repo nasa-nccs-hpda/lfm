@@ -320,6 +320,13 @@ def _spatial_references_equivalent(
     if not actual.IsGeographic() or not expected.IsGeographic():
         return False
 
+    def prime_meridian(spatial_reference) -> float:
+        # GDAL 3.8's Python SpatialReference wrapper does not expose the newer
+        # GetPrimeMeridian convenience method. PRIMEM child 1 is the numeric
+        # longitude in both WKT1 and WKT2.
+        value = spatial_reference.GetAttrValue("PRIMEM", 1)
+        return math.nan if value is None else float(value)
+
     # An ESRI Shapefile .prj serializes the repository's modern IAU WKT as
     # WKT1. That representation drops authority, usage, and datum metadata, so
     # OSR IsSame() returns false even when the coordinate space is unchanged.
@@ -329,7 +336,7 @@ def _spatial_references_equivalent(
         (actual.GetSemiMajor(), expected.GetSemiMajor(), 1e-6),
         (actual.GetSemiMinor(), expected.GetSemiMinor(), 1e-6),
         (actual.GetInvFlattening(), expected.GetInvFlattening(), 1e-12),
-        (actual.GetPrimeMeridian(), expected.GetPrimeMeridian(), 1e-12),
+        (prime_meridian(actual), prime_meridian(expected), 1e-12),
         (actual.GetAngularUnits(), expected.GetAngularUnits(), 1e-18),
     )
     return all(

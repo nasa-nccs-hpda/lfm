@@ -122,6 +122,12 @@ P1 work started:
   can preserve. GeoPackage and other richer formats retain exact CRS identity
   validation. Suppressed the unrelated test-fixture GDAL exception-mode
   warning. The focused wrapper requires another rerun.
+- Explore job 37937988 reached the Shapefile fallback but found that GDAL 3.8's
+  Python wrapper lacks `SpatialReference.GetPrimeMeridian()`. Replaced it with
+  the compatible numeric `PRIMEM` WKT-node lookup and added a dependency-free
+  regression for the older method surface.
+- After this compatibility fix, 45 dependency-free local tiling tests pass;
+  the two GDAL-backed index tests remain skipped locally pending rerun.
 
 Next:
 

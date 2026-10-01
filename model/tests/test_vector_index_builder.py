@@ -9,6 +9,7 @@ from lfm.model.vector_index_builder import (
     StaleVectorIndexError,
     VectorIndexBuildConfig,
     VectorIndexValidationResult,
+    _spatial_references_equivalent,
     create_vector_index,
     discover_raster_paths,
     ensure_vector_index,
@@ -19,6 +20,43 @@ HAS_OSGEO = importlib.util.find_spec("osgeo") is not None
 
 
 class VectorIndexBuildConfigTestCase(unittest.TestCase):
+    def test_shapefile_crs_fallback_uses_gdal_38_wkt_node_api(self):
+        class GeographicSrs:
+            def IsSame(self, other):
+                return False
+
+            def IsGeographic(self):
+                return True
+
+            def GetSemiMajor(self):
+                return 1_737_400.0
+
+            def GetSemiMinor(self):
+                return 1_737_400.0
+
+            def GetInvFlattening(self):
+                return 0.0
+
+            def GetAttrValue(self, node, child):
+                self.assertion = (node, child)
+                return "0"
+
+            def GetAngularUnits(self):
+                return 0.0174532925199433
+
+        actual = GeographicSrs()
+        expected = GeographicSrs()
+
+        self.assertTrue(
+            _spatial_references_equivalent(
+                actual,
+                expected,
+                index_suffix=".shp",
+            )
+        )
+        self.assertEqual(actual.assertion, ("PRIMEM", 1))
+        self.assertEqual(expected.assertion, ("PRIMEM", 1))
+
     def test_accepts_shapefile_and_geopackage(self):
         shapefile = VectorIndexBuildConfig(
             data_dir=Path("/data/wac"),

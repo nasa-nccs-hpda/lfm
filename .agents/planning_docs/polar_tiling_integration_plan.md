@@ -171,6 +171,14 @@ only a Shapefile geographic fallback compares the persisted semi-major and
 semi-minor axes, inverse flattening, prime meridian, and angular units with
 strict tolerances. A rerun is required to close P1.2.
 
+The third attempt, job 37937988, reached that fallback but exposed a binding
+compatibility detail: GDAL 3.8 does not provide the Python
+`SpatialReference.GetPrimeMeridian()` convenience method. The comparison now
+reads the numeric `PRIMEM` WKT child through the long-standing
+`GetAttrValue("PRIMEM", 1)` API. A dependency-free compatibility regression
+covers an object with the GDAL 3.8 method surface. The focused wrapper still
+requires a successful rerun before P1.2 is complete.
+
 ## Phase P2 — Restore optional product-ID discovery `[Not Started]`
 
 - `[Not Started]` **P2.1** Define modality-aware product-ID extraction without
