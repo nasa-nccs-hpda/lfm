@@ -422,6 +422,19 @@ P1 work started:
   18 workflow passes, one real-GDAL skip, and five visualization dependency
   skips. Added a `grace`/`lfm-container-ipyleaflet` command-line execution
   wrapper for the remaining P7.8 gate.
+- A second user's WAC notebook run exposed invalid geometries in the shared
+  legacy `LRO_WAC_Pho_Sites/output_index.shp`. Preserved strict validation and
+  the shared index instead of deleting, overwriting, or weakening checks.
+- Updated the public notebook to cache canonical WAC and NAC GeoPackage
+  indexes under each clone's persistent `outputs/tiling/indexes/` directory.
+  Shared rasters remain read-only, separate user clones cannot interfere, and
+  later notebook runs validate and reuse the per-clone caches. The canonical
+  static workflow continues to use the shared `db2.shp` index.
+- Updated the TMS documentation and lunar-tiling skill to distinguish
+  high-level missing-index preparation from read-only low-level tile queries.
+- Revalidated the notebook as JSON with 20 unique cell IDs, valid Python
+  syntax, null execution counts, and empty committed outputs. This cache-path
+  change has not yet received a top-to-bottom Explore notebook run.
 
 Next:
 

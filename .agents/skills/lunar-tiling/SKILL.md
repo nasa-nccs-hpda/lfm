@@ -64,9 +64,10 @@ NoData metadata.
   zoom 5 and 1 m NAC/static at zoom 11.
 - Tiling resampling is always bilinear. Chip-stage resampling is a separate
   policy and must not weaken this invariant.
-- Each modality supplies an existing `.shp` or `.gpkg` raster index and a
-  location field. Query indexes read-only; never create, refresh, or modify an
-  index as a side effect of tiling.
+- Each modality supplies a `.shp` or `.gpkg` raster-index path and a location
+  field. The high-level workflow validates and reuses that index or prepares it
+  when missing; low-level tile generation queries prepared indexes read-only.
+  Never destructively refresh or silently replace an existing index.
 - Write one tiled, LZW-compressed BigTIFF per source and lunar-grid tile, with
   the routed grid CRS, exact tile transform, band names, output NoData
   metadata, and group-writable permissions.
@@ -125,6 +126,10 @@ NoData metadata.
 - Preserve repository discovery from the top-level `notebooks/` directory,
   including `/panfs/ccds02/nobackup` to `/explore/nobackup` normalization and
   insertion of `repo_root` into `sys.path`.
+- Keep shared WAC/NAC raster directories read-only. Cache their modern
+  GeoPackage indexes persistently under `outputs/tiling/indexes/` in each
+  user's clone; do not adopt or overwrite legacy indexes in shared data paths.
+  Continue using the declared canonical static index.
 - Write each run beneath `outputs/tiling/<RUN_ID>/` without reusing a directory.
 - Plot with sentinel pixels converted to `float64` NaN and display no more than
   four tile pairs per AOI unless the user changes that display-only limit.
