@@ -458,7 +458,14 @@ grid/tile addresses. Explicit APIs accept `grid_id` while preserving `zone`,
 records and errors expose a `grid_id` alias, LTM filenames remain unchanged,
 and polar filenames use `LPS_N`/`LPS_S` directly. Local validation passes 134
 tests with 23 environment-dependent skips. P4.8 is the supported-container
-numerical and regression gate.
+numerical and regression gate. The first P4.8 container run reached all 134
+modern tests and failed only the reopened-GeoTIFF CRS assertion: dimensions and
+the exact polar geotransform passed, while raw `SpatialReference.IsSame()`
+compared GDAL's default mapping on the reopened CRS with the tile definition's
+traditional GIS axis mapping. The regression now normalizes both runtime axis
+strategies before semantic comparison, matching the downstream cube reader;
+if the normalized projection still differs, the assertion emits both WKT
+definitions for diagnosis. A container rerun remains required before P4 closes.
 
 ## Phase P5 — Add configurable dynamic/static source modes `[Not Started]`
 

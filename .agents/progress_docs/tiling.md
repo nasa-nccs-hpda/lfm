@@ -313,12 +313,19 @@ P1 work started:
   ranked directory summaries, candidate raster paths, suggested polar points,
   error capture, and a JSON report. A local inventory-only dry run passed; no
   Explore rasters were opened locally.
+- Inspected the first P4 container result. All preceding modern checks passed,
+  including the polar cube's dimensions and exact geotransform; the sole
+  failure was a direct CRS `IsSame()` comparison before GDAL axis strategies
+  were normalized. Updated that regression to compare both CRSs using
+  traditional GIS axis order, as the downstream cube reader already does, and
+  to print both WKT definitions if a substantive mismatch remains.
 
 Next:
 
-- Run P4.8 with `scripts/shell/all_tasks/sbatch_tiling_modernization_tests.sh`
-  in the supported container, then close Phase P4 if its modern and legacy
-  gates pass.
+- Rerun P4.8 with
+  `scripts/shell/all_tasks/sbatch_tiling_modernization_tests.sh` in the
+  supported container. Close Phase P4 only if the modern suite and the two
+  legacy gates all pass.
 
 ### 2026-09-30
 
