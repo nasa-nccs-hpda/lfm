@@ -92,7 +92,7 @@ geometry differs from the numbered LTM zones. LTM zones are rectangular
 longitude bands represented by separate northern and southern Transverse
 Mercator grids. A polar stereographic grid instead surrounds a pole, where
 meridians converge and its geographic footprint does not behave like an LTM
-longitude-band rectangle. The current AOI intersection, zone identifiers,
+longitude-band rectangle. The original AOI intersection, zone identifiers,
 output naming, notebook examples, and regression tests were implemented around
 the LTM geometry and `number + hemisphere` addresses such as `42N`.
 
@@ -100,10 +100,10 @@ The grid registry and geographic router recognize `LPS_N` and `LPS_S`, use an
 inclusive 82-degree automatic-routing threshold, and partition geographic AOIs
 without passing polar definitions through the LTM filename logic. The low-level
 tiler now also implements polar projection, tile intersection, explicit
-addresses, seam-safe source-index envelopes, and polar cube filenames. This P4
-path remains under its supported-container regression gate; source-mode
-composition, per-family default zooms, and the public easy workflow are later
-phases.
+addresses, seam-safe source-index envelopes, and polar cube filenames. This
+low-level path passed its supported-container regression gate. Source-mode
+composition, per-family default zooms, and the public easy workflow remain
+later phases.
 
 ## Zoom levels and tile matrices
 
@@ -235,18 +235,18 @@ The implementation follows this sequence:
    never stacked. `all_intersecting` contextual sources run only once per tile,
    even when several dynamic products are discovered.
 6. [`model/raster_cube.py`](../model/raster_cube.py) uses GDAL to warp every
-   selected raster onto the exact 512×512 LTM tile grid. Tiling uses bilinear
+   selected raster onto the exact 512×512 routed tile grid. Tiling uses bilinear
    resampling, preserves or normalizes NoData according to each source's
    configuration, and maintains deterministic band ordering.
 7. One multiband GeoTIFF is written per source and tile. Files use tiled,
-   LZW-compressed BigTIFF output and store the LTM CRS, geotransform, band
+   LZW-compressed BigTIFF output and store the grid CRS, geotransform, band
    names, and output NoData metadata.
 8. Results are returned as ordered `TileCubeRecord` objects. Records are sorted
    by zone, tile row, and tile column, with sources processed in configuration
    order. Downstream code therefore does not need to recover metadata by
    parsing filenames.
 
-The generic filename contract is:
+Numbered LTM filenames retain their existing contract:
 
 ```text
 Cube-<source>-LTM<zone>_Zoom-<zoom>_Tile-<x>-<y>[_Product-<id>].tif
@@ -259,6 +259,13 @@ Cube-wac-LTM42N_Zoom-5_Tile-1-62_Product-M1187363083CE.tif
 Cube-static-LTM42N_Zoom-5_Tile-1-62.tif
 ```
 
+Polar filenames use the canonical grid identifier directly:
+
+```text
+Cube-<source>-LPS_N_Zoom-<zoom>_Tile-<x>-<y>[_Product-<id>].tif
+Cube-<source>-LPS_S_Zoom-<zoom>_Tile-<x>-<y>[_Product-<id>].tif
+```
+
 The matching address shows that these two source cubes share a pixel grid. A
 "datacube" here is the multiband file for one configured source on one tile;
 different source modalities remain separate files so their band and NoData
@@ -269,7 +276,12 @@ contracts remain explicit.
 ```python
 from pathlib import Path
 
-from model import TileConfig, TileSourceConfig, create_tiles_for_aoi_by_product
+from model import (
+    TileConfig,
+    TileSourceConfig,
+    compose_tile_sources,
+    create_tiles_for_aoi_by_product,
+)
 
 nac = TileSourceConfig(
     name="nac",
@@ -285,7 +297,10 @@ nac = TileSourceConfig(
 config = TileConfig(
     output_dir=Path("/path/to/output"),
     zoom_level=11,
-    sources=(nac,),
+    sources=compose_tile_sources(
+        dynamic_sources=(nac,),
+        include_static=False,
+    ),
 )
 
 records = create_tiles_for_aoi_by_product(
@@ -299,6 +314,15 @@ records = create_tiles_for_aoi_by_product(
 )
 ```
 
+`compose_tile_sources()` is the source-mode boundary used by the developing
+easy workflow. `include_dynamic=True` and `include_static=True` are its
+defaults, and at least one must remain enabled. Each enabled class requires at
+least one source; disabled collections are not inspected, indexed, validated,
+queried, or written. Combined configurations always place dynamic sources
+before static sources. Static sources must use `all_intersecting` and never
+accept a product ID. Dynamic-only operation is supported on numbered LTM and
+polar grids; automatic multi-grid/default-zoom orchestration is Phase P6.
+
 The notebook adds the canonical 63-band static source to this configuration so
 that NAC and static cubes are written at the same zoom-11 addresses. Static
 output bands use the repository's standardized `-32768` destination NoData
@@ -306,11 +330,12 @@ value; dynamic sources can preserve their own source NoData value.
 
 ## Relationship to model-ready chips
 
-LTM cubes are intermediate, spatially standardized products. They are not
-necessarily the final training samples. The chip-creation workflow can group
-matching cube addresses, merge adjacent tiles, reproject them onto a label or
-reference-image grid, clip them to the desired area, and select or combine
-bands for a particular machine-learning dataset.
+Lunar-grid cubes are intermediate, spatially standardized products. They are
+not necessarily the final training samples. The current chip-creation workflow
+accepts numbered-LTM coverage; its separate polar migration remains pending.
+It can group matching cube addresses, merge adjacent tiles, reproject them onto
+a label or reference-image grid, clip them to the desired area, and select or
+combine bands for a particular machine-learning dataset.
 
 For implementation history and regression details, see
 [`docs/tiling_modernization_plan.md`](../docs/tiling_modernization_plan.md).

@@ -5,14 +5,14 @@ description: Develop, review, diagnose, document, or run the LFM configuration-d
 
 # LFM Lunar Tiling
 
-Work from the cloned repository and preserve the modern, modality-neutral LTM
+Work from the cloned repository and preserve the modern, modality-neutral lunar
 tiling contract. Inspect current code before changing behavior; the paths below
 are routing aids, not substitutes for the implementation.
 
 ## Read the relevant source of truth
 
-- Read `TMS/README.md` for IAU:30100, LTM zone geometry, zoom matrices, tile
-  addressing, and the unsupported polar path.
+- Read `TMS/README.md` for IAU:30100, LTM and polar grid geometry, zoom
+  matrices, tile addressing, and the current polar support boundary.
 - Read `docs/tiling_modernization_plan.md`, especially **Stable tiling contract
   for chip creation**, when changing the public contract or handing output to
   chip creation.
@@ -28,9 +28,9 @@ The tiling boundary is:
 
 ```text
 query + TileConfig + per-source selectors
-    -> LTM zone/tile discovery
+    -> numbered-LTM or polar grid/tile discovery
     -> read-only source-index queries
-    -> per-source LTM GeoTIFF cubes
+    -> per-source lunar-grid GeoTIFF cubes
     -> ordered TileCubeRecord results
 ```
 
@@ -54,11 +54,9 @@ NoData metadata.
   duplicate WKT string.
 - Geographic AOIs use IAU:30100 bounds in this order: `ul_lat`, `ul_lon`,
   `lr_lat`, `lr_lon`.
-- Numbered LTM production remains the fully regression-closed workflow. The
-  low-level grid factory, configured tiler, and explicit address API now also
-  implement `LPS_N` and `LPS_S`; check the polar integration plan before
-  treating that path as regression-closed or using the still-unfinished easy
-  source-mode/default-zoom workflow.
+- Numbered LTM and low-level `LPS_N`/`LPS_S` production are regression-closed.
+  The easy source-mode/default-zoom workflow remains unfinished; check the
+  polar integration plan before presenting polar operation as notebook-ready.
 - A tile is 512 x 512 pixels. Its complete address is
   `(zone, zoom_level, tile_x, tile_y)`.
 - One `TileConfig` has one zoom shared by all its sources. Use separate configs
@@ -69,14 +67,19 @@ NoData metadata.
 - Each modality supplies an existing `.shp` or `.gpkg` raster index and a
   location field. Query indexes read-only; never create, refresh, or modify an
   index as a side effect of tiling.
-- Write one tiled, LZW-compressed BigTIFF per source and LTM tile, with LTM CRS,
-  exact tile transform, band names, output NoData metadata, and group-writable
-  permissions.
+- Write one tiled, LZW-compressed BigTIFF per source and lunar-grid tile, with
+  the routed grid CRS, exact tile transform, band names, output NoData
+  metadata, and group-writable permissions.
 - Preserve deterministic record order: zone, tile row, tile column, then source
   configuration order.
 
 ## Apply source-selection semantics exactly
 
+- Compose high-level source modes with `compose_tile_sources()`. Both inclusion
+  controls default to `True`; reject disabling both or enabling a class without
+  at least one source. Do not inspect a disabled collection. Preserve
+  dynamic-before-static order and require static sources to use
+  `all_intersecting`.
 - The strict `create_tiles_for_*` entry points require a nonempty selector for
   each `selection_mode="product_id"` source. The high-level
   `create_tiles_for_aoi_by_product` entry point accepts an exact PID or `None`;
@@ -89,6 +92,8 @@ NoData metadata.
   and writes separate cubes for unrelated PIDs. `all_intersecting` remains an
   explicit expert/context policy and still stacks every selected raster.
 - Static context uses `all_intersecting` and is never product-filtered.
+- Static-only operation takes no product ID. Dynamic-only operation is valid on
+  numbered LTM and polar grids.
 - A missing required source raises `MissingRequiredSourceError`. An optional
   sparse source may be skipped. Preserve and report `completed_records` when a
   later source fails; do not silently treat a partial result as a complete

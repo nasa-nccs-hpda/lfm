@@ -213,16 +213,17 @@ class TilePreparationIntegrationTestCase(unittest.TestCase):
 
     @mock.patch("lfm.model.configured_tiler.write_tile_cube")
     @mock.patch("lfm.model.configured_tiler.warp_source_to_tile")
-    @mock.patch("lfm.model.configured_tiler.TmsTileDef")
+    @mock.patch("lfm.model.configured_tiler.tile_definition_for_grid")
     def test_low_level_tile_generation_does_not_mutate_prepared_index(
         self,
-        tile_definition_cls,
+        tile_definition_for_grid,
         warp_source,
         write_cube,
     ):
         from osgeo import gdal
 
         from lfm.model.configured_tiler import ConfiguredTiler
+        from lfm.model.grid_registry import GeographicCoverage
 
         gdal.UseExceptions()
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -246,11 +247,15 @@ class TilePreparationIntegrationTestCase(unittest.TestCase):
                 source.index_path.stat().st_mtime_ns,
             )
 
-            tile_definition = tile_definition_cls.initFromParams.return_value
+            tile_definition = tile_definition_for_grid.return_value
             tile_definition.getTileBbox.return_value = (0.0, 1.0, 1.0, 0.0)
-            tile_definition.ltmToLatLon.side_effect = (
-                (1.1, 9.9),
-                (0.7, 10.3),
+            tile_definition.geographic_query_envelopes.return_value = (
+                GeographicCoverage(
+                    south=0.7,
+                    west=9.9,
+                    north=1.1,
+                    east=10.3,
+                ),
             )
             warp_source.return_value = [object()]
             write_cube.return_value = "record"
@@ -264,6 +269,8 @@ class TilePreparationIntegrationTestCase(unittest.TestCase):
         self.assertEqual(records, ["record"])
         self.assertEqual(before, after)
         self.assertEqual(warp_source.call_args.args[1], [raster_path])
+        tile_definition_for_grid.assert_called_once_with("42N", 5)
+        tile_definition.validateTileIndex.assert_called_once_with(1, 2)
         write_cube.assert_called_once()
 
 

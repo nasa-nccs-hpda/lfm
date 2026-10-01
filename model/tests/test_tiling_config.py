@@ -7,6 +7,7 @@ from lfm.model.tiling_config import (
     TileSourceConfig,
     tile_config_from_dict,
 )
+from lfm.model.source_modes import compose_tile_sources
 
 
 class TileConfigTestCase(unittest.TestCase):
@@ -173,6 +174,106 @@ class TileConfigTestCase(unittest.TestCase):
                     "sources": {},
                     "unexpected": True,
                 }
+            )
+
+
+class TileSourceModeTestCase(unittest.TestCase):
+    def source(self, name, *, selection_mode="product_id", required=True):
+        return TileSourceConfig(
+            name=name,
+            data_dir=Path(f"/data/{name}"),
+            index_path=Path(f"/data/{name}/index.gpkg"),
+            selection_mode=selection_mode,
+            required=required,
+        )
+
+    def test_defaults_enable_both_and_order_dynamic_before_static(self):
+        dynamic_first = self.source("wac")
+        dynamic_second = self.source("nac", required=False)
+        static = self.source("static", selection_mode="all_intersecting")
+
+        sources = compose_tile_sources(
+            dynamic_sources=(dynamic_first, dynamic_second),
+            static_sources=(static,),
+        )
+
+        self.assertEqual(sources, (dynamic_first, dynamic_second, static))
+        self.assertTrue(sources[0].required)
+        self.assertFalse(sources[1].required)
+
+    def test_rejects_disabling_both_source_classes(self):
+        with self.assertRaisesRegex(ValueError, "At least one"):
+            compose_tile_sources(
+                include_dynamic=False,
+                include_static=False,
+            )
+
+    def test_rejects_non_boolean_inclusion_controls(self):
+        with self.assertRaisesRegex(TypeError, "include_dynamic"):
+            compose_tile_sources(
+                dynamic_sources=(self.source("wac"),),
+                include_dynamic=1,
+                include_static=False,
+            )
+
+    def test_each_enabled_class_requires_a_source(self):
+        dynamic = self.source("wac")
+        static = self.source("static", selection_mode="all_intersecting")
+        with self.assertRaisesRegex(ValueError, "dynamic source"):
+            compose_tile_sources(
+                static_sources=(static,),
+                include_static=True,
+            )
+        with self.assertRaisesRegex(ValueError, "static source"):
+            compose_tile_sources(
+                dynamic_sources=(dynamic,),
+                include_dynamic=True,
+            )
+
+    def test_disabled_source_collection_is_not_iterated_or_validated(self):
+        class DisabledSources:
+            def __iter__(self):
+                raise AssertionError("disabled sources must not be inspected")
+
+        dynamic = self.source("wac")
+        sources = compose_tile_sources(
+            dynamic_sources=(dynamic,),
+            static_sources=DisabledSources(),
+            include_static=False,
+        )
+
+        self.assertEqual(sources, (dynamic,))
+
+    def test_static_only_accepts_contextual_sources(self):
+        static = self.source(
+            "static",
+            selection_mode="all_intersecting",
+            required=False,
+        )
+
+        sources = compose_tile_sources(
+            static_sources=(static,),
+            include_dynamic=False,
+        )
+
+        self.assertEqual(sources, (static,))
+        self.assertFalse(sources[0].required)
+
+    def test_enabled_static_sources_cannot_be_product_scoped(self):
+        with self.assertRaisesRegex(ValueError, "all_intersecting"):
+            compose_tile_sources(
+                static_sources=(self.source("static"),),
+                include_dynamic=False,
+            )
+
+    def test_duplicate_names_across_enabled_classes_are_rejected(self):
+        dynamic = self.source("shared")
+        static = self.source("shared", selection_mode="all_intersecting")
+
+        with self.assertRaisesRegex(ValueError, "unique"):
+            compose_tile_sources(
+                dynamic_sources=(dynamic,),
+                static_sources=(static,),
             )
 
 

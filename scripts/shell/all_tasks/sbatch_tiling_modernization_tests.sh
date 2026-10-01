@@ -82,6 +82,7 @@ echo "Running the modern tiling contract tests..."
   lfm.model.tests.test_grid_tile_def \
   lfm.model.tests.test_vector_index \
   lfm.model.tests.test_vector_index_builder \
+  lfm.model.tests.test_tiling_preparation \
   lfm.model.tests.test_tiling_policy \
   lfm.model.tests.test_product_tiling \
   lfm.model.tests.test_tiling_viz \

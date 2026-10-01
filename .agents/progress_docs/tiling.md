@@ -14,7 +14,7 @@ Canonical references:
 ## Current status
 
 - Core tiling modernization: **Complete**
-- Supported production geometry: numbered LTM zones
+- Supported low-level production geometry: numbered LTM, `LPS_N`, and `LPS_S`
 - Public examples: WAC/static at zoom 5 and NAC/static at zoom 11
 - Tiling resampling: bilinear
 - Canonical static cube: 63 bands with `-32768` output NoData
@@ -22,16 +22,14 @@ Canonical references:
 - Default indexed raster formats: `.tif`, `.tiff`, `.nc`, and `.vrt`
 - Optional AOI product discovery: **Complete**
 - Grid-neutral metadata registry and geographic router: **Complete**
-- Polar tile geometry and low-level addressing: implemented; supported
-  container regression pending
+- Polar tile geometry and low-level addressing: **Complete**
 - Downstream chip modernization: tracked separately
 
 Known boundaries and follow-ups:
 
-- `LPS_N`/`LPS_S` low-level production is pending the P4 container gate.
-- Routed requests are connected to grid-neutral tile discovery and
-  low-level polar cube production. Source-mode composition, family-specific
-  default zooms, and the easy automatic workflow remain P5/P6 work.
+- `LPS_N`/`LPS_S` low-level production is regression-closed. Source-mode
+  composition, family-specific default zooms, and the easy automatic workflow
+  remain P5/P6 work.
 - The legacy opt-in `all_intersecting` WAC alternate query still stacks all
   intersecting rasters into one source cube. The supported high-level AOI path
   instead discovers products and writes one dynamic cube per PID.
@@ -329,13 +327,36 @@ P1 work started:
   check to the same helper so a valid polar cube will not pass tiling and then
   fail acquisition. Added positive axis-loss and negative changed-projection
   tests. The expanded local modern suite passes 136 tests with 23 GDAL skips.
+- Explore job 37938093 passed all 136 modern tiling contract tests, all 25 safe
+  legacy regression tests, and the filtered one-tile legacy integration test
+  under GDAL 3.8.4 in `lfm-container-ipyleaflet`. The wrapper reached its
+  success terminus in 9 seconds. Apptainer FUSE cleanup messages occurred only
+  after successful child processes. This completes Phase P4.
+- Began Phase P5. Added `compose_tile_sources()` with boolean
+  `include_dynamic`/`include_static` controls that default to combined mode,
+  reject disabling both classes, require a source for each enabled class, and
+  preserve dynamic-before-static ordering.
+- Disabled source collections are not iterated, so they require no path,
+  index, selector, preparation, validation, query, or output. Enabled static
+  sources must be contextual `all_intersecting` sources. Required/optional
+  flags remain attached to the original source objects.
+- Added source-mode regressions for combined, dynamic-only, and static-only
+  LTM, `LPS_N`, and `LPS_S` results; invalid controls; missing enabled classes;
+  duplicate names; skipped disabled validation; static PID rejection;
+  deterministic source order; and preservation of completed records across a
+  later static failure. The combined source-mode and preparation check passes
+  44 tests with two GDAL-dependent skips. The expanded modern suite passes 156
+  tests with 25 GDAL-dependent skips; the legacy subset awaits the supported
+  container because GDAL is unavailable locally.
+- Updated the GDAL-backed preparation immutability regression to use P4's
+  grid-neutral tile-definition factory and added the preparation test module to
+  the main modernization wrapper. The container gate will now directly verify
+  that disabled data directories and indexes remain untouched.
 
 Next:
 
-- Rerun P4.8 with
-  `scripts/shell/all_tasks/sbatch_tiling_modernization_tests.sh` in the
-  supported container. Close Phase P4 only if the modern suite and the two
-  legacy gates all pass.
+- Run the expanded modernization wrapper in `lfm-container-ipyleaflet` to
+  complete P5.6 and close Phase P5.
 
 ### 2026-09-30
 

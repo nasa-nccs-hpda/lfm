@@ -388,8 +388,9 @@ these behaviors without waiting for the tiling notebook or legacy cleanup:
   tile. A missing required product raises `MissingRequiredProductError`; an
   optional source may yield no record while contextual records are still
   written. Callers must not assume one record per configured source.
-- Every output is a 512×512, tiled, LZW-compressed GeoTIFF on the exact LTM
-  zone/zoom/tile grid. Tiling resampling is always bilinear.
+- Every output is a 512×512, tiled, LZW-compressed GeoTIFF on the exact routed
+  grid/zoom/tile grid. Existing numbered-LTM grid behavior remains unchanged,
+  and tiling resampling is always bilinear.
 - WAC and NAC examples preserve their native source NoData. The canonical
   63-band static source uses the exact order in
   `model/static_band_contract.py`, masks the two Mini-RF source sentinel bands
@@ -402,10 +403,18 @@ these behaviors without waiting for the tiling notebook or legacy cleanup:
   should create a unique per-sample intermediate output directory rather than
   share the notebook-level `RUN_ID` across a batch.
 - The low-level modern tiler now has dedicated `LPS_N`/`LPS_S` geometry and
-  grid-neutral records while preserving the numbered-LTM contract. Downstream
-  chip acquisition still rejects polar coverage until its own separate polar
-  migration is designed and tested; tiling support must not silently broaden
-  the chip workflow's accepted inputs.
+  grid-neutral records while preserving the numbered-LTM contract. Its P4
+  supported-container gate passed 136 modern tests, 25 safe legacy tests, and
+  the filtered legacy integration test. Downstream chip acquisition still
+  rejects polar coverage until its own separate polar migration is designed
+  and tested; tiling support must not silently broaden the chip workflow's
+  accepted inputs.
+- High-level source composition uses `compose_tile_sources()`. Dynamic and
+  static classes default to enabled, at least one must remain enabled, and each
+  enabled class requires a configured source. Disabled collections are never
+  inspected or validated. Combined runs preserve dynamic-before-static order;
+  static sources are contextual `all_intersecting` inputs and static-only runs
+  do not accept product IDs.
 
 The deprecated `model/Pipeline.py` remains only as a regression and temporary
 compatibility adapter. Its hard-coded static path, WAC-oriented constructor,

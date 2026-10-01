@@ -7,6 +7,7 @@ from lfm.model.product_tiling import (
     create_tiles_for_aoi_by_product,
     discover_products_for_aoi,
 )
+from lfm.model.source_modes import compose_tile_sources
 from lfm.model.tiling_config import TileConfig, TileSourceConfig
 from lfm.model.tiling_results import TileCubeRecord, TileSourceError
 from lfm.model.vector_index import IndexedRaster
@@ -38,10 +39,11 @@ class ProductTilingTestCase(unittest.TestCase):
         product_id,
         tile_x=1,
         tile_y=2,
+        zone="42N",
     ):
         return TileCubeRecord(
             source_name=source_name,
-            zone="42N",
+            zone=zone,
             zoom_level=5,
             tile_x=tile_x,
             tile_y=tile_y,
@@ -285,6 +287,133 @@ class ProductTilingTestCase(unittest.TestCase):
             "M100.*produced no tile cubes",
         ):
             create_tiles_for_aoi_by_product(config, **BOUNDS)
+
+    @mock.patch("lfm.model.product_tiling._create_tiles_for_aoi_strict")
+    @mock.patch("lfm.model.product_tiling.query_source_index")
+    def test_all_source_modes_run_on_ltm_and_polar_grids(
+        self,
+        query,
+        create_strict,
+    ):
+        dynamic = self.source()
+        static = self.source("static", selection_mode="all_intersecting")
+        query.return_value = [
+            IndexedRaster(Path("/data/wac/M100.ech.cog.tif"))
+        ]
+
+        for zone in ("42N", "LPS_N", "LPS_S"):
+            for mode, include_dynamic, include_static, expected_names in (
+                ("combined", True, True, ["wac", "static"]),
+                ("dynamic_only", True, False, ["wac"]),
+                ("static_only", False, True, ["static"]),
+            ):
+                with self.subTest(zone=zone, mode=mode):
+                    sources = compose_tile_sources(
+                        dynamic_sources=(dynamic,),
+                        static_sources=(static,),
+                        include_dynamic=include_dynamic,
+                        include_static=include_static,
+                    )
+                    config = TileConfig(Path("/output"), 5, sources)
+
+                    def create_side_effect(run_config, **kwargs):
+                        return [
+                            self.record(
+                                source.name,
+                                product_id=(
+                                    kwargs.get("selectors", {}).get(source.name)
+                                ),
+                                zone=zone,
+                            )
+                            for source in run_config.sources
+                        ]
+
+                    create_strict.side_effect = create_side_effect
+                    records = create_tiles_for_aoi_by_product(
+                        config,
+                        **BOUNDS,
+                    )
+                    repeated_records = create_tiles_for_aoi_by_product(
+                        config,
+                        **BOUNDS,
+                    )
+
+                    self.assertEqual(
+                        [record.source_name for record in records],
+                        expected_names,
+                    )
+                    self.assertTrue(
+                        all(record.zone == zone for record in records)
+                    )
+                    self.assertEqual(repeated_records, records)
+                    create_strict.reset_mock()
+
+    @mock.patch("lfm.model.product_tiling._create_tiles_for_aoi_strict")
+    @mock.patch("lfm.model.product_tiling.query_source_index")
+    def test_contextual_failure_preserves_completed_dynamic_records(
+        self,
+        query,
+        create_strict,
+    ):
+        config = self.config()
+        query.return_value = [
+            IndexedRaster(Path("/data/wac/M100.ech.cog.tif"))
+        ]
+        dynamic_record = self.record("wac", product_id="M100")
+        partial_static = self.record(
+            "static",
+            product_id=None,
+            tile_x=2,
+        )
+
+        def create_side_effect(run_config, **kwargs):
+            if run_config.sources[0].name == "wac":
+                return [dynamic_record]
+            raise TileSourceError(
+                "synthetic static failure",
+                source_name="static",
+                zone="42N",
+                tile_x=3,
+                tile_y=2,
+                completed_records=(partial_static,),
+            )
+
+        create_strict.side_effect = create_side_effect
+
+        with self.assertRaises(TileSourceError) as raised:
+            create_tiles_for_aoi_by_product(config, **BOUNDS)
+
+        self.assertEqual(
+            raised.exception.completed_records,
+            (dynamic_record, partial_static),
+        )
+
+    @mock.patch("lfm.model.product_tiling._create_tiles_for_aoi_strict")
+    @mock.patch("lfm.model.product_tiling.query_source_index")
+    def test_static_only_does_not_discover_or_accept_product_ids(
+        self,
+        query,
+        create_strict,
+    ):
+        static = self.source("static", selection_mode="all_intersecting")
+        sources = compose_tile_sources(
+            static_sources=(static,),
+            include_dynamic=False,
+        )
+        config = TileConfig(Path("/output"), 5, sources)
+        static_record = self.record("static", product_id=None)
+        create_strict.return_value = [static_record]
+
+        records = create_tiles_for_aoi_by_product(config, **BOUNDS)
+
+        self.assertEqual(records, [static_record])
+        query.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "product_id sources"):
+            create_tiles_for_aoi_by_product(
+                config,
+                **BOUNDS,
+                product_ids={"static": "M100"},
+            )
 
 
 if __name__ == "__main__":

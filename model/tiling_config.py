@@ -109,7 +109,7 @@ class BandNoDataOverride:
 
 @dataclass(frozen=True)
 class TileSourceConfig:
-    """Describe one raster modality consumed by the LTM tiling pipeline."""
+    """Describe one raster modality consumed by the lunar tiling pipeline."""
 
     name: str
     data_dir: Path

@@ -141,6 +141,7 @@ from .product_tiling import (
     create_tiles_for_aoi_by_product,
     discover_products_for_aoi,
 )
+from .source_modes import compose_tile_sources
 from .grid_registry import (
     GeographicCoverage,
     GridDefinition,
@@ -312,6 +313,7 @@ __all__ = [
     "chip_request_from_reference",
     "chip_requests_from_reference_directory",
     "chip_requests_from_reference_paths",
+    "compose_tile_sources",
     "create_vector_index",
     "create_chip",
     "create_chips",

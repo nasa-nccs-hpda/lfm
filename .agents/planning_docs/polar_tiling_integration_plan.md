@@ -419,7 +419,7 @@ filtered one-tile legacy integration test under GDAL 3.8.4 in
 successful commands, and the wrapper reached its success terminus. Phase P3 is
 complete.
 
-## Phase P4 — Implement polar tile geometry and addressing `[In-Progress]`
+## Phase P4 — Implement polar tile geometry and addressing `[Complete]`
 
 - `[Complete]` **P4.1** Parse the north and south polar TMS JSON structures,
   including their projection definitions, zoom matrices, origins, cell sizes,
@@ -440,7 +440,7 @@ complete.
 - `[Complete]` **P4.7** Add numerical tests for transforms, projected bounds,
   exact 512 by 512 geotransforms, matrix edges, both poles, seam behavior,
   output CRS, and invalid polar addresses.
-- `[In-Progress]` **P4.8** Run the expanded modern tiling suite and safe legacy
+- `[Complete]` **P4.8** Run the expanded modern tiling suite and safe legacy
   regressions in `lfm-container-ipyleaflet`. Confirm the polar transform,
   geometry, GeoTIFF, seam-envelope, and unchanged LTM numerical tests pass with
   the supported GDAL build before P4 closes.
@@ -470,27 +470,52 @@ CRS fallback that first requires OSR comparison, then—only for projected
 CRSs—compares the full PROJ.4 coordinate-operation signature while excluding
 axis metadata because LFM rasters explicitly use traditional easting/northing
 data order. The same helper now protects downstream cube CRS validation. The
-expanded local suite passes 136 tests with 23 GDAL-dependent skips; another
-container rerun remains required before P4 closes.
+expanded local suite passes 136 tests with 23 GDAL-dependent skips. The final
+supported-container result is recorded below.
 
-## Phase P5 — Add configurable dynamic/static source modes `[Not Started]`
+P4 completion evidence: Explore job 37938093 ran in GDAL 3.8.4 using
+`lfm-container-ipyleaflet`. All 136 modern tiling tests passed, all 25 safe
+legacy regression tests passed, and the filtered one-tile legacy integration
+test passed. The wrapper reached `All tiling modernization checks passed.` in
+9 seconds. The Apptainer FUSE cleanup messages occurred after successful child
+processes and did not affect the result. Polar geometry, addressing, GeoTIFF
+writing, CRS persistence handling, seam-safe index envelopes, and unchanged
+numbered-LTM behavior are regression-closed for the P4 low-level scope.
 
-- `[Not Started]` **P5.1** Add high-level `include_dynamic` and
+## Phase P5 — Add configurable dynamic/static source modes `[In-Progress]`
+
+- `[Complete]` **P5.1** Add high-level `include_dynamic` and
   `include_static` controls, both defaulting to `True`, and reject requests
   that disable both classes.
-- `[Not Started]` **P5.2** Compose the ordered `TileSourceConfig` collection only
+- `[Complete]` **P5.2** Compose the ordered `TileSourceConfig` collection only
   from enabled sources. Preserve dynamic-before-static ordering for combined
   runs.
-- `[Not Started]` **P5.3** Ensure disabled sources require no path, index,
+- `[Complete]` **P5.3** Ensure disabled sources require no path, index,
   selector, validation, or output and cannot cause an unrelated run to fail.
-- `[Not Started]` **P5.4** Preserve required/optional semantics within each
+- `[Complete]` **P5.4** Preserve required/optional semantics within each
   enabled source class, including structured partial-result errors.
-- `[Not Started]` **P5.5** Confirm that static-only operation never expects a
+- `[Complete]` **P5.5** Confirm that static-only operation never expects a
   product ID and that dynamic-only polar operation is a supported initial
   production path.
-- `[Not Started]` **P5.6** Add tests for all valid source modes on LTM and polar
+- `[In-Progress]` **P5.6** Add tests for all valid source modes on LTM and polar
   grids, source ordering, skipped validation, missing enabled sources, and
-  deterministic results.
+  deterministic results, then run the modern and legacy supported-container
+  regression gates.
+
+P5 implementation checkpoint: `compose_tile_sources()` is the public source
+composition boundary. Its inclusion controls require actual booleans and
+default to combined operation. Enabled classes must be nonempty; disabled
+collections are not iterated. Static sources must use `all_intersecting`, and
+combined output preserves caller order within dynamic and static classes while
+placing every dynamic source first. The existing source-level `required` flag
+is retained unchanged, and contextual failures append already completed
+dynamic and contextual records. Focused tests cover combined, dynamic-only,
+and static-only operation on `42N`, `LPS_N`, and `LPS_S`; invalid controls;
+skipped disabled validation; ordering; duplicate names; missing enabled
+classes; static PID rejection; and partial-result propagation. The
+supported-container gate is pending. The expanded local modern suite passes
+156 tests with 25 GDAL-dependent skips; the legacy subset cannot run in the
+local environment because it imports GDAL at module load time.
 
 ## Phase P6 — Assemble the easy public workflow `[Not Started]`
 
