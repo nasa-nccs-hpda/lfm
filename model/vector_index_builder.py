@@ -19,6 +19,7 @@ from .vector_index import resolve_indexed_raster_path
 
 LOGGER = logging.getLogger(__name__)
 SUPPORTED_INDEX_SUFFIXES = (".gpkg", ".shp")
+DEFAULT_RASTER_GLOBS = ("*.tif", "*.tiff", "*.nc", "*.vrt")
 FOOTPRINT_EDGE_SAMPLES = 21
 
 
@@ -41,14 +42,21 @@ class VectorIndexBuildConfig:
     ``index_path`` defaults to ``<data_dir>/output_index.shp``. Supplying a
     path remains useful for canonical static data (currently ``db2.shp``), a
     GeoPackage, or a collection with a project-specific index name.
+
+    Discovery defaults to GeoTIFF, NetCDF, and VRT files. ``image_glob`` is
+    retained as a backward-compatible single-pattern override;
+    ``image_globs`` configures an ordered set of patterns. A NetCDF file must
+    open as a directly readable GDAL raster. For a subdataset-only container,
+    create a VRT that selects the intended variable.
     """
 
     data_dir: Path
     index_path: Path | None = None
-    image_glob: str = "*.tif"
+    image_glob: str | None = None
     layer_name: str | None = None
     location_field: str = "location"
     output_srs_path: Path = LUNAR_GEOGRAPHIC_WKT_PATH
+    image_globs: tuple[str, ...] = DEFAULT_RASTER_GLOBS
 
     def __post_init__(self) -> None:
         data_dir = Path(self.data_dir)
@@ -62,12 +70,32 @@ class VectorIndexBuildConfig:
         object.__setattr__(self, "output_srs_path", Path(self.output_srs_path))
         if index_path.suffix.lower() not in SUPPORTED_INDEX_SUFFIXES:
             raise ValueError("index_path must end with .shp or .gpkg.")
-        if not self.image_glob.strip():
-            raise ValueError("image_glob must not be empty.")
+        image_glob = (
+            None if self.image_glob is None else str(self.image_glob).strip()
+        )
+        if self.image_glob is not None and not image_glob:
+            raise ValueError("image_glob must not be empty when provided.")
+        if isinstance(self.image_globs, str):
+            raise TypeError("image_globs must be a sequence of glob patterns.")
+        image_globs = tuple(str(pattern).strip() for pattern in self.image_globs)
+        if not image_globs or any(not pattern for pattern in image_globs):
+            raise ValueError(
+                "image_globs must contain at least one non-empty pattern."
+            )
+        image_globs = tuple(dict.fromkeys(image_globs))
+        if image_glob is not None and image_globs != DEFAULT_RASTER_GLOBS:
+            raise ValueError("Provide image_glob or image_globs, not both.")
+        object.__setattr__(self, "image_glob", image_glob)
+        object.__setattr__(self, "image_globs", image_globs)
         if self.layer_name is not None and not self.layer_name.strip():
             raise ValueError("layer_name must not be empty when provided.")
         if not self.location_field.strip():
             raise ValueError("location_field must not be empty.")
+
+    @property
+    def raster_globs(self) -> tuple[str, ...]:
+        """Return the effective raster patterns, including the legacy override."""
+        return (self.image_glob,) if self.image_glob is not None else self.image_globs
 
 
 @dataclass(frozen=True)
@@ -119,13 +147,18 @@ def discover_raster_paths(config: VectorIndexBuildConfig) -> tuple[Path, ...]:
         )
     raster_paths = tuple(
         sorted(
-            (path for path in config.data_dir.glob(config.image_glob) if path.is_file()),
+            {
+                path
+                for pattern in config.raster_globs
+                for path in config.data_dir.glob(pattern)
+                if path.is_file()
+            },
             key=lambda path: str(path),
         )
     )
     if not raster_paths:
         raise FileNotFoundError(
-            f"No rasters matched {config.image_glob!r} in {config.data_dir}"
+            f"No rasters matched {config.raster_globs!r} in {config.data_dir}"
         )
     return raster_paths
 
@@ -193,6 +226,60 @@ def _perimeter_pixels(
     )
 
 
+def _contained_geographic_pole(
+    source_polygon,
+    *,
+    source_srs,
+    output_srs,
+    ogr: Any,
+    osr: Any,
+) -> float | None:
+    """Return the latitude of a pole contained by a projected footprint."""
+    if not output_srs.IsGeographic():
+        return None
+    with osr.ExceptionMgr(useExceptions=False):
+        transformation = osr.CoordinateTransformation(output_srs, source_srs)
+    if transformation is None:
+        return None
+    for latitude in (90.0, -90.0):
+        pole = ogr.Geometry(ogr.wkbPoint)
+        pole.AddPoint_2D(0.0, latitude)
+        if pole.Transform(transformation) == 0 and source_polygon.Intersects(pole):
+            return latitude
+    return None
+
+
+def _full_longitude_polar_cap(transformed_polygon, *, pole_latitude: float, ogr: Any):
+    """Return a conservative valid geographic polygon for a pole-containing raster."""
+    _, _, minimum_latitude, maximum_latitude = transformed_polygon.GetEnvelope()
+    if pole_latitude > 0.0:
+        lower_latitude = max(-90.0, min(90.0, minimum_latitude))
+        coordinates = (
+            (-180.0, lower_latitude),
+            (180.0, lower_latitude),
+            (180.0, 90.0),
+            (-180.0, 90.0),
+            (-180.0, lower_latitude),
+        )
+    else:
+        upper_latitude = max(-90.0, min(90.0, maximum_latitude))
+        coordinates = (
+            (-180.0, -90.0),
+            (180.0, -90.0),
+            (180.0, upper_latitude),
+            (-180.0, upper_latitude),
+            (-180.0, -90.0),
+        )
+    ring = ogr.Geometry(ogr.wkbLinearRing)
+    for longitude, latitude in coordinates:
+        ring.AddPoint_2D(longitude, latitude)
+    cap = ogr.Geometry(ogr.wkbPolygon)
+    cap.AddGeometry(ring)
+    if cap.IsEmpty() or not cap.IsValid():
+        raise ValueError("Could not construct a valid polar-cap index footprint.")
+    return cap
+
+
 def _raster_footprint(
     path: Path,
     *,
@@ -208,7 +295,15 @@ def _raster_footprint(
         raise RuntimeError(f"Could not open raster while indexing: {path}")
     try:
         if dataset.RasterXSize < 1 or dataset.RasterYSize < 1:
+            subdatasets = dataset.GetSubDatasets()
+            if subdatasets:
+                raise ValueError(
+                    f"Raster container exposes only subdatasets: {path}. "
+                    "Create a VRT selecting the intended subdataset before indexing."
+                )
             raise ValueError(f"Raster has invalid dimensions: {path}")
+        if dataset.RasterCount < 1:
+            raise ValueError(f"Raster has no readable bands: {path}")
         geotransform = dataset.GetGeoTransform(can_return_null=True)
         if geotransform is None:
             raise ValueError(f"Raster has no affine transform: {path}")
@@ -241,6 +336,13 @@ def _raster_footprint(
             ring.AddPoint_2D(x, y)
         polygon = ogr.Geometry(ogr.wkbPolygon)
         polygon.AddGeometry(ring)
+        pole_latitude = _contained_geographic_pole(
+            polygon,
+            source_srs=source_srs,
+            output_srs=output_srs,
+            ogr=ogr,
+            osr=osr,
+        )
 
         with osr.ExceptionMgr(useExceptions=False):
             transformation = osr.CoordinateTransformation(source_srs, output_srs)
@@ -251,6 +353,18 @@ def _raster_footprint(
         if polygon.Transform(transformation) != 0:
             raise RuntimeError(
                 f"Raster footprint transformation failed while indexing: {path}"
+            )
+        if pole_latitude is not None:
+            LOGGER.info(
+                "Raster %s contains the geographic pole at latitude %.0f; "
+                "using a conservative full-longitude cap in the source index.",
+                path,
+                pole_latitude,
+            )
+            return _full_longitude_polar_cap(
+                polygon,
+                pole_latitude=pole_latitude,
+                ogr=ogr,
             )
         if polygon.IsEmpty() or not polygon.IsValid():
             raise ValueError(
@@ -678,7 +792,7 @@ def create_vector_index(
     paths = discover_raster_paths(config) if raster_paths is None else raster_paths
     if not paths:
         raise FileNotFoundError(
-            f"No rasters matched {config.image_glob!r} in {config.data_dir}"
+            f"No rasters matched {config.raster_globs!r} in {config.data_dir}"
         )
     config.index_path.parent.mkdir(parents=True, exist_ok=True)
     active_stdout = sys.stdout if stdout is None else stdout
@@ -731,7 +845,7 @@ def ensure_vector_index(
     active_stdout = sys.stdout if stdout is None else stdout
     raster_paths = discover_raster_paths(config)
     _announce(
-        f"Found {len(raster_paths)} raster(s) matching {config.image_glob!r} "
+        f"Found {len(raster_paths)} raster(s) matching {config.raster_globs!r} "
         f"in {config.data_dir}.",
         logger=active_logger,
         stdout=active_stdout,
@@ -785,6 +899,7 @@ def ensure_vector_index(
 
 
 __all__ = [
+    "DEFAULT_RASTER_GLOBS",
     "FOOTPRINT_EDGE_SAMPLES",
     "StaleVectorIndexError",
     "VectorIndexBuildConfig",

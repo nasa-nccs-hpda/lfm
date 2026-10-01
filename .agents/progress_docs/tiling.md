@@ -204,6 +204,24 @@ P1 work started:
   per-raster stdout `tqdm` bar, then verifies read-only reuse and writes a JSON
   report. No production raster or index is modified. The Explore run is
   pending.
+- Extended post-P1 raster discovery to support `.tif`, `.tiff`, `.nc`, and
+  `.vrt` by default, plus multiple caller-supplied glob patterns with stable
+  de-duplication. Preserved the scalar `image_glob` as a compatibility
+  override. Added synthetic GDAL integration coverage for VRT and directly
+  raster-readable NetCDF creation, validation, and reuse; subdataset-only
+  NetCDF inputs receive guidance to select a variable through a VRT.
+- The expanded dependency-free builder/preparation suite passes 34 tests with
+  eight GDAL-dependent skips. The supported-container test rerun is pending.
+- Real-data progress job 37938036 selected three static gravity GeoTIFFs and
+  displayed genuine per-raster progress, then stopped on
+  `outputNorthPole_20km.tif`. Its transformed densified perimeter crossed the
+  longitude seam around the enclosed north pole and became self-intersecting;
+  this was unrelated to `.nc` or `.vrt` discovery.
+- Added a pole-aware footprint fallback: a source raster proven to contain
+  `+90` or `-90` receives a valid, conservative full-longitude geographic cap
+  in the index. Other rasters retain the canonical curved footprint. Added
+  north/south GDAL regressions. The updated local suite passes 35 tests with
+  nine GDAL-dependent skips; the container rerun is pending.
 
 Next:
 

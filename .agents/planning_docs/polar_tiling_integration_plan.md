@@ -97,8 +97,8 @@ numbered-LTM-only until the implementation and validation phases complete.
 
 - `[Complete]` **P1.1** Extend the existing vector-index builder with an
   explicit ensure-if-missing API and configuration for the data directory,
-  derived or explicit index path, raster glob, layer name, location field, and
-  output geographic CRS.
+  derived or explicit index path, one or more raster globs, layer name,
+  location field, and output geographic CRS.
 - `[Complete]` **P1.2** Define reuse and freshness rules. Existing indexes are
   validated and reused; they are never silently overwritten. A stale or
   malformed index produces a clear diagnosis and explicit rebuild guidance.
@@ -138,7 +138,9 @@ numbered-LTM-only until the implementation and validation phases complete.
 
 P1.1 checkpoint: `VectorIndexBuildConfig.index_path` now defaults to
 `<data_dir>/output_index.shp` while preserving explicit Shapefile, GeoPackage,
-layer, location-field, raster-glob, and output-WKT configuration.
+layer, location-field, raster-glob, and output-WKT configuration. The later
+post-P1 extension adds multiple-pattern discovery without removing this scalar
+override.
 `discover_raster_paths()` supplies a deterministic file inventory, and
 `ensure_vector_index()` is the explicit preparation entry point. The low-level
 tiler and `query_source_index()` remain read-only.
@@ -276,6 +278,24 @@ P1.11 and Phase P1. The accepted production path is the staged Python/OGR
 writer with canonical densified footprints, explicit stale-index handling, and
 high-level ensure-before-config preparation; low-level tiling remains
 index-read-only.
+
+Post-P1 format extension: default raster discovery now includes `*.tif`,
+`*.tiff`, `*.nc`, and `*.vrt`, with deterministic de-duplication across
+overlapping patterns. The scalar `image_glob` remains a backward-compatible
+single-pattern override and `image_globs` supports multiple explicit patterns.
+Directly raster-readable NetCDF datasets and GDAL VRTs have focused
+creation/validation/reuse tests; subdataset-only NetCDF containers require a
+VRT selecting the intended variable. Dependency-free tests pass locally, while
+the two new GDAL-backed format tests require the supported-container rerun.
+
+Real-data progress job 37938036 then exposed a pre-existing polar-footprint
+edge case while indexing `outputNorthPole_20km.tif`: transforming a perimeter
+that encloses the pole into longitude/latitude produced a seam
+self-intersection. Pole-containing rasters now use a conservative, valid
+full-longitude cap from their densified limiting latitude to the relevant pole.
+Non-pole footprints retain the canonical densified geometry. North and south
+polar-cap regression cases are included in the pending supported-container
+rerun.
 
 ## Phase P2 — Restore optional product-ID discovery `[Not Started]`
 

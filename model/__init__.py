@@ -139,6 +139,7 @@ from .tiling_preparation import (
 from .lunar_crs import LUNAR_GEOGRAPHIC_WKT_PATH, load_lunar_geographic_wkt
 from .vector_index import IndexedRaster, query_source_index
 from .vector_index_builder import (
+    DEFAULT_RASTER_GLOBS,
     StaleVectorIndexError,
     VectorIndexBuildConfig,
     VectorIndexLockError,
@@ -201,6 +202,7 @@ __all__ = [
     "CONFIGURATION_ID_ALGORITHM",
     "CHIP_DIAGNOSTIC_VERSION",
     "DATASET_MANIFEST_VERSION",
+    "DEFAULT_RASTER_GLOBS",
     "DatasetPublicationValidation",
     "GeographicAOI",
     "CubeRecordGroup",

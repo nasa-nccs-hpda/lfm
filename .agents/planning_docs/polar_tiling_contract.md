@@ -94,12 +94,30 @@ Do not scan for and guess among arbitrary index files. Existing indexes are
 validated and reused; missing indexes are created before source validation.
 The low-level tile-generation and index-query code remains read-only.
 
+Raster discovery accepts an ordered set of glob patterns and defaults to
+`*.tif`, `*.tiff`, `*.nc`, and `*.vrt`. Overlapping patterns are deduplicated
+before deterministic sorting. The legacy scalar `image_glob` remains a
+single-pattern override. NetCDF inputs must be directly readable GDAL raster
+datasets; a NetCDF container that exposes only subdatasets must be represented
+by a VRT selecting the intended variable. When a VRT and its component rasters
+share one directory, callers should narrow the patterns so the logical VRT and
+its physical components are not both indexed unintentionally.
+
 New index footprints densify every raster edge before transforming it to
 IAU:30100. This curved transformed perimeter is canonical, especially for polar
 stereographic sources. A four-corner/five-vertex `gdaltindex` footprint remains
 a structural comparison baseline but is not the polar-area truth; polar
 accuracy is established by convergence against a higher-resolution densified
 perimeter plus matching bounds and AOI query behavior.
+
+A raster whose projected footprint contains either geographic pole cannot be
+represented by one ordinary longitude-wrapped perimeter ring without a seam
+self-intersection. For index filtering, represent that case as a valid,
+conservative full-longitude cap from the densified perimeter's limiting
+latitude to `+90` or `-90`. This may admit harmless index false positives at
+some longitudes, but it must never exclude actual polar raster coverage. It
+does not replace the canonical curved perimeter for rasters that do not contain
+a pole.
 
 ### Product-selector input
 

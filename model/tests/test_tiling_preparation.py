@@ -11,7 +11,10 @@ from lfm.model.tiling_preparation import (
     TileSourcePreparation,
     prepare_tile_config,
 )
-from lfm.model.vector_index_builder import VectorIndexValidationResult
+from lfm.model.vector_index_builder import (
+    DEFAULT_RASTER_GLOBS,
+    VectorIndexValidationResult,
+)
 
 
 HAS_OSGEO = importlib.util.find_spec("osgeo") is not None
@@ -52,6 +55,27 @@ class TilePreparationTestCase(unittest.TestCase):
         self.assertEqual(build.layer_name, source.index_layer)
         self.assertEqual(build.location_field, source.location_field)
         self.assertEqual(build.image_glob, "*.cog.tif")
+        self.assertEqual(build.raster_globs, ("*.cog.tif",))
+
+    def test_preparation_defaults_to_all_supported_raster_extensions(self):
+        preparation = TileSourcePreparation(self.source("wac"))
+
+        build = preparation.index_config()
+
+        self.assertIsNone(build.image_glob)
+        self.assertEqual(build.image_globs, DEFAULT_RASTER_GLOBS)
+        self.assertEqual(build.raster_globs, DEFAULT_RASTER_GLOBS)
+
+    def test_preparation_accepts_multiple_custom_raster_patterns(self):
+        preparation = TileSourcePreparation(
+            self.source("science"),
+            image_globs=("*.nc", "*.vrt", "*.nc"),
+        )
+
+        build = preparation.index_config()
+
+        self.assertEqual(build.image_globs, ("*.nc", "*.vrt"))
+        self.assertEqual(build.raster_globs, ("*.nc", "*.vrt"))
 
     @mock.patch("lfm.model.tiling_preparation.ensure_vector_index")
     def test_enabled_sources_are_prepared_before_config_assembly(self, ensure):

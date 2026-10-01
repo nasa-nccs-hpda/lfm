@@ -7,6 +7,7 @@ from unittest import mock
 import unittest
 
 from lfm.model.vector_index_builder import (
+    DEFAULT_RASTER_GLOBS,
     FOOTPRINT_EDGE_SAMPLES,
     StaleVectorIndexError,
     VectorIndexBuildConfig,
@@ -106,6 +107,24 @@ class VectorIndexBuildConfigTestCase(unittest.TestCase):
         config = VectorIndexBuildConfig(data_dir=Path("/data/wac"))
 
         self.assertEqual(config.index_path, Path("/data/wac/output_index.shp"))
+        self.assertEqual(config.raster_globs, DEFAULT_RASTER_GLOBS)
+
+    def test_legacy_image_glob_remains_a_single_pattern_override(self):
+        config = VectorIndexBuildConfig(
+            data_dir=Path("/data/wac"),
+            image_glob="*.cog.tif",
+        )
+
+        self.assertEqual(config.image_glob, "*.cog.tif")
+        self.assertEqual(config.raster_globs, ("*.cog.tif",))
+
+    def test_rejects_ambiguous_single_and_multiple_glob_overrides(self):
+        with self.assertRaisesRegex(ValueError, "not both"):
+            VectorIndexBuildConfig(
+                data_dir=Path("/data/wac"),
+                image_glob="*.tif",
+                image_globs=("*.nc", "*.vrt"),
+            )
 
     def test_rejects_unsupported_index_format(self):
         with self.assertRaisesRegex(ValueError, ".shp or .gpkg"):
@@ -126,12 +145,32 @@ class VectorIndexBuildConfigTestCase(unittest.TestCase):
             data_dir = Path(temporary_directory)
             (data_dir / "b.tif").touch()
             (data_dir / "a.tif").touch()
-            (data_dir / "ignored.tiff").touch()
+            (data_dir / "c.tiff").touch()
+            (data_dir / "d.nc").touch()
+            (data_dir / "e.vrt").touch()
+            (data_dir / "ignored.img").touch()
             (data_dir / "directory.tif").mkdir()
 
             result = discover_raster_paths(VectorIndexBuildConfig(data_dir))
 
-        self.assertEqual([path.name for path in result], ["a.tif", "b.tif"])
+        self.assertEqual(
+            [path.name for path in result],
+            ["a.tif", "b.tif", "c.tiff", "d.nc", "e.vrt"],
+        )
+
+    def test_discovery_deduplicates_overlapping_patterns(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            data_dir = Path(temporary_directory)
+            raster = data_dir / "a.tif"
+            raster.touch()
+            config = VectorIndexBuildConfig(
+                data_dir,
+                image_globs=("*.tif", "a.*"),
+            )
+
+            result = discover_raster_paths(config)
+
+        self.assertEqual(result, (raster,))
 
     def test_discovery_requires_matching_rasters(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -432,6 +471,61 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
         with self.assertRaisesRegex(StaleVectorIndexError, "stale"):
             ensure_vector_index(config, stdout=io.StringIO())
 
+    def test_vrt_input_is_created_validated_and_reused(self):
+        component_dir = self.data_dir / "components"
+        component_dir.mkdir()
+        original_data_dir = self.data_dir
+        self.data_dir = component_dir
+        try:
+            source = self.write_raster("source.tif", x_origin=10.0)
+        finally:
+            self.data_dir = original_data_dir
+        vrt_path = self.data_dir / "mosaic.vrt"
+        translated = self.gdal.Translate(str(vrt_path), str(source), format="VRT")
+        self.assertIsNotNone(translated)
+        translated = None
+        config = VectorIndexBuildConfig(
+            self.data_dir,
+            self.data_dir / "vrt_index.gpkg",
+            image_globs=("*.vrt",),
+        )
+
+        created = ensure_vector_index(config, stdout=io.StringIO())
+        reused = ensure_vector_index(config, stdout=io.StringIO())
+
+        self.assertEqual(created.raster_paths, (vrt_path,))
+        self.assertEqual(created, reused)
+
+    def test_netcdf_input_is_created_validated_and_reused(self):
+        netcdf_driver = self.gdal.GetDriverByName("netCDF")
+        if netcdf_driver is None:
+            self.skipTest("GDAL netCDF driver is unavailable")
+        component_dir = self.data_dir / "components"
+        component_dir.mkdir()
+        original_data_dir = self.data_dir
+        self.data_dir = component_dir
+        try:
+            source = self.write_raster("source.tif", x_origin=10.0)
+        finally:
+            self.data_dir = original_data_dir
+        source_dataset = self.gdal.Open(str(source), self.gdal.GA_ReadOnly)
+        netcdf_path = self.data_dir / "source.nc"
+        copied = netcdf_driver.CreateCopy(str(netcdf_path), source_dataset)
+        self.assertIsNotNone(copied)
+        copied = None
+        source_dataset = None
+        config = VectorIndexBuildConfig(
+            self.data_dir,
+            self.data_dir / "netcdf_index.gpkg",
+            image_globs=("*.nc",),
+        )
+
+        created = ensure_vector_index(config, stdout=io.StringIO())
+        reused = ensure_vector_index(config, stdout=io.StringIO())
+
+        self.assertEqual(created.raster_paths, (netcdf_path,))
+        self.assertEqual(created, reused)
+
     def test_explicitly_archived_stale_index_can_be_rebuilt(self):
         first = self.write_raster("a.tif", x_origin=10.0)
         config = VectorIndexBuildConfig(
@@ -514,6 +608,63 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
             abs(midpoint[1] - linear_midpoint_latitude),
             1e-6,
         )
+
+    def test_pole_containing_rasters_use_valid_full_longitude_caps(self):
+        from osgeo import ogr, osr
+
+        output_srs = osr.SpatialReference()
+        self.assertEqual(output_srs.ImportFromWkt(self.wkt), 0)
+        output_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+
+        for grid_id, pole_latitude in (("LPS_N", 90.0), ("LPS_S", -90.0)):
+            with self.subTest(grid_id=grid_id):
+                definition_path = (
+                    Path(__file__).resolve().parents[2]
+                    / "TMS"
+                    / "RG"
+                    / f"tms_{grid_id}RG.json"
+                )
+                definition = json.loads(definition_path.read_text(encoding="utf-8"))
+                raster_path = self.data_dir / f"{grid_id}.tif"
+                dataset = self.gdal.GetDriverByName("GTiff").Create(
+                    str(raster_path),
+                    100,
+                    100,
+                    1,
+                    self.gdal.GDT_Byte,
+                )
+                dataset.SetProjection(definition["crs"])
+                dataset.SetGeoTransform(
+                    (400_000.0, 2_000.0, 0.0, 600_000.0, 0.0, -2_000.0)
+                )
+                dataset.GetRasterBand(1).Fill(1)
+                dataset = None
+
+                footprint = _raster_footprint(
+                    raster_path,
+                    output_srs=output_srs,
+                    gdal=self.gdal,
+                    ogr=ogr,
+                    osr=osr,
+                )
+                minimum_x, maximum_x, minimum_y, maximum_y = (
+                    footprint.GetEnvelope()
+                )
+
+                self.assertTrue(footprint.IsValid())
+                self.assertEqual((minimum_x, maximum_x), (-180.0, 180.0))
+                if pole_latitude > 0.0:
+                    self.assertEqual(maximum_y, 90.0)
+                    self.assertLess(minimum_y, 90.0)
+                    query_latitude = (minimum_y + 90.0) / 2.0
+                else:
+                    self.assertEqual(minimum_y, -90.0)
+                    self.assertGreater(maximum_y, -90.0)
+                    query_latitude = (maximum_y - 90.0) / 2.0
+                for query_longitude in (-179.0, 0.0, 179.0):
+                    query_point = ogr.Geometry(ogr.wkbPoint)
+                    query_point.AddPoint_2D(query_longitude, query_latitude)
+                    self.assertTrue(footprint.Intersects(query_point))
 
 
 if __name__ == "__main__":

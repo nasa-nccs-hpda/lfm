@@ -10,6 +10,7 @@ import sys
 from time import perf_counter
 
 from lfm.model.vector_index_builder import (
+    DEFAULT_RASTER_GLOBS,
     VectorIndexBuildConfig,
     ensure_vector_index,
 )
@@ -23,7 +24,15 @@ DEFAULT_SOURCE_DIR = Path(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-dir", type=Path, default=DEFAULT_SOURCE_DIR)
-    parser.add_argument("--image-glob", default="*.tif")
+    parser.add_argument(
+        "--image-glob",
+        action="append",
+        dest="image_globs",
+        help=(
+            "Raster glob to include; repeat for multiple formats. Defaults to "
+            f"{DEFAULT_RASTER_GLOBS}."
+        ),
+    )
     parser.add_argument("--limit", type=int, default=8)
     parser.add_argument("--work-dir", required=True, type=Path)
     parser.add_argument("--report", required=True, type=Path)
@@ -33,26 +42,29 @@ def parse_args() -> argparse.Namespace:
 def discover_sample(
     source_dir: Path,
     *,
-    image_glob: str,
+    image_globs: tuple[str, ...],
     limit: int,
 ) -> tuple[Path, ...]:
     if not source_dir.is_dir():
-        raise NotADirectoryError(f"Real-data source directory does not exist: {source_dir}")
+        raise NotADirectoryError(
+            f"Real-data source directory does not exist: {source_dir}"
+        )
     if limit < 1:
         raise ValueError("limit must be positive.")
     paths = tuple(
         sorted(
-            (
+            {
                 path.resolve()
-                for path in source_dir.glob(image_glob)
+                for pattern in image_globs
+                for path in source_dir.glob(pattern)
                 if path.is_file()
-            ),
+            },
             key=str,
         )[:limit]
     )
     if not paths:
         raise FileNotFoundError(
-            f"No real rasters matched {image_glob!r} in {source_dir}"
+            f"No real rasters matched {image_globs!r} in {source_dir}"
         )
     return paths
 
@@ -65,9 +77,10 @@ def main() -> None:
         )
     linked_data_dir = args.work_dir / "source_links"
     linked_data_dir.mkdir(parents=True)
+    image_globs = tuple(args.image_globs or DEFAULT_RASTER_GLOBS)
     selected_paths = discover_sample(
         args.source_dir,
-        image_glob=args.image_glob,
+        image_globs=image_globs,
         limit=args.limit,
     )
     for source_path in selected_paths:
@@ -77,7 +90,7 @@ def main() -> None:
     config = VectorIndexBuildConfig(
         data_dir=linked_data_dir,
         index_path=index_path,
-        image_glob="*.tif",
+        image_globs=image_globs,
         layer_name="real_data_progress",
     )
     print(
@@ -99,7 +112,7 @@ def main() -> None:
 
     report = {
         "source_dir": str(args.source_dir),
-        "source_image_glob": args.image_glob,
+        "source_image_globs": image_globs,
         "requested_limit": args.limit,
         "selected_count": len(selected_paths),
         "selected_real_paths": [str(path) for path in selected_paths],

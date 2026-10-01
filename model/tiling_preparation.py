@@ -11,6 +11,7 @@ from typing import TextIO
 from .lunar_crs import LUNAR_GEOGRAPHIC_WKT_PATH
 from .tiling_config import TileConfig, TileSourceConfig
 from .vector_index_builder import (
+    DEFAULT_RASTER_GLOBS,
     VectorIndexBuildConfig,
     VectorIndexValidationResult,
     ensure_vector_index,
@@ -19,22 +20,41 @@ from .vector_index_builder import (
 
 @dataclass(frozen=True)
 class TileSourcePreparation:
-    """Declare how one prospective tile source prepares its raster index."""
+    """Declare how one prospective tile source prepares its raster index.
+
+    Default discovery includes ``.tif``, ``.tiff``, ``.nc``, and ``.vrt``.
+    ``image_glob`` remains a single-pattern compatibility override, while
+    ``image_globs`` accepts multiple patterns.
+    """
 
     source: TileSourceConfig
     enabled: bool = True
-    image_glob: str = "*.tif"
+    image_glob: str | None = None
     output_srs_path: Path = LUNAR_GEOGRAPHIC_WKT_PATH
+    image_globs: tuple[str, ...] = DEFAULT_RASTER_GLOBS
 
     def __post_init__(self) -> None:
         if not isinstance(self.source, TileSourceConfig):
             raise TypeError("source must be a TileSourceConfig.")
         if not isinstance(self.enabled, bool):
             raise TypeError("enabled must be a boolean.")
-        image_glob = str(self.image_glob).strip()
-        if not image_glob:
-            raise ValueError("image_glob must not be empty.")
+        image_glob = (
+            None if self.image_glob is None else str(self.image_glob).strip()
+        )
+        if self.image_glob is not None and not image_glob:
+            raise ValueError("image_glob must not be empty when provided.")
+        if isinstance(self.image_globs, str):
+            raise TypeError("image_globs must be a sequence of glob patterns.")
+        image_globs = tuple(str(pattern).strip() for pattern in self.image_globs)
+        if not image_globs or any(not pattern for pattern in image_globs):
+            raise ValueError(
+                "image_globs must contain at least one non-empty pattern."
+            )
+        image_globs = tuple(dict.fromkeys(image_globs))
+        if image_glob is not None and image_globs != DEFAULT_RASTER_GLOBS:
+            raise ValueError("Provide image_glob or image_globs, not both.")
         object.__setattr__(self, "image_glob", image_glob)
+        object.__setattr__(self, "image_globs", image_globs)
         object.__setattr__(self, "output_srs_path", Path(self.output_srs_path))
 
     def index_config(self) -> VectorIndexBuildConfig:
@@ -43,6 +63,7 @@ class TileSourcePreparation:
             data_dir=self.source.data_dir,
             index_path=self.source.index_path,
             image_glob=self.image_glob,
+            image_globs=self.image_globs,
             layer_name=self.source.index_layer,
             location_field=self.source.location_field,
             output_srs_path=self.output_srs_path,
