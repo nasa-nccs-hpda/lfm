@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from .product_ids import ProductIdResolver, lunar_product_id_from_raster_path
+
 
 SelectionMode = Literal["product_id", "all_intersecting"]
 
@@ -107,7 +109,7 @@ class BandNoDataOverride:
 
 @dataclass(frozen=True)
 class TileSourceConfig:
-    """Describe one raster modality consumed by the LTM tiling pipeline."""
+    """Describe one raster modality consumed by the lunar tiling pipeline."""
 
     name: str
     data_dir: Path
@@ -123,6 +125,7 @@ class TileSourceConfig:
     preserve_source_nodata: bool = False
     band_nodata_overrides: tuple[BandNoDataOverride, ...] = ()
     required: bool = True
+    product_id_resolver: ProductIdResolver = lunar_product_id_from_raster_path
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -159,6 +162,8 @@ class TileSourceConfig:
                 f"selection_mode must be one of {valid}, got "
                 f"{self.selection_mode!r}."
             )
+        if not callable(self.product_id_resolver):
+            raise TypeError("product_id_resolver must be callable.")
         object.__setattr__(
             self,
             "band_names",
@@ -287,6 +292,7 @@ def _source_from_dict(name: str, value: object) -> TileSourceConfig:
             "resampling",
             "nodata",
             "required",
+            "product_id_resolver",
         },
         field_name=f"sources[{name!r}]",
     )
@@ -359,6 +365,10 @@ def _source_from_dict(name: str, value: object) -> TileSourceConfig:
             source_name=name,
         ),
         required=bool(values.get("required", True)),
+        product_id_resolver=values.get(
+            "product_id_resolver",
+            lunar_product_id_from_raster_path,
+        ),
     )
 
 
@@ -392,6 +402,7 @@ __all__ = [
     "SELECTION_MODES",
     "SUPPORTED_INDEX_SUFFIXES",
     "SelectionMode",
+    "ProductIdResolver",
     "TileConfig",
     "TileSourceConfig",
     "tile_config_from_dict",

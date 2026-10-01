@@ -87,10 +87,45 @@ class ConfiguredTilerIntegrationTestCase(unittest.TestCase):
         self.assertEqual(record.path, path)
         self.assertEqual(record.nodata_values, (-9999,))
 
-    @mock.patch("lfm.model.configured_tiler.TmsIntersector")
+    @mock.patch("lfm.model.configured_tiler.query_source_index_envelopes")
+    @mock.patch("lfm.model.configured_tiler.tile_definition_for_grid")
+    def test_product_failure_retains_explicit_pid(
+        self,
+        tile_definition_for_grid,
+        query_source_index_envelopes,
+    ):
+        from lfm.model.configured_tiler import ConfiguredTiler
+        from lfm.model.tiling_config import TileConfig, TileSourceConfig
+        from lfm.model.tiling_results import TileSourceError
+
+        source = TileSourceConfig(
+            name="wac",
+            data_dir=Path("/data/wac"),
+            index_path=Path("/data/wac/index.shp"),
+            selection_mode="product_id",
+        )
+        tiler = ConfiguredTiler(
+            TileConfig(Path(tempfile.mkdtemp()), 5, (source,)),
+            selectors={"wac": "M100"},
+        )
+        tile_definition = tile_definition_for_grid.return_value
+        tile_definition.getTileBbox.return_value = (0.0, 1.0, 1.0, 0.0)
+        tile_definition.geographic_query_envelopes.return_value = ()
+        query_source_index_envelopes.side_effect = RuntimeError(
+            "synthetic query failure"
+        )
+
+        with self.assertRaises(TileSourceError) as raised:
+            tiler.run_tile_index(1, 2, "42N")
+
+        self.assertEqual(raised.exception.product_id, "M100")
+
+    @mock.patch("lfm.model.configured_tiler.tile_definition_for_grid")
+    @mock.patch("lfm.model.configured_tiler.route_aoi")
     def test_aoi_error_includes_records_from_earlier_tiles(
         self,
-        intersector_cls,
+        route_aoi,
+        tile_definition_for_grid,
     ):
         from lfm.model.configured_tiler import ConfiguredTiler
         from lfm.model.tiling_config import TileConfig, TileSourceConfig
@@ -132,16 +167,29 @@ class ConfiguredTilerIntegrationTestCase(unittest.TestCase):
                     [self.record(root / "third.tif", tile_x=3)],
                 )
             )
-            intersector_cls.return_value.getTids.return_value = [
-                {"zone": "42N", "tileX": 3, "tileY": 63},
-                {"zone": "42N", "tileX": 1, "tileY": 63},
-                {"zone": "42N", "tileX": 2, "tileY": 63},
+            part = mock.Mock(
+                grid_id="42N",
+                ul_lat=1.3,
+                ul_lon=149.7,
+                lr_lat=1.1,
+                lr_lon=149.9,
+            )
+            route_aoi.return_value = (part,)
+            tile_definition_for_grid.return_value.getOverlappingTiles.return_value = [
+                (3, 63),
+                (1, 63),
+                (2, 63),
             ]
 
             with self.assertRaises(MissingRequiredSourceError) as raised:
                 tiler.run_aoi(1.3, 149.7, 1.1, 149.9)
 
-        intersector_cls.assert_called_once_with(verbose=False)
+        route_aoi.assert_called_once_with(
+            ul_lat=1.3,
+            ul_lon=149.7,
+            lr_lat=1.1,
+            lr_lon=149.9,
+        )
         self.assertEqual(
             raised.exception.completed_records,
             (first, within_failure),

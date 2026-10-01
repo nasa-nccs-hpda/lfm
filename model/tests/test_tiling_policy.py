@@ -4,6 +4,7 @@ import unittest
 from lfm.model.tiling_config import BandNoDataOverride, TileSourceConfig
 from lfm.model.tiling_policy import (
     band_nodata_values,
+    group_source_rasters_by_product,
     product_id_from_raster_path,
     select_source_rasters,
     validate_source_selectors,
@@ -27,6 +28,50 @@ class TilingPolicyTestCase(unittest.TestCase):
             product_id_from_raster_path("M1187363083CE.prj.uv.mos.tif"),
             "M1187363083CE",
         )
+
+    def test_product_grouping_keeps_wac_companions_together(self):
+        records = [
+            IndexedRaster(Path("/data/M200.ech.cog.tif")),
+            IndexedRaster(Path("/data/M100.prj.vis.mos.tif")),
+            IndexedRaster(Path("/data/M100.prj.uv.mos.tif")),
+        ]
+
+        grouped = group_source_rasters_by_product(self.source(), records)
+
+        self.assertEqual(tuple(grouped), ("M100", "M200"))
+        self.assertEqual(
+            [record.path.name for record in grouped["M100"]],
+            ["M100.prj.uv.mos.tif", "M100.prj.vis.mos.tif"],
+        )
+
+    def test_custom_product_resolver_supports_other_modalities(self):
+        source = self.source(
+            name="science",
+            product_id_resolver=lambda path: path.stem.split("_")[0],
+        )
+        records = [
+            IndexedRaster(Path("/data/OBS2_red.tif")),
+            IndexedRaster(Path("/data/OBS1_blue.tif")),
+        ]
+
+        grouped = group_source_rasters_by_product(source, records)
+
+        self.assertEqual(tuple(grouped), ("OBS1", "OBS2"))
+
+    def test_nac_product_is_discovered_from_single_raster(self):
+        source = self.source(name="nac")
+        record = IndexedRaster(Path("/data/M1117899885LE.ech.cog.tif"))
+
+        grouped = group_source_rasters_by_product(source, [record])
+
+        self.assertEqual(tuple(grouped), ("M1117899885LE",))
+        self.assertEqual(grouped["M1117899885LE"], (record,))
+
+    def test_malformed_product_filename_names_source_and_path(self):
+        records = [IndexedRaster(Path("/data/.tif"))]
+
+        with self.assertRaisesRegex(ValueError, "wac.*[.]tif"):
+            group_source_rasters_by_product(self.source(), records)
 
     def test_product_selection_supports_wac_and_nac(self):
         records = [

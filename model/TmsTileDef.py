@@ -8,7 +8,14 @@ from typing import Tuple
 
 from osgeo import osr
 
+from .grid_registry import GeographicCoverage
 from .lunar_crs import load_lunar_geographic_wkt
+from .tile_matrix import (
+    TileMatrixGeometry,
+    projected_to_tile_index,
+    tile_bounds,
+    validate_tile_index,
+)
 
 
 # ----------------------------------------------------------------------------
@@ -47,6 +54,16 @@ class TmsTileDef:
         self._geoSrs: osr.SpatialReference = None
         self._zone: str = zone
         self._zoomLevel: int = zoomLevel
+        origin_x, origin_y = tileDef[TmsTileDef.POINT_OF_ORIGIN]
+        self._matrix = TileMatrixGeometry(
+            origin_x=origin_x,
+            origin_y=origin_y,
+            cell_size=tileDef[TmsTileDef.CELL_SIZE],
+            tile_width=tileDef[TmsTileDef.TILE_WIDTH],
+            tile_height=tileDef[TmsTileDef.TILE_HEIGHT],
+            matrix_width=tileDef[TmsTileDef.MATRIX_WIDTH],
+            matrix_height=tileDef[TmsTileDef.MATRIX_HEIGHT],
+        )
 
         self.srs = srs
         self.geoSrs = geoSrs
@@ -141,7 +158,9 @@ class TmsTileDef:
 
         result = transform.TransformPoint(x, y)
         if result is None or len(result) < 2:
-            raise RuntimeError(f"Lunar coordinate transformation failed: {description}.")
+            raise RuntimeError(
+                f"Lunar coordinate transformation failed: {description}."
+            )
         outX, outY = float(result[0]), float(result[1])
         if not math.isfinite(outX) or not math.isfinite(outY):
             raise RuntimeError(
@@ -296,25 +315,8 @@ class TmsTileDef:
         Given a tile index, return its bounding box in LTM.
         '''
 
-        gridOrigin = self.pointOfOrigin
-        cellSize = self.cellSize
-        width = self.tileWidth
-        height = self.tileHeight
-
-        xmin = gridOrigin[0] + tileX * width * cellSize
-        xmax = gridOrigin[0] + (tileX + 1) * width * cellSize
-        ymax = gridOrigin[1] - tileY * height * cellSize
-        ymin = gridOrigin[1] - (tileY + 1) * height * cellSize
-
-        assert(abs(((xmax - xmin) / cellSize) - width) < 1e-6)
-        assert(abs(((ymax - ymin) / cellSize) - height) < 1e-6)
-
-        ulx = xmin
-        uly = ymax
-        lrx = xmax
-        lry = ymin
-
-        return [ulx, uly, lrx, lry]
+        self.validateTileIndex(tileX, tileY)
+        return list(tile_bounds(self._matrix, tileX, tileY))
 
     # ------------------------------------------------------------------------
     # _getTileBboxGeo
@@ -352,31 +354,20 @@ class TmsTileDef:
         )
 
     # ------------------------------------------------------------------------
+    # latLonToProjected
+    # ------------------------------------------------------------------------
+    def latLonToProjected(self, lat: float, lon: float) -> Tuple(float, float):
+
+        return self.llToLtm(lat, lon)
+
+    # ------------------------------------------------------------------------
     # llToTileIndex
     # ------------------------------------------------------------------------
     def llToTileIndex(self, lat: float, lon: float) -> Tuple(float, float):
 
-        # Calculate tile size in meters
-        tilePixelSize = self.cellSize * self.tileWidth
-
         # Transform point to projected coordinates
-        # xform = osr.CoordinateTransformation(self.geoSrs, self.srs)
-        # easting, northing, _ = xform.TransformPoint(lat, lon)
         x, y = self.llToLtm(lat, lon)
-
-        # Calculate tile indices
-        originX, originY = self.pointOfOrigin
-        epsilon = 1e-6
-        col = math.floor((x - originX) / tilePixelSize + epsilon)
-        row = math.floor((originY - y) / tilePixelSize + epsilon)
-
-        # Check if within matrix bounds
-        if col < 0 or col >= self.matrixWidth or \
-            row < 0 or row >= self.matrixHeight:
-
-            return None
-
-        return col, row
+        return projected_to_tile_index(self._matrix, x, y)
 
     # ------------------------------------------------------------------------
     # ltmToLatLon
@@ -392,28 +383,59 @@ class TmsTileDef:
         return lat, lon
 
     # ------------------------------------------------------------------------
+    # projectedToLatLon
+    # ------------------------------------------------------------------------
+    def projectedToLatLon(self, x: float, y: float) -> tuple[float, float]:
+
+        return self.ltmToLatLon(x, y)
+
+    # ------------------------------------------------------------------------
     # ltmToTileIndex
     # ------------------------------------------------------------------------
     def ltmToTileIndex(self, inX: float, inY: float) -> tuple[int, int]:
 
-        # Extract TMS grid parameters
-        originX, originY = self.pointOfOrigin
-        cellSize = self.cellSize
-        tileWidth = self.tileWidth
-        tileHeight = self.tileHeight
+        index = projected_to_tile_index(self._matrix, inX, inY)
+        if index is None:
+            originX, originY = self.pointOfOrigin
+            tileSize = self.tileWidth * self.cellSize
+            epsilon = 1e-6
+            return (
+                math.floor((inX - originX) / tileSize + epsilon),
+                math.floor((originY - inY) / tileSize + epsilon),
+            )
+        return index
 
-        # Calculate tile size in meters
-        tileSize = tileWidth * cellSize
+    # ------------------------------------------------------------------------
+    # validateTileIndex
+    # ------------------------------------------------------------------------
+    def validateTileIndex(self, tileX: int, tileY: int) -> None:
 
-        # ---
-        # Use epsilon to avoid floating point truncation errors at tile
-        # boundaries.
-        # ---
-        epsilon = 1e-6
-        x = math.floor((inX - originX) / tileSize + epsilon)
-        y = math.floor((originY - inY) / tileSize + epsilon)
+        validate_tile_index(
+            self._matrix,
+            tileX,
+            tileY,
+            grid_id=self.zone,
+            zoom_level=self.zoomLevel,
+        )
 
-        return x, y
+    # ------------------------------------------------------------------------
+    # geographic_query_envelopes
+    # ------------------------------------------------------------------------
+    def geographic_query_envelopes(
+        self,
+        tileX: int,
+        tileY: int,
+    ) -> tuple[GeographicCoverage, ...]:
+
+        ulLat, ulLon, lrLat, lrLon = self._getTileBboxGeo(tileX, tileY)
+        return (
+            GeographicCoverage(
+                south=min(ulLat, lrLat),
+                west=min(ulLon, lrLon),
+                north=max(ulLat, lrLat),
+                east=max(ulLon, lrLon),
+            ),
+        )
 
     # ------------------------------------------------------------------------
     # maxtrixHeight

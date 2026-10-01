@@ -1,10 +1,14 @@
-"""Structured result and error contracts for LTM datacube creation."""
+"""Structured result and error contracts for lunar datacube creation."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 import re
+
+
+_LTM_GRID_ID = re.compile(r"^(?:[1-9]|[1-3][0-9]|4[0-5])[NS]$")
+_POLAR_GRID_IDS = frozenset({"LPS_N", "LPS_S"})
 
 
 def safe_filename_component(value: str) -> str:
@@ -18,28 +22,42 @@ def safe_filename_component(value: str) -> str:
 def tile_cube_filename(
     *,
     source_name: str,
-    zone: str,
+    zone: str | None = None,
+    grid_id: str | None = None,
     zoom_level: int,
     tile_x: int,
     tile_y: int,
     product_id: str | None = None,
 ) -> str:
     """Build the generic filename for one configured source cube."""
+    if zone is None and grid_id is None:
+        raise ValueError("A zone or grid_id is required for a cube filename.")
+    if zone is not None and grid_id is not None and zone != grid_id:
+        raise ValueError(
+            f"zone {zone!r} and grid_id {grid_id!r} identify different grids."
+        )
+    normalized_grid_id = str(grid_id if grid_id is not None else zone).strip()
+    if normalized_grid_id in _POLAR_GRID_IDS:
+        grid_token = normalized_grid_id
+    elif _LTM_GRID_ID.fullmatch(normalized_grid_id):
+        grid_token = f"LTM{normalized_grid_id}"
+    else:
+        raise ValueError(f"Unsupported lunar grid ID: {normalized_grid_id!r}.")
     product_suffix = (
         f"_Product-{safe_filename_component(product_id)}"
         if product_id is not None
         else ""
     )
     return (
-        f"Cube-{safe_filename_component(source_name)}-LTM"
-        f"{safe_filename_component(zone)}_Zoom-{int(zoom_level)}"
+        f"Cube-{safe_filename_component(source_name)}-{grid_token}"
+        f"_Zoom-{int(zoom_level)}"
         f"_Tile-{int(tile_x)}-{int(tile_y)}{product_suffix}.tif"
     )
 
 
 @dataclass(frozen=True)
 class TileCubeRecord:
-    """Metadata for one source cube written on an LTM tile grid."""
+    """Metadata for one source cube written on a canonical lunar grid."""
 
     source_name: str
     zone: str
@@ -62,6 +80,8 @@ class TileCubeRecord:
             raise ValueError("source_name must not be empty.")
         if not self.zone:
             raise ValueError("zone must not be empty.")
+        if self.zone not in _POLAR_GRID_IDS and not _LTM_GRID_ID.fullmatch(self.zone):
+            raise ValueError(f"Unsupported lunar grid ID: {self.zone!r}.")
         if self.zoom_level < 1:
             raise ValueError("zoom_level must be positive.")
         if not self.band_names:
@@ -71,9 +91,14 @@ class TileCubeRecord:
         if not self.crs_wkt.strip():
             raise ValueError("crs_wkt must not be empty.")
 
+    @property
+    def grid_id(self) -> str:
+        """Grid-neutral alias for the backward-compatible ``zone`` field."""
+        return self.zone
+
 
 class TileSourceError(RuntimeError):
-    """A configured source failed while creating one LTM tile."""
+    """A configured source failed while creating one lunar grid tile."""
 
     def __init__(
         self,
@@ -84,6 +109,7 @@ class TileSourceError(RuntimeError):
         tile_x: int,
         tile_y: int,
         completed_records: tuple[TileCubeRecord, ...] = (),
+        product_id: str | None = None,
     ) -> None:
         super().__init__(message)
         self.source_name = source_name
@@ -91,10 +117,16 @@ class TileSourceError(RuntimeError):
         self.tile_x = tile_x
         self.tile_y = tile_y
         self.completed_records = completed_records
+        self.product_id = product_id
+
+    @property
+    def grid_id(self) -> str:
+        """Grid-neutral alias for the backward-compatible ``zone`` field."""
+        return self.zone
 
 
 class MissingRequiredSourceError(TileSourceError):
-    """A required source had no usable raster data for an LTM tile."""
+    """A required source had no usable raster data for one grid tile."""
 
 
 __all__ = [

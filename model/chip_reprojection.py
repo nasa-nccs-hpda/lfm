@@ -12,6 +12,7 @@ from .chip_acquisition import ChipAcquisitionResult
 from .chip_config import ChipConfig, OutputModalityConfig
 from .chip_requests import raster_bounds, validate_target_grid_consistency
 from .chip_types import TargetGrid
+from .lunar_crs import raster_crs_equivalent
 from .tiling_config import TileSourceConfig
 from .tiling_policy import band_nodata_values
 from .tiling_results import TileCubeRecord
@@ -231,10 +232,9 @@ def _spatial_reference(wkt: str, osr):
 
 def _same_crs(first: str, second: str, osr) -> bool:
     try:
-        return bool(
-            _spatial_reference(first, osr).IsSame(
-                _spatial_reference(second, osr)
-            )
+        return raster_crs_equivalent(
+            _spatial_reference(first, osr),
+            _spatial_reference(second, osr),
         )
     except (RuntimeError, ValueError):
         return False

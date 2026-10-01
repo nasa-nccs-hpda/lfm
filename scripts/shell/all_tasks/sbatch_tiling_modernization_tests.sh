@@ -76,11 +76,20 @@ echo "Running the modern tiling contract tests..."
   lfm.model.tests.test_tiling_config \
   lfm.model.tests.test_static_band_contract \
   lfm.model.tests.test_lunar_crs \
+  lfm.model.tests.test_grid_registry \
+  lfm.model.tests.test_grid_router \
+  lfm.model.tests.test_tile_matrix \
+  lfm.model.tests.test_grid_tile_def \
   lfm.model.tests.test_vector_index \
   lfm.model.tests.test_vector_index_builder \
+  lfm.model.tests.test_tiling_preparation \
   lfm.model.tests.test_tiling_policy \
+  lfm.model.tests.test_raster_cube \
+  lfm.model.tests.test_product_tiling \
+  lfm.model.tests.test_tiling_viz \
   lfm.model.tests.test_tiling_results \
   lfm.model.tests.test_tiling_api \
+  lfm.model.tests.test_tiling_workflow \
   lfm.model.tests.test_configured_tiler
 
 echo

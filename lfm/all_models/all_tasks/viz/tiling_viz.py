@@ -22,20 +22,32 @@ def pair_dynamic_and_static(
     records: Sequence[Any],
     dynamic_source: str,
 ) -> list[tuple[Any, Any]]:
-    """Pair one named dynamic source with static context on matching tiles."""
-    records_by_tile: dict[tuple[str, int, int, int], dict[str, Any]] = {}
+    """Pair every named dynamic product with static context on its tile."""
+    static_by_tile: dict[tuple[str, int, int, int], Any] = {}
+    dynamic_records: list[Any] = []
+    dynamic_identities: set[tuple[tuple[str, int, int, int], str | None]] = set()
     for record in records:
-        sources = records_by_tile.setdefault(tile_key(record), {})
-        if record.source_name in sources:
-            raise ValueError(
-                f"Duplicate source {record.source_name!r} for tile "
-                f"{tile_key(record)}."
-            )
-        sources[record.source_name] = record
+        key = tile_key(record)
+        if record.source_name == "static":
+            if key in static_by_tile:
+                raise ValueError(f"Duplicate static source for tile {key}.")
+            static_by_tile[key] = record
+        elif record.source_name == dynamic_source:
+            identity = (key, record.product_id)
+            if identity in dynamic_identities:
+                raise ValueError(
+                    f"Duplicate source {record.source_name!r}, product "
+                    f"{record.product_id!r} for tile {key}."
+                )
+            dynamic_identities.add(identity)
+            dynamic_records.append(record)
     return [
-        (sources[dynamic_source], sources["static"])
-        for _, sources in sorted(records_by_tile.items())
-        if dynamic_source in sources and "static" in sources
+        (record, static_by_tile[tile_key(record)])
+        for record in sorted(
+            dynamic_records,
+            key=lambda item: (*tile_key(item), item.product_id or ""),
+        )
+        if tile_key(record) in static_by_tile
     ]
 
 
@@ -56,7 +68,7 @@ def print_record_summary(records: Sequence[Any]) -> None:
                 *record.band_names[-3:],
             ]
         print(
-            f"{record.source_name:>6} | LTM{record.zone} | z{record.zoom_level} | "
+            f"{record.source_name:>6} | {record.grid_id} | z{record.zoom_level} | "
             f"tile=({record.tile_x}, {record.tile_y}) | "
             f"bands={len(record.band_names):>2} | {record.path.name}"
         )
@@ -194,9 +206,11 @@ def plot_cube_pairs(
             band_name=static_band_name,
         )
         tile_title = (
-            f"LTM{dynamic_record.zone} z{dynamic_record.zoom_level} "
+            f"{dynamic_record.grid_id} z{dynamic_record.zoom_level} "
             f"tile ({dynamic_record.tile_x}, {dynamic_record.tile_y})"
         )
+        if dynamic_record.product_id is not None:
+            tile_title += f" product {dynamic_record.product_id}"
 
         for row, (image, name, number, cmap, label) in enumerate(
             (
@@ -218,11 +232,128 @@ def plot_cube_pairs(
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    figure.suptitle(f"{dynamic_label} + STATIC LTM cubes", y=1.01)
+    figure.suptitle(f"{dynamic_label} + STATIC lunar-grid cubes", y=1.01)
     figure.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.show()
     print(f"Saved visualization: {output_path}")
     return figure
+
+
+def plot_cube_records(
+    records: Sequence[Any],
+    *,
+    source_name: str,
+    source_label: str,
+    output_path: str | Path,
+    band_number: int | None = None,
+    band_name: str | None = None,
+    max_tiles: int = 4,
+):
+    """Plot one band from dynamic-only or static-only cube records."""
+    if max_tiles < 1:
+        raise ValueError("max_tiles must be positive.")
+    selected = [
+        record for record in records if record.source_name == source_name
+    ][:max_tiles]
+    if not selected:
+        raise ValueError(f"No {source_label} cube records are available to plot.")
+    if (band_number is None) == (band_name is None):
+        raise ValueError("Provide exactly one of band_number or band_name.")
+
+    figure = plt.figure(
+        figsize=(6 * len(selected), 5),
+        constrained_layout=True,
+    )
+    grid = figure.add_gridspec(
+        1,
+        2 * len(selected),
+        width_ratios=[value for _ in selected for value in (1.0, 0.05)],
+    )
+    cmap = "terrain" if source_name == "static" else "gray"
+    for column, record in enumerate(selected):
+        image, resolved_name, resolved_number = read_record_band(
+            record,
+            band_number=band_number,
+            band_name=band_name,
+        )
+        title = (
+            f"{record.grid_id} z{record.zoom_level} "
+            f"tile ({record.tile_x}, {record.tile_y})"
+        )
+        if record.product_id is not None:
+            title += f" product {record.product_id}"
+        axis = figure.add_subplot(grid[0, 2 * column])
+        colorbar_axis = figure.add_subplot(grid[0, 2 * column + 1])
+        vmin, vmax = robust_limits(image)
+        plotted = display_array(image)
+        rendered = axis.imshow(plotted, cmap=cmap, vmin=vmin, vmax=vmax)
+        axis.set_title(
+            f"{title}\n{source_label} band {resolved_number}: {resolved_name}"
+        )
+        axis.set_xlim(-0.5, plotted.shape[1] - 0.5)
+        axis.set_ylim(plotted.shape[0] - 0.5, -0.5)
+        axis.set_aspect("equal", adjustable="box")
+        axis.axis("off")
+        figure.colorbar(rendered, cax=colorbar_axis)
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure.suptitle(f"{source_label} lunar-grid cubes", y=1.02)
+    figure.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.show()
+    print(f"Saved visualization: {output_path}")
+    return figure
+
+
+def plot_tiling_records(
+    records: Sequence[Any],
+    *,
+    dynamic_source: str,
+    dynamic_label: str,
+    dynamic_band_number: int,
+    static_band_name: str,
+    output_path: str | Path,
+    max_tiles: int = 4,
+):
+    """Plot mixed, dynamic-only, or static-only tiling results."""
+    dynamic_records = [
+        record for record in records if record.source_name == dynamic_source
+    ]
+    static_records = [
+        record for record in records if record.source_name == "static"
+    ]
+    if dynamic_records and static_records:
+        pairs = pair_dynamic_and_static(records, dynamic_source)
+        if pairs:
+            return plot_cube_pairs(
+                pairs,
+                dynamic_label=dynamic_label,
+                dynamic_band_number=dynamic_band_number,
+                static_band_name=static_band_name,
+                output_path=output_path,
+                max_tiles=max_tiles,
+            )
+    if dynamic_records:
+        return plot_cube_records(
+            dynamic_records,
+            source_name=dynamic_source,
+            source_label=dynamic_label,
+            band_number=dynamic_band_number,
+            output_path=output_path,
+            max_tiles=max_tiles,
+        )
+    if static_records:
+        return plot_cube_records(
+            static_records,
+            source_name="static",
+            source_label="STATIC",
+            band_name=static_band_name,
+            output_path=output_path,
+            max_tiles=max_tiles,
+        )
+    raise ValueError(
+        f"No {dynamic_label} or static cube records are available to plot."
+    )
 
 
 def plot_modern_legacy_cube_comparison(
@@ -364,7 +495,9 @@ __all__ = [
     "display_array",
     "pair_dynamic_and_static",
     "plot_cube_pairs",
+    "plot_cube_records",
     "plot_modern_legacy_cube_comparison",
+    "plot_tiling_records",
     "print_record_summary",
     "read_raster_band",
     "read_record_band",

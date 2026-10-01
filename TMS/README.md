@@ -68,15 +68,14 @@ Transverse Mercator scale factor of 0.999, and a false easting of 250,000
 meters. Northern and southern definitions use different false northings as
 recorded in their JSON CRS definitions.
 
-## Polar grids: LPN and LPS
+## Polar grids: LPS_N and LPS_S
 
-The Armstrong metadata also defines Lunar Polar North (LPN) and Lunar Polar
-South (LPS) grids. The repository groups both definitions under the `LPS`
-filename prefix and distinguishes them with `N` and `S`:
+The Armstrong metadata also defines northern and southern Lunar Polar
+Stereographic grids. LFM uses the canonical public IDs `LPS_N` and `LPS_S`:
 
-- `RG/tms_LPS_NRG.json` is the northern, or LPN, definition. It covers 80° to
+- `RG/tms_LPS_NRG.json` is the `LPS_N` definition. It covers 80° to
   90° latitude and uses a Polar Stereographic projection centered on +90°.
-- `RG/tms_LPS_SRG.json` is the southern, or LPS, definition. It covers -90° to
+- `RG/tms_LPS_SRG.json` is the `LPS_S` definition. It covers -90° to
   -80° latitude and uses a Polar Stereographic projection centered on -90°.
 
 Both use a central meridian of 0°, a scale factor of 0.994, and false easting
@@ -88,20 +87,23 @@ The polar tile matrices use 512×512-pixel tiles and define zoom levels 1
 through 15. At zoom 1, each polar matrix is 2×2 tiles; both dimensions double
 at each subsequent zoom.
 
-LPN and LPS were not used by the current LFM tiling workflow because their
+The polar grids were not used by the original LFM tiling workflow because their
 geometry differs from the numbered LTM zones. LTM zones are rectangular
 longitude bands represented by separate northern and southern Transverse
 Mercator grids. A polar stereographic grid instead surrounds a pole, where
 meridians converge and its geographic footprint does not behave like an LTM
-longitude-band rectangle. The current AOI intersection, zone identifiers,
+longitude-band rectangle. The original AOI intersection, zone identifiers,
 output naming, notebook examples, and regression tests were implemented around
 the LTM geometry and `number + hemisphere` addresses such as `42N`.
 
-The polar JSON files and their zoom-1 features remain in the repository as
-Armstrong scheme metadata, but their presence does not mean the modern public
-tiling API supports polar production. Adding that support requires a dedicated
-polar intersection and addressing path, followed by separate LPN/LPS
-regression tests; the files should not simply be passed through the LTM path.
+The grid registry and geographic router recognize `LPS_N` and `LPS_S`, use an
+inclusive 82-degree automatic-routing threshold, and partition geographic AOIs
+without passing polar definitions through the LTM filename logic. The low-level
+tiler now also implements polar projection, tile intersection, explicit
+addresses, seam-safe source-index envelopes, and polar cube filenames. This
+low-level path passed its supported-container regression gate. Source-mode
+composition, per-family default zooms, and the public easy workflow remain
+later phases.
 
 ## Zoom levels and tile matrices
 
@@ -168,12 +170,13 @@ zone and zoom is not a complete address.
   CRS definition.
 - [`RG/tms_LTM_*RG.json`](RG/) contains the 90 LTM zone and tile matrix
   definitions.
-- `RG/tms_LPS_NRG.json` and `RG/tms_LPS_SRG.json` contain the LPN and LPS tile
-  matrix definitions described above.
+- `RG/tms_LPS_NRG.json` and `RG/tms_LPS_SRG.json` contain the `LPS_N` and
+  `LPS_S` tile matrix definitions described above.
 - [`RG/tile_database.gpkg`](RG/tile_database.gpkg) is an auxiliary geographic
   inventory of the 728 zoom-1 tiles across the 90 LTM and two polar grids. The
   current configuration-driven tiler does not use this GeoPackage to resolve
-  normal AOI queries; it reads the zone JSON files through `TmsIntersector`.
+  normal AOI queries. The registry and grid-neutral tile-definition factory
+  read the JSON files directly.
 
 Do not confuse `tile_database.gpkg` with a raster source index. Each configured
 data modality has its own existing `.shp` or `.gpkg` index whose features
@@ -182,13 +185,29 @@ file.
 
 ## How LFM implements the scheme
 
-The modern entry points are defined in [`model/tiling.py`](../model/tiling.py):
+The modern entry points are exported from [`model`](../model/__init__.py). The
+strict functions live in [`model/tiling.py`](../model/tiling.py), and optional
+AOI product discovery lives in
+[`model/product_tiling.py`](../model/product_tiling.py):
 
-- `create_tiles_for_aoi(...)` discovers all LTM tiles intersecting geographic
-  bounds.
+- `create_tiles_for_aoi(...)` routes geographic bounds and is the strict
+  low-level path: every `product_id` source requires an explicit selector and
+  the one configured zoom is applied to each routed grid.
 - `create_tiles_for_point(...)` processes the tile containing a point in an
-  explicitly supplied zone.
-- `create_tiles_for_index(...)` processes an explicit zone/zoom/tile address.
+  explicitly supplied `zone` or `grid_id`.
+- `create_tiles_for_index(...)` processes an explicit grid/zoom/tile address.
+- `create_tiles_for_aoi_by_product(...)` is the high-level optional-product
+  path. A configured PID selects one observation; `None` or an omitted mapping
+  entry discovers every intersecting PID for that product-scoped source.
+
+[`model/grid_registry.py`](../model/grid_registry.py) validates the 90 numbered
+LTM definitions plus `LPS_N` and `LPS_S` and exposes their CRS, geographic
+coverage, and tile matrices without inferring every grid from an LTM filename.
+[`model/grid_router.py`](../model/grid_router.py) validates and normalizes
+geographic requests, routes points at `>= +82` to `LPS_N` and at `<= -82` to
+`LPS_S`, and partitions AOIs at the polar thresholds, equator, longitude-zone
+edges, and antimeridian. The grid-neutral tile-definition factory consumes
+these routing results; the easy orchestration workflow remains a later phase.
 
 The implementation follows this sequence:
 
@@ -196,34 +215,38 @@ The implementation follows this sequence:
    sources. Each `TileSourceConfig` declares its data directory, vector index,
    location field, raster selection rule, bands, NoData policy, and whether the
    source is required.
-2. [`TmsIntersector`](../model/TmsIntersector.py) loads the zone JSON metadata
-   and finds every zone intersecting an AOI.
-3. [`TmsZoneDef`](../model/TmsZoneDef.py) delegates the AOI to the requested
-   zoom matrix. [`TmsTileDef`](../model/TmsTileDef.py) constructs the LTM/IAU
-   transformations and resolves the intersecting tile columns and rows. The
-   AOI path requires at least 10 meters of overlap in both projected
-   dimensions, avoiding tiles touched only by insignificant boundary effects.
-4. For each tile, the LTM extent is transformed back to lunar longitude and
-   latitude. [`model/vector_index.py`](../model/vector_index.py) applies that
-   extent as a read-only OGR spatial filter to each source index. The tiler
-   never creates, refreshes, or modifies these source indexes.
-5. `product_id` sources select the requested observation, while
-   `all_intersecting` sources include all indexed rasters intersecting the tile.
-   This is how sparse dynamic imagery and global contextual layers can use the
-   same tiling code.
+2. [`model/grid_router.py`](../model/grid_router.py) partitions the AOI into
+   canonical numbered LTM, `LPS_N`, and `LPS_S` query parts.
+3. [`model/grid_tile_def.py`](../model/grid_tile_def.py) retains
+   [`TmsTileDef`](../model/TmsTileDef.py) for proven LTM geometry and uses a
+   dedicated polar definition for densified stereographic intersection. Both
+   paths require at least 10 meters of overlap in both projected dimensions,
+   avoiding tiles touched only by insignificant boundary effects.
+4. For each tile, its projected perimeter is transformed back to lunar
+   longitude and latitude. Polar perimeters are densified and expressed as one
+   or more non-wrapping envelopes. [`model/vector_index.py`](../model/vector_index.py)
+   applies those envelopes as read-only OGR spatial filters and deduplicates
+   returned raster paths. The tiler never creates, refreshes, or modifies these
+   source indexes.
+5. The strict API makes `product_id` sources select the requested observation.
+   The high-level AOI API can instead resolve product IDs through each source's
+   configured resolver, group companion rasters such as WAC UV/VIS files, and
+   run the strict path separately for every PID. Unrelated observations are
+   never stacked. `all_intersecting` contextual sources run only once per tile,
+   even when several dynamic products are discovered.
 6. [`model/raster_cube.py`](../model/raster_cube.py) uses GDAL to warp every
-   selected raster onto the exact 512×512 LTM tile grid. Tiling uses bilinear
+   selected raster onto the exact 512×512 routed tile grid. Tiling uses bilinear
    resampling, preserves or normalizes NoData according to each source's
    configuration, and maintains deterministic band ordering.
 7. One multiband GeoTIFF is written per source and tile. Files use tiled,
-   LZW-compressed BigTIFF output and store the LTM CRS, geotransform, band
+   LZW-compressed BigTIFF output and store the grid CRS, geotransform, band
    names, and output NoData metadata.
 8. Results are returned as ordered `TileCubeRecord` objects. Records are sorted
    by zone, tile row, and tile column, with sources processed in configuration
    order. Downstream code therefore does not need to recover metadata by
    parsing filenames.
 
-The generic filename contract is:
+Numbered LTM filenames retain their existing contract:
 
 ```text
 Cube-<source>-LTM<zone>_Zoom-<zoom>_Tile-<x>-<y>[_Product-<id>].tif
@@ -236,6 +259,13 @@ Cube-wac-LTM42N_Zoom-5_Tile-1-62_Product-M1187363083CE.tif
 Cube-static-LTM42N_Zoom-5_Tile-1-62.tif
 ```
 
+Polar filenames use the canonical grid identifier directly:
+
+```text
+Cube-<source>-LPS_N_Zoom-<zoom>_Tile-<x>-<y>[_Product-<id>].tif
+Cube-<source>-LPS_S_Zoom-<zoom>_Tile-<x>-<y>[_Product-<id>].tif
+```
+
 The matching address shows that these two source cubes share a pixel grid. A
 "datacube" here is the multiband file for one configured source on one tile;
 different source modalities remain separate files so their band and NoData
@@ -246,7 +276,12 @@ contracts remain explicit.
 ```python
 from pathlib import Path
 
-from model import TileConfig, TileSourceConfig, create_tiles_for_aoi
+from model import (
+    TileConfig,
+    TileSourceConfig,
+    compose_tile_sources,
+    create_tiles_for_aoi_by_product,
+)
 
 nac = TileSourceConfig(
     name="nac",
@@ -262,18 +297,31 @@ nac = TileSourceConfig(
 config = TileConfig(
     output_dir=Path("/path/to/output"),
     zoom_level=11,
-    sources=(nac,),
+    sources=compose_tile_sources(
+        dynamic_sources=(nac,),
+        include_static=False,
+    ),
 )
 
-records = create_tiles_for_aoi(
+records = create_tiles_for_aoi_by_product(
     config,
     ul_lat=1.0786543156953,
     ul_lon=149.752054273755,
     lr_lat=1.0586543156953,
     lr_lon=149.772054273755,
-    selectors={"nac": "M1117899885LE"},
+    # Use an exact string for one product, or None to discover all matches.
+    product_ids={"nac": None},
 )
 ```
+
+`compose_tile_sources()` is the source-mode boundary used by the developing
+easy workflow. `include_dynamic=True` and `include_static=True` are its
+defaults, and at least one must remain enabled. Each enabled class requires at
+least one source; disabled collections are not inspected, indexed, validated,
+queried, or written. Combined configurations always place dynamic sources
+before static sources. Static sources must use `all_intersecting` and never
+accept a product ID. Dynamic-only operation is supported on numbered LTM and
+polar grids; automatic multi-grid/default-zoom orchestration is Phase P6.
 
 The notebook adds the canonical 63-band static source to this configuration so
 that NAC and static cubes are written at the same zoom-11 addresses. Static
@@ -282,11 +330,12 @@ value; dynamic sources can preserve their own source NoData value.
 
 ## Relationship to model-ready chips
 
-LTM cubes are intermediate, spatially standardized products. They are not
-necessarily the final training samples. The chip-creation workflow can group
-matching cube addresses, merge adjacent tiles, reproject them onto a label or
-reference-image grid, clip them to the desired area, and select or combine
-bands for a particular machine-learning dataset.
+Lunar-grid cubes are intermediate, spatially standardized products. They are
+not necessarily the final training samples. The current chip-creation workflow
+accepts numbered-LTM coverage; its separate polar migration remains pending.
+It can group matching cube addresses, merge adjacent tiles, reproject them onto
+a label or reference-image grid, clip them to the desired area, and select or
+combine bands for a particular machine-learning dataset.
 
 For implementation history and regression details, see
 [`docs/tiling_modernization_plan.md`](../docs/tiling_modernization_plan.md).

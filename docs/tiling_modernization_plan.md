@@ -379,14 +379,18 @@ these behaviors without waiting for the tiling notebook or legacy cleanup:
   geographic coordinates expected by the AOI filter, and their configured
   location field may contain absolute paths or paths relative to `data_dir`.
   Tiling never creates or refreshes an index.
-- `product_id` sources require a selector keyed by source name.
-  `all_intersecting` sources reject selectors. A missing required source raises
-  `MissingRequiredSourceError`; an optional source may yield no record for a
-  tile while other source records are still written. Chip orchestration must
-  decide whether such a partial result is usable and must not assume one record
-  per configured source.
-- Every output is a 512×512, tiled, LZW-compressed GeoTIFF on the exact LTM
-  zone/zoom/tile grid. Tiling resampling is always bilinear.
+- The strict `create_tiles_for_*` path requires a selector keyed by source name
+  for every `product_id` source, and `all_intersecting` sources reject
+  selectors. The high-level `create_tiles_for_aoi_by_product` path accepts an
+  exact PID or `None` per product-scoped source. `None` discovers intersecting
+  IDs with the source's declared resolver, groups companion files, and writes
+  one dynamic cube per PID/tile while writing contextual sources once per
+  tile. A missing required product raises `MissingRequiredProductError`; an
+  optional source may yield no record while contextual records are still
+  written. Callers must not assume one record per configured source.
+- Every output is a 512×512, tiled, LZW-compressed GeoTIFF on the exact routed
+  grid/zoom/tile grid. Existing numbered-LTM grid behavior remains unchanged,
+  and tiling resampling is always bilinear.
 - WAC and NAC examples preserve their native source NoData. The canonical
   63-band static source uses the exact order in
   `model/static_band_contract.py`, masks the two Mini-RF source sentinel bands
@@ -398,11 +402,19 @@ these behaviors without waiting for the tiling notebook or legacy cleanup:
   timestamp run ID. Backend chip code may reuse `make_static_source`, but
   should create a unique per-sample intermediate output directory rather than
   share the notebook-level `RUN_ID` across a batch.
-- The modern path currently supports the numbered LTM geometry. The LPN/LPS
-  JSON files are retained in `TMS/RG`, but polar acquisition was not
-  implemented because its geometry differs from the LTM longitude-band grids.
-  Reference TIFFs requiring polar coverage must fail clearly until a dedicated
-  polar path is designed and tested.
+- The low-level modern tiler now has dedicated `LPS_N`/`LPS_S` geometry and
+  grid-neutral records while preserving the numbered-LTM contract. Its P4
+  supported-container gate passed 136 modern tests, 25 safe legacy tests, and
+  the filtered legacy integration test. Downstream chip acquisition still
+  rejects polar coverage until its own separate polar migration is designed
+  and tested; tiling support must not silently broaden the chip workflow's
+  accepted inputs.
+- High-level source composition uses `compose_tile_sources()`. Dynamic and
+  static classes default to enabled, at least one must remain enabled, and each
+  enabled class requires a configured source. Disabled collections are never
+  inspected or validated. Combined runs preserve dynamic-before-static order;
+  static sources are contextual `all_intersecting` inputs and static-only runs
+  do not accept product IDs.
 
 The deprecated `model/Pipeline.py` remains only as a regression and temporary
 compatibility adapter. Its hard-coded static path, WAC-oriented constructor,
