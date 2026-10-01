@@ -306,6 +306,13 @@ P1 work started:
   exact geotransform, filename, API, and envelope-deduplication tests. The
   expanded local modern suite passes 134 tests with 23 environment-dependent
   skips.
+- Added a read-only Slurm diagnostic for finding real polar test candidates
+  beneath the project `data`, `processed_data`, and `rawdata` trees. It uses
+  one GDAL process per requested Slurm CPU, the canonical densified footprint
+  implementation, deterministic optional sampling, stdout `tqdm` progress,
+  ranked directory summaries, candidate raster paths, suggested polar points,
+  error capture, and a JSON report. A local inventory-only dry run passed; no
+  Explore rasters were opened locally.
 
 Next:
 
