@@ -40,22 +40,54 @@ Known boundaries and follow-ups:
 Goal:
 
 - Establish a persistent daily progress record for tiling work.
+- Plan the automatic LTM/`LPS_N`/`LPS_S` workflow and freeze its extended
+  public contract before implementation.
 
 Completed:
 
 - Created `.agents/progress_docs/tiling.md`.
 - Seeded the log with the completed modernization milestones and current
   validation boundaries.
+- Created `.agents/planning_docs/polar_tiling_integration_plan.md` with a
+  strictly sequential P0-P10 implementation and validation sequence.
+- Completed Phase P0 in
+  `.agents/planning_docs/polar_tiling_contract.md`: inventoried current
+  LTM-only assumptions and defined automatic grid routing, optional PID
+  discovery, dynamic/static source modes, index-path defaults, polar zoom
+  defaults, grid-neutral result compatibility, filenames, ordering, and 23
+  acceptance cases.
 
 Validation:
 
 - Passed whitespace validation and confirmed that every canonical reference
   resolves to an existing repository file.
+- Audited the public tiling API, geometry classes, source selection,
+  vector-index code, raster writer, notebook, helpers, visualization, tests,
+  TMS metadata, and relevant downstream chip assumptions against the P0
+  contract.
+- Confirmed the current result field is `TileCubeRecord.zone`, not
+  `ltm_zone`, and corrected the integration plan accordingly.
+- Confirmed that loading 92 JSON definitions is not working polar support: the
+  existing filename parser reduces the polar definitions to `N` and `S` and
+  later attempts an LTM file lookup.
+- P0 was documentation-only; no runtime or Explore tiling execution was
+  performed or claimed.
+
+Decisions:
+
+- Preserve `record.zone` as the backward-compatible canonical grid ID and add
+  a grid-neutral `grid_id` alias during implementation.
+- Use WAC zoom 4 and processed 1 m NAC zoom 10 on the polar grids, matching the
+  physical resolutions of LTM zooms 5 and 11.
+- Write static/context cubes once per tile when omitted-PID discovery finds
+  multiple dynamic products.
+- Keep the current chip workflow's typed polar rejection until downstream
+  polar chip processing is separately implemented and validated.
 
 Next:
 
-- Append a dated entry whenever tiling code, configuration, notebook behavior,
-  validation evidence, or public documentation changes.
+- Begin P1.1 by extending the explicit vector-index builder with a safe
+  ensure-if-missing preparation API.
 
 ### 2026-09-30
 
