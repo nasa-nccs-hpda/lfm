@@ -143,12 +143,20 @@ P1 work started:
   vector-index suite passes 14 tests with its two GDAL integration cases
   skipped, and the broader selected tiling suite passes 43 tests with six
   environment-dependent skips.
+- The maintainer reported that the expanded supported-container suite passed.
+  P1.6 failure-safe publication and P1.7 completed-index validation are now
+  complete.
+- Began P1.8. Raster footprints are now sampled at 21 points per edge before
+  transformation instead of being reduced to four transformed corners. Added
+  pure perimeter tests and a GDAL-backed `LPS_N` curvature/vertex-count test.
+- The updated focused local builder suite passes 16 tests with three GDAL
+  integration tests skipped; the broader selected tiling suite passes 46 tests
+  with seven environment-dependent skips.
 
 Next:
 
 - Rerun `scripts/shell/all_tasks/sbatch_probe_gdal_tileindex_progress.sh` on
-  Explore to validate P1.6 staging, sidecar publication, locking, cleanup, and
-  stdout progress with GDAL enabled.
+  Explore to validate the P1.8 polar densification test with GDAL enabled.
 
 ### 2026-09-30
 

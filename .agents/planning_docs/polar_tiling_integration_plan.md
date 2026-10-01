@@ -112,14 +112,14 @@ numbered-LTM-only until the implementation and validation phases complete.
   GDAL progress callback when it is reliable; otherwise provide deterministic
   discovery/preflight progress and evaluate a one-raster-at-a-time Python/OGR
   writer for meaningful creation progress.
-- `[In-Progress]` **P1.6** Make index publication failure-safe. Build all
+- `[Complete]` **P1.6** Make index publication failure-safe. Build all
   Shapefile sidecars in a temporary sibling location, validate them, and move
   the complete set into place only after success. Add a scoped lock or other
   guard against two jobs creating the same index concurrently.
-- `[Not Started]` **P1.7** Validate the completed index: driver, CRS, layer,
+- `[Complete]` **P1.7** Validate the completed index: driver, CRS, layer,
   location field, feature count, resolvable raster paths, valid geometries, and
   expected inventory. Clean up staging artifacts after a failure.
-- `[Not Started]` **P1.8** If a custom OGR writer is required, densify raster
+- `[In-Progress]` **P1.8** If a custom OGR writer is required, densify raster
   perimeters before transformation so polar and longitude-seam footprints are
   not reduced incorrectly to four transformed corners.
 - `[Not Started]` **P1.9** Compare generated indexes with GDAL TileIndex using
@@ -194,7 +194,18 @@ after validation. Shapefile sidecars are moved before the primary `.shp` file,
 and scoped cleanup removes staging files and the lock after creation or
 failure. Dependency-free tests cover complete sidecar publication, concurrent
 creation rejection, writer failure cleanup, and validation failure cleanup.
-The supported container rerun remains required before P1.6 is complete.
+The maintainer-reported supported-container rerun passed all tests, closing
+P1.6. The same staged validation plus final `ensure_vector_index()` validation
+covers driver, CRS, schema, feature inventory, paths, and geometry; cleanup is
+exercised for both writer and staged-validation failures, closing P1.7.
+
+P1.8 implementation checkpoint: raster footprints now use 21 samples per edge
+in pixel space before applying the source-to-IAU:30100 transformation, rather
+than transforming only four corners. Pure tests cover deterministic perimeter
+ordering, corner deduplication, and invalid sampling, and a GDAL integration
+test uses the repository's `LPS_N` CRS to verify that a curved polar edge is
+retained with the expected densified vertex count. The supported-container
+rerun remains required before P1.8 is complete.
 
 ## Phase P2 — Restore optional product-ID discovery `[Not Started]`
 

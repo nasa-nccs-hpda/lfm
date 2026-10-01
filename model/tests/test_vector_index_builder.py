@@ -1,16 +1,20 @@
 import importlib.util
 import io
+import json
 from pathlib import Path
 import tempfile
 from unittest import mock
 import unittest
 
 from lfm.model.vector_index_builder import (
+    FOOTPRINT_EDGE_SAMPLES,
     StaleVectorIndexError,
     VectorIndexBuildConfig,
     VectorIndexLockError,
     VectorIndexValidationResult,
     _index_lock_path,
+    _perimeter_pixels,
+    _raster_footprint,
     _spatial_references_equivalent,
     create_vector_index,
     discover_raster_paths,
@@ -22,6 +26,31 @@ HAS_OSGEO = importlib.util.find_spec("osgeo") is not None
 
 
 class VectorIndexBuildConfigTestCase(unittest.TestCase):
+    def test_perimeter_pixels_densifies_every_edge_without_duplicate_corners(self):
+        perimeter = _perimeter_pixels(10.0, 20.0, samples_per_edge=3)
+
+        self.assertEqual(
+            perimeter,
+            (
+                (0.0, 0.0),
+                (5.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (10.0, 20.0),
+                (5.0, 20.0),
+                (0.0, 20.0),
+                (0.0, 10.0),
+            ),
+        )
+
+    def test_perimeter_pixels_rejects_invalid_sampling(self):
+        with self.assertRaisesRegex(TypeError, "must be an integer"):
+            _perimeter_pixels(10.0, 20.0, samples_per_edge=True)
+        with self.assertRaisesRegex(ValueError, "at least 2"):
+            _perimeter_pixels(10.0, 20.0, samples_per_edge=1)
+        with self.assertRaisesRegex(ValueError, "must be positive"):
+            _perimeter_pixels(0.0, 20.0)
+
     def test_shapefile_crs_fallback_uses_gdal_38_wkt_node_api(self):
         class GeographicSrs:
             def IsSame(self, other):
@@ -373,6 +402,53 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
 
         with self.assertRaisesRegex(StaleVectorIndexError, "stale"):
             ensure_vector_index(config, stdout=io.StringIO())
+
+    def test_polar_raster_footprint_preserves_curved_densified_edge(self):
+        from osgeo import ogr, osr
+
+        polar_definition_path = (
+            Path(__file__).resolve().parents[2] / "TMS" / "RG" / "tms_LPS_NRG.json"
+        )
+        polar_definition = json.loads(
+            polar_definition_path.read_text(encoding="utf-8")
+        )
+        raster_path = self.data_dir / "polar.tif"
+        dataset = self.gdal.GetDriverByName("GTiff").Create(
+            str(raster_path),
+            100,
+            100,
+            1,
+            self.gdal.GDT_Byte,
+        )
+        dataset.SetProjection(polar_definition["crs"])
+        dataset.SetGeoTransform((550_000.0, 1_000.0, 0.0, 650_000.0, 0.0, -1_000.0))
+        dataset.GetRasterBand(1).Fill(1)
+        dataset = None
+
+        output_srs = osr.SpatialReference()
+        self.assertEqual(output_srs.ImportFromWkt(self.wkt), 0)
+        output_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        footprint = _raster_footprint(
+            raster_path,
+            output_srs=output_srs,
+            gdal=self.gdal,
+            ogr=ogr,
+            osr=osr,
+        )
+        ring = footprint.GetGeometryRef(0)
+
+        self.assertEqual(
+            ring.GetPointCount(),
+            4 * FOOTPRINT_EDGE_SAMPLES - 3,
+        )
+        first = ring.GetPoint(0)
+        midpoint = ring.GetPoint((FOOTPRINT_EDGE_SAMPLES - 1) // 2)
+        last = ring.GetPoint(FOOTPRINT_EDGE_SAMPLES - 1)
+        linear_midpoint_latitude = (first[1] + last[1]) / 2.0
+        self.assertGreater(
+            abs(midpoint[1] - linear_midpoint_latitude),
+            1e-6,
+        )
 
 
 if __name__ == "__main__":

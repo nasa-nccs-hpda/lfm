@@ -19,6 +19,7 @@ from .vector_index import resolve_indexed_raster_path
 
 LOGGER = logging.getLogger(__name__)
 SUPPORTED_INDEX_SUFFIXES = (".gpkg", ".shp")
+FOOTPRINT_EDGE_SAMPLES = 21
 
 
 class VectorIndexValidationError(ValueError):
@@ -165,8 +166,35 @@ def _progress_bar(*, total: int, stdout: TextIO, enabled: bool):
     return NullProgress()
 
 
+def _perimeter_pixels(
+    width: float,
+    height: float,
+    *,
+    samples_per_edge: int = FOOTPRINT_EDGE_SAMPLES,
+) -> tuple[tuple[float, float], ...]:
+    """Return a clockwise, corner-deduplicated raster perimeter in pixel space."""
+    if isinstance(samples_per_edge, bool) or not isinstance(samples_per_edge, int):
+        raise TypeError("samples_per_edge must be an integer.")
+    if samples_per_edge < 2:
+        raise ValueError("samples_per_edge must be at least 2.")
+    if width <= 0.0 or height <= 0.0:
+        raise ValueError("Raster width and height must be positive.")
+    fractions = tuple(
+        index / (samples_per_edge - 1) for index in range(samples_per_edge)
+    )
+    return (
+        *((fraction * width, 0.0) for fraction in fractions),
+        *((width, fraction * height) for fraction in fractions[1:]),
+        *(
+            ((1.0 - fraction) * width, height)
+            for fraction in fractions[1:]
+        ),
+        *((0.0, (1.0 - fraction) * height) for fraction in fractions[1:-1]),
+    )
+
+
 def _raster_footprint(path: Path, *, output_srs, gdal: Any, ogr: Any, osr: Any):
-    """Return a four-corner raster footprint transformed to ``output_srs``."""
+    """Return a densified raster perimeter transformed to ``output_srs``."""
     dataset = gdal.Open(str(path), gdal.GA_ReadOnly)
     if dataset is None:
         raise RuntimeError(f"Could not open raster while indexing: {path}")
@@ -194,14 +222,9 @@ def _raster_footprint(path: Path, *, output_srs, gdal: Any, ogr: Any, osr: Any):
                 + line * geotransform[5],
             )
 
+        perimeter = _perimeter_pixels(width, height)
         ring = ogr.Geometry(ogr.wkbLinearRing)
-        for pixel, line in (
-            (0.0, 0.0),
-            (width, 0.0),
-            (width, height),
-            (0.0, height),
-            (0.0, 0.0),
-        ):
+        for pixel, line in (*perimeter, perimeter[0]):
             x, y = coordinate(pixel, line)
             ring.AddPoint_2D(x, y)
         polygon = ogr.Geometry(ogr.wkbPolygon)
@@ -750,6 +773,7 @@ def ensure_vector_index(
 
 
 __all__ = [
+    "FOOTPRINT_EDGE_SAMPLES",
     "StaleVectorIndexError",
     "VectorIndexBuildConfig",
     "VectorIndexLockError",
