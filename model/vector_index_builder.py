@@ -48,6 +48,10 @@ class VectorIndexBuildConfig:
     ``image_globs`` configures an ordered set of patterns. A NetCDF file must
     open as a directly readable GDAL raster. For a subdataset-only container,
     create a VRT that selects the intended variable.
+
+    ``rebuild_invalid_index`` is an explicit ownership declaration for a
+    disposable application-managed GeoPackage cache. It is false by default
+    and cannot be enabled for Shapefiles such as shared legacy indexes.
     """
 
     data_dir: Path
@@ -57,6 +61,7 @@ class VectorIndexBuildConfig:
     location_field: str = "location"
     output_srs_path: Path = LUNAR_GEOGRAPHIC_WKT_PATH
     image_globs: tuple[str, ...] = DEFAULT_RASTER_GLOBS
+    rebuild_invalid_index: bool = False
 
     def __post_init__(self) -> None:
         data_dir = Path(self.data_dir)
@@ -70,6 +75,13 @@ class VectorIndexBuildConfig:
         object.__setattr__(self, "output_srs_path", Path(self.output_srs_path))
         if index_path.suffix.lower() not in SUPPORTED_INDEX_SUFFIXES:
             raise ValueError("index_path must end with .shp or .gpkg.")
+        if not isinstance(self.rebuild_invalid_index, bool):
+            raise TypeError("rebuild_invalid_index must be a boolean.")
+        if self.rebuild_invalid_index and index_path.suffix.lower() != ".gpkg":
+            raise ValueError(
+                "rebuild_invalid_index is supported only for application-owned "
+                "GeoPackage caches."
+            )
         image_glob = (
             None if self.image_glob is None else str(self.image_glob).strip()
         )
@@ -607,6 +619,8 @@ def _create_vector_index_with_ogr(
 
 
 def _rebuild_guidance(config: VectorIndexBuildConfig) -> str:
+    if config.rebuild_invalid_index:
+        return "This application-owned GeoPackage cache is eligible for rebuilding."
     return (
         "Rebuild it explicitly after reviewing the difference; tiling will not "
         f"overwrite {config.index_path} automatically."
@@ -766,10 +780,15 @@ def validate_vector_index(
             f"Raster vector index does not exist: {config.index_path}"
         )
 
-    dataset = gdal.OpenEx(
-        str(config.index_path),
-        gdal.OF_VECTOR | gdal.OF_READONLY,
-    )
+    try:
+        dataset = gdal.OpenEx(
+            str(config.index_path),
+            gdal.OF_VECTOR | gdal.OF_READONLY,
+        )
+    except RuntimeError as exc:
+        raise VectorIndexValidationError(
+            f"Could not open raster vector index: {config.index_path}"
+        ) from exc
     if dataset is None:
         raise VectorIndexValidationError(
             f"Could not open raster vector index: {config.index_path}"
@@ -984,13 +1003,74 @@ def create_vector_index(
     return config.index_path
 
 
+def _rebuild_invalid_geopackage(
+    config: VectorIndexBuildConfig,
+    *,
+    raster_paths: tuple[Path, ...],
+    stdout: TextIO,
+) -> tuple[VectorIndexValidationResult, bool]:
+    """Atomically replace an invalid application-owned GeoPackage cache."""
+    if not config.rebuild_invalid_index or config.index_path.suffix.lower() != ".gpkg":
+        raise ValueError(
+            "Invalid-index rebuilding requires an application-owned GeoPackage."
+        )
+    config.index_path.parent.mkdir(parents=True, exist_ok=True)
+    with _exclusive_creation_lock(config.index_path):
+        if config.index_path.exists():
+            try:
+                result = validate_vector_index(
+                    config,
+                    expected_raster_paths=raster_paths,
+                )
+            except VectorIndexValidationError:
+                pass
+            else:
+                return result, False
+
+        staging_directory = Path(
+            tempfile.mkdtemp(
+                prefix=f".{config.index_path.name}.replacement-",
+                dir=config.index_path.parent,
+            )
+        )
+        staged_config = replace(
+            config,
+            index_path=staging_directory / config.index_path.name,
+            rebuild_invalid_index=False,
+        )
+        try:
+            _create_vector_index_with_ogr(
+                staged_config,
+                raster_paths,
+                progress=True,
+                stdout=stdout,
+            )
+            validate_vector_index(
+                staged_config,
+                expected_raster_paths=raster_paths,
+            )
+            for suffix in ("-wal", "-shm", "-journal"):
+                Path(f"{config.index_path}{suffix}").unlink(missing_ok=True)
+            os.replace(staged_config.index_path, config.index_path)
+        finally:
+            shutil.rmtree(staging_directory, ignore_errors=True)
+
+    return (
+        validate_vector_index(
+            config,
+            expected_raster_paths=raster_paths,
+        ),
+        True,
+    )
+
+
 def ensure_vector_index(
     config: VectorIndexBuildConfig,
     *,
     logger: logging.Logger | None = None,
     stdout: TextIO | None = None,
 ) -> VectorIndexValidationResult:
-    """Validate and reuse an index, or create it when it does not exist."""
+    """Reuse or create an index, rebuilding only an opted-in managed cache."""
     active_logger = logger or LOGGER
     active_stdout = sys.stdout if stdout is None else stdout
     raster_paths = discover_raster_paths(config)
@@ -1007,10 +1087,33 @@ def ensure_vector_index(
             logger=active_logger,
             stdout=active_stdout,
         )
-        result = validate_vector_index(
-            config,
-            expected_raster_paths=raster_paths,
-        )
+        try:
+            result = validate_vector_index(
+                config,
+                expected_raster_paths=raster_paths,
+            )
+        except VectorIndexValidationError as exc:
+            if not config.rebuild_invalid_index:
+                raise
+            _announce(
+                f"Managed raster index is invalid or stale and will be "
+                f"rebuilt: {config.index_path}. Reason: {exc}",
+                logger=active_logger,
+                stdout=active_stdout,
+            )
+            result, rebuilt = _rebuild_invalid_geopackage(
+                config,
+                raster_paths=raster_paths,
+                stdout=active_stdout,
+            )
+            action = "Rebuilt" if rebuilt else "Reused concurrently rebuilt"
+            _announce(
+                f"{action} raster index with {result.feature_count} "
+                f"feature(s): {config.index_path}",
+                logger=active_logger,
+                stdout=active_stdout,
+            )
+            return result
         _announce(
             f"Reusing validated raster index with {result.feature_count} "
             f"feature(s): {config.index_path}",

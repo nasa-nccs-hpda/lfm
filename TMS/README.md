@@ -182,15 +182,18 @@ Do not confuse `tile_database.gpkg` with a raster source index. Each configured
 data modality has its own `.shp` or `.gpkg` index whose features describe
 source-raster coverage and whose location field identifies the raster file.
 The high-level workflow validates and reuses an existing declared index or
-creates it when it is missing; low-level tile queries consume the prepared
-index read-only.
+creates it when it is missing. A caller may explicitly mark an
+application-owned GeoPackage cache as replaceable when invalid or stale;
+shared and legacy indexes remain protected. Low-level tile queries consume the
+prepared index read-only.
 
 The example notebook treats shared raster collections as read-only. Its WAC
 and NAC indexes are persistent GeoPackage caches under each user's clone at
 `outputs/tiling/indexes/`, so separate clones do not compete for or overwrite
 an index in the shared data directory. The canonical static collection
-continues to use its shared `db2.shp` index. A changed raster inventory makes a
-cached index explicitly stale; the workflow does not destructively refresh it.
+continues to use its shared `db2.shp` index. Invalid or stale WAC/NAC caches are
+rebuilt atomically after a replacement validates, while the shared source
+indexes are never automatically replaced.
 
 ## How LFM implements the scheme
 

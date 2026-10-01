@@ -436,6 +436,18 @@ class TileSourceDefinitionTestCase(unittest.TestCase):
         self.assertTrue(wac.source.preserve_source_nodata)
         self.assertTrue(nac.source.preserve_source_nodata)
 
+    def test_builtin_presets_require_explicit_managed_cache_rebuild(self):
+        default_wac = make_wac_tile_source(data_dir="/data/wac")
+        managed_wac = make_wac_tile_source(
+            data_dir="/data/wac",
+            index_path="/cache/wac.gpkg",
+            rebuild_invalid_index=True,
+        )
+
+        self.assertFalse(default_wac.rebuild_invalid_index)
+        self.assertTrue(managed_wac.rebuild_invalid_index)
+        self.assertTrue(managed_wac.preparation().rebuild_invalid_index)
+
     def test_static_role_requires_contextual_selection(self):
         source = TileSourceConfig(
             name="bad_static",

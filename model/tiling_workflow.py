@@ -158,6 +158,7 @@ class TileSourceDefinition:
     image_globs: tuple[str, ...] = DEFAULT_RASTER_GLOBS
     zoom_overrides: Mapping[GridFamily | str, int] = field(default_factory=dict)
     polar_supported: bool = False
+    rebuild_invalid_index: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.source, TileSourceConfig):
@@ -182,6 +183,10 @@ class TileSourceDefinition:
             self.polar_supported,
             field_name="polar_supported",
         )
+        rebuild_invalid_index = _boolean(
+            self.rebuild_invalid_index,
+            field_name="rebuild_invalid_index",
+        )
 
         normalized_overrides: dict[GridFamily, int] = {}
         for raw_family, raw_zoom in self.zoom_overrides.items():
@@ -197,6 +202,7 @@ class TileSourceDefinition:
             self.source,
             image_glob=self.image_glob,
             image_globs=self.image_globs,
+            rebuild_invalid_index=rebuild_invalid_index,
         )
         object.__setattr__(self, "role", role)
         object.__setattr__(self, "modality", modality)
@@ -208,6 +214,11 @@ class TileSourceDefinition:
             MappingProxyType(normalized_overrides),
         )
         object.__setattr__(self, "polar_supported", polar_supported)
+        object.__setattr__(
+            self,
+            "rebuild_invalid_index",
+            rebuild_invalid_index,
+        )
 
     def preparation(self) -> TileSourcePreparation:
         """Return the index-preparation declaration for this source."""
@@ -215,6 +226,7 @@ class TileSourceDefinition:
             self.source,
             image_glob=self.image_glob,
             image_globs=self.image_globs,
+            rebuild_invalid_index=self.rebuild_invalid_index,
         )
 
     def configured_zoom(self, family: GridFamily) -> int | None:
@@ -290,6 +302,7 @@ def make_wac_tile_source(
     image_glob: str | None = None,
     image_globs: tuple[str, ...] = DEFAULT_RASTER_GLOBS,
     zoom_overrides: Mapping[GridFamily | str, int] | None = None,
+    rebuild_invalid_index: bool = False,
 ) -> TileSourceDefinition:
     """Build the WAC product-scoped source preset."""
     root = Path(data_dir)
@@ -312,6 +325,7 @@ def make_wac_tile_source(
         image_globs=image_globs,
         zoom_overrides=zoom_overrides or {},
         polar_supported=True,
+        rebuild_invalid_index=rebuild_invalid_index,
     )
 
 
@@ -326,6 +340,7 @@ def make_nac_tile_source(
     image_glob: str | None = None,
     image_globs: tuple[str, ...] = DEFAULT_RASTER_GLOBS,
     zoom_overrides: Mapping[GridFamily | str, int] | None = None,
+    rebuild_invalid_index: bool = False,
 ) -> TileSourceDefinition:
     """Build the processed one-metre NAC product-scoped source preset."""
     root = Path(data_dir)
@@ -348,6 +363,7 @@ def make_nac_tile_source(
         image_globs=image_globs,
         zoom_overrides=zoom_overrides or {},
         polar_supported=True,
+        rebuild_invalid_index=rebuild_invalid_index,
     )
 
 
@@ -363,6 +379,7 @@ def make_static_tile_source(
     image_globs: tuple[str, ...] = DEFAULT_RASTER_GLOBS,
     zoom_overrides: Mapping[GridFamily | str, int] | None = None,
     polar_supported: bool = False,
+    rebuild_invalid_index: bool = False,
 ) -> TileSourceDefinition:
     """Build the canonical 63-band contextual static-source preset."""
     root = Path(data_dir)
@@ -397,6 +414,7 @@ def make_static_tile_source(
         image_globs=image_globs,
         zoom_overrides=zoom_overrides or {},
         polar_supported=polar_supported,
+        rebuild_invalid_index=rebuild_invalid_index,
     )
 
 

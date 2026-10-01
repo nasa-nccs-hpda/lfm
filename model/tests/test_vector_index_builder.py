@@ -12,6 +12,7 @@ from lfm.model.vector_index_builder import (
     StaleVectorIndexError,
     VectorIndexBuildConfig,
     VectorIndexLockError,
+    VectorIndexValidationError,
     VectorIndexValidationResult,
     _canonical_geographic_footprint,
     _enclosed_geographic_pole,
@@ -188,6 +189,27 @@ class VectorIndexBuildConfigTestCase(unittest.TestCase):
 
         self.assertEqual(shapefile.index_path.suffix, ".shp")
         self.assertEqual(geopackage.layer_name, "nac")
+
+    def test_invalid_rebuild_is_explicit_and_geopackage_only(self):
+        config = VectorIndexBuildConfig(
+            data_dir=Path("/data/wac"),
+            index_path=Path("/cache/wac.gpkg"),
+            rebuild_invalid_index=True,
+        )
+
+        self.assertTrue(config.rebuild_invalid_index)
+        with self.assertRaisesRegex(TypeError, "must be a boolean"):
+            VectorIndexBuildConfig(
+                data_dir=Path("/data/wac"),
+                index_path=Path("/cache/wac.gpkg"),
+                rebuild_invalid_index="yes",
+            )
+        with self.assertRaisesRegex(ValueError, "application-owned GeoPackage"):
+            VectorIndexBuildConfig(
+                data_dir=Path("/data/wac"),
+                index_path=Path("/data/wac/output_index.shp"),
+                rebuild_invalid_index=True,
+            )
 
     def test_derives_default_index_path(self):
         config = VectorIndexBuildConfig(data_dir=Path("/data/wac"))
@@ -467,6 +489,55 @@ class EnsureVectorIndexTestCase(unittest.TestCase):
         )
         self.assertIn("Reusing validated", stdout.getvalue())
 
+    @mock.patch("lfm.model.vector_index_builder._rebuild_invalid_geopackage")
+    @mock.patch("lfm.model.vector_index_builder.validate_vector_index")
+    def test_managed_cache_rebuilds_after_validation_failure(
+        self,
+        validate,
+        rebuild,
+    ):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            raster = root / "a.tif"
+            raster.touch()
+            index_path = root / "cache.gpkg"
+            index_path.touch()
+            config = VectorIndexBuildConfig(
+                root,
+                index_path=index_path,
+                rebuild_invalid_index=True,
+            )
+            expected = self.result(config, (raster,))
+            validate.side_effect = VectorIndexValidationError("bad geometry")
+            rebuild.return_value = (expected, True)
+            stdout = io.StringIO()
+
+            actual = ensure_vector_index(config, stdout=stdout)
+
+        self.assertIs(actual, expected)
+        rebuild.assert_called_once_with(
+            config,
+            raster_paths=(raster,),
+            stdout=stdout,
+        )
+        self.assertIn("invalid or stale", stdout.getvalue())
+        self.assertIn("Rebuilt raster index", stdout.getvalue())
+
+    @mock.patch("lfm.model.vector_index_builder._rebuild_invalid_geopackage")
+    @mock.patch("lfm.model.vector_index_builder.validate_vector_index")
+    def test_unmanaged_invalid_index_is_never_rebuilt(self, validate, rebuild):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "a.tif").touch()
+            config = VectorIndexBuildConfig(root)
+            config.index_path.touch()
+            validate.side_effect = VectorIndexValidationError("bad geometry")
+
+            with self.assertRaisesRegex(VectorIndexValidationError, "bad geometry"):
+                ensure_vector_index(config, stdout=io.StringIO())
+
+        rebuild.assert_not_called()
+
 
 @unittest.skipUnless(HAS_OSGEO, "GDAL/OGR is required for vector-index tests")
 class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
@@ -572,6 +643,29 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
                 )
                 self.assertIn("Building raster index", creation_stdout.getvalue())
                 self.assertEqual(before_reuse, after_reuse)
+
+    def test_managed_geopackage_atomically_replaces_invalid_cache(self):
+        raster = self.write_raster("a.tif", x_origin=10.0)
+        index_path = self.data_dir / "managed.gpkg"
+        index_path.write_bytes(b"not a GeoPackage")
+        config = VectorIndexBuildConfig(
+            self.data_dir,
+            index_path=index_path,
+            rebuild_invalid_index=True,
+        )
+        stdout = io.StringIO()
+
+        result = ensure_vector_index(config, stdout=stdout)
+        reused = ensure_vector_index(config, stdout=io.StringIO())
+
+        self.assertEqual(result, reused)
+        self.assertEqual(result.raster_paths, (raster,))
+        self.assertIn("invalid or stale", stdout.getvalue())
+        self.assertIn("Rebuilt raster index", stdout.getvalue())
+        self.assertEqual(
+            list(self.data_dir.glob(".managed.gpkg.replacement-*")),
+            [],
+        )
 
     def test_existing_index_rejects_changed_raster_inventory(self):
         self.write_raster("a.tif", x_origin=10.0)
