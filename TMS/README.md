@@ -68,15 +68,14 @@ Transverse Mercator scale factor of 0.999, and a false easting of 250,000
 meters. Northern and southern definitions use different false northings as
 recorded in their JSON CRS definitions.
 
-## Polar grids: LPN and LPS
+## Polar grids: LPS_N and LPS_S
 
-The Armstrong metadata also defines Lunar Polar North (LPN) and Lunar Polar
-South (LPS) grids. The repository groups both definitions under the `LPS`
-filename prefix and distinguishes them with `N` and `S`:
+The Armstrong metadata also defines northern and southern Lunar Polar
+Stereographic grids. LFM uses the canonical public IDs `LPS_N` and `LPS_S`:
 
-- `RG/tms_LPS_NRG.json` is the northern, or LPN, definition. It covers 80° to
+- `RG/tms_LPS_NRG.json` is the `LPS_N` definition. It covers 80° to
   90° latitude and uses a Polar Stereographic projection centered on +90°.
-- `RG/tms_LPS_SRG.json` is the southern, or LPS, definition. It covers -90° to
+- `RG/tms_LPS_SRG.json` is the `LPS_S` definition. It covers -90° to
   -80° latitude and uses a Polar Stereographic projection centered on -90°.
 
 Both use a central meridian of 0°, a scale factor of 0.994, and false easting
@@ -88,7 +87,7 @@ The polar tile matrices use 512×512-pixel tiles and define zoom levels 1
 through 15. At zoom 1, each polar matrix is 2×2 tiles; both dimensions double
 at each subsequent zoom.
 
-LPN and LPS were not used by the current LFM tiling workflow because their
+The polar grids were not used by the original LFM tiling workflow because their
 geometry differs from the numbered LTM zones. LTM zones are rectangular
 longitude bands represented by separate northern and southern Transverse
 Mercator grids. A polar stereographic grid instead surrounds a pole, where
@@ -97,11 +96,12 @@ longitude-band rectangle. The current AOI intersection, zone identifiers,
 output naming, notebook examples, and regression tests were implemented around
 the LTM geometry and `number + hemisphere` addresses such as `42N`.
 
-The polar JSON files and their zoom-1 features remain in the repository as
-Armstrong scheme metadata, but their presence does not mean the modern public
-tiling API supports polar production. Adding that support requires a dedicated
-polar intersection and addressing path, followed by separate LPN/LPS
-regression tests; the files should not simply be passed through the LTM path.
+The grid registry and geographic router now recognize `LPS_N` and `LPS_S`, use
+an inclusive 82-degree automatic-routing threshold, and partition geographic
+AOIs without passing polar definitions through the LTM filename logic. Polar
+tile intersection and addressing are still a separate implementation phase.
+Consequently, the current cube-writing APIs remain LTM-only even though the
+metadata and routing layers are grid-neutral.
 
 ## Zoom levels and tile matrices
 
@@ -168,12 +168,14 @@ zone and zoom is not a complete address.
   CRS definition.
 - [`RG/tms_LTM_*RG.json`](RG/) contains the 90 LTM zone and tile matrix
   definitions.
-- `RG/tms_LPS_NRG.json` and `RG/tms_LPS_SRG.json` contain the LPN and LPS tile
-  matrix definitions described above.
+- `RG/tms_LPS_NRG.json` and `RG/tms_LPS_SRG.json` contain the `LPS_N` and
+  `LPS_S` tile matrix definitions described above.
 - [`RG/tile_database.gpkg`](RG/tile_database.gpkg) is an auxiliary geographic
   inventory of the 728 zoom-1 tiles across the 90 LTM and two polar grids. The
   current configuration-driven tiler does not use this GeoPackage to resolve
-  normal AOI queries; it reads the zone JSON files through `TmsIntersector`.
+  normal AOI queries. The new registry reads the JSON files directly, while
+  current LTM cube generation continues through `TmsIntersector` until its
+  geometry path is generalized.
 
 Do not confuse `tile_database.gpkg` with a raster source index. Each configured
 data modality has its own existing `.shp` or `.gpkg` index whose features
@@ -196,6 +198,15 @@ AOI product discovery lives in
 - `create_tiles_for_aoi_by_product(...)` is the high-level optional-product
   path. A configured PID selects one observation; `None` or an omitted mapping
   entry discovers every intersecting PID for that product-scoped source.
+
+[`model/grid_registry.py`](../model/grid_registry.py) validates the 90 numbered
+LTM definitions plus `LPS_N` and `LPS_S` and exposes their CRS, geographic
+coverage, and tile matrices without inferring every grid from an LTM filename.
+[`model/grid_router.py`](../model/grid_router.py) validates and normalizes
+geographic requests, routes points at `>= +82` to `LPS_N` and at `<= -82` to
+`LPS_S`, and partitions AOIs at the polar thresholds, equator, longitude-zone
+edges, and antimeridian. These routing results are preparatory metadata until
+the polar tile-geometry work is complete.
 
 The implementation follows this sequence:
 

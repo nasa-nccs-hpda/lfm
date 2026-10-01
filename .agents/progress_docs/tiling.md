@@ -20,15 +20,20 @@ Canonical references:
 - Canonical static cube: 63 bands with `-32768` output NoData
 - Automatic raster-index preparation backend: **Complete**
 - Default indexed raster formats: `.tif`, `.tiff`, `.nc`, and `.vrt`
-- Optional AOI product discovery: implemented; container regression pending
+- Optional AOI product discovery: **Complete**
+- Grid-neutral metadata registry and geographic router: implemented; supported
+  container regression pending
 - Downstream chip modernization: tracked separately
 
 Known boundaries and follow-ups:
 
-- LPN/LPS production tiling is not implemented.
-- Automatic discovery followed by one output cube per PID is not implemented.
-  An `all_intersecting` WAC/NAC query instead stacks all intersecting raster
-  bands into one source cube per LTM tile with `product_id=None`.
+- `LPS_N`/`LPS_S` production tiling is not implemented.
+- Automatic routing is not yet connected to tile discovery or cube production.
+- Geographic requests can now be partitioned into canonical LTM/`LPS_N`/`LPS_S`
+  query parts, but polar tile addressing and cube production remain P4 work.
+- The legacy opt-in `all_intersecting` WAC alternate query still stacks all
+  intersecting rasters into one source cube. The supported high-level AOI path
+  instead discovers products and writes one dynamic cube per PID.
 - The completed tiling plan records a maintainer-accepted exception: a separate
   top-to-bottom execution of the final `.ipynb` after the last NAC AOI and
   differential-zoom edits was not recorded.
@@ -262,12 +267,32 @@ P1 work started:
   modern suite passes 91 tests with 14 environment-dependent skips. Notebook
   JSON, unique IDs, clean outputs, Python-cell syntax, shell syntax, Python
   compilation, and whitespace checks pass.
+- Explore job 37938065 passed all 91 modern tiling contract tests, all 25 safe
+  legacy regression tests, and the filtered one-tile legacy integration test
+  under GDAL 3.8.4 in `lfm-container-ipyleaflet`. The job completed in 35
+  seconds. Apptainer emitted FUSE cleanup messages after successful child
+  processes, but every test command returned successfully and the wrapper
+  reached `All tiling modernization checks passed.` This completes Phase P2.
+- Began Phase P3. Added an immutable `GridRegistry` that validates all 92
+  repository definitions and exposes explicit grid family, CRS, geographic
+  coverage, and typed tile-matrix metadata.
+- Added point routing with inclusive `+/-82` polar ownership, canonical
+  longitudes at the poles, deterministic LTM boundary ownership, and stable
+  public `LPS_N`/`LPS_S` identifiers.
+- Added AOI validation and routing across polar thresholds, the equator, every
+  numbered LTM longitude band, and the antimeridian. Query parts always have
+  positive area and non-wrapping longitude bounds; duplicate parts are removed.
+- Added 23 registry/router tests covering inventory, metadata, both poles,
+  threshold crossing and boundary-only touches, every LTM longitude boundary,
+  seam splitting, full polar caps, invalid spans, stable order, and invalid
+  coordinates. The expanded local modern suite passes 114 tests with 14
+  unchanged environment-dependent skips.
 
 Next:
 
-- Run P2.8 with
-  `scripts/shell/all_tasks/sbatch_tiling_modernization_tests.sh` in the
-  supported container, then close Phase P2 if its modern and legacy gates pass.
+- Run P3.7 with `scripts/shell/all_tasks/sbatch_tiling_modernization_tests.sh`
+  in the supported container, then close Phase P3 if its modern and legacy
+  gates pass.
 
 ### 2026-09-30
 
@@ -301,7 +326,8 @@ Completed:
 - Confirmed WAC/static at zoom 5 and moved 1 m NAC/static to zoom 11.
 - Added NaN-masked plotting and a maximum display of four tile pairs per AOI.
 - Documented the Armstrong scheme, IAU:30100, LTM zones, zoom matrices, tile
-  addressing, and the unsupported LPN/LPS production path in `TMS/README.md`.
+  addressing, and the unsupported `LPS_N`/`LPS_S` production path in
+  `TMS/README.md`.
 - Updated the tiling and chip modernization plans with the stable handoff
   contract.
 - Marked tiling Phases T0-T8 complete by maintainer signoff.

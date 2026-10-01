@@ -76,6 +76,8 @@ echo "Running the modern tiling contract tests..."
   lfm.model.tests.test_tiling_config \
   lfm.model.tests.test_static_band_contract \
   lfm.model.tests.test_lunar_crs \
+  lfm.model.tests.test_grid_registry \
+  lfm.model.tests.test_grid_router \
   lfm.model.tests.test_vector_index \
   lfm.model.tests.test_vector_index_builder \
   lfm.model.tests.test_tiling_policy \

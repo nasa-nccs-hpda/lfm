@@ -54,8 +54,9 @@ NoData metadata.
   duplicate WKT string.
 - Geographic AOIs use IAU:30100 bounds in this order: `ul_lat`, `ul_lon`,
   `lr_lat`, `lr_lon`.
-- Production currently supports numbered LTM zones only. The retained LPN/LPS
-  JSON files do not make the polar path supported.
+- Production cube writing currently supports numbered LTM zones only. The grid
+  registry and geographic router recognize `LPS_N` and `LPS_S`, but routing
+  metadata alone does not make polar tile geometry or writing supported.
 - A tile is 512 x 512 pixels. Its complete address is
   `(zone, zoom_level, tile_x, tile_y)`.
 - One `TileConfig` has one zoom shared by all its sources. Use separate configs

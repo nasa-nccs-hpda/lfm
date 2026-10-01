@@ -318,7 +318,7 @@ NetCDF and VRT creation/validation/reuse plus both pole-cap regressions. The
 post-P1 `.tif`, `.tiff`, `.nc`, and `.vrt` discovery extension is fully
 validated for its stated scope.
 
-## Phase P2 — Restore optional product-ID discovery `[In-Progress]`
+## Phase P2 — Restore optional product-ID discovery `[Complete]`
 
 - `[Complete]` **P2.1** Define modality-aware product-ID extraction without
   hard-coding WAC or NAC behavior into the generic tiler. Product resolution
@@ -344,7 +344,7 @@ validated for its stated scope.
   Markdown to explain discovery, companion-file grouping, separate outputs per
   PID, deterministic ordering, static-once-per-tile behavior, missing-product
   behavior, and how alternate expert queries select one discovered PID.
-- `[In-Progress]` **P2.8** Run the expanded tiling contract and safe legacy
+- `[Complete]` **P2.8** Run the expanded tiling contract and safe legacy
   regression suite in the supported container. Confirm notebook JSON, unique
   cell IDs, clean committed outputs, and Python-cell syntax; record any
   top-to-bottom notebook execution exception explicitly.
@@ -370,28 +370,49 @@ multiple dynamic products on one tile with the single static record. The public
 notebook accepts a string or `None` for each WAC/NAC PID and explains discovery,
 grouping, output separation, ordering, static reuse, and expert-query behavior.
 Local validation passed 91 tests with 14 environment-dependent skips; notebook
-JSON, unique IDs, clean outputs, and cell syntax passed. P2.8 requires the
-supported-container regression before Phase P2 closes.
+JSON, unique IDs, clean outputs, and cell syntax passed. Explore job 37938065
+then passed all 91 modern contract tests, all 25 safe legacy regression tests,
+and the filtered one-tile legacy integration test under GDAL 3.8.4 in
+`lfm-container-ipyleaflet`. The Apptainer FUSE cleanup messages occurred after
+successful test processes and did not affect the job result. Phase P2 is
+complete.
 
-## Phase P3 — Introduce a grid registry and automatic router `[Not Started]`
+## Phase P3 — Introduce a grid registry and automatic router `[In-Progress]`
 
-- `[Not Started]` **P3.1** Add a grid-neutral registry that loads the 90 LTM
+- `[Complete]` **P3.1** Add a grid-neutral registry that loads the 90 LTM
   definitions plus the repository polar definitions and exposes canonical IDs,
   geographic coverage, CRS, and tile matrices.
-- `[Not Started]` **P3.2** Represent numbered LTM, `LPS_N`, and `LPS_S` as
+- `[Complete]` **P3.2** Represent numbered LTM, `LPS_N`, and `LPS_S` as
   explicit grid families instead of inferring all behavior from an LTM zone
   name pattern.
-- `[Not Started]` **P3.3** Implement point routing with an inclusive 82-degree
+- `[Complete]` **P3.3** Implement point routing with an inclusive 82-degree
   polar threshold and deterministic LTM longitude-zone discovery below it.
-- `[Not Started]` **P3.4** Implement AOI partitioning at `+82` and `-82` degrees,
+- `[Complete]` **P3.4** Implement AOI partitioning at `+82` and `-82` degrees,
   then route each nonempty part to its applicable grid family without duplicate
   grid/tile requests.
-- `[Not Started]` **P3.5** Normalize lunar longitudes and handle antimeridian
+- `[Complete]` **P3.5** Normalize lunar longitudes and handle antimeridian
   AOIs, pole-containing AOIs, and exact-boundary inputs without invalid or
   world-spanning polygons.
-- `[Not Started]` **P3.6** Add router tests covering both poles, every threshold
+- `[Complete]` **P3.6** Add router tests covering both poles, every threshold
   edge, LTM longitude edges, the longitude seam, multi-grid AOIs, stable order,
   and invalid geographic inputs.
+- `[In-Progress]` **P3.7** Run the expanded modern tiling suite and safe legacy
+  regression suite in `lfm-container-ipyleaflet`. Confirm the new registry and
+  router tests pass with the supported Python/GDAL environment before P3
+  closes.
+
+P3.1-P3.6 implementation checkpoint: `GridRegistry` now loads and validates
+all 90 numbered LTM definitions plus `LPS_N` and `LPS_S`, exposes explicit grid
+families, CRS WKT, geographic coverage, and typed tile matrices, and rejects an
+incomplete repository inventory. `route_point()` applies inclusive polar
+ownership, deterministic numbered-zone ownership, and canonical pole
+longitude. `route_aoi()` validates geographic bounds, rejects ambiguous or
+world-spanning longitude intervals, partitions at `+82`, `-82`, the equator,
+numbered-zone edges, and the antimeridian, and returns unique stable
+non-wrapping query parts. The public exports do not connect these routing parts
+to cube production; P4 remains responsible for polar tile geometry. The 23 new
+focused tests and the expanded 114-test local modern suite pass, with 14
+unchanged environment-dependent skips. P3.7 is the supported-container gate.
 
 ## Phase P4 — Implement polar tile geometry and addressing `[Not Started]`
 
