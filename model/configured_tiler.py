@@ -35,6 +35,13 @@ class ConfiguredTiler:
         self.selectors = validate_source_selectors(config.sources, selectors)
         self.config.output_dir.mkdir(parents=True, exist_ok=True)
 
+    def _product_id(self, source: TileSourceConfig) -> str | None:
+        return (
+            self.selectors[source.name]
+            if source.selection_mode == "product_id"
+            else None
+        )
+
     def _output_path(
         self,
         source: TileSourceConfig,
@@ -49,11 +56,7 @@ class ConfiguredTiler:
             zoom_level=self.config.zoom_level,
             tile_x=tile_x,
             tile_y=tile_y,
-            product_id=(
-                self.selectors[source.name]
-                if source.selection_mode == "product_id"
-                else None
-            ),
+            product_id=self._product_id(source),
         )
 
     def run_tile_index(
@@ -92,6 +95,7 @@ class ConfiguredTiler:
                             tile_x=tile_x,
                             tile_y=tile_y,
                             completed_records=tuple(records),
+                            product_id=self._product_id(source),
                         )
                     continue
                 bands = warp_source_to_tile(
@@ -110,6 +114,7 @@ class ConfiguredTiler:
                             tile_x=tile_x,
                             tile_y=tile_y,
                             completed_records=tuple(records),
+                            product_id=self._product_id(source),
                         )
                     continue
                 output_path = self._output_path(
@@ -123,11 +128,7 @@ class ConfiguredTiler:
                         output_path,
                         bands,
                         source=source,
-                        product_id=(
-                            self.selectors[source.name]
-                            if source.selection_mode == "product_id"
-                            else None
-                        ),
+                        product_id=self._product_id(source),
                         zone=zone,
                         zoom_level=self.config.zoom_level,
                         tile_x=tile_x,
@@ -148,6 +149,7 @@ class ConfiguredTiler:
                     tile_x=tile_x,
                     tile_y=tile_y,
                     completed_records=tuple(records),
+                    product_id=self._product_id(source),
                 ) from exc
         return records
 

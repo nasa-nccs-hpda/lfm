@@ -305,27 +305,73 @@ winding. A full turn identifies an enclosed pole, while an ordinary
 antimeridian-crossing rectangle has zero net winding. Dependency-free tests
 cover north, south, and seam-only rings; the container rerun remains pending.
 
-## Phase P2 — Restore optional product-ID discovery `[Not Started]`
+Real-data rerun 37938048 passed. The supported container indexed the ordinary,
+north-pole, and south-pole gravity GeoTIFFs, displayed per-raster stdout
+progress through 100 percent, created and validated a three-feature GeoPackage,
+then reused it with matching structured metadata. This accepts the
+longitude-winding polar-cap fix and the small real-data progress path. The
+synthetic GDAL `.nc` and `.vrt` focused tests remain a separate pending gate.
 
-- `[Not Started]` **P2.1** Define modality-aware product-ID extraction without
+Explore job 37938049 passed all 36 focused builder and preparation tests with
+GDAL enabled in `lfm-container-ipyleaflet`. This includes directly readable
+NetCDF and VRT creation/validation/reuse plus both pole-cap regressions. The
+post-P1 `.tif`, `.tiff`, `.nc`, and `.vrt` discovery extension is fully
+validated for its stated scope.
+
+## Phase P2 — Restore optional product-ID discovery `[In-Progress]`
+
+- `[Complete]` **P2.1** Define modality-aware product-ID extraction without
   hard-coding WAC or NAC behavior into the generic tiler. Product resolution
   must group companion files, such as WAC UV and VIS inputs, under one PID.
-- `[Not Started]` **P2.2** Preserve the current strict low-level
+- `[Complete]` **P2.2** Preserve the current strict low-level
   `product_id` selector for explicit product requests while adding a
   high-level discovery path for an omitted selector.
-- `[Not Started]` **P2.3** Query intersecting dynamic index records, derive and
+- `[Complete]` **P2.3** Query intersecting dynamic index records, derive and
   sort unique product IDs deterministically, and log the discovered count and
   identifiers.
-- `[Not Started]` **P2.4** Invoke product-scoped tiling separately for each
+- `[Complete]` **P2.4** Invoke product-scoped tiling separately for each
   discovered PID so unrelated observations are never combined into one dynamic
   cube. Keep `all_intersecting` for contextual/static sources and explicit
   expert use.
-- `[Not Started]` **P2.5** Ensure every resulting dynamic record and filename
+- `[Complete]` **P2.5** Ensure every resulting dynamic record and filename
   retains its resolved product ID, including partial-coverage and missing-source
   error paths.
-- `[Not Started]` **P2.6** Add tests for explicit PID, omitted PID with one and
+- `[Complete]` **P2.6** Add tests for explicit PID, omitted PID with one and
   several matches, no matches, WAC companion-band grouping, NAC products,
   deterministic ordering, malformed names, and product-specific failures.
+- `[Complete]` **P2.7** Update the public tiling notebook so WAC and NAC
+  product IDs may be explicit strings or `None`. Add or revise notebook
+  Markdown to explain discovery, companion-file grouping, separate outputs per
+  PID, deterministic ordering, static-once-per-tile behavior, missing-product
+  behavior, and how alternate expert queries select one discovered PID.
+- `[In-Progress]` **P2.8** Run the expanded tiling contract and safe legacy
+  regression suite in the supported container. Confirm notebook JSON, unique
+  cell IDs, clean committed outputs, and Python-cell syntax; record any
+  top-to-bottom notebook execution exception explicitly.
+
+P2.1-P2.5 implementation checkpoint: `TileSourceConfig` now carries a callable
+product-ID resolver, defaulting to the lunar filename prefix before the first
+period. The strict `create_tiles_for_*` APIs and selector validation remain
+unchanged. `create_tiles_for_aoi_by_product()` is the high-level AOI path: an
+exact mapping value selects one PID, while `None` or an omitted value discovers
+all intersecting PIDs for that source. Discovery groups companion rasters,
+logs sorted IDs, validates filename-component uniqueness, invokes strict
+tiling once per source/PID, invokes all contextual sources once total, and
+returns records ordered by grid, tile row, tile column, configured source, and
+PID. Required no-match behavior is typed, and structured tile failures retain
+their PID and previously completed records.
+
+P2.6-P2.7 implementation checkpoint: dependency-free tests cover WAC companion
+grouping, NAC-style single files, custom modality resolvers, explicit and
+omitted PIDs, multiple products, no required match, optional no-match behavior,
+deterministic ordering, malformed names, safe-filename collisions, static
+deduplication, and product-specific failures. Notebook visualization now pairs
+multiple dynamic products on one tile with the single static record. The public
+notebook accepts a string or `None` for each WAC/NAC PID and explains discovery,
+grouping, output separation, ordering, static reuse, and expert-query behavior.
+Local validation passed 91 tests with 14 environment-dependent skips; notebook
+JSON, unique IDs, clean outputs, and cell syntax passed. P2.8 requires the
+supported-container regression before Phase P2 closes.
 
 ## Phase P3 — Introduce a grid registry and automatic router `[Not Started]`
 
@@ -423,9 +469,10 @@ cover north, south, and seam-only rings; the container rerun remains pending.
 - `[Not Started]` **P7.4** Add an opt-in polar dynamic-only example to the
   alternate queries section. The example must supply no polar grid identifier
   and demonstrate automatic routing.
-- `[Not Started]` **P7.5** Restore an opt-in AOI query with no product ID using
-  the new per-product discovery behavior, replacing the current stacked
-  `all_intersecting` demonstration.
+- `[Not Started]` **P7.5** Preserve the P2 optional-product notebook contract
+  during the polar refactor and extend it to the opt-in polar AOI example.
+  Keep product-scoped discovery separate per PID and remove the legacy stacked
+  `all_intersecting` WAC demonstration.
 - `[Not Started]` **P7.6** Update plotting to support dynamic plus static,
   dynamic-only, and static-only records across multiple grids and products,
   while retaining NaN masking and the four-tile display limit.

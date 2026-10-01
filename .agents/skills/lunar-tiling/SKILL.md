@@ -74,16 +74,17 @@ NoData metadata.
 
 ## Apply source-selection semantics exactly
 
-- `selection_mode="product_id"` requires a nonempty selector for that source.
-  Omitting it is an error; setting a PID variable to `None` is not an unfiltered
-  query.
+- The strict `create_tiles_for_*` entry points require a nonempty selector for
+  each `selection_mode="product_id"` source. The high-level
+  `create_tiles_for_aoi_by_product` entry point accepts an exact PID or `None`;
+  `None` discovers intersecting PIDs and invokes the strict path separately for
+  each resolved product.
 - `selection_mode="all_intersecting"` rejects a selector and includes every
   indexed raster intersecting that tile.
-- For WAC or NAC, `all_intersecting` stacks all selected raster bands into one
-  source cube per tile with `product_id=None`. It does not discover PIDs and
-  create a separate cube for each. For separate per-PID results, discover the
-  indexed PIDs and invoke the product-scoped API once per PID, or add and test a
-  deliberate grouped-selection contract.
+- Keep WAC and NAC configured as `product_id` sources. Optional discovery
+  groups companion files such as WAC UV/VIS inputs under their filename prefix
+  and writes separate cubes for unrelated PIDs. `all_intersecting` remains an
+  explicit expert/context policy and still stacks every selected raster.
 - Static context uses `all_intersecting` and is never product-filtered.
 - A missing required source raises `MissingRequiredSourceError`. An optional
   sparse source may be skipped. Preserve and report `completed_records` when a
@@ -120,8 +121,9 @@ NoData metadata.
 - Plot with sentinel pixels converted to `float64` NaN and display no more than
   four tile pairs per AOI unless the user changes that display-only limit.
 - Keep expensive or illustrative alternate queries behind
-  `RUN_ALTERNATE_QUERIES`. Document that the no-PID WAC AOI example uses
-  `all_intersecting` stacking rather than per-PID grouping.
+  `RUN_ALTERNATE_QUERIES`. The main WAC/NAC AOI examples may set their PID to
+  `None` for per-product discovery. Strict point and explicit-index examples
+  should reuse a concrete PID resolved by the AOI query.
 - After editing the notebook, validate its JSON, unique cell IDs, and Python
   syntax while accounting for Jupyter magics. Keep committed execution counts
   null and outputs empty unless the user explicitly requests saved outputs.

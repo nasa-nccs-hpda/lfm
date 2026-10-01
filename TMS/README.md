@@ -182,13 +182,20 @@ file.
 
 ## How LFM implements the scheme
 
-The modern entry points are defined in [`model/tiling.py`](../model/tiling.py):
+The modern entry points are exported from [`model`](../model/__init__.py). The
+strict functions live in [`model/tiling.py`](../model/tiling.py), and optional
+AOI product discovery lives in
+[`model/product_tiling.py`](../model/product_tiling.py):
 
 - `create_tiles_for_aoi(...)` discovers all LTM tiles intersecting geographic
-  bounds.
+  bounds and is the strict low-level path: every `product_id` source requires
+  an explicit selector.
 - `create_tiles_for_point(...)` processes the tile containing a point in an
   explicitly supplied zone.
 - `create_tiles_for_index(...)` processes an explicit zone/zoom/tile address.
+- `create_tiles_for_aoi_by_product(...)` is the high-level optional-product
+  path. A configured PID selects one observation; `None` or an omitted mapping
+  entry discovers every intersecting PID for that product-scoped source.
 
 The implementation follows this sequence:
 
@@ -207,10 +214,12 @@ The implementation follows this sequence:
    latitude. [`model/vector_index.py`](../model/vector_index.py) applies that
    extent as a read-only OGR spatial filter to each source index. The tiler
    never creates, refreshes, or modifies these source indexes.
-5. `product_id` sources select the requested observation, while
-   `all_intersecting` sources include all indexed rasters intersecting the tile.
-   This is how sparse dynamic imagery and global contextual layers can use the
-   same tiling code.
+5. The strict API makes `product_id` sources select the requested observation.
+   The high-level AOI API can instead resolve product IDs through each source's
+   configured resolver, group companion rasters such as WAC UV/VIS files, and
+   run the strict path separately for every PID. Unrelated observations are
+   never stacked. `all_intersecting` contextual sources run only once per tile,
+   even when several dynamic products are discovered.
 6. [`model/raster_cube.py`](../model/raster_cube.py) uses GDAL to warp every
    selected raster onto the exact 512×512 LTM tile grid. Tiling uses bilinear
    resampling, preserves or normalizes NoData according to each source's
@@ -246,7 +255,7 @@ contracts remain explicit.
 ```python
 from pathlib import Path
 
-from model import TileConfig, TileSourceConfig, create_tiles_for_aoi
+from model import TileConfig, TileSourceConfig, create_tiles_for_aoi_by_product
 
 nac = TileSourceConfig(
     name="nac",
@@ -265,13 +274,14 @@ config = TileConfig(
     sources=(nac,),
 )
 
-records = create_tiles_for_aoi(
+records = create_tiles_for_aoi_by_product(
     config,
     ul_lat=1.0786543156953,
     ul_lon=149.752054273755,
     lr_lat=1.0586543156953,
     lr_lon=149.772054273755,
-    selectors={"nac": "M1117899885LE"},
+    # Use an exact string for one product, or None to discover all matches.
+    product_ids={"nac": None},
 )
 ```
 

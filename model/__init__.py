@@ -131,6 +131,16 @@ from .tiling_config import (
     TileSourceConfig,
     tile_config_from_dict,
 )
+from .product_ids import (
+    ProductIdResolutionError,
+    ProductIdResolver,
+    lunar_product_id_from_raster_path,
+)
+from .product_tiling import (
+    MissingRequiredProductError,
+    create_tiles_for_aoi_by_product,
+    discover_products_for_aoi,
+)
 from .tiling_preparation import (
     TilePreparationResult,
     TileSourcePreparation,
@@ -213,6 +223,7 @@ __all__ = [
     "LabelValidationDiagnostic",
     "MINIRF_SOURCE_NODATA",
     "MINIRF_SOURCE_NODATA_BANDS",
+    "MissingRequiredProductError",
     "MissingRequiredSourceError",
     "MixedPercentageNumberSplitConfig",
     "NoSplitConfig",
@@ -222,6 +233,8 @@ __all__ = [
     "OutputModalityConfig",
     "PreparedChipRequest",
     "ProgressMode",
+    "ProductIdResolutionError",
+    "ProductIdResolver",
     "ReferenceSample",
     "ReprojectedModality",
     "SelectorResolutionError",
@@ -273,6 +286,7 @@ __all__ = [
     "create_chips",
     "create_chips_from_reference_directory",
     "create_tiles_for_aoi",
+    "create_tiles_for_aoi_by_product",
     "create_tiles_for_index",
     "create_tiles_for_point",
     "cube_record_key",
@@ -280,12 +294,14 @@ __all__ = [
     "default_split_config",
     "default_zoom_for_sources",
     "discover_raster_paths",
+    "discover_products_for_aoi",
     "discover_reference_tiffs",
     "derive_source_selectors",
     "geographic_aoi_from_target_grid",
     "geographic_query_parts",
     "group_cube_records",
     "load_lunar_geographic_wkt",
+    "lunar_product_id_from_raster_path",
     "materialize_requests",
     "normalize_sample_id",
     "plan_splits",

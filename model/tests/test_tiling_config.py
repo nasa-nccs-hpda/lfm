@@ -48,6 +48,17 @@ class TileConfigTestCase(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "selection_mode"):
             self.source(selection_mode="dynamic")
 
+    def test_source_accepts_custom_product_id_resolver(self):
+        resolver = lambda path: path.stem.split("_")[0]
+
+        source = self.source(product_id_resolver=resolver)
+
+        self.assertIs(source.product_id_resolver, resolver)
+
+    def test_source_rejects_noncallable_product_id_resolver(self):
+        with self.assertRaisesRegex(TypeError, "product_id_resolver"):
+            self.source(product_id_resolver="filename")
+
     def test_source_requires_bilinear_resampling(self):
         for method in ("nearest", "cubic", "average", "mode"):
             with self.subTest(method=method):
@@ -103,6 +114,7 @@ class TileConfigTestCase(unittest.TestCase):
                             "location_field": "raster_path",
                         },
                         "selection_mode": "product_id",
+                        "product_id_resolver": lambda path: path.name.split(".")[0],
                         "bands": {"indices": [1, 2, 3, 4, 5, 6, 7]},
                         "nodata": {"output_value": -3.4e38},
                     },
@@ -129,6 +141,12 @@ class TileConfigTestCase(unittest.TestCase):
         self.assertEqual(config.zoom_level, 5)
         self.assertEqual([source.name for source in config.sources], ["wac", "static"])
         self.assertEqual(config.source("wac").band_indices, tuple(range(1, 8)))
+        self.assertEqual(
+            config.source("wac").product_id_resolver(
+                Path("M100.prj.vis.mos.tif")
+            ),
+            "M100",
+        )
         self.assertEqual(config.source("static").resampling, "bilinear")
         self.assertTrue(
             config.source("static")

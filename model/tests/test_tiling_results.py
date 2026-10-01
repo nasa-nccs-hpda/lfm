@@ -69,6 +69,18 @@ class TilingResultsTestCase(unittest.TestCase):
         self.assertEqual(error.source_name, "static")
         self.assertEqual(error.completed_records, (completed,))
 
+    def test_source_error_retains_product_id(self):
+        error = MissingRequiredSourceError(
+            "missing product",
+            source_name="wac",
+            zone="42N",
+            tile_x=1,
+            tile_y=63,
+            product_id="M100",
+        )
+
+        self.assertEqual(error.product_id, "M100")
+
 
 if __name__ == "__main__":
     unittest.main()

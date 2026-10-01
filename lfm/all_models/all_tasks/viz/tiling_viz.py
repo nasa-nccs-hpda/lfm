@@ -22,20 +22,32 @@ def pair_dynamic_and_static(
     records: Sequence[Any],
     dynamic_source: str,
 ) -> list[tuple[Any, Any]]:
-    """Pair one named dynamic source with static context on matching tiles."""
-    records_by_tile: dict[tuple[str, int, int, int], dict[str, Any]] = {}
+    """Pair every named dynamic product with static context on its tile."""
+    static_by_tile: dict[tuple[str, int, int, int], Any] = {}
+    dynamic_records: list[Any] = []
+    dynamic_identities: set[tuple[tuple[str, int, int, int], str | None]] = set()
     for record in records:
-        sources = records_by_tile.setdefault(tile_key(record), {})
-        if record.source_name in sources:
-            raise ValueError(
-                f"Duplicate source {record.source_name!r} for tile "
-                f"{tile_key(record)}."
-            )
-        sources[record.source_name] = record
+        key = tile_key(record)
+        if record.source_name == "static":
+            if key in static_by_tile:
+                raise ValueError(f"Duplicate static source for tile {key}.")
+            static_by_tile[key] = record
+        elif record.source_name == dynamic_source:
+            identity = (key, record.product_id)
+            if identity in dynamic_identities:
+                raise ValueError(
+                    f"Duplicate source {record.source_name!r}, product "
+                    f"{record.product_id!r} for tile {key}."
+                )
+            dynamic_identities.add(identity)
+            dynamic_records.append(record)
     return [
-        (sources[dynamic_source], sources["static"])
-        for _, sources in sorted(records_by_tile.items())
-        if dynamic_source in sources and "static" in sources
+        (record, static_by_tile[tile_key(record)])
+        for record in sorted(
+            dynamic_records,
+            key=lambda item: (*tile_key(item), item.product_id or ""),
+        )
+        if tile_key(record) in static_by_tile
     ]
 
 
@@ -197,6 +209,8 @@ def plot_cube_pairs(
             f"LTM{dynamic_record.zone} z{dynamic_record.zoom_level} "
             f"tile ({dynamic_record.tile_x}, {dynamic_record.tile_y})"
         )
+        if dynamic_record.product_id is not None:
+            tile_title += f" product {dynamic_record.product_id}"
 
         for row, (image, name, number, cmap, label) in enumerate(
             (

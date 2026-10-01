@@ -19,6 +19,8 @@ Canonical references:
 - Tiling resampling: bilinear
 - Canonical static cube: 63 bands with `-32768` output NoData
 - Automatic raster-index preparation backend: **Complete**
+- Default indexed raster formats: `.tif`, `.tiff`, `.nc`, and `.vrt`
+- Optional AOI product discovery: implemented; container regression pending
 - Downstream chip modernization: tracked separately
 
 Known boundaries and follow-ups:
@@ -228,12 +230,44 @@ P1 work started:
   distinguishes an enclosed pole from a seam-only rectangle without making an
   out-of-domain transform. The local suite now passes 36 tests with nine
   GDAL-dependent skips; another container rerun is pending.
+- Real-data rerun 37938048 passed in `lfm-container-ipyleaflet`. It indexed the
+  ordinary, north-pole, and south-pole gravity GeoTIFFs, completed the stdout
+  `tqdm` bar, created and validated a three-feature GeoPackage, and reused it
+  with identical structured metadata. This closes the polar-cap and real-data
+  progress validation; GDAL-backed `.nc` and `.vrt` tests remain pending.
+- Explore job 37938049 passed all 36 focused builder and preparation tests with
+  GDAL enabled. The run includes directly readable NetCDF and VRT
+  creation/validation/reuse and both pole-cap regressions. The post-P1 raster
+  format extension is fully validated for its stated scope.
+- Began Phase P2 and added a final notebook sub-phase plus a supported-container
+  regression gate. `TileSourceConfig` now declares a callable product resolver,
+  defaulting to the lunar filename prefix before the first period; custom
+  modalities may supply their own resolver.
+- Added `create_tiles_for_aoi_by_product()` as the high-level optional-PID AOI
+  path while preserving strict selector requirements in the existing low-level
+  `create_tiles_for_*` APIs. Exact strings select one PID; `None` or an omitted
+  entry discovers sorted intersecting PIDs, groups companion rasters, tiles
+  each dynamic product separately, and processes contextual sources once.
+- Added typed required-product failures, product IDs on structured source
+  errors, safe-filename collision checks, deterministic grid/tile/source/PID
+  ordering, and completed-record propagation for partial failures.
+- Updated notebook plotting to pair several dynamic products on one tile with
+  one static record and include PID in panel titles. Updated the public notebook
+  so both PID variables accept strings or `None`; Markdown now explains
+  discovery, companion grouping, separate outputs, ordering, static reuse,
+  missing-product behavior, and expert-query PID reuse.
+- Added P2 tests for explicit, omitted, single, multiple, missing, optional,
+  malformed, custom-resolver, collision, ordering, companion-file, static-once,
+  visualization-pairing, and product-specific error cases. The expanded local
+  modern suite passes 91 tests with 14 environment-dependent skips. Notebook
+  JSON, unique IDs, clean outputs, Python-cell syntax, shell syntax, Python
+  compilation, and whitespace checks pass.
 
 Next:
 
-- Begin P2.1 by defining modality-aware product resolvers and companion-file
-  grouping without changing the strict explicit-selector behavior of the
-  low-level tiler.
+- Run P2.8 with
+  `scripts/shell/all_tasks/sbatch_tiling_modernization_tests.sh` in the
+  supported container, then close Phase P2 if its modern and legacy gates pass.
 
 ### 2026-09-30
 

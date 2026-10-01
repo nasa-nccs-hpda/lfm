@@ -87,6 +87,37 @@ class ConfiguredTilerIntegrationTestCase(unittest.TestCase):
         self.assertEqual(record.path, path)
         self.assertEqual(record.nodata_values, (-9999,))
 
+    @mock.patch("lfm.model.configured_tiler.query_source_index")
+    @mock.patch("lfm.model.configured_tiler.TmsTileDef")
+    def test_product_failure_retains_explicit_pid(
+        self,
+        tile_definition_cls,
+        query_source_index,
+    ):
+        from lfm.model.configured_tiler import ConfiguredTiler
+        from lfm.model.tiling_config import TileConfig, TileSourceConfig
+        from lfm.model.tiling_results import TileSourceError
+
+        source = TileSourceConfig(
+            name="wac",
+            data_dir=Path("/data/wac"),
+            index_path=Path("/data/wac/index.shp"),
+            selection_mode="product_id",
+        )
+        tiler = ConfiguredTiler(
+            TileConfig(Path(tempfile.mkdtemp()), 5, (source,)),
+            selectors={"wac": "M100"},
+        )
+        tile_definition = tile_definition_cls.initFromParams.return_value
+        tile_definition.getTileBbox.return_value = (0.0, 1.0, 1.0, 0.0)
+        tile_definition.ltmToLatLon.side_effect = ((1.0, 0.0), (0.0, 1.0))
+        query_source_index.side_effect = RuntimeError("synthetic query failure")
+
+        with self.assertRaises(TileSourceError) as raised:
+            tiler.run_tile_index(1, 2, "42N")
+
+        self.assertEqual(raised.exception.product_id, "M100")
+
     @mock.patch("lfm.model.configured_tiler.TmsIntersector")
     def test_aoi_error_includes_records_from_earlier_tiles(
         self,

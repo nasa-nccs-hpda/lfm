@@ -84,6 +84,7 @@ class TileSourceError(RuntimeError):
         tile_x: int,
         tile_y: int,
         completed_records: tuple[TileCubeRecord, ...] = (),
+        product_id: str | None = None,
     ) -> None:
         super().__init__(message)
         self.source_name = source_name
@@ -91,6 +92,7 @@ class TileSourceError(RuntimeError):
         self.tile_x = tile_x
         self.tile_y = tile_y
         self.completed_records = completed_records
+        self.product_id = product_id
 
 
 class MissingRequiredSourceError(TileSourceError):

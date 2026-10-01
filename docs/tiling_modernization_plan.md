@@ -379,12 +379,15 @@ these behaviors without waiting for the tiling notebook or legacy cleanup:
   geographic coordinates expected by the AOI filter, and their configured
   location field may contain absolute paths or paths relative to `data_dir`.
   Tiling never creates or refreshes an index.
-- `product_id` sources require a selector keyed by source name.
-  `all_intersecting` sources reject selectors. A missing required source raises
-  `MissingRequiredSourceError`; an optional source may yield no record for a
-  tile while other source records are still written. Chip orchestration must
-  decide whether such a partial result is usable and must not assume one record
-  per configured source.
+- The strict `create_tiles_for_*` path requires a selector keyed by source name
+  for every `product_id` source, and `all_intersecting` sources reject
+  selectors. The high-level `create_tiles_for_aoi_by_product` path accepts an
+  exact PID or `None` per product-scoped source. `None` discovers intersecting
+  IDs with the source's declared resolver, groups companion files, and writes
+  one dynamic cube per PID/tile while writing contextual sources once per
+  tile. A missing required product raises `MissingRequiredProductError`; an
+  optional source may yield no record while contextual records are still
+  written. Callers must not assume one record per configured source.
 - Every output is a 512×512, tiled, LZW-compressed GeoTIFF on the exact LTM
   zone/zoom/tile grid. Tiling resampling is always bilinear.
 - WAC and NAC examples preserve their native source NoData. The canonical
