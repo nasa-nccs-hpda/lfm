@@ -162,6 +162,7 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
         from lfm.model.lunar_crs import load_lunar_geographic_wkt
 
         self.gdal = gdal
+        self.gdal.UseExceptions()
         self.wkt = load_lunar_geographic_wkt()
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.data_dir = Path(self.temporary_directory.name)

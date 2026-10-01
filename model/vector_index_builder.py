@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+import math
 from pathlib import Path
 import sys
 from typing import Any, TextIO
@@ -305,6 +306,43 @@ def _rebuild_guidance(config: VectorIndexBuildConfig) -> str:
     )
 
 
+def _spatial_references_equivalent(
+    actual,
+    expected,
+    *,
+    index_suffix: str,
+) -> bool:
+    """Compare CRS semantics while allowing Shapefile WKT1 metadata loss."""
+    if actual.IsSame(expected):
+        return True
+    if index_suffix.casefold() != ".shp":
+        return False
+    if not actual.IsGeographic() or not expected.IsGeographic():
+        return False
+
+    # An ESRI Shapefile .prj serializes the repository's modern IAU WKT as
+    # WKT1. That representation drops authority, usage, and datum metadata, so
+    # OSR IsSame() returns false even when the coordinate space is unchanged.
+    # Validate the numeric geographic coordinate system that the format can
+    # actually persist instead of weakening validation for richer formats.
+    comparisons = (
+        (actual.GetSemiMajor(), expected.GetSemiMajor(), 1e-6),
+        (actual.GetSemiMinor(), expected.GetSemiMinor(), 1e-6),
+        (actual.GetInvFlattening(), expected.GetInvFlattening(), 1e-12),
+        (actual.GetPrimeMeridian(), expected.GetPrimeMeridian(), 1e-12),
+        (actual.GetAngularUnits(), expected.GetAngularUnits(), 1e-18),
+    )
+    return all(
+        math.isclose(
+            float(actual_value),
+            float(expected_value),
+            rel_tol=0.0,
+            abs_tol=tolerance,
+        )
+        for actual_value, expected_value, tolerance in comparisons
+    )
+
+
 def validate_vector_index(
     config: VectorIndexBuildConfig,
     *,
@@ -381,7 +419,11 @@ def validate_vector_index(
             )
         actual_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         expected_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-        if not actual_srs.IsSame(expected_srs):
+        if not _spatial_references_equivalent(
+            actual_srs,
+            expected_srs,
+            index_suffix=config.index_path.suffix,
+        ):
             raise VectorIndexValidationError(
                 f"Raster vector index {config.index_path} does not use the "
                 f"configured output CRS {config.output_srs_path}."

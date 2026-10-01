@@ -161,6 +161,16 @@ without shelling out. The repaired probe now records absent Python APIs and the
 `gdaltindex` executable/version without failing. A rerun is required before
 P1.2 is complete and before the later progress sub-steps change status.
 
+The second attempt, job 37937987, completed the capability report and created
+the synthetic indexes, but two Shapefile validations failed because its `.prj`
+file downgraded the repository's modern IAU WKT to WKT1. That representation
+drops authority, usage, and datum metadata, causing `OSR.IsSame()` to reject an
+otherwise unchanged lunar geographic coordinate space. Validation now retains
+exact `IsSame()` checks for GeoPackage and first attempts them for every format;
+only a Shapefile geographic fallback compares the persisted semi-major and
+semi-minor axes, inverse flattening, prime meridian, and angular units with
+strict tolerances. A rerun is required to close P1.2.
+
 ## Phase P2 — Restore optional product-ID discovery `[Not Started]`
 
 - `[Not Started]` **P2.1** Define modality-aware product-ID extraction without

@@ -113,6 +113,15 @@ P1 work started:
   requires a rerun.
 - After the fallback change, 44 dependency-free local tiling tests pass; the
   two GDAL-backed index tests remain skipped locally.
+- Explore job 37937987 completed the revised capability report and exercised
+  the OGR writer. Its two Shapefile cases failed validation because `.prj`
+  downgraded the IAU CRS to WKT1 and lost metadata required by exact
+  `OSR.IsSame()` identity; this was not a footprint-creation failure.
+- Added a Shapefile-only semantic CRS fallback that strictly compares the
+  numeric lunar sphere, flattening, prime meridian, and angular unit that WKT1
+  can preserve. GeoPackage and other richer formats retain exact CRS identity
+  validation. Suppressed the unrelated test-fixture GDAL exception-mode
+  warning. The focused wrapper requires another rerun.
 
 Next:
 
