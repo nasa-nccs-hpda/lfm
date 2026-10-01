@@ -370,8 +370,17 @@ P1 work started:
   stretch, and absolute error against a fresh bilinear GDAL warp on the exact
   tile grid. The JSON report now includes native-window geometry, valid-mask
   mismatches, mean absolute error, RMSE, maximum error, and the 99.5th error
-  percentile. Local syntax and helper checks pass; the comparison plot awaits
-  an Explore run.
+  percentile. Local syntax and helper checks pass. The subsequent Explore plot
+  was visually accepted; the remaining unusual appearance was attributed to
+  the source product/instrument rather than the tile warp. Its numeric JSON
+  report was not added to the repository on this date.
+- Continued P5.6 by auditing the phase-closing regression gate. The planned
+  source-mode cases are covered across configuration, product tiling,
+  preparation, and configured-tiler tests. Added `test_raster_cube` to the
+  Slurm modern-test list so bilinear resampling and independent multiband
+  NoData masks are included in the supported-container gate. The focused 18
+  P5 tests pass locally, and the expanded modern suite passes 158 tests with 27
+  GDAL-dependent skips. The modern plus legacy Explore gate remains pending.
 
 Next:
 

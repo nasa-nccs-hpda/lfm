@@ -514,8 +514,10 @@ and static-only operation on `42N`, `LPS_N`, and `LPS_S`; invalid controls;
 skipped disabled validation; ordering; duplicate names; missing enabled
 classes; static PID rejection; and partial-result propagation. The
 supported-container gate is pending. The expanded local modern suite passes
-156 tests with 25 GDAL-dependent skips; the legacy subset cannot run in the
-local environment because it imports GDAL at module load time.
+158 tests with 27 GDAL-dependent skips after adding the raster-cube bilinear
+and per-band NoData module to the phase-closing wrapper; the legacy subset
+cannot run in the local environment because it imports GDAL at module load
+time.
 
 ## Phase P6 — Assemble the easy public workflow `[Not Started]`
 
