@@ -297,7 +297,12 @@ class EnsureVectorIndexTestCase(unittest.TestCase):
 
             create.side_effect = create_side_effect
             active_stdout = io.StringIO()
-            actual = ensure_vector_index(config, stdout=active_stdout)
+            logger = mock.Mock()
+            actual = ensure_vector_index(
+                config,
+                logger=logger,
+                stdout=active_stdout,
+            )
 
         self.assertIs(actual, expected)
         create.assert_called_once()
@@ -309,6 +314,10 @@ class EnsureVectorIndexTestCase(unittest.TestCase):
         self.assertIn("will be created", output)
         self.assertIn("can take several minutes", output)
         self.assertIn("Created and validated", output)
+        logged = [call.args[0] for call in logger.info.call_args_list]
+        self.assertTrue(any("Found 1 raster" in message for message in logged))
+        self.assertTrue(any("will be created" in message for message in logged))
+        self.assertTrue(any("Created and validated" in message for message in logged))
 
     @mock.patch("lfm.model.vector_index_builder.validate_vector_index")
     @mock.patch("lfm.model.vector_index_builder.create_vector_index")
@@ -382,7 +391,26 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
 
                     creation_stdout = io.StringIO()
                     created = ensure_vector_index(config, stdout=creation_stdout)
+                    index_artifacts = (
+                        (config.index_path,)
+                        if suffix == ".gpkg"
+                        else tuple(
+                            sorted(
+                                path
+                                for path in self.data_dir.glob("index.*")
+                                if path.is_file()
+                            )
+                        )
+                    )
+                    before_reuse = {
+                        path: (path.read_bytes(), path.stat().st_mtime_ns)
+                        for path in index_artifacts
+                    }
                     reused = ensure_vector_index(config, stdout=io.StringIO())
+                    after_reuse = {
+                        path: (path.read_bytes(), path.stat().st_mtime_ns)
+                        for path in index_artifacts
+                    }
                 finally:
                     self.data_dir = original_data_dir
 
@@ -393,6 +421,7 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
                     {first, second},
                 )
                 self.assertIn("Building raster index", creation_stdout.getvalue())
+                self.assertEqual(before_reuse, after_reuse)
 
     def test_existing_index_rejects_changed_raster_inventory(self):
         self.write_raster("a.tif", x_origin=10.0)
@@ -402,6 +431,27 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
 
         with self.assertRaisesRegex(StaleVectorIndexError, "stale"):
             ensure_vector_index(config, stdout=io.StringIO())
+
+    def test_explicitly_archived_stale_index_can_be_rebuilt(self):
+        first = self.write_raster("a.tif", x_origin=10.0)
+        config = VectorIndexBuildConfig(
+            self.data_dir,
+            self.data_dir / "output_index.gpkg",
+        )
+        initial = ensure_vector_index(config, stdout=io.StringIO())
+        second = self.write_raster("b.tif", x_origin=11.0)
+        with self.assertRaises(StaleVectorIndexError):
+            ensure_vector_index(config, stdout=io.StringIO())
+
+        archived_path = self.data_dir / "archived_stale_index.gpkg"
+        config.index_path.rename(archived_path)
+        rebuilt = ensure_vector_index(config, stdout=io.StringIO())
+
+        self.assertTrue(archived_path.is_file())
+        self.assertTrue(config.index_path.is_file())
+        self.assertEqual(initial.feature_count, 1)
+        self.assertEqual(rebuilt.feature_count, 2)
+        self.assertEqual(set(rebuilt.raster_paths), {first, second})
 
     def test_polar_raster_footprint_preserves_curved_densified_edge(self):
         from osgeo import ogr, osr

@@ -181,12 +181,23 @@ P1 work started:
   integration test that creates an enabled GeoPackage while proving a disabled
   nonexistent directory is untouched. The expanded selected local suite passes
   52 tests with eight GDAL-dependent skips.
+- Explore job 37938034 passed all 25 focused builder and high-level preparation
+  tests. P1.10 is complete.
+- Began P1.11 by auditing its required matrix. Added logger delivery assertions,
+  explicit archive-then-rebuild coverage, byte/mtime identity checks for reused
+  Shapefile and GeoPackage indexes, and a real low-level tile-generation test
+  that requires its prepared GeoPackage to remain byte-for-byte and
+  timestamp-identical. Automatic destructive rebuild remains intentionally
+  unsupported.
+- The expanded selected local suite passes 54 tests with ten GDAL-dependent
+  skips.
 
 Next:
 
 - Submit `scripts/shell/all_tasks/sbatch_probe_gdal_tileindex_progress.sh` on
-  Explore. The wrapper now runs both the builder and high-level preparation
-  suites; use its enabled-create/disabled-skip integration test to close P1.10.
+  Explore. Its 27 focused tests now cover the complete P1.11 matrix; use the
+  GDAL-backed rebuild, reuse-immutability, and tile-generation immutability
+  results to close P1.11 and Phase P1.
 
 ### 2026-09-30
 

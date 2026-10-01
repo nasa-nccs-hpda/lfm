@@ -133,6 +133,22 @@ class TilePreparationTestCase(unittest.TestCase):
 
 @unittest.skipUnless(HAS_OSGEO, "GDAL/OGR is required for preparation integration")
 class TilePreparationIntegrationTestCase(unittest.TestCase):
+    def write_raster(self, path: Path):
+        from osgeo import gdal
+
+        dataset = gdal.GetDriverByName("GTiff").Create(
+            str(path),
+            2,
+            2,
+            1,
+            gdal.GDT_Byte,
+        )
+        dataset.SetProjection(load_lunar_geographic_wkt())
+        dataset.SetGeoTransform((10.0, 0.1, 0.0, 1.0, 0.0, -0.1))
+        dataset.GetRasterBand(1).Fill(1)
+        dataset = None
+        return path
+
     def test_missing_enabled_index_is_created_and_disabled_source_is_untouched(self):
         from osgeo import gdal
 
@@ -141,18 +157,7 @@ class TilePreparationIntegrationTestCase(unittest.TestCase):
             root = Path(temporary_directory)
             enabled_dir = root / "enabled"
             enabled_dir.mkdir()
-            raster_path = enabled_dir / "a.tif"
-            dataset = gdal.GetDriverByName("GTiff").Create(
-                str(raster_path),
-                2,
-                2,
-                1,
-                gdal.GDT_Byte,
-            )
-            dataset.SetProjection(load_lunar_geographic_wkt())
-            dataset.SetGeoTransform((10.0, 0.1, 0.0, 1.0, 0.0, -0.1))
-            dataset.GetRasterBand(1).Fill(1)
-            dataset = None
+            self.write_raster(enabled_dir / "a.tif")
 
             enabled = TileSourceConfig(
                 name="wac",
@@ -181,6 +186,61 @@ class TilePreparationIntegrationTestCase(unittest.TestCase):
             self.assertTrue(enabled.index_path.is_file())
             self.assertFalse(disabled.index_path.exists())
             self.assertFalse(disabled_dir.exists())
+
+    @mock.patch("lfm.model.configured_tiler.write_tile_cube")
+    @mock.patch("lfm.model.configured_tiler.warp_source_to_tile")
+    @mock.patch("lfm.model.configured_tiler.TmsTileDef")
+    def test_low_level_tile_generation_does_not_mutate_prepared_index(
+        self,
+        tile_definition_cls,
+        warp_source,
+        write_cube,
+    ):
+        from osgeo import gdal
+
+        from lfm.model.configured_tiler import ConfiguredTiler
+
+        gdal.UseExceptions()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            data_dir = root / "source"
+            data_dir.mkdir()
+            raster_path = self.write_raster(data_dir / "a.tif")
+            source = TileSourceConfig(
+                name="static",
+                data_dir=data_dir,
+                index_path=data_dir / "output_index.gpkg",
+            )
+            prepared = prepare_tile_config(
+                output_dir=root / "output",
+                zoom_level=5,
+                sources=(TileSourcePreparation(source),),
+                stdout=io.StringIO(),
+            )
+            before = (
+                source.index_path.read_bytes(),
+                source.index_path.stat().st_mtime_ns,
+            )
+
+            tile_definition = tile_definition_cls.initFromParams.return_value
+            tile_definition.getTileBbox.return_value = (0.0, 1.0, 1.0, 0.0)
+            tile_definition.ltmToLatLon.side_effect = (
+                (1.1, 9.9),
+                (0.7, 10.3),
+            )
+            warp_source.return_value = [object()]
+            write_cube.return_value = "record"
+
+            records = ConfiguredTiler(prepared.config).run_tile_index(1, 2, "42N")
+            after = (
+                source.index_path.read_bytes(),
+                source.index_path.stat().st_mtime_ns,
+            )
+
+        self.assertEqual(records, ["record"])
+        self.assertEqual(before, after)
+        self.assertEqual(warp_source.call_args.args[1], [raster_path])
+        write_cube.assert_called_once()
 
 
 if __name__ == "__main__":

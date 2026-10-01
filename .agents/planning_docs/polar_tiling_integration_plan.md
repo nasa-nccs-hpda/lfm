@@ -127,11 +127,11 @@ numbered-LTM-only until the implementation and validation phases complete.
   location values, deterministic order, geometry validity, bounds and area
   tolerances, and AOI query results. Include ordinary LTM, polar, and
   longitude-seam fixtures.
-- `[In-Progress]` **P1.10** Integrate index preparation into the high-level
+- `[Complete]` **P1.10** Integrate index preparation into the high-level
   workflow before source validation. Keep the lower-level tile writer and
   vector-index query APIs read-only, and skip preparation entirely for disabled
   source classes.
-- `[Not Started]` **P1.11** Add focused tests for creation, stdout progress,
+- `[In-Progress]` **P1.11** Add focused tests for creation, stdout progress,
   logging, reuse, stale-index rejection, explicit rebuild behavior, concurrent
   creation, failure cleanup, Shapefile sidecars, GeoPackage output, and source
   index immutability during tile generation.
@@ -257,8 +257,21 @@ request fails before filesystem mutation. The existing `create_tiles_*`,
 read-only with respect to indexes. Dependency-free tests cover derivation,
 ordering, disabled sources, and pre-mutation errors. A GDAL integration test
 creates a missing enabled GeoPackage while proving that a disabled nonexistent
-source directory remains untouched. The supported-container run remains
-required before P1.10 is complete.
+source directory remains untouched. Explore job 37938034 passed all 25 focused
+builder and preparation tests in the supported container, closing P1.10.
+
+P1.11 implementation checkpoint: the focused suite now explicitly covers all
+listed behaviors. Existing tests cover creation, stdout `tqdm` progress, reuse,
+stale rejection, locks, failure cleanup, Shapefile sidecars, and both Shapefile
+and GeoPackage output. Logging assertions now verify the discovery, creation,
+and completion announcements sent to the supplied logger. An explicit rebuild
+test confirms that a stale GeoPackage remains protected until the caller
+archives it, after which ensure creates a fresh complete index while preserving
+the archive. Reuse tests compare bytes and nanosecond mtimes for every index
+artifact. A real low-level tile-generation test snapshots a prepared GeoPackage
+before and after `ConfiguredTiler.run_tile_index()` and requires byte and mtime
+identity. No automatic destructive rebuild API was added. The supported
+container rerun remains required before P1.11 and Phase P1 are complete.
 
 ## Phase P2 — Restore optional product-ID discovery `[Not Started]`
 
