@@ -18,6 +18,7 @@ Canonical references:
 - Public examples: WAC/static at zoom 5 and NAC/static at zoom 11
 - Tiling resampling: bilinear
 - Canonical static cube: 63 bands with `-32768` output NoData
+- Automatic raster-index preparation backend: **Complete**
 - Downstream chip modernization: tracked separately
 
 Known boundaries and follow-ups:
@@ -191,13 +192,24 @@ P1 work started:
   unsupported.
 - The expanded selected local suite passes 54 tests with ten GDAL-dependent
   skips.
+- Explore job 37938035 passed all 27 focused builder and preparation tests.
+  P1.11 and all of Phase P1 are complete. This confirms stdout/log progress,
+  deterministic creation, reuse and staleness rules, caller-explicit rebuild,
+  concurrency locking, failure cleanup, Shapefile sidecars, GeoPackage output,
+  disabled-source skipping, and byte/mtime index immutability during low-level
+  tile generation.
+- Added a post-P1 real-data progress smoke test. It deterministically selects a
+  small configurable WAC sample, creates only symlinks in an isolated
+  job-specific test directory, builds and validates a GeoPackage with the
+  per-raster stdout `tqdm` bar, then verifies read-only reuse and writes a JSON
+  report. No production raster or index is modified. The Explore run is
+  pending.
 
 Next:
 
-- Submit `scripts/shell/all_tasks/sbatch_probe_gdal_tileindex_progress.sh` on
-  Explore. Its 27 focused tests now cover the complete P1.11 matrix; use the
-  GDAL-backed rebuild, reuse-immutability, and tile-generation immutability
-  results to close P1.11 and Phase P1.
+- Begin P2.1 by defining modality-aware product resolvers and companion-file
+  grouping without changing the strict explicit-selector behavior of the
+  low-level tiler.
 
 ### 2026-09-30
 

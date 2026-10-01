@@ -93,7 +93,7 @@ backward-compatible structured results, filenames, deterministic ordering, and
 23 acceptance cases. This phase changes no runtime behavior; production remains
 numbered-LTM-only until the implementation and validation phases complete.
 
-## Phase P1 — Add safe automatic raster-index preparation `[In-Progress]`
+## Phase P1 — Add safe automatic raster-index preparation `[Complete]`
 
 - `[Complete]` **P1.1** Extend the existing vector-index builder with an
   explicit ensure-if-missing API and configuration for the data directory,
@@ -131,7 +131,7 @@ numbered-LTM-only until the implementation and validation phases complete.
   workflow before source validation. Keep the lower-level tile writer and
   vector-index query APIs read-only, and skip preparation entirely for disabled
   source classes.
-- `[In-Progress]` **P1.11** Add focused tests for creation, stdout progress,
+- `[Complete]` **P1.11** Add focused tests for creation, stdout progress,
   logging, reuse, stale-index rejection, explicit rebuild behavior, concurrent
   creation, failure cleanup, Shapefile sidecars, GeoPackage output, and source
   index immutability during tile generation.
@@ -271,7 +271,11 @@ the archive. Reuse tests compare bytes and nanosecond mtimes for every index
 artifact. A real low-level tile-generation test snapshots a prepared GeoPackage
 before and after `ConfiguredTiler.run_tile_index()` and requires byte and mtime
 identity. No automatic destructive rebuild API was added. The supported
-container rerun remains required before P1.11 and Phase P1 are complete.
+container rerun, Explore job 37938035, passed all 27 focused tests. This closes
+P1.11 and Phase P1. The accepted production path is the staged Python/OGR
+writer with canonical densified footprints, explicit stale-index handling, and
+high-level ensure-before-config preparation; low-level tiling remains
+index-read-only.
 
 ## Phase P2 — Restore optional product-ID discovery `[Not Started]`
 
