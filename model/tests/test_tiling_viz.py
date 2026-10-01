@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -22,8 +23,10 @@ if HAS_VIZ_DEPS:
     MODULE = importlib.util.module_from_spec(SPEC)
     SPEC.loader.exec_module(MODULE)
     pair_dynamic_and_static = MODULE.pair_dynamic_and_static
+    plot_tiling_records = MODULE.plot_tiling_records
 else:
     pair_dynamic_and_static = None
+    plot_tiling_records = None
 
 
 @unittest.skipUnless(HAS_VIZ_DEPS, "Notebook visualization dependencies required")
@@ -33,6 +36,7 @@ class TilingVisualizationTestCase(unittest.TestCase):
             source_name=source_name,
             product_id=product_id,
             zone="42N",
+            grid_id="42N",
             zoom_level=5,
             tile_x=1,
             tile_y=2,
@@ -59,6 +63,65 @@ class TilingVisualizationTestCase(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "Duplicate source"):
             pair_dynamic_and_static(records, "wac")
+
+    def test_mixed_records_use_paired_plot(self):
+        records = [self.record("wac", "M100"), self.record("static")]
+        with patch.object(
+            MODULE,
+            "plot_cube_pairs",
+            return_value="paired",
+        ) as plot_pairs:
+            result = plot_tiling_records(
+                records,
+                dynamic_source="wac",
+                dynamic_label="WAC",
+                dynamic_band_number=3,
+                static_band_name="elevation",
+                output_path="mixed.png",
+            )
+
+        self.assertEqual(result, "paired")
+        self.assertEqual(plot_pairs.call_args.args[0], [(records[0], records[1])])
+
+    def test_dynamic_only_records_use_single_source_plot(self):
+        records = [self.record("wac", "M100")]
+        with patch.object(
+            MODULE,
+            "plot_cube_records",
+            return_value="dynamic",
+        ) as plot_records:
+            result = plot_tiling_records(
+                records,
+                dynamic_source="wac",
+                dynamic_label="WAC",
+                dynamic_band_number=3,
+                static_band_name="elevation",
+                output_path="dynamic.png",
+            )
+
+        self.assertEqual(result, "dynamic")
+        self.assertEqual(plot_records.call_args.kwargs["band_number"], 3)
+        self.assertIsNone(plot_records.call_args.kwargs.get("band_name"))
+
+    def test_static_only_records_use_named_band_plot(self):
+        records = [self.record("static")]
+        with patch.object(
+            MODULE,
+            "plot_cube_records",
+            return_value="static",
+        ) as plot_records:
+            result = plot_tiling_records(
+                records,
+                dynamic_source="wac",
+                dynamic_label="WAC",
+                dynamic_band_number=3,
+                static_band_name="elevation",
+                output_path="static.png",
+            )
+
+        self.assertEqual(result, "static")
+        self.assertEqual(plot_records.call_args.kwargs["band_name"], "elevation")
+        self.assertIsNone(plot_records.call_args.kwargs.get("band_number"))
 
 
 if __name__ == "__main__":

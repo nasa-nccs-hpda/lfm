@@ -29,17 +29,11 @@ Known boundaries and follow-ups:
 
 - `LPS_N`/`LPS_S` low-level production and source-mode composition are
   regression-closed. Family-specific default zooms and the easy automatic
-  workflow are implemented and locally tested; the P6 supported-container
-  gate remains open.
-- The legacy opt-in `all_intersecting` WAC alternate query still stacks all
-  intersecting rasters into one source cube. The supported high-level AOI path
-  instead discovers products and writes one dynamic cube per PID.
-- The completed tiling plan records a maintainer-accepted exception: a separate
-  top-to-bottom execution of the final `.ipynb` after the last NAC AOI and
-  differential-zoom edits was not recorded.
-- The no-PID alternate AOI query added on 2026-09-30 has passed notebook JSON
-  and Python-cell syntax validation but has not yet been run against Explore
-  data.
+  workflow are implemented and regression-closed in the supported container.
+- The supported notebook now uses the easy workflow, automatic index
+  preparation, optional per-product discovery, source modes, and automatic
+  LTM/polar routing. Its static checks pass; a top-to-bottom supported-container
+  execution remains the open P7.8 gate.
 
 ## Daily entries
 
@@ -402,12 +396,33 @@ P1 work started:
   GDAL missing-index-to-LTM-cube integration. Eighteen pass locally and the
   GDAL integration is skipped; the expanded modern suite passes 177 tests with
   28 environment-dependent skips.
+- The maintainer reported that the final `lfm-container-ipyleaflet` wrapper
+  passed all 177 modern tiling tests, including the real-GDAL automatic-index
+  and LTM-cube integration, all 25 safe legacy regression tests, and the
+  filtered one-tile legacy integration test. No Slurm job ID was supplied for
+  this run. P6.6 and Phase P6 are complete.
+- Began Phase P7 and migrated `notebooks/tiling_example.ipynb` from the earlier
+  LTM-specific product helper to `create_tiles_for_query()`. The primary WAC
+  and NAC examples now prepare or reuse enabled indexes, route grids, select
+  family zooms, and honor optional PIDs plus dynamic/static source controls.
+- Added an opt-in dynamic-only north-polar WAC AOI using the validated global
+  north-polar VRT. It supplies no grid ID, discovers its product by default,
+  creates an isolated run-local index with visible progress, and documents the
+  inclusive 82-degree routing boundary and full-tile behavior.
+- Made notebook visualization grid-neutral and added mixed, dynamic-only, and
+  static-only dispatch while retaining float64 NaN masking and the four-sample
+  limit. Added three focused dispatch tests.
+- Static notebook validation passes for JSON, 18 unique cell IDs, nine Python
+  code cells, null execution counts, empty outputs, helper compilation, and
+  the focused workflow suite. The local dependency-light environment reports
+  18 workflow passes, one real-GDAL skip, and five visualization dependency
+  skips. Added a `grace`/`lfm-container-ipyleaflet` command-line execution
+  wrapper for the remaining P7.8 gate.
 
 Next:
 
-- Run the expanded modernization wrapper in `lfm-container-ipyleaflet` to
-  execute the real P6 index-and-tile integration and close P6.6 if the modern
-  and legacy gates remain green.
+- Submit `notebooks/sbatch_execute_tiling_example.sh` on Explore, inspect the
+  executed notebook and plots, and close P7.8 if the run passes.
 
 ### 2026-09-30
 

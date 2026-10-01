@@ -520,7 +520,7 @@ wrapper. The maintainer subsequently reported that the supported
 legacy regression tests, and the filtered one-tile legacy integration test.
 No Slurm job ID was supplied for this final P5 gate. This completes Phase P5.
 
-## Phase P6 — Assemble the easy public workflow `[In-Progress]`
+## Phase P6 — Assemble the easy public workflow `[Complete]`
 
 - `[Complete]` **P6.1** Add a small orchestration API that accepts prepared
   modality/source definitions, a point or AOI, an optional product ID, source
@@ -538,7 +538,7 @@ No Slurm job ID was supplied for this final P5 gate. This completes Phase P5.
   source, grid, zoom, and tile involved.
 - `[Complete]` **P6.5** Preserve the existing lower-level AOI, point, and
   explicit-index entry points for advanced callers and downstream compatibility.
-- `[In-Progress]` **P6.6** Add end-to-end local tests for minimal LTM and polar
+- `[Complete]` **P6.6** Add end-to-end local tests for minimal LTM and polar
   requests, automatic indexing, omitted PIDs, boundary splitting, each source
   mode, and repeatability.
 
@@ -568,40 +568,63 @@ family zoom. Canonical static remains polar-disabled by default and must be
 explicitly marked verified before a polar or cross-threshold request can
 prepare or write it.
 
-P6.6 currently has 19 focused workflow tests: 18 dependency-free cases pass
-locally and one GDAL-backed real index-creation plus LTM-tiling integration
-case is skipped outside the supported container. The expanded modern suite
-passes 177 tests locally with 28 environment-dependent skips. The main Slurm
-wrapper includes the new workflow module; its modern, legacy, and real-GDAL
-gate is pending before Phase P6 closes.
+P6.6 has 19 focused workflow tests: 18 dependency-free cases pass locally and
+one GDAL-backed real index-creation plus LTM-tiling integration case is skipped
+outside the supported container. The expanded local modern suite passes 177
+tests with 28 environment-dependent skips. The maintainer subsequently
+reported that the supported `lfm-container-ipyleaflet` wrapper passed all 177
+modern tests, including the real-GDAL integration, all 25 safe legacy
+regression tests, and the filtered one-tile legacy integration test. No Slurm
+job ID was supplied for this final P6 gate. This completes P6.6 and Phase P6.
 
-## Phase P7 — Update the public tiling notebook `[Not Started]`
+## Phase P7 — Update the public tiling notebook `[In-Progress]`
 
-- `[Not Started]` **P7.1** Keep the main user configuration limited to data
+- `[Complete]` **P7.1** Keep the main user configuration limited to data
   directories, WAC/NAC AOIs or points, optional product IDs, and clearly
   explained source-inclusion controls.
-- `[Not Started]` **P7.2** Move derived index paths, automatic grid selection,
+- `[Complete]` **P7.2** Move derived index paths, automatic grid selection,
   zoom defaults, run IDs, output directories, and other implementation details
   into the setup section.
-- `[Not Started]` **P7.3** Replace validate-existing-index-first behavior with
+- `[Complete]` **P7.3** Replace validate-existing-index-first behavior with
   prepare-if-missing followed by validation, including visible stdout progress
   and clear reuse messages.
-- `[Not Started]` **P7.4** Add an opt-in polar dynamic-only example to the
+- `[Complete]` **P7.4** Add an opt-in polar dynamic-only example to the
   alternate queries section. The example must supply no polar grid identifier
   and demonstrate automatic routing.
-- `[Not Started]` **P7.5** Preserve the P2 optional-product notebook contract
+- `[Complete]` **P7.5** Preserve the P2 optional-product notebook contract
   during the polar refactor and extend it to the opt-in polar AOI example.
   Keep product-scoped discovery separate per PID and remove the legacy stacked
   `all_intersecting` WAC demonstration.
-- `[Not Started]` **P7.6** Update plotting to support dynamic plus static,
+- `[Complete]` **P7.6** Update plotting to support dynamic plus static,
   dynamic-only, and static-only records across multiple grids and products,
   while retaining NaN masking and the four-tile display limit.
-- `[Not Started]` **P7.7** Explain the 82-degree routing threshold, full-tile
+- `[Complete]` **P7.7** Explain the 82-degree routing threshold, full-tile
   footprints, product discovery, index creation time, output locations, and
   expert overrides in notebook Markdown and Python comments.
-- `[Not Started]` **P7.8** Validate notebook JSON, unique cell IDs, Python-cell
+- `[In-Progress]` **P7.8** Validate notebook JSON, unique cell IDs, Python-cell
   syntax, empty committed outputs, and a command-line execution using the
   supported container when representative data is available.
+
+P7.1-P7.7 implementation checkpoint: `notebooks/tiling_example.ipynb` now uses
+`create_tiles_for_query()` for its WAC, NAC, and opt-in polar examples. Its
+editable section contains source directories, geographic AOIs, optional PIDs,
+and dynamic/static inclusion controls; index paths, family zoom defaults,
+timestamped output paths, and display controls are derived below it. Enabled
+indexes are prepared on demand with stdout progress and reuse messages. The
+polar example supplies only a WAC directory and geographic AOI, discovers its
+PID by default, disables unverified polar static context, and relies on the
+82-degree router to select `LPS_N` zoom 4. The grid-neutral visualization
+dispatcher supports mixed, dynamic-only, and static-only records and retains
+NaN masking plus the four-sample display limit.
+
+P7.8 static checks pass for valid notebook JSON, 18 unique cell IDs, Python
+syntax in all nine code cells after excluding IPython magics, null execution
+counts, empty committed outputs, visualization-helper compilation, and the 19
+focused workflow tests (18 pass locally and the real-GDAL test skips). Five
+visualization tests, including the three new source-mode dispatch cases, skip
+locally because the lightweight environment lacks Matplotlib, NumPy, and
+Rasterio. `notebooks/sbatch_execute_tiling_example.sh` provides the pending
+`grace`/`lfm-container-ipyleaflet` command-line execution gate.
 
 ## Phase P8 — Run local regression and contract validation `[Not Started]`
 
