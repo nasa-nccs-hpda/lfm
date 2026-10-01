@@ -13,11 +13,13 @@ from lfm.model.vector_index_builder import (
     VectorIndexBuildConfig,
     VectorIndexLockError,
     VectorIndexValidationResult,
+    _canonical_geographic_footprint,
     _enclosed_geographic_pole,
     _index_lock_path,
     _perimeter_pixels,
     _raster_footprint,
     _spatial_references_equivalent,
+    _unwrap_longitudes,
     create_vector_index,
     discover_raster_paths,
     ensure_vector_index,
@@ -90,6 +92,26 @@ class VectorIndexBuildConfigTestCase(unittest.TestCase):
         self.assertEqual(_enclosed_geographic_pole(north), 90.0)
         self.assertEqual(_enclosed_geographic_pole(south), -90.0)
         self.assertIsNone(_enclosed_geographic_pole(seam_only))
+
+    def test_longitude_unwrapping_preserves_continuous_seam_footprint(self):
+        self.assertEqual(
+            _unwrap_longitudes(
+                (
+                    (170.0, 10.0),
+                    (-170.0, 10.0),
+                    (-170.0, 20.0),
+                    (170.0, 20.0),
+                    (170.0, 10.0),
+                )
+            ),
+            (
+                (170.0, 10.0),
+                (190.0, 10.0),
+                (190.0, 20.0),
+                (170.0, 20.0),
+                (170.0, 10.0),
+            ),
+        )
 
     def test_perimeter_pixels_densifies_every_edge_without_duplicate_corners(self):
         perimeter = _perimeter_pixels(10.0, 20.0, samples_per_edge=3)
@@ -476,6 +498,31 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
         dataset.GetRasterBand(1).Fill(1)
         dataset = None
         return path
+
+    def test_antimeridian_footprint_is_split_without_global_false_coverage(self):
+        from osgeo import ogr
+
+        ring = ogr.Geometry(ogr.wkbLinearRing)
+        for longitude, latitude in (
+            (170.0, 10.0),
+            (-170.0, 10.0),
+            (-170.0, 20.0),
+            (170.0, 20.0),
+            (170.0, 10.0),
+        ):
+            ring.AddPoint_2D(longitude, latitude)
+        wrapped = ogr.Geometry(ogr.wkbPolygon)
+        wrapped.AddGeometry(ring)
+
+        footprint = _canonical_geographic_footprint(wrapped, ogr=ogr)
+
+        self.assertEqual(footprint.GetGeometryName().upper(), "MULTIPOLYGON")
+        self.assertEqual(footprint.GetGeometryCount(), 2)
+        self.assertTrue(footprint.IsValid())
+        for longitude, expected in ((-175.0, True), (0.0, False), (175.0, True)):
+            point = ogr.Geometry(ogr.wkbPoint)
+            point.AddPoint_2D(longitude, 15.0)
+            self.assertEqual(footprint.Intersects(point), expected)
 
     def test_ensure_creates_validates_and_reuses_each_supported_format(self):
         for suffix in (".shp", ".gpkg"):

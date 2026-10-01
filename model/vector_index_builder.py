@@ -290,6 +290,149 @@ def _full_longitude_polar_cap(transformed_polygon, *, pole_latitude: float, ogr:
     return cap
 
 
+def _unwrap_longitudes(
+    coordinates: tuple[tuple[float, float], ...],
+) -> tuple[tuple[float, float], ...]:
+    """Return one continuous longitude sequence without +/-180 jumps."""
+    if not coordinates:
+        raise ValueError("Geographic footprint contains no coordinates.")
+    unwrapped = [coordinates[0]]
+    for raw_longitude, latitude in coordinates[1:]:
+        longitude = raw_longitude
+        previous_longitude = unwrapped[-1][0]
+        while longitude - previous_longitude > 180.0:
+            longitude -= 360.0
+        while longitude - previous_longitude < -180.0:
+            longitude += 360.0
+        unwrapped.append((longitude, latitude))
+    return tuple(unwrapped)
+
+
+def _polygon_from_coordinates(coordinates, *, ogr: Any):
+    ring = ogr.Geometry(ogr.wkbLinearRing)
+    for longitude, latitude in coordinates:
+        ring.AddPoint_2D(longitude, latitude)
+    if coordinates[0] != coordinates[-1]:
+        ring.AddPoint_2D(*coordinates[0])
+    polygon = ogr.Geometry(ogr.wkbPolygon)
+    polygon.AddGeometry(ring)
+    return polygon
+
+
+def _polygon_parts(geometry) -> tuple[Any, ...]:
+    """Return cloned polygon members from an OGR polygonal geometry."""
+    geometry_name = geometry.GetGeometryName().upper()
+    if geometry_name == "POLYGON":
+        return (geometry.Clone(),)
+    if geometry_name in {"MULTIPOLYGON", "GEOMETRYCOLLECTION"}:
+        return tuple(
+            part
+            for index in range(geometry.GetGeometryCount())
+            for part in _polygon_parts(geometry.GetGeometryRef(index))
+        )
+    return ()
+
+
+def _shift_longitude(geometry, offset: float):
+    shifted = geometry.Clone()
+
+    def shift(part) -> None:
+        for index in range(part.GetPointCount()):
+            point = part.GetPoint(index)
+            part.SetPoint_2D(index, point[0] + offset, point[1])
+        for index in range(part.GetGeometryCount()):
+            shift(part.GetGeometryRef(index))
+
+    shift(shifted)
+    return shifted
+
+
+def _canonical_geographic_footprint(transformed_polygon, *, ogr: Any):
+    """Split a non-polar footprint at the antimeridian into valid parts."""
+    ring = transformed_polygon.GetGeometryRef(0)
+    if ring is None or ring.GetPointCount() < 4:
+        raise ValueError("Transformed raster footprint has no exterior ring.")
+    coordinates = tuple(
+        (float(ring.GetX(index)), float(ring.GetY(index)))
+        for index in range(ring.GetPointCount())
+    )
+    if any(
+        not math.isfinite(longitude) or not math.isfinite(latitude)
+        for longitude, latitude in coordinates
+    ):
+        raise ValueError("Transformed raster footprint has non-finite coordinates.")
+
+    unwrapped = _polygon_from_coordinates(
+        _unwrap_longitudes(coordinates),
+        ogr=ogr,
+    )
+    if unwrapped.IsEmpty() or not unwrapped.IsValid():
+        raise ValueError(
+            "Raster footprint remains invalid after longitude unwrapping."
+        )
+    minimum_longitude, maximum_longitude, minimum_latitude, maximum_latitude = (
+        unwrapped.GetEnvelope()
+    )
+    if minimum_latitude < -90.0 - 1e-9 or maximum_latitude > 90.0 + 1e-9:
+        raise ValueError("Transformed raster footprint exceeds latitude bounds.")
+    if maximum_longitude - minimum_longitude >= 360.0 - 1e-9:
+        raise ValueError(
+            "A non-polar raster footprint spans the full longitude range."
+        )
+    if minimum_longitude >= -180.0 and maximum_longitude <= 180.0:
+        return unwrapped
+
+    first_window = math.floor((minimum_longitude + 180.0) / 360.0)
+    last_window = math.floor(
+        (maximum_longitude + 180.0 - 1e-12) / 360.0
+    )
+    parts = []
+    for window_index in range(first_window, last_window + 1):
+        western_edge = -180.0 + 360.0 * window_index
+        window = _polygon_from_coordinates(
+            (
+                (western_edge, -90.0),
+                (western_edge + 360.0, -90.0),
+                (western_edge + 360.0, 90.0),
+                (western_edge, 90.0),
+                (western_edge, -90.0),
+            ),
+            ogr=ogr,
+        )
+        intersection = unwrapped.Intersection(window)
+        for polygon in _polygon_parts(intersection):
+            if polygon.IsEmpty() or polygon.GetArea() <= 0.0:
+                continue
+            shifted = _shift_longitude(polygon, -360.0 * window_index)
+            if shifted.IsEmpty() or not shifted.IsValid():
+                raise ValueError(
+                    "Could not construct a valid antimeridian-safe footprint."
+                )
+            parts.append(shifted)
+
+    if not parts:
+        raise ValueError("Raster footprint has no area after antimeridian splitting.")
+    if len(parts) == 1:
+        return parts[0]
+    footprint = ogr.Geometry(ogr.wkbMultiPolygon)
+    for part in parts:
+        footprint.AddGeometry(part)
+    if footprint.IsEmpty() or not footprint.IsValid():
+        raise ValueError("Could not construct a valid multipart raster footprint.")
+    return footprint
+
+
+def _as_multipolygon(geometry, *, ogr: Any):
+    """Return a MultiPolygon suitable for the index layer contract."""
+    parts = _polygon_parts(geometry)
+    if not parts:
+        raise ValueError("Raster footprint is not polygonal.")
+    multipolygon = ogr.Geometry(ogr.wkbMultiPolygon)
+    for part in parts:
+        multipolygon.AddGeometry(part)
+    return multipolygon
+
+
 def _raster_footprint(
     path: Path,
     *,
@@ -370,11 +513,13 @@ def _raster_footprint(
                 pole_latitude=pole_latitude,
                 ogr=ogr,
             )
-        if polygon.IsEmpty() or not polygon.IsValid():
+        try:
+            return _canonical_geographic_footprint(polygon, ogr=ogr)
+        except ValueError as exc:
             raise ValueError(
-                f"Raster produced an empty or invalid index footprint: {path}"
-            )
-        return polygon
+                f"Raster produced an empty or invalid index footprint: {path}. "
+                f"{exc}"
+            ) from exc
     finally:
         dataset = None
 
@@ -412,7 +557,7 @@ def _create_vector_index_with_ogr(
         layer = dataset.CreateLayer(
             config.layer_name or config.index_path.stem,
             srs=output_srs,
-            geom_type=ogr.wkbPolygon,
+            geom_type=ogr.wkbMultiPolygon,
         )
         if layer is None:
             raise RuntimeError(
@@ -444,6 +589,7 @@ def _create_vector_index_with_ogr(
                 ogr=ogr,
                 osr=osr,
             )
+            footprint = _as_multipolygon(footprint, ogr=ogr)
             feature = ogr.Feature(layer.GetLayerDefn())
             feature.SetField(config.location_field, stored_path)
             feature.SetGeometry(footprint)
