@@ -435,12 +435,27 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
             ogr=ogr,
             osr=osr,
         )
+        dense_reference = _raster_footprint(
+            raster_path,
+            output_srs=output_srs,
+            gdal=self.gdal,
+            ogr=ogr,
+            osr=osr,
+            samples_per_edge=201,
+        )
         ring = footprint.GetGeometryRef(0)
+        dense_ring = dense_reference.GetGeometryRef(0)
 
         self.assertEqual(
             ring.GetPointCount(),
             4 * FOOTPRINT_EDGE_SAMPLES - 3,
         )
+        self.assertEqual(dense_ring.GetPointCount(), 4 * 201 - 3)
+        relative_area_difference = (
+            abs(footprint.GetArea() - dense_reference.GetArea())
+            / dense_reference.GetArea()
+        )
+        self.assertLessEqual(relative_area_difference, 0.001)
         first = ring.GetPoint(0)
         midpoint = ring.GetPoint((FOOTPRINT_EDGE_SAMPLES - 1) // 2)
         last = ring.GetPoint(FOOTPRINT_EDGE_SAMPLES - 1)

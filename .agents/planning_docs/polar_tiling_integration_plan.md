@@ -214,13 +214,32 @@ ordinary `LTM_1N`, `LPS_N`, and paired east/west longitude-seam fixtures. It
 creates one index with the LFM OGR writer and one with `/usr/bin/gdaltindex`,
 then writes a JSON report comparing CRS, feature counts, location values,
 record order, geometry validity, vertex counts, bounds, area, and positive and
-negative AOI query results. Comparisons use explicit 0.02-degree bounds and two
-percent relative-area tolerances so differences caused by the LFM writer's
-intentional perimeter densification remain visible and bounded. The dedicated
+negative AOI query results. Comparisons use an explicit 0.02-degree bounds
+tolerance and a two-percent relative-area tolerance where GDAL's geometry is an
+acceptance oracle. The dedicated
 Grace/`lfm-container-ipyleaflet` wrapper is
 `scripts/shell/all_tasks/sbatch_compare_vector_index_builders.sh`. A supported
 container run is required before the tolerances or P1.9 completion are
 accepted.
+
+P1.9 first-run checkpoint: Explore job 37938028 passed every LTM and
+longitude-seam comparison. Those fixtures had identical bounds, matching AOI
+results, and effectively identical areas despite the LFM indexes retaining 81
+vertices versus GDAL's five. The polar fixture also matched CRS, driver,
+inventory, order, validity, bounds, and every AOI query, but exceeded the
+provisional two-percent planar-area threshold: LFM area `137.4897511` versus
+GDAL area `124.4154901`, a 9.509-percent relative difference. This is the
+expected consequence of retaining transformed curved edges instead of GDAL's
+four straight chords, not evidence of an incorrect bound or query result.
+
+Maintainer decision: the densified curved footprint is canonical. The revised
+gate retains the two-percent GDAL area tolerance for ordinary LTM and seam
+fixtures. Polar GDAL area remains reported but is explicitly not an acceptance
+gate because its five-vertex chord geometry is the less accurate reference.
+Polar accuracy instead requires the production 21-sample footprint to converge
+to a higher-resolution 201-sample footprint within 0.001-degree bounds and
+0.1-percent relative area. P1.9 remains in progress until this canonical
+convergence check passes in the supported container.
 
 ## Phase P2 — Restore optional product-ID discovery `[Not Started]`
 

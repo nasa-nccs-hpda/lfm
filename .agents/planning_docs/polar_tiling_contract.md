@@ -94,6 +94,13 @@ Do not scan for and guess among arbitrary index files. Existing indexes are
 validated and reused; missing indexes are created before source validation.
 The low-level tile-generation and index-query code remains read-only.
 
+New index footprints densify every raster edge before transforming it to
+IAU:30100. This curved transformed perimeter is canonical, especially for polar
+stereographic sources. A four-corner/five-vertex `gdaltindex` footprint remains
+a structural comparison baseline but is not the polar-area truth; polar
+accuracy is established by convergence against a higher-resolution densified
+perimeter plus matching bounds and AOI query behavior.
+
 ### Product-selector input
 
 - A scalar `product_id` is a convenience only when exactly one enabled dynamic

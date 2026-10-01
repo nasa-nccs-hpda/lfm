@@ -18,12 +18,16 @@ from osgeo import gdal, ogr, osr
 from lfm.model.lunar_crs import load_lunar_geographic_wkt
 from lfm.model.vector_index_builder import (
     VectorIndexBuildConfig,
+    _raster_footprint,
     create_vector_index,
 )
 
 
 BOUNDS_ABSOLUTE_TOLERANCE = 0.02
-AREA_RELATIVE_TOLERANCE = 0.02
+DEFAULT_GDALTINDEX_AREA_RELATIVE_TOLERANCE = 0.02
+DENSE_REFERENCE_EDGE_SAMPLES = 201
+DENSE_REFERENCE_BOUNDS_ABSOLUTE_TOLERANCE = 0.001
+DENSE_REFERENCE_AREA_RELATIVE_TOLERANCE = 0.001
 QueryBounds = tuple[float, float, float, float]
 QuerySpec = tuple[str, QueryBounds, tuple[str, ...]]
 
@@ -33,6 +37,7 @@ class Fixture:
     name: str
     raster_paths: tuple[Path, ...]
     query_rectangles: tuple[QuerySpec, ...]
+    gdaltindex_area_is_acceptance_gate: bool = True
 
 
 def parse_args() -> argparse.Namespace:
@@ -138,7 +143,12 @@ def _build_fixtures(root: Path, repo_root: Path) -> tuple[Fixture, ...]:
     )
     return (
         Fixture("ordinary_ltm", ltm_paths, ()),
-        Fixture("polar", polar_paths, ()),
+        Fixture(
+            "polar",
+            polar_paths,
+            (),
+            False,
+        ),
         Fixture("longitude_seam", seam_paths, seam_queries),
     )
 
@@ -188,6 +198,23 @@ def _vertex_count(geometry) -> int:
     return int(geometry.GetPointCount())
 
 
+def _geometry_record(location: str, geometry) -> dict[str, Any]:
+    envelope = geometry.GetEnvelope()
+    return {
+        "location": location,
+        "valid": bool(geometry.IsValid()),
+        "empty": bool(geometry.IsEmpty()),
+        "bounds": [
+            float(envelope[0]),
+            float(envelope[2]),
+            float(envelope[1]),
+            float(envelope[3]),
+        ],
+        "area": float(geometry.GetArea()),
+        "vertex_count": _vertex_count(geometry),
+    }
+
+
 def _read_index(index_path: Path, *, layer_name: str) -> dict[str, Any]:
     dataset = gdal.OpenEx(str(index_path), gdal.OF_VECTOR | gdal.OF_READONLY)
     if dataset is None:
@@ -206,21 +233,11 @@ def _read_index(index_path: Path, *, layer_name: str) -> dict[str, Any]:
         geometry = feature.GetGeometryRef()
         if geometry is None:
             raise RuntimeError(f"Feature {feature.GetFID()} has no geometry")
-        envelope = geometry.GetEnvelope()
         records.append(
-            {
-                "location": str(feature.GetField("location")),
-                "valid": bool(geometry.IsValid()),
-                "empty": bool(geometry.IsEmpty()),
-                "bounds": [
-                    float(envelope[0]),
-                    float(envelope[2]),
-                    float(envelope[1]),
-                    float(envelope[3]),
-                ],
-                "area": float(geometry.GetArea()),
-                "vertex_count": _vertex_count(geometry),
-            }
+            _geometry_record(
+                str(feature.GetField("location")),
+                geometry,
+            )
         )
     result = {
         "driver": dataset.GetDriver().ShortName,
@@ -232,6 +249,27 @@ def _read_index(index_path: Path, *, layer_name: str) -> dict[str, Any]:
     layer = None
     dataset = None
     return result
+
+
+def _dense_reference_records(
+    raster_paths: tuple[Path, ...],
+) -> dict[str, dict[str, Any]]:
+    output_srs = osr.SpatialReference()
+    if output_srs.ImportFromWkt(load_lunar_geographic_wkt()) != 0:
+        raise ValueError("Could not import the repository lunar geographic CRS.")
+    output_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    records: dict[str, dict[str, Any]] = {}
+    for path in raster_paths:
+        geometry = _raster_footprint(
+            path,
+            output_srs=output_srs,
+            gdal=gdal,
+            ogr=ogr,
+            osr=osr,
+            samples_per_edge=DENSE_REFERENCE_EDGE_SAMPLES,
+        )
+        records[str(path)] = _geometry_record(str(path), geometry)
+    return records
 
 
 def _query_index(
@@ -348,6 +386,7 @@ def _compare_fixture(
     )
     custom = _read_index(custom_path, layer_name="lfm")
     oracle = _read_index(oracle_path, layer_name="oracle")
+    dense_reference_by_location = _dense_reference_records(fixture.raster_paths)
     failures: list[str] = []
 
     output_wkt = load_lunar_geographic_wkt()
@@ -410,17 +449,59 @@ def _compare_fixture(
             abs(custom_record["area"] - oracle_record["area"])
             / area_denominator
         )
+        dense_reference = dense_reference_by_location[custom_record["location"]]
+        reference_bound_differences = [
+            abs(first - second)
+            for first, second in zip(
+                custom_record["bounds"],
+                dense_reference["bounds"],
+            )
+        ]
+        reference_maximum_bound_difference = max(reference_bound_differences)
+        reference_area_denominator = max(
+            abs(custom_record["area"]),
+            abs(dense_reference["area"]),
+            1e-12,
+        )
+        reference_relative_area_difference = (
+            abs(custom_record["area"] - dense_reference["area"])
+            / reference_area_denominator
+        )
         comparison = {
             "location": custom_record["location"],
             "custom": custom_record,
             "gdaltindex": oracle_record,
+            "dense_reference": dense_reference,
             "maximum_bound_difference": maximum_bound_difference,
             "relative_area_difference": relative_area_difference,
             "bounds_within_tolerance": (
                 maximum_bound_difference <= BOUNDS_ABSOLUTE_TOLERANCE
             ),
-            "area_within_tolerance": (
-                relative_area_difference <= AREA_RELATIVE_TOLERANCE
+            "gdaltindex_area_is_acceptance_gate": (
+                fixture.gdaltindex_area_is_acceptance_gate
+            ),
+            "gdaltindex_area_within_default_tolerance": (
+                relative_area_difference
+                <= DEFAULT_GDALTINDEX_AREA_RELATIVE_TOLERANCE
+            ),
+            "gdaltindex_area_acceptance_passes": (
+                not fixture.gdaltindex_area_is_acceptance_gate
+                or relative_area_difference
+                <= DEFAULT_GDALTINDEX_AREA_RELATIVE_TOLERANCE
+            ),
+            "dense_reference_maximum_bound_difference": (
+                reference_maximum_bound_difference
+            ),
+            "dense_reference_relative_area_difference": (
+                reference_relative_area_difference
+            ),
+            "dense_reference_bounds_within_tolerance": (
+                reference_maximum_bound_difference
+                <= DENSE_REFERENCE_BOUNDS_ABSOLUTE_TOLERANCE
+            ),
+            "dense_reference_area_within_tolerance": (
+                reference_relative_area_difference
+                <= DENSE_REFERENCE_AREA_RELATIVE_TOLERANCE
             ),
         }
         record_comparisons.append(comparison)
@@ -432,8 +513,18 @@ def _compare_fixture(
             )
         if not comparison["bounds_within_tolerance"]:
             failures.append(f"bounds tolerance exceeded: {custom_record['location']}")
-        if not comparison["area_within_tolerance"]:
+        if not comparison["gdaltindex_area_acceptance_passes"]:
             failures.append(f"area tolerance exceeded: {custom_record['location']}")
+        if not comparison["dense_reference_bounds_within_tolerance"]:
+            failures.append(
+                "dense-reference bounds tolerance exceeded: "
+                f"{custom_record['location']}"
+            )
+        if not comparison["dense_reference_area_within_tolerance"]:
+            failures.append(
+                "dense-reference area tolerance exceeded: "
+                f"{custom_record['location']}"
+            )
 
     queries = (*_automatic_queries(custom["records"]), *fixture.query_rectangles)
     query_comparisons: list[dict[str, Any]] = []
@@ -464,6 +555,9 @@ def _compare_fixture(
         "name": fixture.name,
         "raster_order": [str(path) for path in fixture.raster_paths],
         "gdaltindex_run": gdaltindex_run,
+        "gdaltindex_area_is_acceptance_gate": (
+            fixture.gdaltindex_area_is_acceptance_gate
+        ),
         "driver_matches": driver_matches,
         "crs_matches": crs_matches,
         "feature_count_matches": feature_count_matches,
@@ -522,7 +616,16 @@ def main() -> None:
         "gdaltindex_executable": gdaltindex_executable,
         "gdaltindex_version": gdaltindex_version,
         "bounds_absolute_tolerance_degrees": BOUNDS_ABSOLUTE_TOLERANCE,
-        "area_relative_tolerance": AREA_RELATIVE_TOLERANCE,
+        "gdaltindex_area_relative_tolerance": (
+            DEFAULT_GDALTINDEX_AREA_RELATIVE_TOLERANCE
+        ),
+        "dense_reference_edge_samples": DENSE_REFERENCE_EDGE_SAMPLES,
+        "dense_reference_bounds_absolute_tolerance_degrees": (
+            DENSE_REFERENCE_BOUNDS_ABSOLUTE_TOLERANCE
+        ),
+        "dense_reference_area_relative_tolerance": (
+            DENSE_REFERENCE_AREA_RELATIVE_TOLERANCE
+        ),
         "fixtures": fixture_reports,
         "passed": all(fixture["passed"] for fixture in fixture_reports),
     }

@@ -160,13 +160,22 @@ P1 work started:
   `lfm-container-ipyleaflet`. The JSON report compares CRS, inventory and order,
   valid geometry, vertices, bounds, area, and AOI query behavior against the
   installed `gdaltindex` CLI.
+- Explore job 37938028 passed the LTM and seam fixtures. Its polar fixture
+  matched CRS, driver, inventory, order, validity, exact bounds, and all AOI
+  queries, while the 81-vertex LFM outline had 9.509 percent more planar area
+  than GDAL's five-vertex chord outline and exceeded the provisional
+  two-percent threshold.
+- Recorded the maintainer decision that the densified curved footprint is
+  canonical. Polar GDAL area is now informational rather than an acceptance
+  gate; the production 21-sample outline must converge to a higher-resolution
+  201-sample reference within 0.001 degrees and 0.1 percent relative area. The
+  existing GDAL area tolerance remains active for LTM and seam fixtures.
 
 Next:
 
 - Submit
   `scripts/shell/all_tasks/sbatch_compare_vector_index_builders.sh` on Explore
-  and inspect its semantic-equivalence report before accepting the initial
-  geometry tolerances or closing P1.9.
+  and inspect the dense-reference convergence fields before closing P1.9.
 
 ### 2026-09-30
 

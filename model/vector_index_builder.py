@@ -193,7 +193,15 @@ def _perimeter_pixels(
     )
 
 
-def _raster_footprint(path: Path, *, output_srs, gdal: Any, ogr: Any, osr: Any):
+def _raster_footprint(
+    path: Path,
+    *,
+    output_srs,
+    gdal: Any,
+    ogr: Any,
+    osr: Any,
+    samples_per_edge: int = FOOTPRINT_EDGE_SAMPLES,
+):
     """Return a densified raster perimeter transformed to ``output_srs``."""
     dataset = gdal.Open(str(path), gdal.GA_ReadOnly)
     if dataset is None:
@@ -222,7 +230,11 @@ def _raster_footprint(path: Path, *, output_srs, gdal: Any, ogr: Any, osr: Any):
                 + line * geotransform[5],
             )
 
-        perimeter = _perimeter_pixels(width, height)
+        perimeter = _perimeter_pixels(
+            width,
+            height,
+            samples_per_edge=samples_per_edge,
+        )
         ring = ogr.Geometry(ogr.wkbLinearRing)
         for pixel, line in (*perimeter, perimeter[0]):
             x, y = coordinate(pixel, line)
