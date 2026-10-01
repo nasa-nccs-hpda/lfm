@@ -119,10 +119,10 @@ numbered-LTM-only until the implementation and validation phases complete.
 - `[Complete]` **P1.7** Validate the completed index: driver, CRS, layer,
   location field, feature count, resolvable raster paths, valid geometries, and
   expected inventory. Clean up staging artifacts after a failure.
-- `[In-Progress]` **P1.8** If a custom OGR writer is required, densify raster
+- `[Complete]` **P1.8** If a custom OGR writer is required, densify raster
   perimeters before transformation so polar and longitude-seam footprints are
   not reduced incorrectly to four transformed corners.
-- `[Not Started]` **P1.9** Compare generated indexes with GDAL TileIndex using
+- `[In-Progress]` **P1.9** Compare generated indexes with GDAL TileIndex using
   semantic equivalence rather than binary equality: CRS, feature count,
   location values, deterministic order, geometry validity, bounds and area
   tolerances, and AOI query results. Include ordinary LTM, polar, and
@@ -205,7 +205,22 @@ than transforming only four corners. Pure tests cover deterministic perimeter
 ordering, corner deduplication, and invalid sampling, and a GDAL integration
 test uses the repository's `LPS_N` CRS to verify that a curved polar edge is
 retained with the expected densified vertex count. The supported-container
-rerun remains required before P1.8 is complete.
+rerun, Explore job 37938014, passed and closes P1.8. Its capability report also
+reconfirmed GDAL 3.8.4, `/usr/bin/gdaltindex`, and the absence of both Python
+TileIndex APIs and callback support.
+
+P1.9 implementation checkpoint: a new isolated comparison harness builds
+ordinary `LTM_1N`, `LPS_N`, and paired east/west longitude-seam fixtures. It
+creates one index with the LFM OGR writer and one with `/usr/bin/gdaltindex`,
+then writes a JSON report comparing CRS, feature counts, location values,
+record order, geometry validity, vertex counts, bounds, area, and positive and
+negative AOI query results. Comparisons use explicit 0.02-degree bounds and two
+percent relative-area tolerances so differences caused by the LFM writer's
+intentional perimeter densification remain visible and bounded. The dedicated
+Grace/`lfm-container-ipyleaflet` wrapper is
+`scripts/shell/all_tasks/sbatch_compare_vector_index_builders.sh`. A supported
+container run is required before the tolerances or P1.9 completion are
+accepted.
 
 ## Phase P2 — Restore optional product-ID discovery `[Not Started]`
 

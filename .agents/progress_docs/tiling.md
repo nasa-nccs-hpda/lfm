@@ -152,11 +152,21 @@ P1 work started:
 - The updated focused local builder suite passes 16 tests with three GDAL
   integration tests skipped; the broader selected tiling suite passes 46 tests
   with seven environment-dependent skips.
+- Explore job 37938014 passed the 19-test supported-container suite, including
+  the `LPS_N` densified-edge regression. P1.8 is complete. Its report confirms
+  GDAL 3.8.4, `/usr/bin/gdaltindex`, and no Python TileIndex callback API.
+- Began P1.9. Added a semantic comparison diagnostic for LTM, north-polar, and
+  paired longitude-seam fixtures plus a dedicated Grace wrapper using
+  `lfm-container-ipyleaflet`. The JSON report compares CRS, inventory and order,
+  valid geometry, vertices, bounds, area, and AOI query behavior against the
+  installed `gdaltindex` CLI.
 
 Next:
 
-- Rerun `scripts/shell/all_tasks/sbatch_probe_gdal_tileindex_progress.sh` on
-  Explore to validate the P1.8 polar densification test with GDAL enabled.
+- Submit
+  `scripts/shell/all_tasks/sbatch_compare_vector_index_builders.sh` on Explore
+  and inspect its semantic-equivalence report before accepting the initial
+  geometry tolerances or closing P1.9.
 
 ### 2026-09-30
 
