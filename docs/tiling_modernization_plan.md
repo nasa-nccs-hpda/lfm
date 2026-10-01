@@ -375,10 +375,12 @@ these behaviors without waiting for the tiling notebook or legacy cleanup:
 - Each record also carries its product ID, path, ordered band names, CRS WKT,
   and per-band output NoData values. Raster dimensions and transform should be
   read from the written GeoTIFF when constructing a merge grid.
-- Source vector indexes are read-only inputs. Their footprints must be in the
-  geographic coordinates expected by the AOI filter, and their configured
-  location field may contain absolute paths or paths relative to `data_dir`.
-  Tiling never creates or refreshes an index.
+- Low-level source vector indexes are read-only inputs. Their footprints must
+  be in the geographic coordinates expected by the AOI filter, and their
+  configured location field may contain absolute paths or paths relative to
+  `data_dir`. The high-level preparation workflow may create a missing index.
+  Automatic replacement is opt-in and limited to application-owned
+  GeoPackage caches; shared and legacy indexes remain protected.
 - The strict `create_tiles_for_*` path requires a selector keyed by source name
   for every `product_id` source, and `all_intersecting` sources reject
   selectors. The high-level `create_tiles_for_aoi_by_product` path accepts an

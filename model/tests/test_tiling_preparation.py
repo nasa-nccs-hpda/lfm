@@ -77,6 +77,14 @@ class TilePreparationTestCase(unittest.TestCase):
         self.assertEqual(build.image_globs, ("*.nc", "*.vrt"))
         self.assertEqual(build.raster_globs, ("*.nc", "*.vrt"))
 
+    def test_preparation_propagates_managed_cache_rebuild_policy(self):
+        preparation = TileSourcePreparation(
+            self.source("wac"),
+            rebuild_invalid_index=True,
+        )
+
+        self.assertTrue(preparation.index_config().rebuild_invalid_index)
+
     @mock.patch("lfm.model.tiling_preparation.ensure_vector_index")
     def test_enabled_sources_are_prepared_before_config_assembly(self, ensure):
         wac = self.source("wac")

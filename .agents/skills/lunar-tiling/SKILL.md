@@ -67,7 +67,8 @@ NoData metadata.
 - Each modality supplies a `.shp` or `.gpkg` raster-index path and a location
   field. The high-level workflow validates and reuses that index or prepares it
   when missing; low-level tile generation queries prepared indexes read-only.
-  Never destructively refresh or silently replace an existing index.
+  Automatic replacement must be explicitly enabled and is allowed only for an
+  application-owned GeoPackage cache. Never replace a shared or legacy index.
 - Write one tiled, LZW-compressed BigTIFF per source and lunar-grid tile, with
   the routed grid CRS, exact tile transform, band names, output NoData
   metadata, and group-writable permissions.
@@ -129,7 +130,8 @@ NoData metadata.
 - Keep shared WAC/NAC raster directories read-only. Cache their modern
   GeoPackage indexes persistently under `outputs/tiling/indexes/` in each
   user's clone; do not adopt or overwrite legacy indexes in shared data paths.
-  Continue using the declared canonical static index.
+  The notebook may automatically rebuild only those per-clone caches when
+  validation fails. Continue using the declared canonical static index.
 - Write each run beneath `outputs/tiling/<RUN_ID>/` without reusing a directory.
 - Plot with sentinel pixels converted to `float64` NaN and display no more than
   four tile pairs per AOI unless the user changes that display-only limit.

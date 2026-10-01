@@ -435,6 +435,16 @@ P1 work started:
 - Revalidated the notebook as JSON with 20 unique cell IDs, valid Python
   syntax, null execution counts, and empty committed outputs. This cache-path
   change has not yet received a top-to-bottom Explore notebook run.
+- A per-clone WAC index build exposed a longitude-seam raster whose transformed
+  perimeter was invalid. Added longitude unwrapping, antimeridian splitting,
+  multipart index geometry, and focused dependency-light/GDAL regressions. The
+  exact real WAC raster remains pending supported-container confirmation.
+- Added an explicit `rebuild_invalid_index` policy for application-owned
+  GeoPackage caches. Notebook WAC/NAC caches opt in: a valid cache is reused,
+  while an invalid or stale cache is replaced atomically only after its staged
+  replacement validates. Shared Shapefiles, including `db2.shp`, cannot opt in
+  and remain protected. The dependency-light focused suite passes 63 tests
+  with 12 GDAL-dependent skips; Explore validation remains pending.
 
 Next:
 

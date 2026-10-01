@@ -48,6 +48,10 @@ class VectorIndexBuildConfig:
     ``image_globs`` configures an ordered set of patterns. A NetCDF file must
     open as a directly readable GDAL raster. For a subdataset-only container,
     create a VRT that selects the intended variable.
+
+    ``rebuild_invalid_index`` is an explicit ownership declaration for a
+    disposable application-managed GeoPackage cache. It is false by default
+    and cannot be enabled for Shapefiles such as shared legacy indexes.
     """
 
     data_dir: Path
@@ -57,6 +61,7 @@ class VectorIndexBuildConfig:
     location_field: str = "location"
     output_srs_path: Path = LUNAR_GEOGRAPHIC_WKT_PATH
     image_globs: tuple[str, ...] = DEFAULT_RASTER_GLOBS
+    rebuild_invalid_index: bool = False
 
     def __post_init__(self) -> None:
         data_dir = Path(self.data_dir)
@@ -70,6 +75,13 @@ class VectorIndexBuildConfig:
         object.__setattr__(self, "output_srs_path", Path(self.output_srs_path))
         if index_path.suffix.lower() not in SUPPORTED_INDEX_SUFFIXES:
             raise ValueError("index_path must end with .shp or .gpkg.")
+        if not isinstance(self.rebuild_invalid_index, bool):
+            raise TypeError("rebuild_invalid_index must be a boolean.")
+        if self.rebuild_invalid_index and index_path.suffix.lower() != ".gpkg":
+            raise ValueError(
+                "rebuild_invalid_index is supported only for application-owned "
+                "GeoPackage caches."
+            )
         image_glob = (
             None if self.image_glob is None else str(self.image_glob).strip()
         )
@@ -290,6 +302,149 @@ def _full_longitude_polar_cap(transformed_polygon, *, pole_latitude: float, ogr:
     return cap
 
 
+def _unwrap_longitudes(
+    coordinates: tuple[tuple[float, float], ...],
+) -> tuple[tuple[float, float], ...]:
+    """Return one continuous longitude sequence without +/-180 jumps."""
+    if not coordinates:
+        raise ValueError("Geographic footprint contains no coordinates.")
+    unwrapped = [coordinates[0]]
+    for raw_longitude, latitude in coordinates[1:]:
+        longitude = raw_longitude
+        previous_longitude = unwrapped[-1][0]
+        while longitude - previous_longitude > 180.0:
+            longitude -= 360.0
+        while longitude - previous_longitude < -180.0:
+            longitude += 360.0
+        unwrapped.append((longitude, latitude))
+    return tuple(unwrapped)
+
+
+def _polygon_from_coordinates(coordinates, *, ogr: Any):
+    ring = ogr.Geometry(ogr.wkbLinearRing)
+    for longitude, latitude in coordinates:
+        ring.AddPoint_2D(longitude, latitude)
+    if coordinates[0] != coordinates[-1]:
+        ring.AddPoint_2D(*coordinates[0])
+    polygon = ogr.Geometry(ogr.wkbPolygon)
+    polygon.AddGeometry(ring)
+    return polygon
+
+
+def _polygon_parts(geometry) -> tuple[Any, ...]:
+    """Return cloned polygon members from an OGR polygonal geometry."""
+    geometry_name = geometry.GetGeometryName().upper()
+    if geometry_name == "POLYGON":
+        return (geometry.Clone(),)
+    if geometry_name in {"MULTIPOLYGON", "GEOMETRYCOLLECTION"}:
+        return tuple(
+            part
+            for index in range(geometry.GetGeometryCount())
+            for part in _polygon_parts(geometry.GetGeometryRef(index))
+        )
+    return ()
+
+
+def _shift_longitude(geometry, offset: float):
+    shifted = geometry.Clone()
+
+    def shift(part) -> None:
+        for index in range(part.GetPointCount()):
+            point = part.GetPoint(index)
+            part.SetPoint_2D(index, point[0] + offset, point[1])
+        for index in range(part.GetGeometryCount()):
+            shift(part.GetGeometryRef(index))
+
+    shift(shifted)
+    return shifted
+
+
+def _canonical_geographic_footprint(transformed_polygon, *, ogr: Any):
+    """Split a non-polar footprint at the antimeridian into valid parts."""
+    ring = transformed_polygon.GetGeometryRef(0)
+    if ring is None or ring.GetPointCount() < 4:
+        raise ValueError("Transformed raster footprint has no exterior ring.")
+    coordinates = tuple(
+        (float(ring.GetX(index)), float(ring.GetY(index)))
+        for index in range(ring.GetPointCount())
+    )
+    if any(
+        not math.isfinite(longitude) or not math.isfinite(latitude)
+        for longitude, latitude in coordinates
+    ):
+        raise ValueError("Transformed raster footprint has non-finite coordinates.")
+
+    unwrapped = _polygon_from_coordinates(
+        _unwrap_longitudes(coordinates),
+        ogr=ogr,
+    )
+    if unwrapped.IsEmpty() or not unwrapped.IsValid():
+        raise ValueError(
+            "Raster footprint remains invalid after longitude unwrapping."
+        )
+    minimum_longitude, maximum_longitude, minimum_latitude, maximum_latitude = (
+        unwrapped.GetEnvelope()
+    )
+    if minimum_latitude < -90.0 - 1e-9 or maximum_latitude > 90.0 + 1e-9:
+        raise ValueError("Transformed raster footprint exceeds latitude bounds.")
+    if maximum_longitude - minimum_longitude >= 360.0 - 1e-9:
+        raise ValueError(
+            "A non-polar raster footprint spans the full longitude range."
+        )
+    if minimum_longitude >= -180.0 and maximum_longitude <= 180.0:
+        return unwrapped
+
+    first_window = math.floor((minimum_longitude + 180.0) / 360.0)
+    last_window = math.floor(
+        (maximum_longitude + 180.0 - 1e-12) / 360.0
+    )
+    parts = []
+    for window_index in range(first_window, last_window + 1):
+        western_edge = -180.0 + 360.0 * window_index
+        window = _polygon_from_coordinates(
+            (
+                (western_edge, -90.0),
+                (western_edge + 360.0, -90.0),
+                (western_edge + 360.0, 90.0),
+                (western_edge, 90.0),
+                (western_edge, -90.0),
+            ),
+            ogr=ogr,
+        )
+        intersection = unwrapped.Intersection(window)
+        for polygon in _polygon_parts(intersection):
+            if polygon.IsEmpty() or polygon.GetArea() <= 0.0:
+                continue
+            shifted = _shift_longitude(polygon, -360.0 * window_index)
+            if shifted.IsEmpty() or not shifted.IsValid():
+                raise ValueError(
+                    "Could not construct a valid antimeridian-safe footprint."
+                )
+            parts.append(shifted)
+
+    if not parts:
+        raise ValueError("Raster footprint has no area after antimeridian splitting.")
+    if len(parts) == 1:
+        return parts[0]
+    footprint = ogr.Geometry(ogr.wkbMultiPolygon)
+    for part in parts:
+        footprint.AddGeometry(part)
+    if footprint.IsEmpty() or not footprint.IsValid():
+        raise ValueError("Could not construct a valid multipart raster footprint.")
+    return footprint
+
+
+def _as_multipolygon(geometry, *, ogr: Any):
+    """Return a MultiPolygon suitable for the index layer contract."""
+    parts = _polygon_parts(geometry)
+    if not parts:
+        raise ValueError("Raster footprint is not polygonal.")
+    multipolygon = ogr.Geometry(ogr.wkbMultiPolygon)
+    for part in parts:
+        multipolygon.AddGeometry(part)
+    return multipolygon
+
+
 def _raster_footprint(
     path: Path,
     *,
@@ -370,11 +525,13 @@ def _raster_footprint(
                 pole_latitude=pole_latitude,
                 ogr=ogr,
             )
-        if polygon.IsEmpty() or not polygon.IsValid():
+        try:
+            return _canonical_geographic_footprint(polygon, ogr=ogr)
+        except ValueError as exc:
             raise ValueError(
-                f"Raster produced an empty or invalid index footprint: {path}"
-            )
-        return polygon
+                f"Raster produced an empty or invalid index footprint: {path}. "
+                f"{exc}"
+            ) from exc
     finally:
         dataset = None
 
@@ -412,7 +569,7 @@ def _create_vector_index_with_ogr(
         layer = dataset.CreateLayer(
             config.layer_name or config.index_path.stem,
             srs=output_srs,
-            geom_type=ogr.wkbPolygon,
+            geom_type=ogr.wkbMultiPolygon,
         )
         if layer is None:
             raise RuntimeError(
@@ -444,6 +601,7 @@ def _create_vector_index_with_ogr(
                 ogr=ogr,
                 osr=osr,
             )
+            footprint = _as_multipolygon(footprint, ogr=ogr)
             feature = ogr.Feature(layer.GetLayerDefn())
             feature.SetField(config.location_field, stored_path)
             feature.SetGeometry(footprint)
@@ -461,6 +619,8 @@ def _create_vector_index_with_ogr(
 
 
 def _rebuild_guidance(config: VectorIndexBuildConfig) -> str:
+    if config.rebuild_invalid_index:
+        return "This application-owned GeoPackage cache is eligible for rebuilding."
     return (
         "Rebuild it explicitly after reviewing the difference; tiling will not "
         f"overwrite {config.index_path} automatically."
@@ -620,10 +780,15 @@ def validate_vector_index(
             f"Raster vector index does not exist: {config.index_path}"
         )
 
-    dataset = gdal.OpenEx(
-        str(config.index_path),
-        gdal.OF_VECTOR | gdal.OF_READONLY,
-    )
+    try:
+        dataset = gdal.OpenEx(
+            str(config.index_path),
+            gdal.OF_VECTOR | gdal.OF_READONLY,
+        )
+    except RuntimeError as exc:
+        raise VectorIndexValidationError(
+            f"Could not open raster vector index: {config.index_path}"
+        ) from exc
     if dataset is None:
         raise VectorIndexValidationError(
             f"Could not open raster vector index: {config.index_path}"
@@ -838,13 +1003,74 @@ def create_vector_index(
     return config.index_path
 
 
+def _rebuild_invalid_geopackage(
+    config: VectorIndexBuildConfig,
+    *,
+    raster_paths: tuple[Path, ...],
+    stdout: TextIO,
+) -> tuple[VectorIndexValidationResult, bool]:
+    """Atomically replace an invalid application-owned GeoPackage cache."""
+    if not config.rebuild_invalid_index or config.index_path.suffix.lower() != ".gpkg":
+        raise ValueError(
+            "Invalid-index rebuilding requires an application-owned GeoPackage."
+        )
+    config.index_path.parent.mkdir(parents=True, exist_ok=True)
+    with _exclusive_creation_lock(config.index_path):
+        if config.index_path.exists():
+            try:
+                result = validate_vector_index(
+                    config,
+                    expected_raster_paths=raster_paths,
+                )
+            except VectorIndexValidationError:
+                pass
+            else:
+                return result, False
+
+        staging_directory = Path(
+            tempfile.mkdtemp(
+                prefix=f".{config.index_path.name}.replacement-",
+                dir=config.index_path.parent,
+            )
+        )
+        staged_config = replace(
+            config,
+            index_path=staging_directory / config.index_path.name,
+            rebuild_invalid_index=False,
+        )
+        try:
+            _create_vector_index_with_ogr(
+                staged_config,
+                raster_paths,
+                progress=True,
+                stdout=stdout,
+            )
+            validate_vector_index(
+                staged_config,
+                expected_raster_paths=raster_paths,
+            )
+            for suffix in ("-wal", "-shm", "-journal"):
+                Path(f"{config.index_path}{suffix}").unlink(missing_ok=True)
+            os.replace(staged_config.index_path, config.index_path)
+        finally:
+            shutil.rmtree(staging_directory, ignore_errors=True)
+
+    return (
+        validate_vector_index(
+            config,
+            expected_raster_paths=raster_paths,
+        ),
+        True,
+    )
+
+
 def ensure_vector_index(
     config: VectorIndexBuildConfig,
     *,
     logger: logging.Logger | None = None,
     stdout: TextIO | None = None,
 ) -> VectorIndexValidationResult:
-    """Validate and reuse an index, or create it when it does not exist."""
+    """Reuse or create an index, rebuilding only an opted-in managed cache."""
     active_logger = logger or LOGGER
     active_stdout = sys.stdout if stdout is None else stdout
     raster_paths = discover_raster_paths(config)
@@ -861,10 +1087,33 @@ def ensure_vector_index(
             logger=active_logger,
             stdout=active_stdout,
         )
-        result = validate_vector_index(
-            config,
-            expected_raster_paths=raster_paths,
-        )
+        try:
+            result = validate_vector_index(
+                config,
+                expected_raster_paths=raster_paths,
+            )
+        except VectorIndexValidationError as exc:
+            if not config.rebuild_invalid_index:
+                raise
+            _announce(
+                f"Managed raster index is invalid or stale and will be "
+                f"rebuilt: {config.index_path}. Reason: {exc}",
+                logger=active_logger,
+                stdout=active_stdout,
+            )
+            result, rebuilt = _rebuild_invalid_geopackage(
+                config,
+                raster_paths=raster_paths,
+                stdout=active_stdout,
+            )
+            action = "Rebuilt" if rebuilt else "Reused concurrently rebuilt"
+            _announce(
+                f"{action} raster index with {result.feature_count} "
+                f"feature(s): {config.index_path}",
+                logger=active_logger,
+                stdout=active_stdout,
+            )
+            return result
         _announce(
             f"Reusing validated raster index with {result.feature_count} "
             f"feature(s): {config.index_path}",

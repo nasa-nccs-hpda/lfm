@@ -700,9 +700,9 @@ Rasterio. `notebooks/sbatch_execute_tiling_example.sh` provides the pending
   coverage, source footprints, band availability, NoData behavior, and expected
   zooms are verified. The implementation must continue supporting static-only
   and combined source modes when suitable polar static inputs become available.
-- `[Deferred]` **D2** Automatic destructive refresh of stale indexes. The
-  planned workflow diagnoses staleness and requires an explicit rebuild action
-  so it cannot unexpectedly replace a shared index.
+- `[Deferred]` **D2** Automatic refresh of arbitrary or shared stale indexes.
+  Per-clone GeoPackage caches may now opt into atomic invalid/stale replacement;
+  shared and legacy indexes still require an explicit administrator action.
 - `[Deferred]` **D3** Migration of downstream chip creation and model-training
   consumers to polar grids. This plan preserves and documents their upstream
   tiling handoff but does not implement downstream polar processing.
