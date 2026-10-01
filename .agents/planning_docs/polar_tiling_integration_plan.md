@@ -93,13 +93,13 @@ backward-compatible structured results, filenames, deterministic ordering, and
 23 acceptance cases. This phase changes no runtime behavior; production remains
 numbered-LTM-only until the implementation and validation phases complete.
 
-## Phase P1 — Add safe automatic raster-index preparation `[Not Started]`
+## Phase P1 — Add safe automatic raster-index preparation `[In-Progress]`
 
-- `[Not Started]` **P1.1** Extend the existing vector-index builder with an
+- `[Complete]` **P1.1** Extend the existing vector-index builder with an
   explicit ensure-if-missing API and configuration for the data directory,
   derived or explicit index path, raster glob, layer name, location field, and
   output geographic CRS.
-- `[Not Started]` **P1.2** Define reuse and freshness rules. Existing indexes are
+- `[In-Progress]` **P1.2** Define reuse and freshness rules. Existing indexes are
   validated and reused; they are never silently overwritten. A stale or
   malformed index produces a clear diagnosis and explicit rebuild guidance.
 - `[Not Started]` **P1.3** Enumerate input rasters deterministically and log the
@@ -135,6 +135,23 @@ numbered-LTM-only until the implementation and validation phases complete.
   logging, reuse, stale-index rejection, explicit rebuild behavior, concurrent
   creation, failure cleanup, Shapefile sidecars, GeoPackage output, and source
   index immutability during tile generation.
+
+P1.1 checkpoint: `VectorIndexBuildConfig.index_path` now defaults to
+`<data_dir>/output_index.shp` while preserving explicit Shapefile, GeoPackage,
+layer, location-field, raster-glob, and output-WKT configuration.
+`discover_raster_paths()` supplies a deterministic file inventory, and
+`ensure_vector_index()` is the explicit preparation entry point. The low-level
+tiler and `query_source_index()` remain read-only.
+
+P1.2 checkpoint: validation and reuse code now checks the index driver, layer,
+location field, repository lunar CRS, feature geometries, resolvable raster
+paths, duplicate paths, and exact current raster inventory. Missing or changed
+inventory raises `StaleVectorIndexError` with explicit rebuild guidance rather
+than overwriting the index. Dependency-free ensure/reuse tests pass locally;
+the GDAL-backed Shapefile and GeoPackage creation/reuse/staleness tests are
+written but await the supported container run. The focused wrapper also probes
+whether that GDAL build supplies useful `gdal.TileIndex` callback events:
+`scripts/shell/all_tasks/sbatch_probe_gdal_tileindex_progress.sh`.
 
 ## Phase P2 — Restore optional product-ID discovery `[Not Started]`
 

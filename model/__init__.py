@@ -133,7 +133,16 @@ from .tiling_config import (
 )
 from .lunar_crs import LUNAR_GEOGRAPHIC_WKT_PATH, load_lunar_geographic_wkt
 from .vector_index import IndexedRaster, query_source_index
-from .vector_index_builder import VectorIndexBuildConfig, create_vector_index
+from .vector_index_builder import (
+    StaleVectorIndexError,
+    VectorIndexBuildConfig,
+    VectorIndexValidationError,
+    VectorIndexValidationResult,
+    create_vector_index,
+    discover_raster_paths,
+    ensure_vector_index,
+    validate_vector_index,
+)
 from .tiling_results import (
     MissingRequiredSourceError,
     TileCubeRecord,
@@ -224,12 +233,15 @@ __all__ = [
     "STATIC_BAND_NAMES",
     "STATIC_OUTPUT_NODATA",
     "SPLIT_HASH_ALGORITHM",
+    "StaleVectorIndexError",
     "TargetGrid",
     "TileConfig",
     "TileCubeRecord",
     "TileSourceError",
     "TileSourceConfig",
     "VectorIndexBuildConfig",
+    "VectorIndexValidationError",
+    "VectorIndexValidationResult",
     "WAC_BAND_NAMES",
     "WAC_UV_BAND_NAMES",
     "WAC_VIS_BAND_NAMES",
@@ -256,6 +268,7 @@ __all__ = [
     "deduplicate_cube_records",
     "default_split_config",
     "default_zoom_for_sources",
+    "discover_raster_paths",
     "discover_reference_tiffs",
     "derive_source_selectors",
     "geographic_aoi_from_target_grid",
@@ -272,6 +285,7 @@ __all__ = [
     "query_source_index",
     "reference_sample_from_tiff",
     "resolve_label_path",
+    "ensure_vector_index",
     "reproject_acquisition",
     "reproject_modality",
     "selectors_for_group",
@@ -280,6 +294,7 @@ __all__ = [
     "tile_config_from_dict",
     "target_grid_from_bounds",
     "validate_label",
+    "validate_vector_index",
     "validate_dataset_publication",
     "validate_request_contracts",
     "validate_request_geographic_aoi",

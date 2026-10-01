@@ -84,10 +84,30 @@ Decisions:
 - Keep the current chip workflow's typed polar rejection until downstream
   polar chip processing is separately implemented and validated.
 
+P1 work started:
+
+- Added a derived-or-explicit `VectorIndexBuildConfig` index path,
+  deterministic raster discovery, `ensure_vector_index()`, structured
+  validation results, and typed malformed/stale index errors.
+- Added validation for driver, layer, location field, lunar CRS, geometry,
+  raster path resolution, duplicates, missing rasters, and inventory drift.
+- Added visible creation/reuse announcements and logging, including the raster
+  count and large-directory timing notice. These behaviors remain pending
+  their sequential P1.2/P1.3 acceptance checkpoints.
+- Added a Grace/`lfm-container-ipyleaflet` GDAL callback probe and focused
+  Shapefile/GeoPackage builder test wrapper.
+- Local dependency-free tiling tests passed: 43 tests run, with the two
+  GDAL-backed vector-index integration tests skipped because local GDAL is not
+  installed. Shell syntax, Python syntax, and whitespace checks passed.
+- P1.1 is complete. P1.2 is in progress pending the container-backed focused
+  tests; no Explore execution is claimed yet.
+
 Next:
 
-- Begin P1.1 by extending the explicit vector-index builder with a safe
-  ensure-if-missing preparation API.
+- Submit
+  `scripts/shell/all_tasks/sbatch_probe_gdal_tileindex_progress.sh` on Explore.
+  Use its GDAL-backed index tests to close P1.2, then use its callback report to
+  begin P1.3 and P1.4 sequentially.
 
 ### 2026-09-30
 
