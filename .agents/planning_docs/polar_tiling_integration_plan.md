@@ -482,7 +482,7 @@ processes and did not affect the result. Polar geometry, addressing, GeoTIFF
 writing, CRS persistence handling, seam-safe index envelopes, and unchanged
 numbered-LTM behavior are regression-closed for the P4 low-level scope.
 
-## Phase P5 — Add configurable dynamic/static source modes `[In-Progress]`
+## Phase P5 — Add configurable dynamic/static source modes `[Complete]`
 
 - `[Complete]` **P5.1** Add high-level `include_dynamic` and
   `include_static` controls, both defaulting to `True`, and reject requests
@@ -497,12 +497,12 @@ numbered-LTM behavior are regression-closed for the P4 low-level scope.
 - `[Complete]` **P5.5** Confirm that static-only operation never expects a
   product ID and that dynamic-only polar operation is a supported initial
   production path.
-- `[In-Progress]` **P5.6** Add tests for all valid source modes on LTM and polar
+- `[Complete]` **P5.6** Add tests for all valid source modes on LTM and polar
   grids, source ordering, skipped validation, missing enabled sources, and
   deterministic results, then run the modern and legacy supported-container
   regression gates.
 
-P5 implementation checkpoint: `compose_tile_sources()` is the public source
+P5 completion evidence: `compose_tile_sources()` is the public source
 composition boundary. Its inclusion controls require actual booleans and
 default to combined operation. Enabled classes must be nonempty; disabled
 collections are not iterated. Static sources must use `all_intersecting`, and
@@ -512,33 +512,68 @@ is retained unchanged, and contextual failures append already completed
 dynamic and contextual records. Focused tests cover combined, dynamic-only,
 and static-only operation on `42N`, `LPS_N`, and `LPS_S`; invalid controls;
 skipped disabled validation; ordering; duplicate names; missing enabled
-classes; static PID rejection; and partial-result propagation. The
-supported-container gate is pending. The expanded local modern suite passes
-158 tests with 27 GDAL-dependent skips after adding the raster-cube bilinear
-and per-band NoData module to the phase-closing wrapper; the legacy subset
-cannot run in the local environment because it imports GDAL at module load
-time.
+classes; static PID rejection; and partial-result propagation. The expanded
+local modern suite passes 158 tests with 27 GDAL-dependent skips after adding
+the raster-cube bilinear and per-band NoData module to the phase-closing
+wrapper. The maintainer subsequently reported that the supported
+`lfm-container-ipyleaflet` wrapper passed all 158 modern tests, all 25 safe
+legacy regression tests, and the filtered one-tile legacy integration test.
+No Slurm job ID was supplied for this final P5 gate. This completes Phase P5.
 
-## Phase P6 — Assemble the easy public workflow `[Not Started]`
+## Phase P6 — Assemble the easy public workflow `[In-Progress]`
 
-- `[Not Started]` **P6.1** Add a small orchestration API that accepts prepared
+- `[Complete]` **P6.1** Add a small orchestration API that accepts prepared
   modality/source definitions, a point or AOI, an optional product ID, source
   inclusion controls, and output settings without requiring a zone or grid.
-- `[Not Started]` **P6.2** Run its stages in an explicit order: validate request,
-  prepare enabled indexes, resolve products, route geometry, construct one or
-  more `TileConfig` objects, generate tiles, and return ordered structured
-  records.
-- `[Not Started]` **P6.3** Select modality-appropriate default zooms per grid
+- `[Complete]` **P6.2** Run its stages in an explicit order: validate and route
+  the geographic request without filesystem mutation, resolve source groups
+  and tile addresses, prepare enabled indexes, resolve products across the
+  routed geometry, construct one or more `TileConfig` objects, generate tiles,
+  and return ordered structured records.
+- `[Complete]` **P6.3** Select modality-appropriate default zooms per grid
   family while allowing expert overrides. Document the chosen WAC and NAC polar
   zooms and their relationship to source resolution.
-- `[Not Started]` **P6.4** Ensure multi-grid and multi-product output remains
+- `[Complete]` **P6.4** Ensure multi-grid and multi-product output remains
   deterministic and collision-free and that errors identify the product,
   source, grid, zoom, and tile involved.
-- `[Not Started]` **P6.5** Preserve the existing lower-level AOI, point, and
+- `[Complete]` **P6.5** Preserve the existing lower-level AOI, point, and
   explicit-index entry points for advanced callers and downstream compatibility.
-- `[Not Started]` **P6.6** Add end-to-end local tests for minimal LTM and polar
+- `[In-Progress]` **P6.6** Add end-to-end local tests for minimal LTM and polar
   requests, automatic indexing, omitted PIDs, boundary splitting, each source
   mode, and repeatability.
+
+P6.1-P6.5 implementation checkpoint: `model/tiling_workflow.py` now exposes
+`TilePointQuery`, `TileAOIQuery`, `TileSourceDefinition`, and
+`create_tiles_for_query()` as the grid-automatic public boundary. Built-in
+WAC, processed-NAC, and canonical-static constructors resolve explicit,
+`output_index.shp`, and legacy `db2.shp` index paths in contract order and
+carry their established selection and NoData policies. Disabled roles are not
+iterated. Request preflight routes the query, rejects unverified polar sources,
+validates safe source/PID filename components, resolves grid-family zoom
+groups, and deduplicates complete grid/zoom/tile addresses before filesystem
+mutation. Each enabled index is then prepared once with the P1 API, product
+IDs are discovered or verified across routed query parts, and the unchanged
+explicit-index tiler writes product-scoped dynamics and contextual sources in
+separate collision-free runs. Results are checked for duplicate identities and
+paths and returned in the P0 deterministic order. Structured workflow errors
+carry stage, source, product, grid, zoom, tile, and completed-record context
+when those values exist.
+
+WAC defaults to numbered-LTM zoom 5 (approximately 75.824 m/pixel) and polar
+zoom 4 (approximately 73.775 m/pixel). Processed one-metre NAC defaults to LTM
+zoom 11 (approximately 1.185 m/pixel) and polar zoom 10 (approximately 1.153
+m/pixel). Expert family overrides take precedence. Static adopts each dynamic
+acquisition zoom unless it has an override; static-only requests must supply a
+family zoom. Canonical static remains polar-disabled by default and must be
+explicitly marked verified before a polar or cross-threshold request can
+prepare or write it.
+
+P6.6 currently has 19 focused workflow tests: 18 dependency-free cases pass
+locally and one GDAL-backed real index-creation plus LTM-tiling integration
+case is skipped outside the supported container. The expanded modern suite
+passes 177 tests locally with 28 environment-dependent skips. The main Slurm
+wrapper includes the new workflow module; its modern, legacy, and real-GDAL
+gate is pending before Phase P6 closes.
 
 ## Phase P7 — Update the public tiling notebook `[Not Started]`
 

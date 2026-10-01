@@ -89,6 +89,7 @@ echo "Running the modern tiling contract tests..."
   lfm.model.tests.test_tiling_viz \
   lfm.model.tests.test_tiling_results \
   lfm.model.tests.test_tiling_api \
+  lfm.model.tests.test_tiling_workflow \
   lfm.model.tests.test_configured_tiler
 
 echo

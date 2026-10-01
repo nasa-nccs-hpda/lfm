@@ -27,9 +27,10 @@ Canonical references:
 
 Known boundaries and follow-ups:
 
-- `LPS_N`/`LPS_S` low-level production is regression-closed. Source-mode
-  composition, family-specific default zooms, and the easy automatic workflow
-  remain P5/P6 work.
+- `LPS_N`/`LPS_S` low-level production and source-mode composition are
+  regression-closed. Family-specific default zooms and the easy automatic
+  workflow are implemented and locally tested; the P6 supported-container
+  gate remains open.
 - The legacy opt-in `all_intersecting` WAC alternate query still stacks all
   intersecting rasters into one source cube. The supported high-level AOI path
   instead discovers products and writes one dynamic cube per PID.
@@ -358,8 +359,7 @@ P1 work started:
   dynamic-only mode at 86 degrees north, builds an isolated one-file index,
   creates one `LPS_N` zoom-4 cube, and reopens it to validate tile geometry,
   CRS, native NoData, valid pixels, LZW compression, and permissions. This is
-  exploratory evidence for later P9 and does not advance the sequential phase
-  status while P5.6 remains open.
+  exploratory evidence for later P9 and did not itself close P5.6.
 - Explore job 37938102 completed that focused check in three seconds: it built
   and validated the isolated one-feature index, wrote the expected `LPS_N`
   zoom-4 tile `(8, 11)`, and passed the structural cube checks with all 262,144
@@ -380,12 +380,34 @@ P1 work started:
   Slurm modern-test list so bilinear resampling and independent multiband
   NoData masks are included in the supported-container gate. The focused 18
   P5 tests pass locally, and the expanded modern suite passes 158 tests with 27
-  GDAL-dependent skips. The modern plus legacy Explore gate remains pending.
+  GDAL-dependent skips.
+- The maintainer reported that the final `lfm-container-ipyleaflet` wrapper
+  passed all 158 modern tiling tests, all 25 safe legacy regression tests, and
+  the filtered one-tile legacy integration test. No Slurm job ID was supplied
+  for this run. P5.6 and Phase P5 are complete.
+- Began Phase P6. Added the public automatic-query workflow, typed point/AOI
+  queries and source definitions, WAC/NAC/canonical-static presets, contract
+  index-path resolution, family-specific zoom defaults and overrides,
+  static-zoom adoption, unsupported-polar preflight, per-source one-time index
+  preparation, routed product discovery, complete tile-address deduplication,
+  deterministic output ordering, output-collision checks, and structured
+  stage/source/product/grid/zoom/tile error context.
+- Preserved the existing strict AOI, point, and explicit-index entry points.
+  The new workflow delegates final production to the explicit-index API and
+  does not modify the low-level contracts.
+- Added 19 focused P6 tests covering LTM, polar, cross-threshold, point,
+  antimeridian, explicit and omitted products, multiple modalities, all source
+  modes, disabled-source isolation, zoom policy, polar-static rejection,
+  preparation and tile errors, filename collisions, repeatability, and a real
+  GDAL missing-index-to-LTM-cube integration. Eighteen pass locally and the
+  GDAL integration is skipped; the expanded modern suite passes 177 tests with
+  28 environment-dependent skips.
 
 Next:
 
 - Run the expanded modernization wrapper in `lfm-container-ipyleaflet` to
-  complete P5.6 and close Phase P5.
+  execute the real P6 index-and-tile integration and close P6.6 if the modern
+  and legacy gates remain green.
 
 ### 2026-09-30
 
