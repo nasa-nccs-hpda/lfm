@@ -352,6 +352,14 @@ P1 work started:
   grid-neutral tile-definition factory and added the preparation test module to
   the main modernization wrapper. The container gate will now directly verify
   that disabled data directories and indexes remain untouched.
+- Added a focused real-data north-polar WAC validation driver and `grace`
+  Slurm wrapper for
+  `WAC_GLOBAL_P900N0000_100M.eqc.iau2.LPS_N.vrt`. The pending Explore run uses
+  dynamic-only mode at 86 degrees north, builds an isolated one-file index,
+  creates one `LPS_N` zoom-4 cube, and reopens it to validate tile geometry,
+  CRS, native NoData, valid pixels, LZW compression, and permissions. This is
+  exploratory evidence for later P9 and does not advance the sequential phase
+  status while P5.6 remains open.
 
 Next:
 
