@@ -7,6 +7,8 @@ import argparse
 import inspect
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 
 from osgeo import gdal
@@ -52,14 +54,53 @@ def _write_rasters(directory: Path, *, count: int) -> list[Path]:
 
 def run_probe() -> dict[str, object]:
     gdal.UseExceptions()
+    tileindex = getattr(gdal, "TileIndex", None)
+    tileindex_options = getattr(gdal, "TileIndexOptions", None)
+    gdaltindex_path = shutil.which("gdaltindex")
+    gdaltindex_version = None
+    if gdaltindex_path is not None:
+        version = subprocess.run(
+            [gdaltindex_path, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        gdaltindex_version = (version.stdout or version.stderr).strip() or None
     report: dict[str, object] = {
         "gdal_version": gdal.VersionInfo("--version"),
-        "tileindex_signature": _signature_text(gdal.TileIndex),
-        "tileindex_options_signature": _signature_text(gdal.TileIndexOptions),
-        "tileindex_options_doc_mentions_callback": (
-            "callback" in (gdal.TileIndexOptions.__doc__ or "").casefold()
+        "python_tileindex_available": tileindex is not None,
+        "python_tileindex_options_available": tileindex_options is not None,
+        "tileindex_signature": (
+            _signature_text(tileindex) if tileindex is not None else None
         ),
+        "tileindex_options_signature": (
+            _signature_text(tileindex_options)
+            if tileindex_options is not None
+            else None
+        ),
+        "tileindex_options_doc_mentions_callback": (
+            tileindex_options is not None
+            and "callback" in (tileindex_options.__doc__ or "").casefold()
+        ),
+        "gdaltindex_executable": gdaltindex_path,
+        "gdaltindex_version": gdaltindex_version,
     }
+    if tileindex is None or tileindex_options is None:
+        report.update(
+            {
+                "callback_option_accepted": False,
+                "callback_option_error": (
+                    "The installed osgeo.gdal bindings do not expose "
+                    "TileIndex and TileIndexOptions."
+                ),
+                "callback_invoked": False,
+                "callback_event_count": 0,
+                "callback_events": [],
+                "index_created": False,
+                "feature_count": None,
+            }
+        )
+        return report
     callback_events: list[dict[str, object]] = []
 
     def progress_callback(complete, message, callback_data):
@@ -88,7 +129,7 @@ def run_probe() -> dict[str, object]:
             "callback_data": "lfm-progress-probe",
         }
         try:
-            options = gdal.TileIndexOptions(**options_kwargs)
+            options = tileindex_options(**options_kwargs)
         except TypeError as exc:
             report.update(
                 {
@@ -104,7 +145,7 @@ def run_probe() -> dict[str, object]:
             return report
 
         report["callback_option_accepted"] = True
-        dataset = gdal.TileIndex(
+        dataset = tileindex(
             str(index_path),
             [str(path) for path in raster_paths],
             options=options,

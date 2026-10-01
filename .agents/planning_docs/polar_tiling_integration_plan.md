@@ -153,6 +153,14 @@ written but await the supported container run. The focused wrapper also probes
 whether that GDAL build supplies useful `gdal.TileIndex` callback events:
 `scripts/shell/all_tasks/sbatch_probe_gdal_tileindex_progress.sh`.
 
+The first probe attempt, Explore job 37937983, established that the supported
+container's `osgeo.gdal` module has no `TileIndex` attribute; the probe stopped
+before its focused tests. Index creation has therefore been switched to a
+Python/OGR feature writer, which can report genuine per-raster tqdm progress
+without shelling out. The repaired probe now records absent Python APIs and the
+`gdaltindex` executable/version without failing. A rerun is required before
+P1.2 is complete and before the later progress sub-steps change status.
+
 ## Phase P2 — Restore optional product-ID discovery `[Not Started]`
 
 - `[Not Started]` **P2.1** Define modality-aware product-ID extraction without

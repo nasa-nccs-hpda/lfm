@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import logging
 from pathlib import Path
 import sys
-from typing import TextIO
+from typing import Any, TextIO
 
 from .lunar_crs import LUNAR_GEOGRAPHIC_WKT_PATH, load_lunar_geographic_wkt
 from .vector_index import resolve_indexed_raster_path
@@ -122,6 +122,180 @@ def discover_raster_paths(config: VectorIndexBuildConfig) -> tuple[Path, ...]:
 
 def _expected_driver_name(index_path: Path) -> str:
     return "GPKG" if index_path.suffix.lower() == ".gpkg" else "ESRI Shapefile"
+
+
+def _progress_bar(*, total: int, stdout: TextIO, enabled: bool):
+    """Return a stdout tqdm bar, or a no-op compatible fallback."""
+    if enabled:
+        try:
+            from tqdm.auto import tqdm
+
+            return tqdm(
+                total=total,
+                desc="Building raster index",
+                unit="raster",
+                file=stdout,
+                dynamic_ncols=True,
+            )
+        except ImportError:
+            LOGGER.warning(
+                "tqdm is unavailable; raster index creation will continue "
+                "without a progress bar."
+            )
+
+    class NullProgress:
+        def update(self, amount: int = 1) -> None:
+            del amount
+
+        def set_postfix_str(self, value: str, *, refresh: bool = True) -> None:
+            del value, refresh
+
+        def close(self) -> None:
+            return None
+
+    return NullProgress()
+
+
+def _raster_footprint(path: Path, *, output_srs, gdal: Any, ogr: Any, osr: Any):
+    """Return a four-corner raster footprint transformed to ``output_srs``."""
+    dataset = gdal.Open(str(path), gdal.GA_ReadOnly)
+    if dataset is None:
+        raise RuntimeError(f"Could not open raster while indexing: {path}")
+    try:
+        if dataset.RasterXSize < 1 or dataset.RasterYSize < 1:
+            raise ValueError(f"Raster has invalid dimensions: {path}")
+        geotransform = dataset.GetGeoTransform(can_return_null=True)
+        if geotransform is None:
+            raise ValueError(f"Raster has no affine transform: {path}")
+        source_srs = dataset.GetSpatialRef()
+        if source_srs is None:
+            raise ValueError(f"Raster has no embedded CRS: {path}")
+        source_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+
+        width = float(dataset.RasterXSize)
+        height = float(dataset.RasterYSize)
+
+        def coordinate(pixel: float, line: float) -> tuple[float, float]:
+            return (
+                geotransform[0]
+                + pixel * geotransform[1]
+                + line * geotransform[2],
+                geotransform[3]
+                + pixel * geotransform[4]
+                + line * geotransform[5],
+            )
+
+        ring = ogr.Geometry(ogr.wkbLinearRing)
+        for pixel, line in (
+            (0.0, 0.0),
+            (width, 0.0),
+            (width, height),
+            (0.0, height),
+            (0.0, 0.0),
+        ):
+            x, y = coordinate(pixel, line)
+            ring.AddPoint_2D(x, y)
+        polygon = ogr.Geometry(ogr.wkbPolygon)
+        polygon.AddGeometry(ring)
+
+        with osr.ExceptionMgr(useExceptions=False):
+            transformation = osr.CoordinateTransformation(source_srs, output_srs)
+        if transformation is None:
+            raise RuntimeError(
+                f"Could not transform raster footprint to the index CRS: {path}"
+            )
+        if polygon.Transform(transformation) != 0:
+            raise RuntimeError(
+                f"Raster footprint transformation failed while indexing: {path}"
+            )
+        if polygon.IsEmpty() or not polygon.IsValid():
+            raise ValueError(
+                f"Raster produced an empty or invalid index footprint: {path}"
+            )
+        return polygon
+    finally:
+        dataset = None
+
+
+def _create_vector_index_with_ogr(
+    config: VectorIndexBuildConfig,
+    raster_paths: tuple[Path, ...],
+    *,
+    progress: bool,
+    stdout: TextIO,
+) -> Path:
+    """Write one validated footprint feature per raster using Python OGR."""
+    from osgeo import gdal, ogr, osr
+
+    gdal.UseExceptions()
+    ogr.UseExceptions()
+    osr.UseExceptions()
+
+    output_srs = osr.SpatialReference()
+    if output_srs.ImportFromWkt(_output_srs_wkt(config)) != 0:
+        raise ValueError(f"Could not import output CRS WKT: {config.output_srs_path}")
+    output_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+
+    driver_name = _expected_driver_name(config.index_path)
+    driver = ogr.GetDriverByName(driver_name)
+    if driver is None:
+        raise RuntimeError(f"OGR driver is unavailable: {driver_name}")
+    dataset = driver.CreateDataSource(str(config.index_path))
+    if dataset is None:
+        raise RuntimeError(f"Could not create raster vector index: {config.index_path}")
+
+    layer = None
+    bar = _progress_bar(total=len(raster_paths), stdout=stdout, enabled=progress)
+    try:
+        layer = dataset.CreateLayer(
+            config.layer_name or config.index_path.stem,
+            srs=output_srs,
+            geom_type=ogr.wkbPolygon,
+        )
+        if layer is None:
+            raise RuntimeError(
+                f"Could not create index layer in {config.index_path}"
+            )
+        location_field = ogr.FieldDefn(config.location_field, ogr.OFTString)
+        if config.index_path.suffix.lower() == ".shp":
+            location_field.SetWidth(254)
+        if layer.CreateField(location_field) != 0:
+            raise RuntimeError(
+                f"Could not create location field {config.location_field!r} "
+                f"in {config.index_path}"
+            )
+
+        for path in raster_paths:
+            stored_path = str(path)
+            if (
+                config.index_path.suffix.lower() == ".shp"
+                and len(stored_path.encode("utf-8")) > 254
+            ):
+                raise ValueError(
+                    f"Raster path exceeds the Shapefile location-field limit: {path}. "
+                    "Use a GeoPackage index or a shorter data path."
+                )
+            footprint = _raster_footprint(
+                path,
+                output_srs=output_srs,
+                gdal=gdal,
+                ogr=ogr,
+                osr=osr,
+            )
+            feature = ogr.Feature(layer.GetLayerDefn())
+            feature.SetField(config.location_field, stored_path)
+            feature.SetGeometry(footprint)
+            if layer.CreateFeature(feature) != 0:
+                raise RuntimeError(f"Could not index raster: {path}")
+            feature = None
+            footprint = None
+            bar.set_postfix_str(path.name, refresh=False)
+            bar.update(1)
+    finally:
+        bar.close()
+        layer = None
+        dataset = None
+    return config.index_path
 
 
 def _rebuild_guidance(config: VectorIndexBuildConfig) -> str:
@@ -297,11 +471,16 @@ def create_vector_index(
     config: VectorIndexBuildConfig,
     *,
     raster_paths: tuple[Path, ...] | None = None,
+    progress: bool = True,
+    stdout: TextIO | None = None,
 ) -> Path:
-    """Create a new raster vector index; never overwrite an existing index."""
-    from osgeo import gdal
+    """Create a new raster vector index; never overwrite an existing index.
 
-    gdal.UseExceptions()
+    The supported Explore GDAL 3.8.4 Python bindings do not expose
+    ``gdal.TileIndex``. Writing through OGR keeps creation Python-native and
+    supplies genuine per-raster progress without shelling out to
+    ``gdaltindex``.
+    """
     if config.index_path.exists():
         raise FileExistsError(
             f"Raster vector index already exists: {config.index_path}. "
@@ -313,24 +492,13 @@ def create_vector_index(
             f"No rasters matched {config.image_glob!r} in {config.data_dir}"
         )
     config.index_path.parent.mkdir(parents=True, exist_ok=True)
-
-    options = gdal.TileIndexOptions(
-        format=_expected_driver_name(config.index_path),
-        layerName=config.layer_name or config.index_path.stem,
-        locationFieldName=config.location_field,
-        outputSRS=_output_srs_wkt(config),
+    active_stdout = sys.stdout if stdout is None else stdout
+    return _create_vector_index_with_ogr(
+        config,
+        paths,
+        progress=progress,
+        stdout=active_stdout,
     )
-    dataset = gdal.TileIndex(
-        str(config.index_path),
-        [str(path) for path in paths],
-        options=options,
-    )
-    if dataset is None:
-        error = gdal.GetLastErrorMsg()
-        detail = f": {error}" if error else ""
-        raise RuntimeError(f"Could not create raster vector index{detail}")
-    dataset = None
-    return config.index_path
 
 
 def ensure_vector_index(
@@ -378,7 +546,12 @@ def ensure_vector_index(
         logger=active_logger,
         stdout=active_stdout,
     )
-    create_vector_index(config, raster_paths=raster_paths)
+    create_vector_index(
+        config,
+        raster_paths=raster_paths,
+        progress=True,
+        stdout=active_stdout,
+    )
     result = validate_vector_index(
         config,
         expected_raster_paths=raster_paths,

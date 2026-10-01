@@ -101,6 +101,18 @@ P1 work started:
   installed. Shell syntax, Python syntax, and whitespace checks passed.
 - P1.1 is complete. P1.2 is in progress pending the container-backed focused
   tests; no Explore execution is claimed yet.
+- Explore job 37937983 reached the capability probe and failed before the
+  focused tests because GDAL 3.8.4 does not expose `gdal.TileIndex` in Python.
+  This is accepted capability evidence, not a successful validation run.
+- Replaced the unavailable Python utility call with a direct Python/OGR writer
+  that creates one footprint feature per raster and exposes genuine
+  per-raster tqdm progress on stdout. `gdaltindex` remains the later semantic
+  comparison oracle rather than the production writer.
+- Updated the probe to report missing Python APIs and the installed
+  `gdaltindex` executable/version without crashing. The focused wrapper still
+  requires a rerun.
+- After the fallback change, 44 dependency-free local tiling tests pass; the
+  two GDAL-backed index tests remain skipped locally.
 
 Next:
 

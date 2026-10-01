@@ -9,6 +9,7 @@ from lfm.model.vector_index_builder import (
     StaleVectorIndexError,
     VectorIndexBuildConfig,
     VectorIndexValidationResult,
+    create_vector_index,
     discover_raster_paths,
     ensure_vector_index,
 )
@@ -69,6 +70,15 @@ class VectorIndexBuildConfigTestCase(unittest.TestCase):
             with self.assertRaisesRegex(FileNotFoundError, "No rasters matched"):
                 discover_raster_paths(config)
 
+    def test_explicit_creation_never_overwrites_existing_index(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            data_dir = Path(temporary_directory)
+            config = VectorIndexBuildConfig(data_dir)
+            config.index_path.touch()
+
+            with self.assertRaisesRegex(FileExistsError, "already exists"):
+                create_vector_index(config, progress=False)
+
 
 class EnsureVectorIndexTestCase(unittest.TestCase):
     def result(self, config, paths):
@@ -92,14 +102,22 @@ class EnsureVectorIndexTestCase(unittest.TestCase):
             expected = self.result(config, (raster,))
             validate.return_value = expected
 
-            def create_side_effect(received, *, raster_paths):
+            def create_side_effect(
+                received,
+                *,
+                raster_paths,
+                progress,
+                stdout,
+            ):
                 self.assertEqual(raster_paths, (raster,))
+                self.assertTrue(progress)
+                self.assertIs(stdout, active_stdout)
                 received.index_path.touch()
                 return received.index_path
 
             create.side_effect = create_side_effect
-            stdout = io.StringIO()
-            actual = ensure_vector_index(config, stdout=stdout)
+            active_stdout = io.StringIO()
+            actual = ensure_vector_index(config, stdout=active_stdout)
 
         self.assertIs(actual, expected)
         create.assert_called_once()
@@ -107,7 +125,7 @@ class EnsureVectorIndexTestCase(unittest.TestCase):
             config,
             expected_raster_paths=(raster,),
         )
-        output = stdout.getvalue()
+        output = active_stdout.getvalue()
         self.assertIn("will be created", output)
         self.assertIn("can take several minutes", output)
         self.assertIn("Created and validated", output)
