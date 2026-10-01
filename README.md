@@ -57,24 +57,43 @@ Feel free to create a new directory to run these workflows as well. To create a 
    `notebooks/` folder contains Jupyter notebooks for the IBM/"graha" model
    finetuning and inference workflows across two machine learning tasks
    (instance/semantic segmentation), as well as a notebook demonstrating the
-   Armstrong tiling scheme for LTM and LPS (Mercator and Polar) areas. It also contains
-   notebooks for creating labels manually on an existing raster, and a showcase of the
-   ML-ready dataset creation ("chip creation").
+   Armstrong numbered Lunar Transverse Mercator (LTM) and Lunar Polar
+   Stereographic (`LPS_N`/`LPS_S`) tiling grids. It also contains notebooks for
+   creating labels manually on an existing raster and a showcase of ML-ready
+   dataset creation ("chip creation").
 
 **Note: the structure of the folders is such that we have 2 lfm/ folders; the outermost lfm/ folder contains the notebooks/ directory.**
 
 - `instance_ibm_train.ipynb` and `semantic_ibm_train.ipynb` run training for instance/semantic segmentation of craters.
 - `inference_iseg.ipynb` performs inference on the "data cubes" created from the LTM tiling scheme after the instance finetuning notebook has been run on **WAC data**. **This notebook allows you to manually set the checkpoint path to a previously created finetuning checkpoint. You need to both run the finetuning notebook before using this notebook, and if you would like to use a specific finetuning run, you must change the finetuning checkpoint variable to the filepath of your desired checkpoint.**
 - `inference_sseg.ipynb` performs the same inference workflow as inference_iseg.ipynb, except for the semantic segmentation task.
-- `tiling_example.ipynb` demonstrates how you can select a specific dynamic (WAC/NAC) product ID and area of interest (AOI), and create "datacubes"/tiles using the Armstrong Tiling Scheme. For details about LTM zones, zoom levels, tile addresses, and the repository implementation, see [`TMS/README.md`](TMS/README.md).
+- `tiling_example.ipynb` demonstrates automatic Armstrong tiling for WAC and
+  NAC imagery with optional 63-band static context. Users configure raster
+  directories and a lunar latitude/longitude AOI; product IDs may be supplied
+  explicitly or set to `None` to discover intersecting products separately.
+  The workflow creates or reuses raster indexes, selects modality-appropriate
+  zoom levels, and automatically routes queries between numbered LTM grids and
+  the `LPS_N`/`LPS_S` polar grids at ±82°. Setting
+  `RUN_ALTERNATE_QUERIES = True` additionally demonstrates a geographic point
+  query, an explicit structured tile-address query, and dynamic-only
+  north-polar WAC tiling. Canonical static context is currently disabled for
+  polar queries because its polar coverage has not been verified. For grid
+  geometry, routing, zoom levels, and tile addressing, see
+  [`TMS/README.md`](TMS/README.md).
 - `chip_example.ipynb` demonstrates using a WAC 300x300 chip and its matching label information to create a full WAC + static chip, using the Armstrong tiling scheme and some reprojection operations. This notebook also contains examples on how to create a full dataset from a previous dataset, splittng chips into train/val/test. This notebook is intended to be used in a narrow context; it does not currently allow for new types of datasets to be created (a new dataset means a dataset with no baseline/reference dataset to provide AOI inputs).
 - `crater_labeling.ipynb` allows for hand-label creation directly from the source geotiffs, using an interactive notebook interface.
 
 **Note 2: toy model notebooks are still found under <your_folder>/lfm/notebooks/toy_model. These are no longer supported in this release.**
 
-10. After navigating to the `<your_folder>/lfm/notebooks/` folder, open your notebook of choice by double-clicking it. If this is your first time opening the notebook, you will get a box asking to select a kernel profile. **Select "lfm_kernel"**. If this box does not appear automatically, click the kernel name in the top-right corner (it might display "Python 3" or similar), and select "lfm_kernel" from the dropdown menu.
+10. After navigating to the <your_folder>/lfm/notebooks/ folder, open your notebook of choice by double-clicking it.
 
-**Verify that "lfm_kernel" now appears in the top-right corner.**
+    - If this is your first time opening the notebook, a box will appear asking you to select a kernel:
+
+        - For crater_labeling.ipynb, select lfm_kernel_ipyleaflet.
+        - For all other notebooks, select lfm_kernel.
+    - If this box does not appear automatically, click the kernel name in the top-right corner of the notebook (it may display "Python 3" or similar), then choose the correct kernel from the dropdown menu as described above.
+
+**Verify that the kernel you chose from the dropdown now appears in the top-right corner.**
 
 11. Run the notebook, by clicking on the restart button (looks like the fast-forward icon [>>]). You may see another dialog box pop up; if you do, click the red "restart" button to run the notebook. You should now see all cells of the notebook running in order, shown by the symbol [*] to the left of each notebook cell. **Note: only a singular notebook should be run at once, since the models take significant compute to run.**
 
