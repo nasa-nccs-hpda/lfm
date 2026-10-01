@@ -10,3 +10,4 @@ notebooks/lfm
 planning.txt
 **/.ruff_cache
 test_outputs/
+**.def
