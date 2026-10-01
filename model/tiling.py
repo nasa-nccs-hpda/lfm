@@ -14,19 +14,34 @@ def _tiler_cls():
     return ConfiguredTiler
 
 
+def _grid_id(*, zone: str | None, grid_id: str | None) -> str:
+    if zone is None and grid_id is None:
+        raise ValueError("A zone or grid_id is required.")
+    if zone is not None and grid_id is not None and zone != grid_id:
+        raise ValueError(
+            f"zone {zone!r} and grid_id {grid_id!r} identify different grids."
+        )
+    selected = grid_id if grid_id is not None else zone
+    if selected is None or not str(selected).strip():
+        raise ValueError("zone/grid_id must not be empty.")
+    return str(selected).strip()
+
+
 def create_tiles_for_index(
     config: TileConfig,
     *,
     tile_x: int,
     tile_y: int,
-    zone: str,
+    zone: str | None = None,
+    grid_id: str | None = None,
     selectors: Mapping[str, str] | None = None,
 ) -> list[TileCubeRecord]:
-    """Create configured source cubes for one explicit LTM tile index."""
+    """Create source cubes for one explicit grid tile address."""
+    selected_grid = _grid_id(zone=zone, grid_id=grid_id)
     return _tiler_cls()(config, selectors=selectors).run_tile_index(
         tile_x,
         tile_y,
-        zone,
+        selected_grid,
     )
 
 
@@ -35,11 +50,17 @@ def create_tiles_for_point(
     *,
     lat: float,
     lon: float,
-    zone: str,
+    zone: str | None = None,
+    grid_id: str | None = None,
     selectors: Mapping[str, str] | None = None,
 ) -> list[TileCubeRecord]:
-    """Create configured source cubes for the LTM tile containing a point."""
-    return _tiler_cls()(config, selectors=selectors).run_point(lat, lon, zone)
+    """Create source cubes for the explicit grid tile containing a point."""
+    selected_grid = _grid_id(zone=zone, grid_id=grid_id)
+    return _tiler_cls()(config, selectors=selectors).run_point(
+        lat,
+        lon,
+        selected_grid,
+    )
 
 
 def create_tiles_for_aoi(
@@ -51,7 +72,7 @@ def create_tiles_for_aoi(
     lr_lon: float,
     selectors: Mapping[str, str] | None = None,
 ) -> list[TileCubeRecord]:
-    """Create configured source cubes for every LTM tile intersecting an AOI."""
+    """Create configured source cubes for every routed tile intersecting an AOI."""
     return _tiler_cls()(config, selectors=selectors).run_aoi(
         ul_lat,
         ul_lon,

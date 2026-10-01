@@ -377,7 +377,7 @@ and the filtered one-tile legacy integration test under GDAL 3.8.4 in
 successful test processes and did not affect the job result. Phase P2 is
 complete.
 
-## Phase P3 — Introduce a grid registry and automatic router `[In-Progress]`
+## Phase P3 — Introduce a grid registry and automatic router `[Complete]`
 
 - `[Complete]` **P3.1** Add a grid-neutral registry that loads the 90 LTM
   definitions plus the repository polar definitions and exposes canonical IDs,
@@ -396,7 +396,7 @@ complete.
 - `[Complete]` **P3.6** Add router tests covering both poles, every threshold
   edge, LTM longitude edges, the longitude seam, multi-grid AOIs, stable order,
   and invalid geographic inputs.
-- `[In-Progress]` **P3.7** Run the expanded modern tiling suite and safe legacy
+- `[Complete]` **P3.7** Run the expanded modern tiling suite and safe legacy
   regression suite in `lfm-container-ipyleaflet`. Confirm the new registry and
   router tests pass with the supported Python/GDAL environment before P3
   closes.
@@ -412,29 +412,53 @@ numbered-zone edges, and the antimeridian, and returns unique stable
 non-wrapping query parts. The public exports do not connect these routing parts
 to cube production; P4 remains responsible for polar tile geometry. The 23 new
 focused tests and the expanded 114-test local modern suite pass, with 14
-unchanged environment-dependent skips. P3.7 is the supported-container gate.
+unchanged environment-dependent skips. Explore job 37938083 then passed all
+114 modern contract tests, all 25 safe legacy regression tests, and the
+filtered one-tile legacy integration test under GDAL 3.8.4 in
+`lfm-container-ipyleaflet`. Apptainer emitted FUSE cleanup messages only after
+successful commands, and the wrapper reached its success terminus. Phase P3 is
+complete.
 
-## Phase P4 — Implement polar tile geometry and addressing `[Not Started]`
+## Phase P4 — Implement polar tile geometry and addressing `[In-Progress]`
 
-- `[Not Started]` **P4.1** Parse the north and south polar TMS JSON structures,
+- `[Complete]` **P4.1** Parse the north and south polar TMS JSON structures,
   including their projection definitions, zoom matrices, origins, cell sizes,
   matrix dimensions, and valid tile ranges.
-- `[Not Started]` **P4.2** Refactor shared tile-matrix calculations away from
+- `[Complete]` **P4.2** Refactor shared tile-matrix calculations away from
   LTM-only assumptions while preserving the proven LTM implementation and
   numerical behavior.
-- `[Not Started]` **P4.3** Transform routed geographic point/AOI geometry into
+- `[Complete]` **P4.3** Transform routed geographic point/AOI geometry into
   each polar stereographic grid using traditional GIS axis order and sufficient
   edge densification for curved geographic boundaries.
-- `[Not Started]` **P4.4** Resolve intersecting polar tile rows and columns,
+- `[Complete]` **P4.4** Resolve intersecting polar tile rows and columns,
   apply the existing meaningful-overlap policy where applicable, clip indexes
   to valid matrix limits, and deduplicate results deterministically.
-- `[Not Started]` **P4.5** Extend explicit tile-index validation and structured
+- `[Complete]` **P4.5** Extend explicit tile-index validation and structured
   records to accept complete `LPS_N` and `LPS_S` addresses.
-- `[Not Started]` **P4.6** Write grid-neutral cube filenames and metadata while
+- `[Complete]` **P4.6** Write grid-neutral cube filenames and metadata while
   retaining unchanged LTM filenames for backward compatibility.
-- `[Not Started]` **P4.7** Add numerical tests for transforms, projected bounds,
+- `[Complete]` **P4.7** Add numerical tests for transforms, projected bounds,
   exact 512 by 512 geotransforms, matrix edges, both poles, seam behavior,
   output CRS, and invalid polar addresses.
+- `[In-Progress]` **P4.8** Run the expanded modern tiling suite and safe legacy
+  regressions in `lfm-container-ipyleaflet`. Confirm the polar transform,
+  geometry, GeoTIFF, seam-envelope, and unchanged LTM numerical tests pass with
+  the supported GDAL build before P4 closes.
+
+P4.1-P4.7 implementation checkpoint: `tile_matrix.py` now owns shared projected
+matrix bounds, point addressing, candidate ranges, and explicit-address
+validation. `TmsTileDef` consumes that arithmetic while retaining its existing
+projection and overlap implementation. `PolarTileDef` loads the registered
+`LPS_N`/`LPS_S` matrix, constructs traditional-axis IAU transformations,
+densifies geographic AOI edges, projects full polar caps as circular coverage,
+intersects projected polygons with clipped matrix candidates, and derives
+conservative seam-safe source-index envelopes from densified tile perimeters.
+The configured AOI path now consumes P3 routing parts and deduplicates complete
+grid/tile addresses. Explicit APIs accept `grid_id` while preserving `zone`,
+records and errors expose a `grid_id` alias, LTM filenames remain unchanged,
+and polar filenames use `LPS_N`/`LPS_S` directly. Local validation passes 134
+tests with 23 environment-dependent skips. P4.8 is the supported-container
+numerical and regression gate.
 
 ## Phase P5 — Add configurable dynamic/static source modes `[Not Started]`
 

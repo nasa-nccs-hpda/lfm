@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Any
 
+from .grid_registry import GeographicCoverage
 from .tiling_config import TileSourceConfig
 
 
@@ -94,36 +96,81 @@ def query_source_index(
     lr_lon: float,
 ) -> list[IndexedRaster]:
     """Return rasters whose index footprints intersect a geographic AOI."""
+    return query_source_index_envelopes(
+        source,
+        (
+            GeographicCoverage(
+                south=lr_lat,
+                west=ul_lon,
+                north=ul_lat,
+                east=lr_lon,
+            ),
+        ),
+    )
+
+
+def query_source_index_envelopes(
+    source: TileSourceConfig,
+    envelopes: tuple[GeographicCoverage, ...],
+) -> list[IndexedRaster]:
+    """Query one or more non-wrapping envelopes and deduplicate records."""
+    if not envelopes:
+        return []
     dataset, layer = open_vector_layer(
         source.index_path,
         layer_name=source.index_layer,
     )
     try:
         _require_location_field(layer, source)
-        layer.SetSpatialFilterRect(ul_lon, lr_lat, lr_lon, ul_lat)
-        layer.ResetReading()
-        records = [
-            IndexedRaster(
-                path=resolve_indexed_raster_path(
-                    source.data_dir,
-                    feature.GetField(source.location_field),
-                ),
-                feature_id=(
-                    int(feature.GetFID()) if feature.GetFID() is not None else None
-                ),
+        records: dict[str, IndexedRaster] = {}
+        for envelope in envelopes:
+            layer.SetSpatialFilterRect(
+                envelope.west,
+                envelope.south,
+                envelope.east,
+                envelope.north,
             )
-            for feature in layer
-        ]
+            layer.ResetReading()
+            for feature in layer:
+                feature_id = (
+                    int(feature.GetFID())
+                    if feature.GetFID() is not None
+                    else None
+                )
+                record = IndexedRaster(
+                    path=resolve_indexed_raster_path(
+                        source.data_dir,
+                        feature.GetField(source.location_field),
+                    ),
+                    feature_id=feature_id,
+                )
+                key = str(record.path)
+                previous = records.get(key)
+                previous_fid = (
+                    previous.feature_id
+                    if previous is not None and previous.feature_id is not None
+                    else math.inf
+                )
+                record_fid = feature_id if feature_id is not None else math.inf
+                if previous is None or record_fid < previous_fid:
+                    records[key] = record
     finally:
         layer.SetSpatialFilter(None)
         layer = None
         dataset = None
-    return sorted(records, key=lambda record: (str(record.path), record.feature_id or -1))
+    return sorted(
+        records.values(),
+        key=lambda record: (
+            str(record.path),
+            record.feature_id if record.feature_id is not None else -1,
+        ),
+    )
 
 
 __all__ = [
     "IndexedRaster",
     "open_vector_layer",
     "query_source_index",
+    "query_source_index_envelopes",
     "resolve_indexed_raster_path",
 ]

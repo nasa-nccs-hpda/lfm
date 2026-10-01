@@ -253,7 +253,11 @@ def route_aoi(
     south = _latitude(lr_lat, name="lr_lat")
     if north <= south:
         raise GeographicRoutingError("AOI requires ul_lat > lr_lat.")
-    full_longitude_polar_cap = south >= 82.0 or north <= -82.0
+    full_longitude_polar_cap = (
+        north == 90.0 and south >= POLAR_LATITUDE_THRESHOLD
+    ) or (
+        south == -90.0 and north <= -POLAR_LATITUDE_THRESHOLD
+    )
     longitude_parts = _longitude_parts(
         ul_lon,
         lr_lon,

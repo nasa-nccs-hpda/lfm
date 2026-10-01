@@ -401,11 +401,11 @@ these behaviors without waiting for the tiling notebook or legacy cleanup:
   timestamp run ID. Backend chip code may reuse `make_static_source`, but
   should create a unique per-sample intermediate output directory rather than
   share the notebook-level `RUN_ID` across a batch.
-- The modern path currently supports the numbered LTM geometry. The LPN/LPS
-  JSON files are retained in `TMS/RG`, but polar acquisition was not
-  implemented because its geometry differs from the LTM longitude-band grids.
-  Reference TIFFs requiring polar coverage must fail clearly until a dedicated
-  polar path is designed and tested.
+- The low-level modern tiler now has dedicated `LPS_N`/`LPS_S` geometry and
+  grid-neutral records while preserving the numbered-LTM contract. Downstream
+  chip acquisition still rejects polar coverage until its own separate polar
+  migration is designed and tested; tiling support must not silently broaden
+  the chip workflow's accepted inputs.
 
 The deprecated `model/Pipeline.py` remains only as a regression and temporary
 compatibility adapter. Its hard-coded static path, WAC-oriented constructor,

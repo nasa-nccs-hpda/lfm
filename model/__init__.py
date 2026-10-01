@@ -165,7 +165,11 @@ from .tiling_preparation import (
     prepare_tile_config,
 )
 from .lunar_crs import LUNAR_GEOGRAPHIC_WKT_PATH, load_lunar_geographic_wkt
-from .vector_index import IndexedRaster, query_source_index
+from .vector_index import (
+    IndexedRaster,
+    query_source_index,
+    query_source_index_envelopes,
+)
 from .vector_index_builder import (
     DEFAULT_RASTER_GLOBS,
     StaleVectorIndexError,
@@ -341,6 +345,7 @@ __all__ = [
     "publish_chip_pair",
     "product_id_from_sample_id",
     "query_source_index",
+    "query_source_index_envelopes",
     "reference_sample_from_tiff",
     "resolve_label_path",
     "route_aoi",

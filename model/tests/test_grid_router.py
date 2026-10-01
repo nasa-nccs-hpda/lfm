@@ -216,6 +216,14 @@ class GridRouterTestCase(unittest.TestCase):
                 lr_lon=180,
                 registry=self.registry,
             )
+        with self.assertRaisesRegex(GeographicRoutingError, "polar cap"):
+            route_aoi(
+                ul_lat=85,
+                ul_lon=-180,
+                lr_lat=83,
+                lr_lon=180,
+                registry=self.registry,
+            )
 
     def test_ambiguous_and_world_spanning_longitudes_are_rejected(self):
         for west, east in ((0, 180), (-170, 170), (90, -90)):

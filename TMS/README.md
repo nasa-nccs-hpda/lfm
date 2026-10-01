@@ -96,12 +96,14 @@ longitude-band rectangle. The current AOI intersection, zone identifiers,
 output naming, notebook examples, and regression tests were implemented around
 the LTM geometry and `number + hemisphere` addresses such as `42N`.
 
-The grid registry and geographic router now recognize `LPS_N` and `LPS_S`, use
-an inclusive 82-degree automatic-routing threshold, and partition geographic
-AOIs without passing polar definitions through the LTM filename logic. Polar
-tile intersection and addressing are still a separate implementation phase.
-Consequently, the current cube-writing APIs remain LTM-only even though the
-metadata and routing layers are grid-neutral.
+The grid registry and geographic router recognize `LPS_N` and `LPS_S`, use an
+inclusive 82-degree automatic-routing threshold, and partition geographic AOIs
+without passing polar definitions through the LTM filename logic. The low-level
+tiler now also implements polar projection, tile intersection, explicit
+addresses, seam-safe source-index envelopes, and polar cube filenames. This P4
+path remains under its supported-container regression gate; source-mode
+composition, per-family default zooms, and the public easy workflow are later
+phases.
 
 ## Zoom levels and tile matrices
 
@@ -173,9 +175,8 @@ zone and zoom is not a complete address.
 - [`RG/tile_database.gpkg`](RG/tile_database.gpkg) is an auxiliary geographic
   inventory of the 728 zoom-1 tiles across the 90 LTM and two polar grids. The
   current configuration-driven tiler does not use this GeoPackage to resolve
-  normal AOI queries. The new registry reads the JSON files directly, while
-  current LTM cube generation continues through `TmsIntersector` until its
-  geometry path is generalized.
+  normal AOI queries. The registry and grid-neutral tile-definition factory
+  read the JSON files directly.
 
 Do not confuse `tile_database.gpkg` with a raster source index. Each configured
 data modality has its own existing `.shp` or `.gpkg` index whose features
@@ -189,12 +190,12 @@ strict functions live in [`model/tiling.py`](../model/tiling.py), and optional
 AOI product discovery lives in
 [`model/product_tiling.py`](../model/product_tiling.py):
 
-- `create_tiles_for_aoi(...)` discovers all LTM tiles intersecting geographic
-  bounds and is the strict low-level path: every `product_id` source requires
-  an explicit selector.
+- `create_tiles_for_aoi(...)` routes geographic bounds and is the strict
+  low-level path: every `product_id` source requires an explicit selector and
+  the one configured zoom is applied to each routed grid.
 - `create_tiles_for_point(...)` processes the tile containing a point in an
-  explicitly supplied zone.
-- `create_tiles_for_index(...)` processes an explicit zone/zoom/tile address.
+  explicitly supplied `zone` or `grid_id`.
+- `create_tiles_for_index(...)` processes an explicit grid/zoom/tile address.
 - `create_tiles_for_aoi_by_product(...)` is the high-level optional-product
   path. A configured PID selects one observation; `None` or an omitted mapping
   entry discovers every intersecting PID for that product-scoped source.
@@ -205,8 +206,8 @@ coverage, and tile matrices without inferring every grid from an LTM filename.
 [`model/grid_router.py`](../model/grid_router.py) validates and normalizes
 geographic requests, routes points at `>= +82` to `LPS_N` and at `<= -82` to
 `LPS_S`, and partitions AOIs at the polar thresholds, equator, longitude-zone
-edges, and antimeridian. These routing results are preparatory metadata until
-the polar tile-geometry work is complete.
+edges, and antimeridian. The grid-neutral tile-definition factory consumes
+these routing results; the easy orchestration workflow remains a later phase.
 
 The implementation follows this sequence:
 
@@ -214,17 +215,19 @@ The implementation follows this sequence:
    sources. Each `TileSourceConfig` declares its data directory, vector index,
    location field, raster selection rule, bands, NoData policy, and whether the
    source is required.
-2. [`TmsIntersector`](../model/TmsIntersector.py) loads the zone JSON metadata
-   and finds every zone intersecting an AOI.
-3. [`TmsZoneDef`](../model/TmsZoneDef.py) delegates the AOI to the requested
-   zoom matrix. [`TmsTileDef`](../model/TmsTileDef.py) constructs the LTM/IAU
-   transformations and resolves the intersecting tile columns and rows. The
-   AOI path requires at least 10 meters of overlap in both projected
-   dimensions, avoiding tiles touched only by insignificant boundary effects.
-4. For each tile, the LTM extent is transformed back to lunar longitude and
-   latitude. [`model/vector_index.py`](../model/vector_index.py) applies that
-   extent as a read-only OGR spatial filter to each source index. The tiler
-   never creates, refreshes, or modifies these source indexes.
+2. [`model/grid_router.py`](../model/grid_router.py) partitions the AOI into
+   canonical numbered LTM, `LPS_N`, and `LPS_S` query parts.
+3. [`model/grid_tile_def.py`](../model/grid_tile_def.py) retains
+   [`TmsTileDef`](../model/TmsTileDef.py) for proven LTM geometry and uses a
+   dedicated polar definition for densified stereographic intersection. Both
+   paths require at least 10 meters of overlap in both projected dimensions,
+   avoiding tiles touched only by insignificant boundary effects.
+4. For each tile, its projected perimeter is transformed back to lunar
+   longitude and latitude. Polar perimeters are densified and expressed as one
+   or more non-wrapping envelopes. [`model/vector_index.py`](../model/vector_index.py)
+   applies those envelopes as read-only OGR spatial filters and deduplicates
+   returned raster paths. The tiler never creates, refreshes, or modifies these
+   source indexes.
 5. The strict API makes `product_id` sources select the requested observation.
    The high-level AOI API can instead resolve product IDs through each source's
    configured resolver, group companion rasters such as WAC UV/VIS files, and

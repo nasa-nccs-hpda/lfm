@@ -1,12 +1,12 @@
-"""Configuration-driven creation of modality-neutral LTM datacubes."""
+"""Configuration-driven creation of modality-neutral lunar datacubes."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
 
-from .TmsIntersector import TmsIntersector
-from .TmsTileDef import TmsTileDef
+from .grid_router import route_aoi
+from .grid_tile_def import tile_definition_for_grid
 from .raster_cube import warp_source_to_tile, write_tile_cube
 from .tiling_config import TileConfig, TileSourceConfig
 from .tiling_policy import (
@@ -19,11 +19,11 @@ from .tiling_results import (
     TileSourceError,
     tile_cube_filename,
 )
-from .vector_index import query_source_index
+from .vector_index import query_source_index_envelopes
 
 
 class ConfiguredTiler:
-    """Create LTM datacubes for every source declared in a :class:`TileConfig`."""
+    """Create grid-aligned cubes for every source in a :class:`TileConfig`."""
 
     def __init__(
         self,
@@ -46,13 +46,13 @@ class ConfiguredTiler:
         self,
         source: TileSourceConfig,
         *,
-        zone: str,
+        grid_id: str,
         tile_x: int,
         tile_y: int,
     ) -> Path:
         return self.config.output_dir / tile_cube_filename(
             source_name=source.name,
-            zone=zone,
+            grid_id=grid_id,
             zoom_level=self.config.zoom_level,
             tile_x=tile_x,
             tile_y=tile_y,
@@ -63,22 +63,19 @@ class ConfiguredTiler:
         self,
         tile_x: int,
         tile_y: int,
-        zone: str,
+        grid_id: str,
     ) -> list[TileCubeRecord]:
-        tile_def = TmsTileDef.initFromParams(zone, self.config.zoom_level)
+        tile_def = tile_definition_for_grid(grid_id, self.config.zoom_level)
+        tile_def.validateTileIndex(tile_x, tile_y)
         ulx, uly, lrx, lry = tile_def.getTileBbox(tile_x, tile_y)
-        ul_lat, ul_lon = tile_def.ltmToLatLon(ulx, uly)
-        lr_lat, lr_lon = tile_def.ltmToLatLon(lrx, lry)
+        query_envelopes = tile_def.geographic_query_envelopes(tile_x, tile_y)
 
         records: list[TileCubeRecord] = []
         for source in self.config.sources:
             try:
-                indexed = query_source_index(
+                indexed = query_source_index_envelopes(
                     source,
-                    ul_lat=ul_lat,
-                    ul_lon=ul_lon,
-                    lr_lat=lr_lat,
-                    lr_lon=lr_lon,
+                    query_envelopes,
                 )
                 selected = select_source_rasters(
                     source,
@@ -89,9 +86,9 @@ class ConfiguredTiler:
                     if source.required:
                         raise MissingRequiredSourceError(
                             f"Required source {source.name!r} has no indexed data "
-                            f"for LTM{zone} tile ({tile_x}, {tile_y}).",
+                            f"for grid {grid_id} tile ({tile_x}, {tile_y}).",
                             source_name=source.name,
-                            zone=zone,
+                            zone=grid_id,
                             tile_x=tile_x,
                             tile_y=tile_y,
                             completed_records=tuple(records),
@@ -108,9 +105,9 @@ class ConfiguredTiler:
                     if source.required:
                         raise MissingRequiredSourceError(
                             f"Required source {source.name!r} has no valid bands "
-                            f"for LTM{zone} tile ({tile_x}, {tile_y}).",
+                            f"for grid {grid_id} tile ({tile_x}, {tile_y}).",
                             source_name=source.name,
-                            zone=zone,
+                            zone=grid_id,
                             tile_x=tile_x,
                             tile_y=tile_y,
                             completed_records=tuple(records),
@@ -119,7 +116,7 @@ class ConfiguredTiler:
                     continue
                 output_path = self._output_path(
                     source,
-                    zone=zone,
+                    grid_id=grid_id,
                     tile_x=tile_x,
                     tile_y=tile_y,
                 )
@@ -129,7 +126,7 @@ class ConfiguredTiler:
                         bands,
                         source=source,
                         product_id=self._product_id(source),
-                        zone=zone,
+                        zone=grid_id,
                         zoom_level=self.config.zoom_level,
                         tile_x=tile_x,
                         tile_y=tile_y,
@@ -142,10 +139,10 @@ class ConfiguredTiler:
                 raise
             except Exception as exc:
                 raise TileSourceError(
-                    f"Source {source.name!r} failed for LTM{zone} tile "
+                    f"Source {source.name!r} failed for grid {grid_id} tile "
                     f"({tile_x}, {tile_y}): {exc}",
                     source_name=source.name,
-                    zone=zone,
+                    zone=grid_id,
                     tile_x=tile_x,
                     tile_y=tile_y,
                     completed_records=tuple(records),
@@ -153,13 +150,18 @@ class ConfiguredTiler:
                 ) from exc
         return records
 
-    def run_point(self, lat: float, lon: float, zone: str) -> list[TileCubeRecord]:
-        tile_def = TmsTileDef.initFromParams(zone, self.config.zoom_level)
+    def run_point(
+        self,
+        lat: float,
+        lon: float,
+        grid_id: str,
+    ) -> list[TileCubeRecord]:
+        tile_def = tile_definition_for_grid(grid_id, self.config.zoom_level)
         tile_index = tile_def.llToTileIndex(lat, lon)
         if tile_index is None:
             return []
         tile_x, tile_y = tile_index
-        return self.run_tile_index(tile_x, tile_y, zone)
+        return self.run_tile_index(tile_x, tile_y, grid_id)
 
     def run_aoi(
         self,
@@ -168,24 +170,38 @@ class ConfiguredTiler:
         lr_lat: float,
         lr_lon: float,
     ) -> list[TileCubeRecord]:
-        tile_indexes = TmsIntersector(verbose=False).getTids(
-            ul_lat,
-            ul_lon,
-            lr_lat,
-            lr_lon,
-            self.config.zoom_level,
-        )
+        tile_indexes: set[tuple[str, int, int]] = set()
+        for part in route_aoi(
+            ul_lat=ul_lat,
+            ul_lon=ul_lon,
+            lr_lat=lr_lat,
+            lr_lon=lr_lon,
+        ):
+            tile_def = tile_definition_for_grid(
+                part.grid_id,
+                self.config.zoom_level,
+            )
+            indices = tile_def.getOverlappingTiles(
+                part.ul_lat,
+                part.ul_lon,
+                part.lr_lat,
+                part.lr_lon,
+            )
+            tile_indexes.update(
+                (part.grid_id, tile_x, tile_y)
+                for tile_x, tile_y in indices
+            )
         records: list[TileCubeRecord] = []
-        for index in sorted(
+        for grid_id, tile_x, tile_y in sorted(
             tile_indexes,
-            key=lambda item: (item["zone"], item["tileY"], item["tileX"]),
+            key=lambda item: (item[0], item[2], item[1]),
         ):
             try:
                 records.extend(
                     self.run_tile_index(
-                        index["tileX"],
-                        index["tileY"],
-                        index["zone"],
+                        tile_x,
+                        tile_y,
+                        grid_id,
                     )
                 )
             except TileSourceError as exc:

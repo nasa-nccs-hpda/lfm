@@ -1,14 +1,14 @@
-"""GDAL raster warping and writing for configured LTM source cubes."""
+"""GDAL raster warping and writing for configured lunar source cubes."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Protocol
 
 import numpy as np
 from osgeo import gdal, gdal_array, gdalconst
 
-from .TmsTileDef import TmsTileDef
 from .tiling_config import TileSourceConfig
 from .tiling_policy import band_nodata_values
 from .tiling_results import TileCubeRecord
@@ -22,6 +22,15 @@ class WarpedBand:
     pixels: np.ndarray
     source_nodata: float | None
     output_nodata: float | None
+
+
+class TileDefinition(Protocol):
+    """Projected tile properties consumed by raster warping and writing."""
+
+    tileWidth: int
+    tileHeight: int
+    cellSize: float
+    srs: Any
 
 
 def _gdal_nodata_argument(values: list[float | None]):
@@ -106,10 +115,10 @@ def warp_source_to_tile(
     source: TileSourceConfig,
     raster_paths: list[Path],
     *,
-    tile_def: TmsTileDef,
+    tile_def: TileDefinition,
     bounds: tuple[float, float, float, float],
 ) -> list[WarpedBand]:
-    """Warp all selected rasters for one source onto one LTM tile grid."""
+    """Warp all selected rasters for one source onto one lunar tile grid."""
     ulx, uly, lrx, lry = bounds
     result: list[WarpedBand] = []
     for path in raster_paths:
@@ -218,7 +227,7 @@ def write_tile_cube(
     zoom_level: int,
     tile_x: int,
     tile_y: int,
-    tile_def: TmsTileDef,
+    tile_def: TileDefinition,
     ulx: float,
     uly: float,
 ) -> TileCubeRecord:

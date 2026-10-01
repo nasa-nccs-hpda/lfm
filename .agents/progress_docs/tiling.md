@@ -21,16 +21,17 @@ Canonical references:
 - Automatic raster-index preparation backend: **Complete**
 - Default indexed raster formats: `.tif`, `.tiff`, `.nc`, and `.vrt`
 - Optional AOI product discovery: **Complete**
-- Grid-neutral metadata registry and geographic router: implemented; supported
+- Grid-neutral metadata registry and geographic router: **Complete**
+- Polar tile geometry and low-level addressing: implemented; supported
   container regression pending
 - Downstream chip modernization: tracked separately
 
 Known boundaries and follow-ups:
 
-- `LPS_N`/`LPS_S` production tiling is not implemented.
-- Automatic routing is not yet connected to tile discovery or cube production.
-- Geographic requests can now be partitioned into canonical LTM/`LPS_N`/`LPS_S`
-  query parts, but polar tile addressing and cube production remain P4 work.
+- `LPS_N`/`LPS_S` low-level production is pending the P4 container gate.
+- Routed requests are connected to grid-neutral tile discovery and
+  low-level polar cube production. Source-mode composition, family-specific
+  default zooms, and the easy automatic workflow remain P5/P6 work.
 - The legacy opt-in `all_intersecting` WAC alternate query still stacks all
   intersecting rasters into one source cube. The supported high-level AOI path
   instead discovers products and writes one dynamic cube per PID.
@@ -287,11 +288,29 @@ P1 work started:
   seam splitting, full polar caps, invalid spans, stable order, and invalid
   coordinates. The expanded local modern suite passes 114 tests with 14
   unchanged environment-dependent skips.
+- Explore job 37938083 passed all 114 modern tiling contract tests, all 25 safe
+  legacy regression tests, and the filtered one-tile legacy integration test
+  under GDAL 3.8.4 in `lfm-container-ipyleaflet`. The wrapper completed in 11
+  seconds. Apptainer FUSE cleanup messages occurred after successful commands
+  and did not affect the result. This completes Phase P3.
+- Began Phase P4. Added shared grid-neutral tile-matrix arithmetic and retained
+  `TmsTileDef` as the numbered-LTM projection/overlap implementation.
+- Added `PolarTileDef` for `LPS_N` and `LPS_S`, including traditional GIS axis
+  order, densified geographic AOI projection, circular full-cap geometry,
+  clipped row/column discovery, meaningful-overlap filtering, explicit address
+  validation, and conservative seam-safe tile envelopes for source indexes.
+- Connected configured AOI tiling to P3 routing parts and path-deduplicated
+  multi-envelope source-index queries. Added explicit `grid_id` API aliases,
+  record/error aliases, polar filenames, and unchanged LTM filename behavior.
+- Added shared-matrix, polar numerical, seam, pole, invalid-address, output CRS,
+  exact geotransform, filename, API, and envelope-deduplication tests. The
+  expanded local modern suite passes 134 tests with 23 environment-dependent
+  skips.
 
 Next:
 
-- Run P3.7 with `scripts/shell/all_tasks/sbatch_tiling_modernization_tests.sh`
-  in the supported container, then close Phase P3 if its modern and legacy
+- Run P4.8 with `scripts/shell/all_tasks/sbatch_tiling_modernization_tests.sh`
+  in the supported container, then close Phase P4 if its modern and legacy
   gates pass.
 
 ### 2026-09-30

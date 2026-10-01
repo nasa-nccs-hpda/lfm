@@ -4,8 +4,10 @@ import tempfile
 import unittest
 
 from lfm.model.tiling_config import TileSourceConfig
+from lfm.model.grid_registry import GeographicCoverage
 from lfm.model.vector_index import (
     query_source_index,
+    query_source_index_envelopes,
     resolve_indexed_raster_path,
 )
 
@@ -106,6 +108,29 @@ class VectorIndexIntegrationTestCase(unittest.TestCase):
         records = self._query(index_path, layer_name="raster_index")
 
         self.assertEqual([record.path for record in records], [self.data_dir / "inside.tif"])
+
+    def test_multiple_envelopes_deduplicate_index_records(self):
+        index_path = self._write_index(".gpkg", layer_name="raster_index")
+        source = TileSourceConfig(
+            name="test",
+            data_dir=self.data_dir,
+            index_path=index_path,
+            index_layer="raster_index",
+            location_field="raster",
+        )
+
+        records = query_source_index_envelopes(
+            source,
+            (
+                GeographicCoverage(south=-1, west=9, north=2, east=12),
+                GeographicCoverage(south=-2, west=8, north=3, east=13),
+            ),
+        )
+
+        self.assertEqual(
+            [record.path for record in records],
+            [self.data_dir / "inside.tif"],
+        )
 
 
 if __name__ == "__main__":
