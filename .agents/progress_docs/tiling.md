@@ -319,6 +319,16 @@ P1 work started:
   were normalized. Updated that regression to compare both CRSs using
   traditional GIS axis order, as the downstream cube reader already does, and
   to print both WKT definitions if a substantive mismatch remains.
+- Inspected the second P4 container result. Its emitted WKT showed GDAL 3.8's
+  GeoTIFF reconstruction drops the custom IAU/USGSLGS identifiers and emits
+  projection-native north/north polar axes, while retaining the Moon radius,
+  units, stereographic method, scale, origin, central meridian, and false
+  offsets. Added a projected-raster CRS equivalence fallback that compares the
+  complete PROJ.4 operation after strict OSR comparison fails and deliberately
+  ignores only axis/runtime CRS metadata. Connected the downstream chip cube
+  check to the same helper so a valid polar cube will not pass tiling and then
+  fail acquisition. Added positive axis-loss and negative changed-projection
+  tests. The expanded local modern suite passes 136 tests with 23 GDAL skips.
 
 Next:
 

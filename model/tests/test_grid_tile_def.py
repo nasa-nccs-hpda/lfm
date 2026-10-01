@@ -120,6 +120,7 @@ class PolarTileDefinitionTestCase(unittest.TestCase):
         from osgeo import gdal, osr
 
         from lfm.model.raster_cube import WarpedBand, write_tile_cube
+        from lfm.model.lunar_crs import raster_crs_equivalent
         from lfm.model.tiling_config import TileSourceConfig
 
         tile_def = self.definition("LPS_S", 1)
@@ -157,22 +158,23 @@ class PolarTileDefinitionTestCase(unittest.TestCase):
             self.assertIsNotNone(written_srs)
             written_srs = written_srs.Clone()
             expected_srs = tile_def.srs.Clone()
-            # PolarTileDef uses traditional GIS axis order for coordinate
-            # transformations. A SpatialReference reconstructed from GeoTIFF
-            # starts with GDAL's default axis-mapping strategy even though the
-            # projected coordinate system is unchanged. Normalize both sides
-            # before comparing, matching the downstream cube reader's CRS
-            # validation rather than treating runtime axis policy as persisted
-            # GeoTIFF CRS metadata.
+            # GeoTIFF WKT1 reconstruction can drop custom authorities and
+            # represent polar axes with projection-native NORTH directions.
+            # LFM raster data still uses traditional easting/northing order,
+            # so normalize that runtime mapping and compare the complete
+            # projected coordinate-operation signature as a narrow fallback.
             written_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
             expected_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
             self.assertTrue(
-                written_srs.IsSame(expected_srs),
+                raster_crs_equivalent(written_srs, expected_srs),
                 msg=(
                     "Written polar CRS is not equivalent to the tile grid "
-                    f"after axis normalization.\nWritten: "
+                    "after axis normalization and projected-operation "
+                    f"comparison.\nWritten WKT: "
                     f"{written_srs.ExportToWkt()}\nExpected: "
-                    f"{expected_srs.ExportToWkt()}"
+                    f"{expected_srs.ExportToWkt()}\nWritten PROJ.4: "
+                    f"{written_srs.ExportToProj4()}\nExpected PROJ.4: "
+                    f"{expected_srs.ExportToProj4()}"
                 ),
             )
             self.assertEqual(record.grid_id, "LPS_S")

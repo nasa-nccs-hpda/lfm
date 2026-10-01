@@ -461,11 +461,17 @@ tests with 23 environment-dependent skips. P4.8 is the supported-container
 numerical and regression gate. The first P4.8 container run reached all 134
 modern tests and failed only the reopened-GeoTIFF CRS assertion: dimensions and
 the exact polar geotransform passed, while raw `SpatialReference.IsSame()`
-compared GDAL's default mapping on the reopened CRS with the tile definition's
-traditional GIS axis mapping. The regression now normalizes both runtime axis
-strategies before semantic comparison, matching the downstream cube reader;
-if the normalized projection still differs, the assertion emits both WKT
-definitions for diagnosis. A container rerun remains required before P4 closes.
+initially compared different runtime axis strategies. The second run proved
+that normalization alone is insufficient: GDAL 3.8 reconstructs the custom
+south-polar GeoTIFF as WKT1 with both polar axes directed north and without the
+IAU/USGSLGS identifiers. Its lunar sphere, units, stereographic method, and all
+five numerical projection parameters remain unchanged. Added a narrow raster
+CRS fallback that first requires OSR comparison, then—only for projected
+CRSs—compares the full PROJ.4 coordinate-operation signature while excluding
+axis metadata because LFM rasters explicitly use traditional easting/northing
+data order. The same helper now protects downstream cube CRS validation. The
+expanded local suite passes 136 tests with 23 GDAL-dependent skips; another
+container rerun remains required before P4 closes.
 
 ## Phase P5 — Add configurable dynamic/static source modes `[Not Started]`
 
