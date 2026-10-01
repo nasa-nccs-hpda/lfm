@@ -99,20 +99,20 @@ numbered-LTM-only until the implementation and validation phases complete.
   explicit ensure-if-missing API and configuration for the data directory,
   derived or explicit index path, raster glob, layer name, location field, and
   output geographic CRS.
-- `[In-Progress]` **P1.2** Define reuse and freshness rules. Existing indexes are
+- `[Complete]` **P1.2** Define reuse and freshness rules. Existing indexes are
   validated and reused; they are never silently overwritten. A stale or
   malformed index produces a clear diagnosis and explicit rebuild guidance.
-- `[Not Started]` **P1.3** Enumerate input rasters deterministically and log the
+- `[Complete]` **P1.3** Enumerate input rasters deterministically and log the
   number found, the destination index, and a clear notice that indexing a large
   lunar directory may take several minutes.
-- `[Not Started]` **P1.4** Probe `gdal.TileIndex` inside the supported
+- `[Complete]` **P1.4** Probe `gdal.TileIndex` inside the supported
   `lfm-container-ipyleaflet` image to determine whether its installed GDAL
   binding exposes a usable per-raster progress callback.
-- `[Not Started]` **P1.5** Add a `tqdm` progress bar written to stdout. Prefer a
+- `[Complete]` **P1.5** Add a `tqdm` progress bar written to stdout. Prefer a
   GDAL progress callback when it is reliable; otherwise provide deterministic
   discovery/preflight progress and evaluate a one-raster-at-a-time Python/OGR
   writer for meaningful creation progress.
-- `[Not Started]` **P1.6** Make index publication failure-safe. Build all
+- `[In-Progress]` **P1.6** Make index publication failure-safe. Build all
   Shapefile sidecars in a temporary sibling location, validate them, and move
   the complete set into place only after success. Add a scoped lock or other
   guard against two jobs creating the same index concurrently.
@@ -147,10 +147,10 @@ P1.2 checkpoint: validation and reuse code now checks the index driver, layer,
 location field, repository lunar CRS, feature geometries, resolvable raster
 paths, duplicate paths, and exact current raster inventory. Missing or changed
 inventory raises `StaleVectorIndexError` with explicit rebuild guidance rather
-than overwriting the index. Dependency-free ensure/reuse tests pass locally;
-the GDAL-backed Shapefile and GeoPackage creation/reuse/staleness tests are
-written but await the supported container run. The focused wrapper also probes
-whether that GDAL build supplies useful `gdal.TileIndex` callback events:
+than overwriting the index. Dependency-free and supported-container tests cover
+the ensure/reuse path plus Shapefile and GeoPackage creation, reuse, and stale
+inventory rejection. The focused wrapper also records whether the supported
+GDAL build supplies useful `gdal.TileIndex` callback events:
 `scripts/shell/all_tasks/sbatch_probe_gdal_tileindex_progress.sh`.
 
 The first probe attempt, Explore job 37937983, established that the supported
@@ -158,8 +158,8 @@ container's `osgeo.gdal` module has no `TileIndex` attribute; the probe stopped
 before its focused tests. Index creation has therefore been switched to a
 Python/OGR feature writer, which can report genuine per-raster tqdm progress
 without shelling out. The repaired probe now records absent Python APIs and the
-`gdaltindex` executable/version without failing. A rerun is required before
-P1.2 is complete and before the later progress sub-steps change status.
+`gdaltindex` executable/version without failing. At that checkpoint, a rerun
+was still required before P1.2 could close.
 
 The second attempt, job 37937987, completed the capability report and created
 the synthetic indexes, but two Shapefile validations failed because its `.prj`
@@ -169,15 +169,32 @@ otherwise unchanged lunar geographic coordinate space. Validation now retains
 exact `IsSame()` checks for GeoPackage and first attempts them for every format;
 only a Shapefile geographic fallback compares the persisted semi-major and
 semi-minor axes, inverse flattening, prime meridian, and angular units with
-strict tolerances. A rerun is required to close P1.2.
+strict tolerances. That fix then required another container rerun.
 
 The third attempt, job 37937988, reached that fallback but exposed a binding
 compatibility detail: GDAL 3.8 does not provide the Python
 `SpatialReference.GetPrimeMeridian()` convenience method. The comparison now
 reads the numeric `PRIMEM` WKT child through the long-standing
 `GetAttrValue("PRIMEM", 1)` API. A dependency-free compatibility regression
-covers an object with the GDAL 3.8 method surface. The focused wrapper still
-requires a successful rerun before P1.2 is complete.
+covers an object with the GDAL 3.8 method surface.
+
+Explore job 37938002 completed successfully: all 12 focused GDAL-backed tests
+passed in `lfm-container-ipyleaflet`. This closes P1.2 and confirms creation,
+validation, reuse, and stale-inventory rejection for both Shapefile and
+GeoPackage output. The capability report also confirms that this supported
+GDAL binding exposes neither `gdal.TileIndex` nor `gdal.TileIndexOptions`, so
+P1.4 is complete. Deterministic discovery, visible count/destination/timing
+messages, and the direct Python/OGR writer's per-raster stdout `tqdm` progress
+close P1.3 and P1.5.
+
+P1.6 implementation checkpoint: index creation now holds an exclusive sibling
+lock, writes into a temporary sibling directory, validates the staged index
+against the exact raster inventory, and publishes all generated artifacts only
+after validation. Shapefile sidecars are moved before the primary `.shp` file,
+and scoped cleanup removes staging files and the lock after creation or
+failure. Dependency-free tests cover complete sidecar publication, concurrent
+creation rejection, writer failure cleanup, and validation failure cleanup.
+The supported container rerun remains required before P1.6 is complete.
 
 ## Phase P2 — Restore optional product-ID discovery `[Not Started]`
 

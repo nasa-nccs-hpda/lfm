@@ -126,15 +126,29 @@ P1 work started:
   Python wrapper lacks `SpatialReference.GetPrimeMeridian()`. Replaced it with
   the compatible numeric `PRIMEM` WKT-node lookup and added a dependency-free
   regression for the older method surface.
-- After this compatibility fix, 45 dependency-free local tiling tests pass;
-  the two GDAL-backed index tests remain skipped locally pending rerun.
+- Explore job 37938002 passed all 12 focused vector-index builder tests in the
+  supported `lfm-container-ipyleaflet` image. Shapefile and GeoPackage
+  creation, validation, reuse, and stale-inventory rejection are now confirmed
+  with GDAL enabled.
+- The job's capability report confirmed that GDAL exposes neither the Python
+  `gdal.TileIndex` nor `gdal.TileIndexOptions` API. P1.2 through P1.5 are
+  complete: deterministic inventory announcements and the Python/OGR writer's
+  genuine per-raster stdout `tqdm` progress are the supported path.
+- Began P1.6. New index creation uses an exclusive sibling lock, writes and
+  validates in a temporary sibling directory, then publishes all artifacts
+  with the Shapefile `.shp` primary file last. Creation and validation failures
+  clean staging files and the lock without publishing a partial index.
+- Added dependency-free tests for sidecar publication, active-lock rejection,
+  writer-failure cleanup, and validation-failure cleanup. The focused local
+  vector-index suite passes 14 tests with its two GDAL integration cases
+  skipped, and the broader selected tiling suite passes 43 tests with six
+  environment-dependent skips.
 
 Next:
 
-- Submit
-  `scripts/shell/all_tasks/sbatch_probe_gdal_tileindex_progress.sh` on Explore.
-  Use its GDAL-backed index tests to close P1.2, then use its callback report to
-  begin P1.3 and P1.4 sequentially.
+- Rerun `scripts/shell/all_tasks/sbatch_probe_gdal_tileindex_progress.sh` on
+  Explore to validate P1.6 staging, sidecar publication, locking, cleanup, and
+  stdout progress with GDAL enabled.
 
 ### 2026-09-30
 

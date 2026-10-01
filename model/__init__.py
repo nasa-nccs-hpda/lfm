@@ -136,6 +136,7 @@ from .vector_index import IndexedRaster, query_source_index
 from .vector_index_builder import (
     StaleVectorIndexError,
     VectorIndexBuildConfig,
+    VectorIndexLockError,
     VectorIndexValidationError,
     VectorIndexValidationResult,
     create_vector_index,
@@ -240,6 +241,7 @@ __all__ = [
     "TileSourceError",
     "TileSourceConfig",
     "VectorIndexBuildConfig",
+    "VectorIndexLockError",
     "VectorIndexValidationError",
     "VectorIndexValidationResult",
     "WAC_BAND_NAMES",

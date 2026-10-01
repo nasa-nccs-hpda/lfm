@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from contextlib import contextmanager
+from dataclasses import dataclass, replace
 import logging
 import math
+import os
 from pathlib import Path
+import shutil
 import sys
+import tempfile
 from typing import Any, TextIO
 
 from .lunar_crs import LUNAR_GEOGRAPHIC_WKT_PATH, load_lunar_geographic_wkt
@@ -23,6 +27,10 @@ class VectorIndexValidationError(ValueError):
 
 class StaleVectorIndexError(VectorIndexValidationError):
     """A raster vector index does not match the current raster inventory."""
+
+
+class VectorIndexLockError(RuntimeError):
+    """Another process is already creating the requested raster index."""
 
 
 @dataclass(frozen=True)
@@ -306,6 +314,101 @@ def _rebuild_guidance(config: VectorIndexBuildConfig) -> str:
     )
 
 
+def _index_lock_path(index_path: Path) -> Path:
+    return index_path.with_name(f".{index_path.name}.lock")
+
+
+@contextmanager
+def _exclusive_creation_lock(index_path: Path):
+    """Hold a process-scoped, sibling lock while an index is being published."""
+    lock_path = _index_lock_path(index_path)
+    try:
+        descriptor = os.open(
+            lock_path,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o664,
+        )
+    except FileExistsError as exc:
+        raise VectorIndexLockError(
+            f"Raster index creation is already in progress for {index_path}; "
+            f"lock file: {lock_path}. If no creation job is active, inspect "
+            "and remove the stale lock explicitly."
+        ) from exc
+
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as lock_file:
+            lock_file.write(f"pid={os.getpid()}\n")
+            lock_file.flush()
+        yield lock_path
+    finally:
+        lock_path.unlink(missing_ok=True)
+
+
+def _staged_artifacts(staging_directory: Path, index_name: str) -> tuple[Path, ...]:
+    """Return every regular file emitted for one staged vector index."""
+    prefix = f"{index_name}.".casefold()
+    artifacts = tuple(
+        sorted(
+            (
+                path
+                for path in staging_directory.iterdir()
+                if path.is_file()
+                and (
+                    path.name.casefold() == index_name.casefold()
+                    or path.name.casefold().startswith(prefix)
+                    or path.stem.casefold() == Path(index_name).stem.casefold()
+                )
+            ),
+            key=lambda path: path.name,
+        )
+    )
+    if not artifacts:
+        raise RuntimeError(
+            f"Vector index creation produced no files in {staging_directory}."
+        )
+    return artifacts
+
+
+def _publish_staged_index(
+    staged_index_path: Path,
+    destination_index_path: Path,
+) -> None:
+    """Publish a validated index, moving its primary file last."""
+    artifacts = _staged_artifacts(
+        staged_index_path.parent,
+        staged_index_path.name,
+    )
+    if staged_index_path not in artifacts:
+        raise RuntimeError(
+            f"Staged vector index is missing its primary file: {staged_index_path}"
+        )
+
+    destinations = tuple(
+        destination_index_path.parent / artifact.name for artifact in artifacts
+    )
+    collisions = tuple(path for path in destinations if path.exists())
+    if collisions:
+        preview = ", ".join(str(path) for path in collisions[:5])
+        raise FileExistsError(
+            "Raster vector index publication would overwrite existing file(s): "
+            f"{preview}. Remove or archive them explicitly before rebuilding."
+        )
+
+    publication_order = sorted(
+        zip(artifacts, destinations),
+        key=lambda pair: pair[0] == staged_index_path,
+    )
+    published: list[Path] = []
+    try:
+        for source, destination in publication_order:
+            os.replace(source, destination)
+            published.append(destination)
+    except Exception:
+        for destination in reversed(published):
+            destination.unlink(missing_ok=True)
+        raise
+
+
 def _spatial_references_equivalent(
     actual,
     expected,
@@ -523,12 +626,14 @@ def create_vector_index(
     progress: bool = True,
     stdout: TextIO | None = None,
 ) -> Path:
-    """Create a new raster vector index; never overwrite an existing index.
+    """Create and validate a staged raster index, then publish it once complete.
 
     The supported Explore GDAL 3.8.4 Python bindings do not expose
     ``gdal.TileIndex``. Writing through OGR keeps creation Python-native and
     supplies genuine per-raster progress without shelling out to
-    ``gdaltindex``.
+    ``gdaltindex``. A sibling lock prevents cooperating jobs from publishing
+    the same destination concurrently, and existing files are never silently
+    overwritten.
     """
     if config.index_path.exists():
         raise FileExistsError(
@@ -542,12 +647,42 @@ def create_vector_index(
         )
     config.index_path.parent.mkdir(parents=True, exist_ok=True)
     active_stdout = sys.stdout if stdout is None else stdout
-    return _create_vector_index_with_ogr(
-        config,
-        paths,
-        progress=progress,
-        stdout=active_stdout,
-    )
+
+    with _exclusive_creation_lock(config.index_path):
+        if config.index_path.exists():
+            raise FileExistsError(
+                f"Raster vector index already exists: {config.index_path}. "
+                "Remove or archive it explicitly before rebuilding."
+            )
+
+        staging_directory = Path(
+            tempfile.mkdtemp(
+                prefix=f".{config.index_path.name}.staging-",
+                dir=config.index_path.parent,
+            )
+        )
+        staged_config = replace(
+            config,
+            index_path=staging_directory / config.index_path.name,
+        )
+        try:
+            _create_vector_index_with_ogr(
+                staged_config,
+                paths,
+                progress=progress,
+                stdout=active_stdout,
+            )
+            validate_vector_index(
+                staged_config,
+                expected_raster_paths=paths,
+            )
+            _publish_staged_index(
+                staged_config.index_path,
+                config.index_path,
+            )
+        finally:
+            shutil.rmtree(staging_directory, ignore_errors=True)
+    return config.index_path
 
 
 def ensure_vector_index(
@@ -617,6 +752,7 @@ def ensure_vector_index(
 __all__ = [
     "StaleVectorIndexError",
     "VectorIndexBuildConfig",
+    "VectorIndexLockError",
     "VectorIndexValidationError",
     "VectorIndexValidationResult",
     "create_vector_index",

@@ -8,7 +8,9 @@ import unittest
 from lfm.model.vector_index_builder import (
     StaleVectorIndexError,
     VectorIndexBuildConfig,
+    VectorIndexLockError,
     VectorIndexValidationResult,
+    _index_lock_path,
     _spatial_references_equivalent,
     create_vector_index,
     discover_raster_paths,
@@ -115,6 +117,117 @@ class VectorIndexBuildConfigTestCase(unittest.TestCase):
             config.index_path.touch()
 
             with self.assertRaisesRegex(FileExistsError, "already exists"):
+                create_vector_index(config, progress=False)
+
+    @mock.patch("lfm.model.vector_index_builder.validate_vector_index")
+    @mock.patch("lfm.model.vector_index_builder._create_vector_index_with_ogr")
+    def test_creation_validates_staging_then_publishes_all_sidecars(
+        self,
+        write_index,
+        validate,
+    ):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            data_dir = Path(temporary_directory)
+            raster = data_dir / "a.tif"
+            raster.touch()
+            config = VectorIndexBuildConfig(data_dir)
+
+            def write_side_effect(received, paths, *, progress, stdout):
+                self.assertEqual(paths, (raster,))
+                self.assertFalse(progress)
+                self.assertIsInstance(stdout, io.StringIO)
+                for suffix in (".shp", ".shx", ".dbf", ".prj"):
+                    received.index_path.with_suffix(suffix).touch()
+                return received.index_path
+
+            write_index.side_effect = write_side_effect
+            output = io.StringIO()
+            result = create_vector_index(
+                config,
+                progress=False,
+                stdout=output,
+            )
+
+            self.assertEqual(result, config.index_path)
+            for suffix in (".shp", ".shx", ".dbf", ".prj"):
+                self.assertTrue(config.index_path.with_suffix(suffix).is_file())
+            self.assertFalse(_index_lock_path(config.index_path).exists())
+            self.assertEqual(
+                list(data_dir.glob(f".{config.index_path.name}.staging-*")),
+                [],
+            )
+            staged_config = validate.call_args.args[0]
+            self.assertNotEqual(staged_config.index_path, config.index_path)
+            validate.assert_called_once_with(
+                staged_config,
+                expected_raster_paths=(raster,),
+            )
+
+    @mock.patch("lfm.model.vector_index_builder._create_vector_index_with_ogr")
+    def test_creation_failure_cleans_staging_and_lock(self, write_index):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            data_dir = Path(temporary_directory)
+            raster = data_dir / "a.tif"
+            raster.touch()
+            config = VectorIndexBuildConfig(data_dir)
+
+            def write_side_effect(received, paths, *, progress, stdout):
+                del paths, progress, stdout
+                received.index_path.touch()
+                raise RuntimeError("synthetic creation failure")
+
+            write_index.side_effect = write_side_effect
+            with self.assertRaisesRegex(RuntimeError, "synthetic creation failure"):
+                create_vector_index(config, progress=False)
+
+            self.assertFalse(config.index_path.exists())
+            self.assertFalse(_index_lock_path(config.index_path).exists())
+            self.assertEqual(
+                list(data_dir.glob(f".{config.index_path.name}.staging-*")),
+                [],
+            )
+
+    @mock.patch("lfm.model.vector_index_builder.validate_vector_index")
+    @mock.patch("lfm.model.vector_index_builder._create_vector_index_with_ogr")
+    def test_staging_validation_failure_publishes_nothing(
+        self,
+        write_index,
+        validate,
+    ):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            data_dir = Path(temporary_directory)
+            raster = data_dir / "a.tif"
+            raster.touch()
+            config = VectorIndexBuildConfig(data_dir)
+
+            def write_side_effect(received, paths, *, progress, stdout):
+                del paths, progress, stdout
+                for suffix in (".shp", ".shx", ".dbf"):
+                    received.index_path.with_suffix(suffix).touch()
+                return received.index_path
+
+            write_index.side_effect = write_side_effect
+            validate.side_effect = RuntimeError("synthetic validation failure")
+            with self.assertRaisesRegex(RuntimeError, "synthetic validation failure"):
+                create_vector_index(config, progress=False)
+
+            for suffix in (".shp", ".shx", ".dbf"):
+                self.assertFalse(config.index_path.with_suffix(suffix).exists())
+            self.assertFalse(_index_lock_path(config.index_path).exists())
+            self.assertEqual(
+                list(data_dir.glob(f".{config.index_path.name}.staging-*")),
+                [],
+            )
+
+    def test_concurrent_creation_lock_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            data_dir = Path(temporary_directory)
+            (data_dir / "a.tif").touch()
+            config = VectorIndexBuildConfig(data_dir)
+            lock_path = _index_lock_path(config.index_path)
+            lock_path.touch()
+
+            with self.assertRaisesRegex(VectorIndexLockError, "already in progress"):
                 create_vector_index(config, progress=False)
 
 
@@ -238,7 +351,8 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
                         self.data_dir / f"index{suffix}",
                     )
 
-                    created = ensure_vector_index(config, stdout=io.StringIO())
+                    creation_stdout = io.StringIO()
+                    created = ensure_vector_index(config, stdout=creation_stdout)
                     reused = ensure_vector_index(config, stdout=io.StringIO())
                 finally:
                     self.data_dir = original_data_dir
@@ -249,6 +363,7 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
                     set(created.raster_paths),
                     {first, second},
                 )
+                self.assertIn("Building raster index", creation_stdout.getvalue())
 
     def test_existing_index_rejects_changed_raster_inventory(self):
         self.write_raster("a.tif", x_origin=10.0)
