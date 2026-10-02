@@ -11,6 +11,7 @@ This is a planning document. It does not change runtime behavior. The current
 production contracts remain documented in:
 
 - [`tiling_to_chip_creation_handoff.md`](../tiling_to_chip_creation_handoff.md)
+- [`crater_labeling_to_chip_creation_contract.md`](../crater_labeling_to_chip_creation_contract.md)
 - [`docs/chip_creation_modernization_plan.md`](../../docs/chip_creation_modernization_plan.md)
 - [`docs/tiling_modernization_plan.md`](../../docs/tiling_modernization_plan.md)
 - [`TMS/README.md`](../../TMS/README.md)
@@ -45,16 +46,27 @@ grid, and optional label-grid metadata must match the target exactly.
 These are deliberate safeguards, but they prevent reuse of a georeferenced
 label covering a full source scene or other larger parent AOI.
 
-The phrase **full-TIFF label** in this plan means a label mask covering the full
-spatial extent of a source TIFF. The label may be:
+The crater-labeling workflow currently writes native-CRS polygons to a
+GeoPackage `craters` layer. That preserves geometry, but the file has no
+certified reviewed-coverage layer and chip creation does not accept `.gpkg`.
+Feature bounds cannot safely substitute for reviewed coverage: an AOI with no
+craters may be valid background or may simply be unlabeled. GeoPackage support
+therefore requires both deterministic vector rasterization and an explicit
+coverage/readiness contract.
+
+The phrase **full-TIFF label** in this plan means a label source whose known or
+certified coverage spans the full spatial extent of a source TIFF. It may be:
 
 1. a semantic `.npy` mask or instance `.npz` archive with an explicit or JSON
    sidecar source grid; or
-2. a single-band, integer, georeferenced `.tif`/`.tiff` semantic mask.
+2. a single-band, integer, georeferenced `.tif`/`.tiff` semantic mask; or
+3. a crater-labeling `.gpkg` with `craters` annotations and certified
+   `label_coverage` geometry.
 
 A standalone instance GeoTIFF is not sufficient because it does not contain the
-required COCO boxes and annotation count. Instance input remains `.npz` unless
-a future, separately specified metadata format is added.
+required COCO boxes and annotation count. Raster instance input remains `.npz`;
+GeoPackage instance input is sufficient because chip creation derives the mask,
+boxes, and count together from its vector geometry.
 
 ## Required invariants
 
@@ -93,6 +105,12 @@ a future, separately specified metadata format is added.
 - The source label footprint must completely cover the target grid. Do not pad
   missing label coverage with background, because that would create unverified
   training truth.
+- For vector GeoPackages, label coverage means the union of complete
+  `label_coverage` polygons, never the bounds or union of crater features. An
+  AOI inside certified coverage with no crater intersections is a valid empty
+  instance label; an AOI outside it is unknown and must fail.
+- Autosaved crater-labeling work marked `in_progress` is not training truth.
+  Chip creation accepts only explicitly completed coverage by default.
 - Label reprojection is categorical and uses nearest-neighbor only. Tiling
   remains bilinear; the two policies must not be conflated.
 - Label planning and source validation occur before tiling. A label failure is
@@ -132,11 +150,14 @@ Add a typed label-input contract rather than overloading a bare path. The
 recommended record contains:
 
 - source path;
-- semantic or instance kind;
+- semantic, raster-instance, or vector-instance kind;
 - source sample/scene identity;
 - source `TargetGrid` when not embedded in the file;
-- requested relation: `exact` or `clip_to_target`; and
-- optional sidecar/provenance path.
+- requested relation: `exact` or `clip_to_target`;
+- optional sidecar/provenance path;
+- optional vector annotation/coverage layer names, defaulting to `craters` and
+  `label_coverage` for `.gpkg` inputs; and
+- an identity policy: `same_product` or `explicit_spatial`.
 
 Keep `ChipRequest.label_path` and `label_grid` as backward-compatible inputs,
 normalizing them into this record. New AOI callers should use the typed form.
@@ -144,9 +165,18 @@ normalizing them into this record. New AOI callers should use the typed form.
 The existing exact-label path continues to require the label's normalized
 sample ID to equal the output sample ID. A full-scene label may legitimately
 feed multiple AOI samples, so clip mode instead requires an explicit source
-scene identity. For WAC/NAC, that source identity must agree with the product
-prefix used by the request or an explicit selector. Merely passing a
-differently named file must not disable identity validation.
+scene identity. For array labels using `same_product`, that source identity
+must agree with the WAC/NAC product prefix used by the request or an explicit
+selector. Merely passing a differently named file must not disable identity
+validation.
+
+GeoPackage labels have a deliberate cross-modality exception expressed through
+the typed policy, not through skipped validation. `explicit_spatial` validates
+the explicitly associated path, embedded CRS, certified coverage, and source
+identity while treating the raster used during labeling as provenance. This
+allows NAC-authored crater polygons to supervise a WAC-plus-static chip over the
+same AOI. Callers that require the labeling backdrop and acquired imagery to be
+the same product select `same_product`, which enforces product equality.
 
 For `.npy` and `.npz`, accept source-grid metadata from either:
 
@@ -161,9 +191,17 @@ height, band count, dtype, and NoData directly. Require exactly one integer
 band. The canonical published training label remains `.npy`, so existing
 dataset loaders do not acquire a GeoTIFF dependency.
 
+For a crater GeoPackage, read its embedded vector CRS, source identity,
+readiness state, certified coverage, and crater geometry. Require the v1 schema
+defined in the crater-labeling handoff. The canonical published training label
+remains `.npz`, so dataset loaders do not acquire a Fiona/vector dependency.
+The original absolute raster path is provenance only; stable identity comes
+from GeoPackage metadata. The labeling-backdrop product must agree with the
+request's WAC/NAC product or explicit selector only under `same_product`.
+
 ### Spatial-relation plan
 
-Preflight classifies one of three relations:
+Raster-label preflight classifies one of three spatial relations:
 
 1. `exact`: source and target grids match under the existing strict tolerance;
 2. `aligned_window`: same CRS and pixel lattice, with target boundaries mapping
@@ -177,6 +215,11 @@ reprojection. Coverage testing must use transformed/densified target
 footprints, not bounds alone. Reject a target that is partially outside the
 source label, crosses an unrepresented gap, has an incompatible lunar CRS, or
 cannot be mapped invertibly.
+
+Vector GeoPackages instead use `vector_rasterize`: certified vector coverage
+must contain the target footprint, after which selected feature geometry is
+reprojected, clipped, and burned directly onto the target grid. It is not
+classified as an aligned raster window or nearest-neighbor raster warp.
 
 ### Semantic-label output
 
@@ -209,6 +252,34 @@ removed after resampling, and accepted occlusions in diagnostics and the
 dataset manifest. An AOI containing no instances is a valid empty instance
 archive with mask background only, `bboxes.shape == (0, 4)`, and
 `num_craters == 0`.
+
+### Crater GeoPackage input
+
+GeoPackage input follows the dedicated
+[`crater_labeling_to_chip_creation_contract.md`](../crater_labeling_to_chip_creation_contract.md):
+
+1. Preflight validates the `craters` and `label_coverage` schemas, equivalent
+   projected lunar CRS, complete review state, source identity, configured
+   product-identity policy, and unique positive crater IDs.
+2. A densified target-grid footprint must be fully contained by certified
+   coverage. Boundary-only crater contact is excluded, while zero intersecting
+   craters inside coverage is a valid empty label.
+3. The worker reopens the unchanged source, reprojects and clips selected
+   geometry to the exact target footprint, sorts it by source `crater_id`, and
+   rasterizes with pixel-center inclusion (`all_touched=False`).
+4. Increasing source IDs are painted in order, so a larger source ID owns an
+   overlap. COCO boxes are derived from clipped geometry in target pixel
+   coordinates.
+5. Per-geometry burn support distinguishes valid full occlusion from a
+   subpixel feature that never owns a target pixel. Dropped features, retained
+   occlusions, and source-to-target ID mappings are explicit diagnostics.
+6. Mask IDs, boxes, and count are compacted and validated together, and only
+   the resulting target-sized `.npz` enters atomic publication.
+
+The GeoPackage is read-only source data and is never copied into the training
+dataset or deleted by intermediate cleanup. Legacy `craters`-only files remain
+reopenable by the labeling notebook but fail chip preflight until a scientist
+certifies their reviewed coverage.
 
 ### Pipeline order and publication
 
@@ -247,8 +318,8 @@ Publication must accept a validated `PreparedLabelArtifact`:
 ## Phase A0 — Freeze AOI and label-clipping contracts `[Not Started]`
 
 - `[Not Started]` **A0.1** Confirm the initial input formats: semantic `.npy`,
-  instance `.npz`, and single-band integer semantic GeoTIFF. Explicitly defer
-  instance GeoTIFFs without box/count metadata.
+  instance `.npz`, single-band integer semantic GeoTIFF, and crater-labeling
+  GeoPackage v1. Explicitly defer instance GeoTIFFs without box/count metadata.
 - `[Not Started]` **A0.2** Freeze the notebook's AOI inputs, output-grid
   derivation, sample/product identity rules, and rectangular-only scope.
 - `[Not Started]` **A0.3** Freeze label identity rules for exact versus
@@ -258,9 +329,14 @@ Publication must accept a validated `PreparedLabelArtifact`:
   numerical tolerances.
 - `[Not Started]` **A0.5** Freeze instance box clipping, stable ID remapping,
   occlusion, empty-AOI, and out-of-AOI removal semantics.
-- `[Not Started]` **A0.6** Add small committed fixtures or fixture builders for
+- `[Not Started]` **A0.6** Freeze the GeoPackage layer schemas, certified
+  coverage/readiness lifecycle, `explicit_spatial` versus `same_product`
+  identity checks, pixel-center burn rule, overlap order, and legacy migration
+  behavior.
+- `[Not Started]` **A0.7** Add small committed fixtures or fixture builders for
   exact, larger aligned, differently projected, partial-coverage, semantic,
-  and overlapping-instance cases before implementation.
+  overlapping-instance, complete/in-progress GeoPackage, empty-covered-AOI,
+  rotated-coverage, and subpixel-vector cases before implementation.
 
 Exit gate: the accepted contract and fixtures make every expected output,
 warning, and failure deterministic without relying on a real Explore dataset.
@@ -270,7 +346,8 @@ warning, and failure deterministic without relying on a real Explore dataset.
 - `[Not Started]` **A1.1** Add immutable `LabelInput`,
   `LabelPreparationPlan`, and `PreparedLabelArtifact` records in the chip type
   layer with strict path, identity, kind, grid, relation, hash, and diagnostic
-  validation.
+  validation. Include optional vector/coverage layer names without placing
+  feature collections in request objects.
 - `[Not Started]` **A1.2** Extend `ChipRequest` compatibly so legacy
   `label_path`/`label_grid` requests normalize to exact mode while AOI callers
   can explicitly request clipping.
@@ -292,8 +369,8 @@ full-scene label and exact target grid without a reference TIFF.
   source-grid/relation, and final-target validation rather than applying the
   target shape check while opening the source.
 - `[Not Started]` **A2.2** Extend resolution to supported GeoTIFF labels and
-  the new sidecar schema while retaining exact full-sample-ID lookup for legacy
-  directory-based labels.
+  GeoPackage labels and the new sidecar schema while retaining exact
+  full-sample-ID lookup for legacy directory-based labels.
 - `[Not Started]` **A2.3** Require explicit association for a differently
   named full-scene label and verify its source identity against the request's
   product/selector identity.
@@ -304,6 +381,17 @@ full-scene label and exact target grid without a reference TIFF.
   malformed source contents, and unsupported formats.
 - `[Not Started]` **A2.6** Prove preflight remains read-only and never invokes
   tiling for a rejected label.
+- `[Not Started]` **A2.7** Upgrade crater-labeling export/load so every new
+  autosave atomically writes the `craters` and `label_coverage` layers with
+  `in_progress` state, a deliberate finalize operation writes `complete`, and
+  any later crater mutation returns to `in_progress`. Continue loading legacy
+  `craters`-only files for migration without inventing coverage.
+- `[Not Started]` **A2.8** For GeoPackages, validate application layers, schema
+  version, equivalent layer CRS, review status, metadata consistency, unique
+  crater IDs, and densified target-footprint containment by certified coverage.
+- `[Not Started]` **A2.9** Query only positive-area-intersecting crater features
+  and store stable feature IDs/envelopes plus a source hash in the compact plan;
+  do not serialize all vector geometry into multiprocessing requests.
 
 Exit gate: preflight deterministically accepts or rejects every A0 fixture and
 produces no dataset/intermediate output.
@@ -342,6 +430,14 @@ Exit gate: every accepted semantic source produces one target-sized integer
 - `[Not Started]` **A4.6** Add focused tests for partial boxes, fully outside
   instances, ID gaps, overlapping/occluded instances, subpixel instances,
   empty AOIs, malformed archives, and deterministic output bytes.
+- `[Not Started]` **A4.7** Reopen and revalidate planned GeoPackage features,
+  reproject/clip them to the exact target footprint, rasterize in ascending
+  source-ID painter order with `all_touched=False`, and derive target COCO boxes.
+- `[Not Started]` **A4.8** Add GeoPackage tests for complete and in-progress
+  coverage, legacy missing coverage, empty covered AOIs, rotated footprints,
+  multipolygons, boundary-only contact, duplicate IDs, same-product mismatch,
+  valid cross-modality association, overlaps, subpixel drops, source changes,
+  and serial/parallel determinism.
 
 Exit gate: every accepted instance source publishes a self-consistent
 target-sized archive whose IDs and boxes are valid in target pixel space.
@@ -397,6 +493,13 @@ chip-label publication contract under serial and multiprocessing execution.
 - `[Not Started]` **A6.8** Preserve one-time coordinator index preparation via
   `resolve_notebook_source_index()` and `ensure_vector_index()` before chip
   workers start.
+- `[Not Started]` **A6.9** Make a completed crater-labeling `.gpkg` a concise
+  first-class `LABEL_PATH` example. Default its layer names, display certified
+  coverage and source/product identity, and visualize the derived instance
+  archive rather than requiring the original labeling raster as a reference.
+- `[Not Started]` **A6.10** Add a small handoff cell to the crater-labeling
+  notebook that reports readiness and the values needed by the chip notebook;
+  keep autosave/in-progress state visibly distinct from marking coverage ready.
 
 Exit gate: a clean-kernel **Run All** creates and visualizes one WAC-plus-static
 chip from explicit AOI inputs and a larger source label without reading a
@@ -424,6 +527,10 @@ reference chip.
 - `[Not Started]` **A7.7** Execute `notebooks/chip_example.ipynb` top-to-bottom
   on Grace with `lfm-container-ipyleaflet`, inspect the saved plot, and record
   the Slurm job, elapsed time, report paths, and any accepted exceptions.
+- `[Not Started]` **A7.8** Label and certify one real projected lunar raster in
+  `notebooks/crater_labeling.ipynb`, then use that GeoPackage for at least one
+  crater-bearing AOI and one empty covered AOI in chip creation. Verify visual
+  alignment, source-to-target IDs, boxes, overlap behavior, and provenance.
 
 Exit gate: focused tests and real-data runs pass, outputs are visually reviewed,
 and no validation claim exceeds the recorded evidence.
@@ -441,6 +548,9 @@ and no validation claim exceeds the recorded evidence.
 - `[Not Started]` **A8.4** Document retained compatibility for reference TIFFs
   and exact-size labels, plus any intentionally deferred polygon or label-format
   support.
+- `[Not Started]` **A8.5** Update crater-labeling documentation with the v1
+  layer schemas, review-state lifecycle, legacy migration, and direct notebook
+  handoff; keep the dedicated interoperability contract synchronized.
 
 Exit gate: the notebook, backend docs, dataset guide, handoff, and canonical
 modernization plan describe the same implemented behavior.
@@ -454,6 +564,12 @@ modernization plan describe the same implemented behavior.
 | Explicit AOI + larger projected semantic label | Nearest warp, exact target grid |
 | Explicit AOI + semantic label GeoTIFF | Embedded grid, canonical `.npy` output |
 | Explicit AOI + larger instance `.npz` | Clipped mask/boxes, compact IDs, valid count |
+| Explicit AOI + complete crater `.gpkg` | Clipped/rasterized target `.npz`; no reference TIFF |
+| Covered AOI with no crater features | Valid empty instance `.npz` |
+| GeoPackage marked `in_progress` | Typed pre-tiling failure; no pair |
+| Legacy GeoPackage without coverage | Migration-required pre-tiling failure |
+| GeoPackage AOI partly outside certified coverage | Per-sample failure; never infer background |
+| Overlapping/subpixel vector craters | Deterministic painter order; explicit occlusion/drop diagnostics |
 | Two AOIs sharing one parent label | Two unique pairs with shared source provenance |
 | AOI outside or partly outside label | Per-sample failure before tiling; no pair |
 | Larger array with no source grid | Typed failure; never infer location from shape |
@@ -475,12 +591,16 @@ Primary files likely to change:
 - `model/chip_creation.py`
 - `model/chip_publication.py`
 - `model/chip_notebook_utils.py`
+- `lfm/labeling/craters.py`
+- `lfm/labeling/tests/test_craters.py` (new, or the repository's chosen focused
+  labeling-test location)
 - `model/tests/test_chip_types.py`
 - `model/tests/test_chip_requests.py`
 - `model/tests/test_chip_labels.py`
 - `model/tests/test_chip_creation.py`
 - `model/tests/test_chip_publication.py`
 - `notebooks/chip_example.ipynb`
+- `notebooks/crater_labeling.ipynb`
 - `docs/chip_creation_modernization_plan.md`
 - `docs/dataset_contribution.md`
 
@@ -498,6 +618,10 @@ editing them.
 | Categorical IDs are corrupted by interpolation | Nearest-neighbor only; validate integer values after materialization |
 | Instance boxes, mask IDs, and count diverge | Transform, clip, remap, and validate them as one artifact transaction |
 | Parent label does not cover the complete AOI | Densified footprint containment; fail before tiling and never pad truth |
+| Crater feature extent is mistaken for reviewed coverage | Require a separate complete `label_coverage` layer; never infer coverage from annotations |
+| An autosaved partial annotation set is consumed as truth | Require explicit `complete` review state and return to `in_progress` after edits |
+| GeoPackage feature iteration changes output IDs | Sort by unique source `crater_id`, use a fixed painter rule, and record the ID map |
+| A subpixel polygon is mistaken for an occluded crater | Test per-geometry pixel support before applying the occlusion heuristic |
 | Differently named labels bypass identity checks | Require typed source-scene identity and validate it against product/selector identity |
 | Full `.npz` masks create high worker memory | Keep plans small, materialize in workers, window formats that support it, measure `.npz` peak memory, and document limits |
 | Derived labels weaken publication atomicity | Hash validated artifacts and retain the existing staged pair/rollback protocol |
@@ -508,7 +632,11 @@ editing them.
 
 This plan is complete only when a user can run the public notebook from a clean
 kernel with no reference chip, provide a complete rectangular AOI/grid and a
-larger georeferenced label, and obtain an atomically published chip/label pair
-whose two artifacts exactly match the requested target grid. Exact legacy
-reference workflows must remain regression-safe, label failures must remain
-per-sample and pre-tiling, and the tiling contract must remain unchanged.
+larger georeferenced array/raster label or completed crater-labeling
+GeoPackage, and obtain an atomically published chip/label pair whose two
+artifacts exactly match the requested target grid. A scientist must also be
+able to move directly from crater labeling through explicit coverage
+certification into that chip workflow without manually converting the
+GeoPackage. Exact legacy reference workflows must remain regression-safe,
+label failures must remain per-sample and pre-tiling, and the tiling contract
+must remain unchanged.

@@ -45,12 +45,30 @@ runtime environment variables aligned when changing them. The shared script
 installs native GDAL/PROJ, builds their Python bindings, protects the
 container-provided Python builds, and installs `requirements_container.txt`.
 
-The combined requirements select the highest recorded versions from historical
-freezes; this merged environment has not yet passed a full container build.
+The combined requirements retain the package-name union from historical freezes
+but leave regular Python package versions unpinned for upgrade testing. The
+installer uses `pip install --upgrade --upgrade-strategy only-if-needed` under
+the base image's constraints and the generated native constraints. All packages
+listed in the requirements are direct upgrade targets; additional transitive
+dependencies upgrade only when needed. Pip selects compatible versions, which
+may be older than the newest releases when constraints require it.
+
+The NVIDIA base image tag stays fixed. NumPy (2.2.6), rasterio (1.5.0), pyproj
+(3.7.2), and pyogrio (0.13.0) keep their explicit build versions; GDAL bindings
+match the installed native GDAL. The custom builds listed in the managed section
+and installed NVIDIA/CUDA components retain their installed versions. Native
+Ubuntu packages still come from apt, so this is not a fully locked OS image.
+
+This unpinned environment has not yet passed a full container build.
 Dependency resolution, `pip check`, or the native-binding smoke checks can fail
 if that combination is incompatible. These failures stop publication. The smoke
 checks exercise GDAL/NumPy array I/O, the PROJ database, and PyTorch/torchvision
 CPU NMS. They do not test GPU execution or model training.
+
+Test feature-branch images using their `sha-<full commit SHA>` tags instead of
+`latest`. Before merging, check notebook imports, a small tiling/chip job, and
+GPU inference or training on HPC. Use the saved installed requirements to
+review resolved versions and create a pinned environment after validation.
 
 The image retains the input requirements, installed native constraints, and a
 fresh `pip freeze` in `/opt/requirements_container.txt`,

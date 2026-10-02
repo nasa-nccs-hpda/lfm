@@ -63,8 +63,9 @@ echo "=== Protecting container-provided builds ==="
 # Require those distributions from the base image and protect their versions,
 # together with the native geospatial stack built above, during resolution.
 python - <<'PY'
-from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import PackageNotFoundError, distributions, version
 from pathlib import Path
+import re
 
 requirements = Path('/opt/requirements_container.txt').read_text()
 managed = requirements.split('# BEGIN CONTAINER-MANAGED PACKAGES\n', 1)[1]
@@ -72,6 +73,14 @@ managed = managed.split('# END CONTAINER-MANAGED PACKAGES', 1)[0]
 names = {line.strip() for line in managed.splitlines()
          if line.strip() and not line.lstrip().startswith('#')}
 names.update({'numpy', 'rasterio', 'pyproj', 'pyogrio'})
+# An upgrade of the ordinary Python packages must not replace the base image's
+# CUDA/NVIDIA components, including ones absent from the historical freeze union.
+for distribution in distributions():
+    name = re.sub(r'[-_.]+', '-', distribution.metadata['Name']).lower()
+    if name.startswith(('cuda-', 'nvidia-')) or name in {
+        'nvtx', 'nvdlfw-inspect', 'torchdata', 'torchaudio',
+    }:
+        names.add(name)
 constraints = []
 for name in sorted(names):
     try:
@@ -82,9 +91,11 @@ for name in sorted(names):
 Path('/opt/lfm-native-constraints.txt').write_text('\n'.join(constraints) + '\n')
 PY
 
-echo "=== Installing combined project dependencies ==="
+echo "=== Upgrading regular dependencies under container constraints ==="
 
 python -m pip install \
+    --upgrade \
+    --upgrade-strategy only-if-needed \
     -c /etc/pip/constraint.txt \
     -c /opt/lfm-native-constraints.txt \
     --no-binary=rasterio,pyproj,pyogrio \

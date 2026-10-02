@@ -32,6 +32,12 @@ Reference TIFFs or explicit AOIs
 Each worker processes one chip serially. Parallelism happens by running
 multiple independent chips simultaneously.
 
+The architecture below describes the current implementation. The planned
+AOI-first and crater-GeoPackage extensions are specified in
+[`planning_docs/aoi_chip_creation_and_label_clipping_plan.md`](planning_docs/aoi_chip_creation_and_label_clipping_plan.md)
+and
+[`crater_labeling_to_chip_creation_contract.md`](crater_labeling_to_chip_creation_contract.md).
+
 ## Behavior map for files under `model/`
 
 The `model/` directory contains the modern chip pipeline, the tiling backend it
@@ -87,6 +93,27 @@ in a modern chip-creation run.
 - `model/static_band_contract.py` owns the canonical static band order and the
   special source/output NoData rules used for static data. It also contains
   constants rather than a processing stage.
+
+### Upstream crater-labeling files
+
+- `notebooks/crater_labeling.ipynb` is the interactive scientist-facing entry
+  point. It selects a projected lunar GeoTIFF, lets a user propose and edit
+  crater outlines, and autosaves accepted annotations.
+- `lfm/labeling/craters.py` owns pixel-space proposal tools, bounded raster
+  previews, the `CraterLabeler` widget, native-CRS polygon conversion, atomic
+  GeoPackage export, and resuming labels for the same source raster.
+- The current GeoPackage contains only a `craters` polygon layer. It is not yet
+  a chip-creation input because it does not certify the geographic area that
+  was reviewed. The planned v1 handoff adds a `label_coverage` layer and an
+  explicit `in_progress`/`complete` lifecycle.
+- Under that target contract, chip label preparation reads the GeoPackage,
+  verifies identity and complete AOI coverage, clips/reprojects polygons, and
+  rasterizes them onto the request's exact target grid. The published training
+  artifact remains the existing instance `.npz`, not the source GeoPackage.
+- These operations stay in label preparation and do not alter tiling, imagery
+  resampling, or source-index contracts. See the dedicated interoperability
+  contract for the exact layer schemas, rasterization order, overlap behavior,
+  diagnostics, and migration rules.
 
 ### Modern tiling files used by chip acquisition
 
@@ -234,6 +261,12 @@ Important properties:
 6. Produce one `PreparedChipRequest` per input.
 
 A failed label never reaches tiling, and no chip is written for it.
+
+The planned GeoPackage path extends this same gate rather than bypassing it.
+Vector labels require a complete, certified coverage layer; crater feature
+bounds alone are never treated as reviewed coverage. A worker then materializes
+a target-sized instance archive before acquisition, after which the existing
+instance validation and pair-publication rules apply.
 
 ## Acquisition
 
