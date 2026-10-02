@@ -1,0 +1,399 @@
+# Combined LFM container dependencies (generated from repository inputs 2026-10-02).
+# Package-name union: all 5 freezes in test_outputs/deps_lfm_containers.zip
+# plus requirements_notebooks.txt (7 notebooks, excluding notebooks/toy_model/).
+# All 38 audited notebook dependencies already appear in the freeze union.
+# Total: 354 distinct distributions; no freeze packages were dropped.
+#
+# Sources inside the ZIP:
+#   lfm-container-ipyleaflet-fast-requirements.txt
+#   lfm-container-ipyleaflet-requirements.txt
+#   lfm-container-ipyleaflet-v2-requirements.txt
+#   lfm-container-latest-requirements.txt
+#   lfm-container-requirements.txt
+#
+# Policy: highest PEP 440 version present in the supplied freezes, not the newest
+# release on PyPI. This union of historical environments is NOT a tested lockfile.
+# NVIDIA local build artifacts and the NVIDIA cocoapi fork are supplied by the
+# base image, not replaced with similarly named PyPI packages. GDAL bindings must
+# match the native GDAL installed by the definition, rather than the old freeze.
+# lfm_container-latest.def verifies these managed packages exist and constrains
+# their installed versions before installing the regular packages below.
+# Run the container build from the repository root so %files finds this file.
+# Keep the repository and graha-lunar-fm/ importable for the local Python modules;
+# this list does not install repository source code or model weights.
+
+# BEGIN CONTAINER-MANAGED PACKAGES
+# Historical source: apex @ file:///opt/pytorch/apex/dist/apex-0.1-cp312-cp312-linux_aarch64.whl#sha256=da723b7848638dfc7e1e58b8e27bd37237b093e57700154de8ed8dc61d9d10e6
+apex
+# Historical source: flash_attn @ file:///opt/transfer/flash_attn-2.7.4.post1%2Bgit5231d95fe1.54157505-cp312-cp312-linux_aarch64.whl#sha256=c582b983568ec7175eba847adef22b6b380efbe6c2ca6c4103ed778ed014613f
+flash-attn
+# Historical freeze: GDAL==3.8.4; use the system-matched build instead.
+GDAL
+# Historical source: jupyterlab_tensorboard_pro @ file:///builder/jupyterlab_tensorboard_pro-4.0.0-py2.py3-none-any.whl#sha256=b639e0d57174368cba55246fb2b225bc5eb99065b2f7e04366d10fdb8281f660
+jupyterlab-tensorboard-pro
+# Historical source: nvidia-modelopt @ file:///tmp/modelopt/nvidia_modelopt-0.44.0-py3-none-any.whl#sha256=9b54a853dfda161db97a0dfce4d7c24269d1d19966b5e2026094186af897f74d
+nvidia-modelopt
+# Historical source: nvidia-resiliency-ext @ file:///tmp/nvrx/nvidia_resiliency_ext-0.6.0-cp312-cp312-manylinux_2_39_aarch64.whl#sha256=a71c1a1650b32c72f7fdf7d6f73b4d275961ce5d68bd68efaff9e0d7099031cb
+nvidia-resiliency-ext
+# Historical source: onnx @ file:///opt/pytorch/pytorch/third_party/onnx
+onnx
+# Historical source: pycocotools @ git+https://github.com/nvidia/cocoapi.git@08350a157b41f0755a536441b5abec89ab934c5b#subdirectory=PythonAPI
+pycocotools
+# Historical source: tensorrt @ file:///workspace/TensorRT-11.0.0.114/python/tensorrt-11.0.0.114-cp312-none-linux_aarch64.whl#sha256=b02d6572dbd05c0aa215a5772816eee18c17d3f3324c7094d8b932d3e92f4689
+tensorrt
+# Historical source: torch @ file:///opt/transfer/torch-2.13.0a0%2B8145d630e8.nv26.6.54250401-cp312-cp312-linux_aarch64.whl#sha256=8a7efd12b08642a772ec7fd4dc2ab8ea88dc964323e0aca3a0f329a662193cfa
+torch
+# Historical source: torch_tensorrt @ file:///opt/pytorch/torch_tensorrt/dist/torch_tensorrt-2.13.0a0-cp312-cp312-linux_aarch64.whl#sha256=2f42d582051a1d3948e74c4f3dc8447599594d6a96fae38d714ab84e9a6b73b7
+torch-tensorrt
+# Historical source: torchao @ file:///opt/pytorch/ao
+torchao
+# Historical source: torchtitan @ file:///opt/pytorch/torchtitan
+torchtitan
+# Historical source: torchvision @ file:///opt/transfer/torchvision-0.27.0a0%2B499ca510.nv26.6.54250401-cp312-cp312-manylinux_2_28_aarch64.whl#sha256=8c9341542e4b370b041bb8a0be1722b202abcf07fba94d762b2835e114fee7a5
+torchvision
+# Historical source: transformer_engine @ file:///workspace/TransformerEngine
+transformer-engine
+# Historical source: triton @ file:///tmp/dist/triton-3.7.0%2Bgitb7fa781f.nv26.6-cp312-cp312-linux_aarch64.whl#sha256=ac76a8804e3c7883c603679839f5db8b694366d50c8d2ab929fe309c63261827
+triton
+# Historical source: triton_kernels @ file:///tmp/dist/triton_kernels-1.0.0%2Bgitb7fa781f.nv26.6-py3-none-any.whl#sha256=517938a42b240c5ad4bf5dce7720512e29cd408b2d58e2367f9f5448bdf13737
+triton-kernels
+# END CONTAINER-MANAGED PACKAGES
+
+# Regular packages: highest recorded version from all five freezes.
+absl-py==2.4.0
+aenum==3.1.17
+affine==3.0.1  # Other recorded versions: 3.0.0
+aiohappyeyeballs==2.6.2
+aiohttp==3.14.1
+aiosignal==1.4.0
+albucore==0.0.24
+albumentations==2.0.8
+annotated-doc==0.0.4
+annotated-types==0.7.0
+antlr4-python3-runtime==4.9.3
+anyio==4.13.0
+anywidget==0.11.0
+argon2-cffi==25.1.0
+argon2-cffi-bindings==25.1.0
+arrow==1.4.0
+asttokens==3.0.1
+astunparse==1.6.3
+async-lru==2.3.0
+attrs==26.1.0
+babel==2.18.0
+beautifulsoup4==4.15.0
+black==26.5.1
+bleach==6.4.0
+bqplot==0.13.1
+bqscales==0.3.7
+braceexpand==0.1.7
+branca==0.8.2
+cachetools==7.2.0  # Other recorded versions: 7.1.7
+certifi==2026.5.20
+cffi==2.0.0
+charset-normalizer==3.4.7
+click==8.4.1
+click-plugins==1.1.1.2
+cligj==0.7.2
+cloudpickle==3.1.2
+cmake==3.31.6
+cmocean==4.0.3
+color-operations==0.4.0  # Other recorded versions: 0.2.0
+colorcet==3.2.1
+comm==0.2.3
+contourpy==1.3.3
+cuda-bindings==13.3.1
+cuda-core==1.0.1
+cuda-pathfinder==1.5.5
+cuda-python==13.3.1
+cuda-tile==1.4.0
+cycler==0.12.1
+cython==3.2.5
+datasets==5.0.0
+debugpy==1.8.21
+decorator==5.3.1
+defusedxml==0.7.1
+diffusers==0.39.0
+dill==0.4.1
+dllist==2.0.0
+docstring-parser==0.18.0
+duckdb==1.5.6  # Other recorded versions: 1.5.5
+einops==0.8.2
+eval-type-backport==0.4.0
+executing==2.2.1
+fastapi==0.142.2  # Other recorded versions: 0.141.1
+fastjsonschema==2.21.2
+filelock==3.29.1
+fiona==1.10.1
+folium==0.20.0
+fonttools==4.63.0
+fqdn==1.5.1
+frozenlist==1.8.0
+fsspec==2026.4.0
+gast==0.7.0
+gdown==6.4.1  # Other recorded versions: 6.1.0
+geojson==3.3.0
+geopandas==1.1.4
+gitdb==4.0.12
+gitpython==3.1.50
+grpcio==1.81.0
+grpcio-tools==1.81.0
+h11==0.16.0
+h5netcdf==1.8.1
+h5py==3.16.0
+hdf5plugin==7.1.0  # Other recorded versions: 7.0.0
+hf-xet==1.5.1
+httpcore==1.0.9
+httpcore2==2.13.1  # Other recorded versions: 2.12.0
+httptools==0.8.0
+httpx==0.28.1
+httpx2==2.13.1  # Other recorded versions: 2.12.0
+huggingface-hub==1.18.0
+hydra-core==1.3.4
+idna==3.18
+imageio==2.37.4
+importlib-metadata==9.0.0
+iniconfig==2.3.0
+ipyevents==2.0.4
+ipyfilechooser==0.6.0
+ipykernel==7.2.0
+ipyleaflet==0.20.0
+ipysheet==0.7.0
+ipython==9.14.1
+ipython-pygments-lexers==1.1.1
+ipytree==0.2.2
+ipyvue==3.0.0
+ipyvuetify==3.0.0
+ipywidgets==8.1.8
+isoduration==20.11.0
+isort==8.0.1
+jedi==0.20.0
+jinja2==3.1.6
+joblib==1.6.0  # Other recorded versions: 1.5.3
+json5==0.14.0
+jsonargparse==4.52.0  # Other recorded versions: 4.50.0
+jsonpointer==3.1.1
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+jupyter==1.1.1
+jupyter-client==8.9.0
+jupyter-console==6.6.3
+jupyter-core==5.9.1
+jupyter-events==0.12.1
+jupyter-leaflet==0.20.0
+jupyter-loopback==0.3.3
+jupyter-lsp==2.3.1
+jupyter-server==2.19.0
+jupyter-server-terminals==0.5.4
+jupyterlab==4.5.8
+jupyterlab-code-formatter==3.0.3
+jupyterlab-pygments==0.3.0
+jupyterlab-server==2.28.0
+jupyterlab-widgets==3.0.17  # Other recorded versions: 3.0.16
+jupytext==1.19.3
+kiwisolver==1.5.0
+kornia==0.8.3
+kornia-rs==0.2.0  # Other recorded versions: 0.1.14
+lark==1.3.1
+lazy-loader==0.6  # Other recorded versions: 0.5
+leafmap==0.63.1
+lightly==1.5.22
+lightly-utils==0.0.2
+lightning==2.6.5
+lightning-utilities==0.15.3
+llvmlite==0.46.0
+localtileserver==1.0.0
+makefun==1.16.0
+maplibre==0.3.6
+markdown==3.10.2
+markdown-it-py==4.2.0
+markupsafe==3.0.3
+matplotlib==3.10.9
+matplotlib-inline==0.2.2
+mdit-py-plugins==0.6.1
+mdurl==0.1.2
+mistune==3.2.1
+ml-dtypes==0.5.4
+morecantile==7.1.0  # Other recorded versions: 7.0.3
+mpmath==1.3.0
+multidict==6.7.1
+multiprocess==0.70.19
+mypy-extensions==1.1.0
+narwhals==2.26.0  # Other recorded versions: 2.24.0
+nbclient==0.11.0
+nbconvert==7.17.1
+nbformat==5.10.4
+nest-asyncio==1.6.0
+networkx==3.6.1
+ninja==1.13.0
+notebook==7.5.7
+notebook-shim==0.2.4
+numba==0.64.0
+numexpr==2.14.2
+numpy==2.2.6
+nvdlfw-inspect==0.2.2
+nvidia-cutlass-dsl==4.5.1
+nvidia-cutlass-dsl-libs-base==4.5.1
+nvidia-dali-cuda130==2.1.1
+nvidia-libnvcomp-cu13==5.1.0.21
+nvidia-ml-py==13.610.43
+nvidia-nvimgcodec-cu13==0.7.0.49
+nvidia-nvjpeg==13.2.0.21
+nvidia-nvjpeg2k-cu13==0.10.0.49
+nvidia-nvtiff-cu13==0.7.0.79
+nvtx==0.2.15
+omegaconf==2.3.0
+onnx-ir==0.2.1
+onnxscript==0.7.0
+opencv-python-headless==5.0.0.93
+opentelemetry-api==1.45.0
+optree==0.19.1
+packaging==26.0
+pandas==3.0.3
+pandocfilters==1.5.1
+parso==0.8.7
+pathspec==1.1.1
+pexpect==4.9.0
+pillow==12.2.0
+platformdirs==4.10.0
+plotly==7.1.0  # Other recorded versions: 6.9.0
+pluggy==1.6.0
+polygraphy==0.50.3
+prometheus-client==0.25.0
+prompt-toolkit==3.0.52
+propcache==0.5.2
+protobuf==6.33.6
+psutil==7.2.2
+psygnal==0.16.1  # Other recorded versions: 0.15.1
+ptyprocess==0.7.0
+pulp==3.3.2
+pure-eval==0.2.3
+pyarrow==24.0.0
+pybind11==3.0.4
+pycparser==3.0
+pydantic==2.13.4
+pydantic-core==2.46.4
+pygments==2.17.2
+pyogrio==0.13.0
+pyparsing==3.3.2
+pyproj==3.7.2
+pysocks==1.7.1
+pystac==1.15.2
+pystac-client==0.9.0
+pystac-core==1.15.2
+pystac-ext-classification==2.0.1
+pystac-ext-datacube==2.2.1
+pystac-ext-eo==1.1.1
+pystac-ext-file==2.1.1
+pystac-ext-grid==1.1.1
+pystac-ext-item-assets==1.0.1
+pystac-ext-label==1.0.2
+pystac-ext-mgrs==1.0.1
+pystac-ext-mlm==1.4.1
+pystac-ext-pointcloud==1.0.1
+pystac-ext-projection==2.0.1
+pystac-ext-raster==1.1.1
+pystac-ext-render==2.0.0
+pystac-ext-sar==1.0.1
+pystac-ext-sat==1.0.1
+pystac-ext-scientific==1.0.1
+pystac-ext-storage==2.0.1
+pystac-ext-table==1.2.1
+pystac-ext-timestamps==1.1.1
+pystac-ext-version==1.2.1
+pystac-ext-view==1.0.1
+pystac-ext-xarray-assets==1.0.1
+pytest==9.1.1
+python-box==7.4.1
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.3
+python-hostlist==2.3.0
+python-json-logger==4.1.0
+pytokens==0.4.1
+pytorch-lightning==2.6.6  # Other recorded versions: 2.6.5
+pyyaml==6.0.1
+pyzmq==27.1.0
+rasterio==1.5.0
+referencing==0.37.0
+regex==2026.5.9
+requests==2.34.2
+rfc3339-validator==0.1.4
+rfc3986-validator==0.1.1
+rfc3987-syntax==1.1.0
+rich==15.0.0
+rio-cogeo==7.0.3  # Other recorded versions: 7.0.2
+rio-tiler==9.4.8  # Other recorded versions: 9.4.2, 9.4.7
+rioxarray==0.22.0
+rpds-py==2026.5.1
+safetensors==0.8.0
+scikit-image==0.26.0
+scikit-learn==1.9.0
+scipy==1.17.1
+scooby==0.12.0  # Other recorded versions: 0.11.2
+segmentation-models-pytorch==0.5.0
+send2trash==2.1.0
+sentry-sdk==2.62.0
+server-thread==0.3.0
+setuptools==81.0.0
+shapely==2.1.2
+shellingham==1.5.4
+simsimd==6.5.16
+six==1.16.0
+smmap==5.0.3
+soupsieve==2.8.4
+stack-data==0.6.3
+starlette==1.7.0  # Other recorded versions: 1.6.0
+stringzilla==5.1.2
+sympy==1.14.0
+tabulate==0.10.0
+tensorboard==2.20.0
+tensorboard-data-server==0.7.2
+termcolor==3.3.0
+terminado==0.18.1
+terratorch==1.2.10
+threadpoolctl==3.7.0  # Other recorded versions: 3.6.0
+tifffile==2026.7.14
+tiler==0.6.0
+timm==1.0.28
+tinycss2==1.5.1
+tokenizers==0.22.2
+torchdata==0.11.0
+torchgeo==0.9.0
+torchmetrics==1.9.0
+tornado==6.5.7
+tqdm==4.68.2
+traitlets==5.15.1
+traittypes==0.2.3
+transformers==5.14.1
+truststore==0.10.4
+typeguard==4.5.2
+typer==0.25.1
+typeshed-client==2.13.0
+typing-extensions==4.15.0
+typing-inspection==0.4.2
+tyro==1.0.13
+tzdata==2026.2
+ujson==6.0.0  # Other recorded versions: 5.13.0
+uri-template==1.3.0
+urllib3==2.7.0
+uvicorn==0.54.0  # Other recorded versions: 0.52.3
+uvloop==0.22.1
+versioneer==0.29
+wandb==0.27.2
+watchfiles==1.3.0  # Other recorded versions: 1.2.0
+wcwidth==0.8.1
+webcolors==25.10.0
+webdataset==1.0.2
+webencodings==0.5.1
+websocket-client==1.9.0
+websockets==17.1  # Other recorded versions: 17.0.1
+werkzeug==3.1.8
+wheel==0.47.0
+whitebox==2.3.6
+whiteboxgui==2.3.0
+widgetsnbextension==4.0.16  # Other recorded versions: 4.0.15
+xarray==2026.7.0
+xxhash==3.7.0
+xyzservices==2026.9.1  # Other recorded versions: 2026.3.0
+yarl==1.24.2
+zipp==4.1.0

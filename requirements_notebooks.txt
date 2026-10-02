@@ -1,0 +1,65 @@
+# Dependency inventory for notebooks/**/*.ipynb, excluding notebooks/toy_model/.
+# Audited 2026-10-02: 7 notebooks and 154 recursively imported local Python files,
+# including package initializers, function-local imports, and fallback imports.
+# Standard-library modules and repository-local packages are not PyPI entries.
+# Versions are intentionally unpinned: this is an inventory of the current code,
+# not a tested container lockfile. Third-party transitive dependencies are left
+# to the package resolver. Apply container-specific constraints when installing.
+#
+# Local code: keep this repository on sys.path (the notebooks do this) and make
+# graha-lunar-fm/ available on PYTHONPATH, or install that local project separately.
+# Its requirements.txt declares additional dependencies and version constraints;
+# reconcile those with the container before using an editable install.
+#
+# Container prerequisites: GDAL, PROJ, and GEOS native libraries and PROJ data.
+# Install GDAL Python bindings matched to the container's native GDAL version
+# before installing this file; the existing container definition does this.
+# Keep torch/torchvision compatible with the container's CUDA/PyTorch stack.
+
+# Notebook execution and crater-labeling UI.
+ipykernel                 # Kernel runtime; not an application import.
+ipython                   # IPython.display and notebook autoreload extension.
+ipyleaflet                # lfm/labeling/craters.py
+ipywidgets                # lfm/labeling/craters.py
+
+# Arrays, plotting, configuration, and image/data I/O.
+affine                    # Crater-labeling raster transforms.
+h5py                      # Graha HDF5/NetCDF data adapters.
+hdf5plugin                # HDF5 compression filter registration.
+matplotlib
+numpy
+omegaconf                 # Graha backbone and modality configuration.
+pandas
+pillow                    # PIL imports in labeling and Graha data adapters.
+PyYAML                    # yaml imports in normalization and GFFT config loading.
+scikit-image              # skimage imports in the Graha data adapter.
+scipy
+tifffile                  # TIFF reader fallback when rasterio is unavailable.
+tqdm
+xarray
+
+# Geospatial tiling, chip creation, labeling, and datacube inference.
+GDAL                      # osgeo.gdal / ogr / osr; see native-version note above.
+fiona
+pyproj
+rasterio
+rioxarray
+shapely
+tiler                     # Tiler/Merger used by both inference notebooks.
+
+# Training, inference, and the local Graha/TerraMind integration.
+einops
+huggingface-hub            # huggingface_hub imports in the VQ implementation.
+lightning
+terratorch
+timm
+tokenizers
+torch
+torchgeo
+torchmetrics
+torchvision
+
+# Runtime backends selected through library APIs rather than direct imports.
+h5netcdf                  # HDF5-backed NetCDF input via xarray.open_dataset.
+pyarrow                   # pandas.read_parquet in Graha data adapters.
+pycocotools               # COCO backend for instance MeanAveragePrecision.

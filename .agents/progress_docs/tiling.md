@@ -19,6 +19,8 @@ Canonical references:
 - Tiling resampling: bilinear
 - Canonical static cube: 63 bands with `-32768` output NoData
 - Automatic raster-index preparation backend: **Complete**
+- Default index policy: protected shared `output_index.gpkg` for canonical
+  WAC/NAC/static directories; automatic per-clone caches for overrides
 - Default indexed raster formats: `.tif`, `.tiff`, `.nc`, and `.vrt`
 - Optional AOI product discovery: **Complete**
 - Grid-neutral metadata registry and geographic router: **Complete**
@@ -43,6 +45,8 @@ Goal:
 
 - Accelerate automatic raster-index creation for large shared WAC, NAC, and
   static collections without weakening deterministic publication.
+- Adopt the completed shared WAC/NAC/static GeoPackages in both example
+  notebooks while retaining automatic index creation for user-supplied data.
 
 Completed:
 
@@ -50,9 +54,23 @@ Completed:
   Explore WAC/NAC/static directories from user overrides. Defaults now use
   their protected shared `output_index.gpkg`; overrides use persistent,
   replaceable per-clone caches.
+- The resolver requires the shared GeoPackage to exist for a canonical
+  directory and returns explicit `uses_shared_default` and
+  `rebuild_invalid_index` policy. It normalizes paths so equivalent Explore
+  paths are compared consistently.
+- The tiling notebook keeps WAC, NAC, and static directories in user
+  configuration, resolves index paths in its derived-values section, and
+  passes the ownership-specific rebuild policy into every source definition.
+  Default runs no longer create or contend over per-clone WAC/NAC indexes.
 - Updated both tiling and chip example notebooks. The chip notebook prepares
   or validates indexes once before chip workers start, preventing abandoned
   default per-clone locks and nested index creation inside sample workers.
+- User-overridden WAC, NAC, or static directories still trigger automatic
+  `.tif`, `.tiff`, `.nc`, and `.vrt` discovery. Their indexes live under the
+  notebook's persistent `outputs/.../indexes/` cache rather than modifying the
+  supplied raster directory; invalid custom caches may be rebuilt atomically.
+- Updated the TMS guide, tiling and chip modernization plans, lunar-tiling
+  skill, and tiling-to-chip handoff to describe the new ownership boundary.
 - Added optional process-worker footprint inspection to the vector-index
   builder. The default resolves from `SLURM_CPUS_PER_TASK`; an explicit worker
   count of one retains serial behavior.
@@ -71,15 +89,18 @@ Completed:
 
 Validation:
 
-- Four focused resolver tests pass locally. Both notebooks remain valid JSON,
+- The focused dependency-light suite now passes 72 tests with 16
+  GDAL-dependent skips, including four new resolver tests covering all three
+  canonical modalities, custom-cache selection, missing shared indexes, and
+  invalid source names.
+- Both notebooks remain valid JSON,
   have unique cell IDs, contain syntax-valid ordinary Python cells, and retain
   null execution counts with empty outputs.
-- The dependency-light vector-index, preparation, and workflow suites pass:
-  68 tests run with 16 GDAL-dependent skips.
 - Explore job 37938224 created, validated, and reused an index for the exact
   global `LDRM_32_N_FLOAT.iau.tif` source with a plain-text progress bar.
-- The new two-process GDAL regression and shared real-data index build remain
-  pending in `lfm-container-ipyleaflet`.
+- The new resolver/notebook integration has not yet been executed
+  top-to-bottom in `lfm-container-ipyleaflet`. The two-process GDAL regression
+  and final shared-index validation report review also remain pending.
 
 Decisions:
 
@@ -87,11 +108,17 @@ Decisions:
   a shared OGR dataset.
 - Preserve automatic worker selection while keeping serial operation an
   explicit supported option.
+- Reuse canonical shared indexes read-only. Create or rebuild only caches whose
+  path resolution identifies them as application-owned user overrides.
+- Prepare chip-workflow indexes once in the coordinator before starting chip
+  workers; never create an index independently inside each sample worker.
 
 Next:
 
-- Run the focused GDAL container suite, then submit the shared-index builder
-  and inspect its report before making the notebook prefer shared GeoPackages.
+- Run both updated notebooks against the actual shared WAC/NAC/static
+  GeoPackages in `lfm-container-ipyleaflet` on Grace.
+- Run the focused GDAL container suite and inspect the final shared-index
+  validation report before closing the remaining execution gate.
 
 ### 2026-10-01
 
