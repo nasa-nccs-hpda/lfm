@@ -11,7 +11,9 @@ permissions:
 
 concurrency:
   group: lfm-container-${{ github.ref }}
-  cancel-in-progress: true
+  # Let expensive native builds finish when another commit is pushed.
+  # GitHub keeps the newest pending run for this branch.
+  cancel-in-progress: false
 
 jobs:
   container:

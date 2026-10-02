@@ -8,6 +8,11 @@ It publishes to `ghcr.io/nasa-nccs-hpda/lfm` using GitHub's `GITHUB_TOKEN`:
 - `sha-<full commit SHA>` identifies the source commit for each build.
 - `latest` is updated only by builds of the repository's default branch.
 
+Builds are serialized per branch. A new push does not cancel an active build;
+GitHub retains the newest pending run for that branch, replacing any older
+pending run. This lets native dependency compilation finish while development
+continues.
+
 Commit the workflow, Dockerfile, `.dockerignore`, definition file,
 shared installation script, and `requirements_container.txt` before pushing.
 
