@@ -69,6 +69,9 @@ NoData metadata.
   when missing; low-level tile generation queries prepared indexes read-only.
   Automatic replacement must be explicitly enabled and is allowed only for an
   application-owned GeoPackage cache. Never replace a shared or legacy index.
+- Missing-index footprint inspection defaults to `SLURM_CPUS_PER_TASK`
+  process workers. Use `index_worker_count=1` to force serial preparation.
+  Keep GeoPackage writes in the parent process and preserve source-path order.
 - Write one tiled, LZW-compressed BigTIFF per source and lunar-grid tile, with
   the routed grid CRS, exact tile transform, band names, output NoData
   metadata, and group-writable permissions.

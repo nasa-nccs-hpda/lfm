@@ -1,6 +1,7 @@
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
 from unittest import mock
@@ -24,6 +25,7 @@ from lfm.model.vector_index_builder import (
     create_vector_index,
     discover_raster_paths,
     ensure_vector_index,
+    resolve_index_worker_count,
 )
 
 
@@ -210,6 +212,30 @@ class VectorIndexBuildConfigTestCase(unittest.TestCase):
                 index_path=Path("/data/wac/output_index.shp"),
                 rebuild_invalid_index=True,
             )
+
+    def test_worker_count_defaults_to_slurm_and_supports_serial_override(self):
+        with mock.patch.dict(os.environ, {"SLURM_CPUS_PER_TASK": "8"}):
+            self.assertEqual(resolve_index_worker_count(), 8)
+        self.assertEqual(resolve_index_worker_count(1), 1)
+        self.assertEqual(
+            VectorIndexBuildConfig(
+                data_dir=Path("/data/wac"),
+                worker_count=4,
+            ).worker_count,
+            4,
+        )
+
+        for invalid in (True, 1.5, "2"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(TypeError, "integer or None"):
+                    resolve_index_worker_count(invalid)
+        for invalid in (0, -1):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(ValueError, "at least 1"):
+                    resolve_index_worker_count(invalid)
+        with mock.patch.dict(os.environ, {"SLURM_CPUS_PER_TASK": "bad"}):
+            with self.assertRaisesRegex(ValueError, "positive integer"):
+                resolve_index_worker_count()
 
     def test_derives_default_index_path(self):
         config = VectorIndexBuildConfig(data_dir=Path("/data/wac"))
@@ -677,6 +703,36 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
                 )
                 self.assertIn("Building raster index", creation_stdout.getvalue())
                 self.assertEqual(before_reuse, after_reuse)
+
+    def test_parallel_creation_preserves_deterministic_feature_order(self):
+        from osgeo import gdal
+
+        first = self.write_raster("a.tif", x_origin=10.0)
+        second = self.write_raster("b.tif", x_origin=11.0)
+        index_path = self.data_dir / "parallel.gpkg"
+        config = VectorIndexBuildConfig(
+            self.data_dir,
+            index_path=index_path,
+            worker_count=2,
+        )
+        stdout = io.StringIO()
+
+        created = ensure_vector_index(config, stdout=stdout)
+        dataset = gdal.OpenEx(
+            str(index_path),
+            gdal.OF_VECTOR | gdal.OF_READONLY,
+        )
+        self.assertIsNotNone(dataset)
+        layer = dataset.GetLayer(0)
+        stored_paths = tuple(
+            feature.GetField(config.location_field) for feature in layer
+        )
+        layer = None
+        dataset = None
+
+        self.assertEqual(created.raster_paths, (first, second))
+        self.assertEqual(stored_paths, (str(first), str(second)))
+        self.assertIn("Using 2 raster-footprint worker(s).", stdout.getvalue())
 
     def test_managed_geopackage_atomically_replaces_invalid_cache(self):
         raster = self.write_raster("a.tif", x_origin=10.0)

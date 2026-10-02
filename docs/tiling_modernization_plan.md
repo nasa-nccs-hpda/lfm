@@ -381,6 +381,10 @@ these behaviors without waiting for the tiling notebook or legacy cleanup:
   `data_dir`. The high-level preparation workflow may create a missing index.
   Automatic replacement is opt-in and limited to application-owned
   GeoPackage caches; shared and legacy indexes remain protected.
+- Missing-index preparation defaults its raster-footprint worker count to
+  `SLURM_CPUS_PER_TASK`, with an explicit `index_worker_count=1` serial
+  override. Workers inspect and transform separate rasters; the parent process
+  writes index features in deterministic source-path order.
 - The strict `create_tiles_for_*` path requires a selector keyed by source name
   for every `product_id` source, and `all_intersecting` sources reject
   selectors. The high-level `create_tiles_for_aoi_by_product` path accepts an

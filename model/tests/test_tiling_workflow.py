@@ -442,11 +442,14 @@ class TileSourceDefinitionTestCase(unittest.TestCase):
             data_dir="/data/wac",
             index_path="/cache/wac.gpkg",
             rebuild_invalid_index=True,
+            index_worker_count=3,
         )
 
         self.assertFalse(default_wac.rebuild_invalid_index)
         self.assertTrue(managed_wac.rebuild_invalid_index)
         self.assertTrue(managed_wac.preparation().rebuild_invalid_index)
+        self.assertEqual(managed_wac.index_worker_count, 3)
+        self.assertEqual(managed_wac.preparation().worker_count, 3)
 
     def test_static_role_requires_contextual_selection(self):
         source = TileSourceConfig(

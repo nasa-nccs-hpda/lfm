@@ -46,6 +46,7 @@ class TilePreparationTestCase(unittest.TestCase):
         preparation = TileSourcePreparation(
             source,
             image_glob="*.cog.tif",
+            worker_count=3,
         )
 
         build = preparation.index_config()
@@ -56,6 +57,7 @@ class TilePreparationTestCase(unittest.TestCase):
         self.assertEqual(build.location_field, source.location_field)
         self.assertEqual(build.image_glob, "*.cog.tif")
         self.assertEqual(build.raster_globs, ("*.cog.tif",))
+        self.assertEqual(build.worker_count, 3)
 
     def test_preparation_defaults_to_all_supported_raster_extensions(self):
         preparation = TileSourcePreparation(self.source("wac"))

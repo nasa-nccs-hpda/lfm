@@ -13,6 +13,7 @@ from lfm.model.vector_index_builder import (
     DEFAULT_RASTER_GLOBS,
     VectorIndexBuildConfig,
     ensure_vector_index,
+    resolve_index_worker_count,
 )
 
 
@@ -37,6 +38,15 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         required=True,
         help="Destination JSON report path.",
+    )
+    parser.add_argument(
+        "--worker-count",
+        type=int,
+        default=None,
+        help=(
+            "Raster-footprint workers. Defaults to SLURM_CPUS_PER_TASK; set "
+            "to 1 to disable parallel processing."
+        ),
     )
     return parser.parse_args()
 
@@ -63,6 +73,7 @@ def main() -> None:
         raise ValueError("--index-name must end with .gpkg.")
 
     collections = collection_directories(args.project_data_dir)
+    resolved_worker_count = resolve_index_worker_count(args.worker_count)
     for name, data_dir in collections:
         if not data_dir.is_dir():
             raise NotADirectoryError(
@@ -71,6 +82,7 @@ def main() -> None:
 
     print(f"Project data root: {args.project_data_dir}", flush=True)
     print(f"Shared index filename: {args.index_name}", flush=True)
+    print(f"Raster-footprint workers: {resolved_worker_count}", flush=True)
     print(
         "Existing indexes will be validated and reused. Invalid or stale shared "
         "indexes will not be replaced automatically.",
@@ -93,6 +105,7 @@ def main() -> None:
                 index_path=index_path,
                 image_globs=DEFAULT_RASTER_GLOBS,
                 rebuild_invalid_index=False,
+                worker_count=args.worker_count,
             ),
             stdout=sys.stdout,
         )
@@ -123,6 +136,7 @@ def main() -> None:
         "project_data_dir": str(args.project_data_dir),
         "index_name": args.index_name,
         "raster_globs": list(DEFAULT_RASTER_GLOBS),
+        "resolved_worker_count": resolved_worker_count,
         "shared_indexes_are_automatically_replaceable": False,
         "collections": results,
         "passed": True,

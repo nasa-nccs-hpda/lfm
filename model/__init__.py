@@ -199,6 +199,7 @@ from .vector_index_builder import (
     create_vector_index,
     discover_raster_paths,
     ensure_vector_index,
+    resolve_index_worker_count,
     validate_vector_index,
 )
 from .tiling_results import (
@@ -383,6 +384,7 @@ __all__ = [
     "query_source_index_envelopes",
     "reference_sample_from_tiff",
     "resolve_label_path",
+    "resolve_index_worker_count",
     "resolve_tile_index_path",
     "route_aoi",
     "route_point",

@@ -37,6 +37,50 @@ Known boundaries and follow-ups:
 
 ## Daily entries
 
+### 2026-10-02
+
+Goal:
+
+- Accelerate automatic raster-index creation for large shared WAC, NAC, and
+  static collections without weakening deterministic publication.
+
+Completed:
+
+- Added optional process-worker footprint inspection to the vector-index
+  builder. The default resolves from `SLURM_CPUS_PER_TASK`; an explicit worker
+  count of one retains serial behavior.
+- Kept all OGR index writes in the parent process and preserved deterministic
+  source-path feature order. Worker GDAL/OSR state is process-local, results
+  cross the process boundary as WKB, and task submission is bounded.
+- Propagated `index_worker_count` through public WAC, NAC, static, and custom
+  source preparation.
+- Added a temporary Grace wrapper that requests eight CPUs and creates
+  validated `output_index.gpkg` files in the three default shared data
+  directories. `WORKER_COUNT=1` provides an operational serial override.
+- Added valid full-longitude index geometry for global geographic static
+  rasters and retained rejection of footprints wider than 360 degrees.
+
+Validation:
+
+- The dependency-light vector-index, preparation, and workflow suites pass:
+  66 tests run with 14 GDAL-dependent skips.
+- Explore job 37938224 created, validated, and reused an index for the exact
+  global `LDRM_32_N_FLOAT.iau.tif` source with a plain-text progress bar.
+- The new two-process GDAL regression and shared real-data index build remain
+  pending in `lfm-container-ipyleaflet`.
+
+Decisions:
+
+- Parallelize independent raster reads and footprint transforms, not writes to
+  a shared OGR dataset.
+- Preserve automatic worker selection while keeping serial operation an
+  explicit supported option.
+
+Next:
+
+- Run the focused GDAL container suite, then submit the shared-index builder
+  and inspect its report before making the notebook prefer shared GeoPackages.
+
 ### 2026-10-01
 
 Goal:

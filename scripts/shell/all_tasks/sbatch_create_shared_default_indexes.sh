@@ -2,7 +2,7 @@
 #SBATCH --job-name=shared_tile_indexes
 #SBATCH --partition=grace
 #SBATCH --mem=16G
-#SBATCH --cpus-per-task=1
+#SBATCH --cpus-per-task=8
 #SBATCH --time=08:00:00
 #SBATCH --output=scripts/logs/shared_tile_indexes_%j.out
 #SBATCH --error=scripts/logs/shared_tile_indexes_%j.err
@@ -29,7 +29,13 @@ APPTAINER_BIN="${APPTAINER_BIN:-apptainer}"
 APPTAINER_BIND_PATHS="${APPTAINER_BIND_PATHS:-/panfs/ccds02/nobackup:/explore/nobackup}"
 PROJECT_DATA_DIR="${PROJECT_DATA_DIR:-/explore/nobackup/projects/lfm}"
 INDEX_NAME="${INDEX_NAME:-output_index.gpkg}"
+WORKER_COUNT="${WORKER_COUNT:-}"
 REPORT_PATH="${REPO_DIR}/test_outputs/shared_default_indexes_${SLURM_JOB_ID:-manual}.json"
+
+WORKER_ARGS=()
+if [[ -n "${WORKER_COUNT}" ]]; then
+  WORKER_ARGS=(--worker-count "${WORKER_COUNT}")
+fi
 
 cd "${REPO_DIR}"
 mkdir -p scripts/logs test_outputs
@@ -39,6 +45,7 @@ echo "Repository: ${REPO_DIR}"
 echo "Container: ${CONTAINER_PATH}"
 echo "Project data root: ${PROJECT_DATA_DIR}"
 echo "Shared index filename: ${INDEX_NAME}"
+echo "Worker override: ${WORKER_COUNT:-SLURM_CPUS_PER_TASK (${SLURM_CPUS_PER_TASK:-unset})}"
 echo "Report: ${REPORT_PATH}"
 echo
 
@@ -51,6 +58,7 @@ echo
   python lfm/scripts/python/all_tasks/create_shared_default_indexes.py \
     --project-data-dir "${PROJECT_DATA_DIR}" \
     --index-name "${INDEX_NAME}" \
+    "${WORKER_ARGS[@]}" \
     --report "${REPORT_PATH}"
 
 echo

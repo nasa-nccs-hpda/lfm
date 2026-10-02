@@ -187,6 +187,12 @@ application-owned GeoPackage cache as replaceable when invalid or stale;
 shared and legacy indexes remain protected. Low-level tile queries consume the
 prepared index read-only.
 
+Missing-index creation parallelizes raster footprint inspection with isolated
+worker processes while retaining deterministic, serial GeoPackage writes. The
+worker count defaults to `SLURM_CPUS_PER_TASK` and falls back to one outside a
+Slurm allocation. Expert callers can set `index_worker_count=1` on a source
+definition to force the earlier serial behavior.
+
 The example notebook treats shared raster collections as read-only. Its WAC
 and NAC indexes are persistent GeoPackage caches under each user's clone at
 `outputs/tiling/indexes/`, so separate clones do not compete for or overwrite
