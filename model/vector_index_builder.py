@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from collections import deque
+from concurrent.futures import Future, ProcessPoolExecutor
 from dataclasses import dataclass, replace
 import logging
 import math
+import multiprocessing
 import os
 from pathlib import Path
 import shutil
@@ -35,6 +38,33 @@ class VectorIndexLockError(RuntimeError):
     """Another process is already creating the requested raster index."""
 
 
+def resolve_index_worker_count(worker_count: int | None = None) -> int:
+    """Resolve explicit workers or default to the Slurm CPU allocation."""
+    if worker_count is not None:
+        if isinstance(worker_count, bool) or not isinstance(worker_count, int):
+            raise TypeError("worker_count must be an integer or None.")
+        if worker_count < 1:
+            raise ValueError("worker_count must be at least 1.")
+        return worker_count
+
+    slurm_value = os.environ.get("SLURM_CPUS_PER_TASK")
+    if slurm_value is None or not slurm_value.strip():
+        return 1
+    try:
+        resolved = int(slurm_value)
+    except ValueError as exc:
+        raise ValueError(
+            "SLURM_CPUS_PER_TASK must be a positive integer when worker_count "
+            "is not configured explicitly."
+        ) from exc
+    if resolved < 1:
+        raise ValueError(
+            "SLURM_CPUS_PER_TASK must be a positive integer when worker_count "
+            "is not configured explicitly."
+        )
+    return resolved
+
+
 @dataclass(frozen=True)
 class VectorIndexBuildConfig:
     """Describe a Shapefile or GeoPackage raster-index preparation.
@@ -52,6 +82,10 @@ class VectorIndexBuildConfig:
     ``rebuild_invalid_index`` is an explicit ownership declaration for a
     disposable application-managed GeoPackage cache. It is false by default
     and cannot be enabled for Shapefiles such as shared legacy indexes.
+
+    ``worker_count`` controls parallel raster-footprint inspection. ``None``
+    (the default) uses ``SLURM_CPUS_PER_TASK`` and falls back to one worker
+    outside Slurm. Set it to ``1`` to force serial indexing.
     """
 
     data_dir: Path
@@ -62,6 +96,7 @@ class VectorIndexBuildConfig:
     output_srs_path: Path = LUNAR_GEOGRAPHIC_WKT_PATH
     image_globs: tuple[str, ...] = DEFAULT_RASTER_GLOBS
     rebuild_invalid_index: bool = False
+    worker_count: int | None = None
 
     def __post_init__(self) -> None:
         data_dir = Path(self.data_dir)
@@ -82,6 +117,8 @@ class VectorIndexBuildConfig:
                 "rebuild_invalid_index is supported only for application-owned "
                 "GeoPackage caches."
             )
+        if self.worker_count is not None:
+            resolve_index_worker_count(self.worker_count)
         image_glob = (
             None if self.image_glob is None else str(self.image_glob).strip()
         )
@@ -183,7 +220,10 @@ def _progress_bar(*, total: int, stdout: TextIO, enabled: bool):
     """Return a stdout tqdm bar, or a no-op compatible fallback."""
     if enabled:
         try:
-            from tqdm.auto import tqdm
+            # Force tqdm's text renderer so notebook and batch execution write
+            # progress directly to the configured stdout stream without
+            # requiring an ipywidgets frontend.
+            from tqdm import tqdm
 
             return tqdm(
                 total=total,
@@ -302,6 +342,39 @@ def _full_longitude_polar_cap(transformed_polygon, *, pole_latitude: float, ogr:
     return cap
 
 
+def _full_longitude_band(
+    *,
+    minimum_latitude: float,
+    maximum_latitude: float,
+    ogr: Any,
+):
+    """Return a valid geographic footprint spanning every longitude."""
+    lower_latitude = max(-90.0, min(90.0, minimum_latitude))
+    upper_latitude = max(-90.0, min(90.0, maximum_latitude))
+    if (
+        not math.isfinite(lower_latitude)
+        or not math.isfinite(upper_latitude)
+        or upper_latitude <= lower_latitude
+    ):
+        raise ValueError(
+            "Could not construct a full-longitude footprint from the raster's "
+            "latitude range."
+        )
+    band = _polygon_from_coordinates(
+        (
+            (-180.0, lower_latitude),
+            (180.0, lower_latitude),
+            (180.0, upper_latitude),
+            (-180.0, upper_latitude),
+            (-180.0, lower_latitude),
+        ),
+        ogr=ogr,
+    )
+    if band.IsEmpty() or not band.IsValid():
+        raise ValueError("Could not construct a valid full-longitude footprint.")
+    return band
+
+
 def _unwrap_longitudes(
     coordinates: tuple[tuple[float, float], ...],
 ) -> tuple[tuple[float, float], ...]:
@@ -359,8 +432,21 @@ def _shift_longitude(geometry, offset: float):
     return shifted
 
 
-def _canonical_geographic_footprint(transformed_polygon, *, ogr: Any):
-    """Split a non-polar footprint at the antimeridian into valid parts."""
+def _canonical_geographic_footprint(
+    transformed_polygon,
+    *,
+    ogr: Any,
+    full_longitude_overlap_tolerance: float = 1e-9,
+):
+    """Canonicalize a geographic footprint, including seams and global bands."""
+    if (
+        not math.isfinite(full_longitude_overlap_tolerance)
+        or full_longitude_overlap_tolerance < 0.0
+    ):
+        raise ValueError(
+            "full_longitude_overlap_tolerance must be a finite non-negative "
+            "number."
+        )
     ring = transformed_polygon.GetGeometryRef(0)
     if ring is None or ring.GetPointCount() < 4:
         raise ValueError("Transformed raster footprint has no exterior ring.")
@@ -387,9 +473,19 @@ def _canonical_geographic_footprint(transformed_polygon, *, ogr: Any):
     )
     if minimum_latitude < -90.0 - 1e-9 or maximum_latitude > 90.0 + 1e-9:
         raise ValueError("Transformed raster footprint exceeds latitude bounds.")
-    if maximum_longitude - minimum_longitude >= 360.0 - 1e-9:
+    longitude_span = maximum_longitude - minimum_longitude
+    maximum_global_span = 360.0 + full_longitude_overlap_tolerance
+    if longitude_span > maximum_global_span + 1e-9:
         raise ValueError(
-            "A non-polar raster footprint spans the full longitude range."
+            "A non-polar raster footprint spans more than the full longitude "
+            f"range: measured {longitude_span:.12g} degrees; accepted maximum "
+            f"is {maximum_global_span:.12g} degrees."
+        )
+    if longitude_span >= 360.0 - 1e-9:
+        return _full_longitude_band(
+            minimum_latitude=minimum_latitude,
+            maximum_latitude=maximum_latitude,
+            ogr=ogr,
         )
     if minimum_longitude >= -180.0 and maximum_longitude <= 180.0:
         return unwrapped
@@ -526,7 +622,17 @@ def _raster_footprint(
                 ogr=ogr,
             )
         try:
-            return _canonical_geographic_footprint(polygon, ogr=ogr)
+            return _canonical_geographic_footprint(
+                polygon,
+                ogr=ogr,
+                # Some global products retain one redundant seam column. A
+                # conservative index may clamp that sub-pixel overlap to the
+                # full-longitude band, but wider malformed footprints remain
+                # errors.
+                full_longitude_overlap_tolerance=(
+                    min(1.0, 360.0 / max(1.0, width - 1.0))
+                ),
+            )
         except ValueError as exc:
             raise ValueError(
                 f"Raster produced an empty or invalid index footprint: {path}. "
@@ -534,6 +640,84 @@ def _raster_footprint(
             ) from exc
     finally:
         dataset = None
+
+
+_FOOTPRINT_WORKER_STATE: tuple[Any, Any, Any, Any] | None = None
+
+
+def _initialize_footprint_worker(output_srs_wkt: str) -> None:
+    """Initialize process-local GDAL objects for footprint computation."""
+    from osgeo import gdal, ogr, osr
+
+    gdal.UseExceptions()
+    ogr.UseExceptions()
+    osr.UseExceptions()
+    output_srs = osr.SpatialReference()
+    if output_srs.ImportFromWkt(output_srs_wkt) != 0:
+        raise ValueError("Could not import output CRS WKT in footprint worker.")
+    output_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+
+    global _FOOTPRINT_WORKER_STATE
+    _FOOTPRINT_WORKER_STATE = (output_srs, gdal, ogr, osr)
+
+
+def _raster_footprint_wkb(path: Path) -> bytes:
+    """Return one process-safe MultiPolygon footprint serialized as WKB."""
+    if _FOOTPRINT_WORKER_STATE is None:
+        raise RuntimeError("Raster-footprint worker was not initialized.")
+    output_srs, gdal, ogr, osr = _FOOTPRINT_WORKER_STATE
+    footprint = _raster_footprint(
+        path,
+        output_srs=output_srs,
+        gdal=gdal,
+        ogr=ogr,
+        osr=osr,
+    )
+    footprint = _as_multipolygon(footprint, ogr=ogr)
+    return bytes(footprint.ExportToWkb())
+
+
+@contextmanager
+def _parallel_footprint_results(
+    raster_paths: tuple[Path, ...],
+    *,
+    output_srs_wkt: str,
+    worker_count: int,
+):
+    """Yield ordered WKB results from a bounded pool of spawned workers."""
+    executor = ProcessPoolExecutor(
+        max_workers=worker_count,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=_initialize_footprint_worker,
+        initargs=(output_srs_wkt,),
+    )
+    pending: deque[tuple[Path, Future[bytes]]] = deque()
+    paths = iter(raster_paths)
+
+    def submit_next() -> bool:
+        try:
+            path = next(paths)
+        except StopIteration:
+            return False
+        pending.append((path, executor.submit(_raster_footprint_wkb, path)))
+        return True
+
+    for _ in range(min(len(raster_paths), worker_count * 2)):
+        submit_next()
+
+    def ordered_results():
+        while pending:
+            path, future = pending.popleft()
+            footprint_wkb = future.result()
+            submit_next()
+            yield path, footprint_wkb
+
+    try:
+        yield ordered_results()
+    finally:
+        for _, future in pending:
+            future.cancel()
+        executor.shutdown(wait=True, cancel_futures=True)
 
 
 def _create_vector_index_with_ogr(
@@ -550,8 +734,9 @@ def _create_vector_index_with_ogr(
     ogr.UseExceptions()
     osr.UseExceptions()
 
+    output_srs_wkt = _output_srs_wkt(config)
     output_srs = osr.SpatialReference()
-    if output_srs.ImportFromWkt(_output_srs_wkt(config)) != 0:
+    if output_srs.ImportFromWkt(output_srs_wkt) != 0:
         raise ValueError(f"Could not import output CRS WKT: {config.output_srs_path}")
     output_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
 
@@ -564,6 +749,15 @@ def _create_vector_index_with_ogr(
         raise RuntimeError(f"Could not create raster vector index: {config.index_path}")
 
     layer = None
+    active_worker_count = min(
+        len(raster_paths),
+        resolve_index_worker_count(config.worker_count),
+    )
+    print(
+        f"Using {active_worker_count} raster-footprint worker(s).",
+        file=stdout,
+        flush=True,
+    )
     bar = _progress_bar(total=len(raster_paths), stdout=stdout, enabled=progress)
     try:
         layer = dataset.CreateLayer(
@@ -584,7 +778,7 @@ def _create_vector_index_with_ogr(
                 f"in {config.index_path}"
             )
 
-        for path in raster_paths:
+        def write_feature(path: Path, footprint) -> None:
             stored_path = str(path)
             if (
                 config.index_path.suffix.lower() == ".shp"
@@ -594,14 +788,6 @@ def _create_vector_index_with_ogr(
                     f"Raster path exceeds the Shapefile location-field limit: {path}. "
                     "Use a GeoPackage index or a shorter data path."
                 )
-            footprint = _raster_footprint(
-                path,
-                output_srs=output_srs,
-                gdal=gdal,
-                ogr=ogr,
-                osr=osr,
-            )
-            footprint = _as_multipolygon(footprint, ogr=ogr)
             feature = ogr.Feature(layer.GetLayerDefn())
             feature.SetField(config.location_field, stored_path)
             feature.SetGeometry(footprint)
@@ -611,6 +797,33 @@ def _create_vector_index_with_ogr(
             footprint = None
             bar.set_postfix_str(path.name, refresh=False)
             bar.update(1)
+
+        if active_worker_count == 1:
+            for path in raster_paths:
+                footprint = _raster_footprint(
+                    path,
+                    output_srs=output_srs,
+                    gdal=gdal,
+                    ogr=ogr,
+                    osr=osr,
+                )
+                write_feature(
+                    path,
+                    _as_multipolygon(footprint, ogr=ogr),
+                )
+        else:
+            with _parallel_footprint_results(
+                raster_paths,
+                output_srs_wkt=output_srs_wkt,
+                worker_count=active_worker_count,
+            ) as footprint_results:
+                for path, footprint_wkb in footprint_results:
+                    footprint = ogr.CreateGeometryFromWkb(footprint_wkb)
+                    if footprint is None:
+                        raise RuntimeError(
+                            f"Could not deserialize raster footprint: {path}"
+                        )
+                    write_feature(path, footprint)
     finally:
         bar.close()
         layer = None
@@ -1162,5 +1375,6 @@ __all__ = [
     "create_vector_index",
     "discover_raster_paths",
     "ensure_vector_index",
+    "resolve_index_worker_count",
     "validate_vector_index",
 ]

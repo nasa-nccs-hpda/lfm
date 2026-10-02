@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 import logging
+import warnings
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, TextIO, TypeAlias
@@ -159,6 +160,7 @@ class TileSourceDefinition:
     zoom_overrides: Mapping[GridFamily | str, int] = field(default_factory=dict)
     polar_supported: bool = False
     rebuild_invalid_index: bool = False
+    index_worker_count: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.source, TileSourceConfig):
@@ -203,6 +205,7 @@ class TileSourceDefinition:
             image_glob=self.image_glob,
             image_globs=self.image_globs,
             rebuild_invalid_index=rebuild_invalid_index,
+            worker_count=self.index_worker_count,
         )
         object.__setattr__(self, "role", role)
         object.__setattr__(self, "modality", modality)
@@ -227,6 +230,7 @@ class TileSourceDefinition:
             image_glob=self.image_glob,
             image_globs=self.image_globs,
             rebuild_invalid_index=self.rebuild_invalid_index,
+            worker_count=self.index_worker_count,
         )
 
     def configured_zoom(self, family: GridFamily) -> int | None:
@@ -262,6 +266,10 @@ class AutomaticTilingError(RuntimeError):
         self.tile_x = tile_x
         self.tile_y = tile_y
         self.completed_records = completed_records
+
+
+class ProductAOIWarning(UserWarning):
+    """A product-scoped source does not intersect the geographic query."""
 
 
 @dataclass(frozen=True, order=True)
@@ -303,6 +311,7 @@ def make_wac_tile_source(
     image_globs: tuple[str, ...] = DEFAULT_RASTER_GLOBS,
     zoom_overrides: Mapping[GridFamily | str, int] | None = None,
     rebuild_invalid_index: bool = False,
+    index_worker_count: int | None = None,
 ) -> TileSourceDefinition:
     """Build the WAC product-scoped source preset."""
     root = Path(data_dir)
@@ -326,6 +335,7 @@ def make_wac_tile_source(
         zoom_overrides=zoom_overrides or {},
         polar_supported=True,
         rebuild_invalid_index=rebuild_invalid_index,
+        index_worker_count=index_worker_count,
     )
 
 
@@ -341,6 +351,7 @@ def make_nac_tile_source(
     image_globs: tuple[str, ...] = DEFAULT_RASTER_GLOBS,
     zoom_overrides: Mapping[GridFamily | str, int] | None = None,
     rebuild_invalid_index: bool = False,
+    index_worker_count: int | None = None,
 ) -> TileSourceDefinition:
     """Build the processed one-metre NAC product-scoped source preset."""
     root = Path(data_dir)
@@ -364,6 +375,7 @@ def make_nac_tile_source(
         zoom_overrides=zoom_overrides or {},
         polar_supported=True,
         rebuild_invalid_index=rebuild_invalid_index,
+        index_worker_count=index_worker_count,
     )
 
 
@@ -380,6 +392,7 @@ def make_static_tile_source(
     zoom_overrides: Mapping[GridFamily | str, int] | None = None,
     polar_supported: bool = False,
     rebuild_invalid_index: bool = False,
+    index_worker_count: int | None = None,
 ) -> TileSourceDefinition:
     """Build the canonical 63-band contextual static-source preset."""
     root = Path(data_dir)
@@ -415,6 +428,7 @@ def make_static_tile_source(
         zoom_overrides=zoom_overrides or {},
         polar_supported=polar_supported,
         rebuild_invalid_index=rebuild_invalid_index,
+        index_worker_count=index_worker_count,
     )
 
 
@@ -801,20 +815,18 @@ def _discover_products(
                     f"{product_id!r} map to the same filename component."
                 )
             components[component] = product_id
-        if not selected and source.required:
+        if not selected:
             detail = (
                 "no products intersect the query"
                 if explicit is None
                 else f"product {explicit!r} does not intersect the query"
             )
-            raise AutomaticTilingError(
-                f"Required source {source.name!r} has {detail}; routed grids: "
-                f"{routed_grids or 'none'}.",
-                stage="product_discovery",
-                source_name=source.name,
-                product_id=explicit,
-                grid_id=routed_grids or None,
+            message = (
+                f"Skipping source {source.name!r} because {detail}; routed "
+                f"grids: {routed_grids or 'none'}."
             )
+            active_logger.warning(message)
+            warnings.warn(message, ProductAOIWarning, stacklevel=3)
         result[source.name] = selected
     return result
 
@@ -876,7 +888,13 @@ def create_tiles_for_query(
     logger: logging.Logger | None = None,
     stdout: TextIO | None = None,
 ) -> list[TileCubeRecord]:
-    """Prepare indexes and create automatically routed point or AOI tiles."""
+    """Prepare indexes and create automatically routed point or AOI tiles.
+
+    Product-scoped sources with no query intersection emit
+    :class:`ProductAOIWarning` and are skipped. If a mixed query has dynamic
+    sources but none remains runnable, no contextual static-only records are
+    created and an empty list is returned.
+    """
     definitions = _enabled_definitions(
         dynamic_sources=dynamic_sources,
         static_sources=static_sources,
@@ -913,6 +931,17 @@ def create_tiles_for_query(
         addresses=addresses,
         logger=logger,
     )
+
+    dynamic_definitions = tuple(
+        definition for definition in definitions if definition.role == "dynamic"
+    )
+    has_runnable_dynamic = any(
+        definition.source.selection_mode != "product_id"
+        or bool(selections[definition.source.name])
+        for definition in dynamic_definitions
+    )
+    if dynamic_definitions and not has_runnable_dynamic:
+        return []
 
     records: list[TileCubeRecord] = []
     produced: set[tuple[str, str]] = set()
@@ -1042,6 +1071,7 @@ __all__ = [
     "AutomaticTilingError",
     "ModalityPreset",
     "ProductRequest",
+    "ProductAOIWarning",
     "SourceRole",
     "TileAOIQuery",
     "TilePointQuery",

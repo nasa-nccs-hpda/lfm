@@ -1,0 +1,22 @@
+Bootstrap: docker
+From: nvcr.io/nvidia/pytorch:26.06-py3
+
+%labels
+    Author Alexander Kerr
+    Description ARM64 geospatial ML container with NVIDIA PyTorch, CUDA, GDAL, TerraTorch, TorchGeo, and Lunar FM dependencies
+    BaseImage nvcr.io/nvidia/pytorch:26.06-py3
+
+%files
+    requirements_container.txt /opt/requirements_container.txt
+    scripts/shell/install_container_dependencies.sh /opt/install_container_dependencies.sh
+
+%environment
+    # Keep Python isolated from host user-site packages.
+    export PYTHONNOUSERSITE=1
+    export GDAL_CONFIG=/usr/bin/gdal-config
+    export PROJ_DATA=/usr/share/proj
+    export PROJ_LIB=/usr/share/proj
+    export GDAL_DATA=/usr/share/gdal
+
+%post
+    bash /opt/install_container_dependencies.sh

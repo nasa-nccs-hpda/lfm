@@ -10,6 +10,7 @@ from lfm.model.tiling_config import TileSourceConfig
 from lfm.model.tiling_results import TileCubeRecord, TileSourceError, tile_cube_filename
 from lfm.model.tiling_workflow import (
     AutomaticTilingError,
+    ProductAOIWarning,
     TileAOIQuery,
     TilePointQuery,
     TileSourceDefinition,
@@ -199,6 +200,50 @@ class AutomaticTilingWorkflowTestCase(unittest.TestCase):
             [("wac", "M100"), ("wac", "M200"), ("static", None)],
         )
         self.assertEqual(self.create_mock.call_count, 3)
+
+    def test_missing_product_warns_and_skips_contextual_static(self):
+        self.query_aoi_mock.return_value = []
+
+        with self.assertWarnsRegex(
+            ProductAOIWarning,
+            "Skipping source 'wac'.*no products intersect.*42N",
+        ):
+            records = create_tiles_for_query(
+                query=TileAOIQuery(2.0, 149.0, 1.0, 151.0),
+                output_dir="/output",
+                dynamic_sources=(self.wac(),),
+                static_sources=(self.static(),),
+            )
+
+        self.assertEqual(records, [])
+        self.create_mock.assert_not_called()
+
+    def test_invalid_explicit_product_warns_and_other_product_continues(self):
+        nac = make_nac_tile_source(data_dir="/data/nac")
+
+        def query(source, **bounds):
+            del bounds
+            if source.name == "wac":
+                return []
+            return [IndexedRaster(Path("/data/nac/NAC100.tif"))]
+
+        self.query_aoi_mock.side_effect = query
+        with self.assertWarnsRegex(
+            ProductAOIWarning,
+            "product 'WAC404' does not intersect",
+        ):
+            records = create_tiles_for_query(
+                query=TileAOIQuery(2.0, 149.0, 1.0, 151.0),
+                output_dir="/output",
+                dynamic_sources=(self.wac(), nac),
+                include_static=False,
+                product_ids={"wac": "WAC404", "nac": "NAC100"},
+            )
+
+        self.assertEqual(
+            [(record.source_name, record.product_id) for record in records],
+            [("nac", "NAC100")],
+        )
 
     def test_polar_point_uses_tile_envelope_for_product_discovery(self):
         records = create_tiles_for_query(
@@ -442,11 +487,14 @@ class TileSourceDefinitionTestCase(unittest.TestCase):
             data_dir="/data/wac",
             index_path="/cache/wac.gpkg",
             rebuild_invalid_index=True,
+            index_worker_count=3,
         )
 
         self.assertFalse(default_wac.rebuild_invalid_index)
         self.assertTrue(managed_wac.rebuild_invalid_index)
         self.assertTrue(managed_wac.preparation().rebuild_invalid_index)
+        self.assertEqual(managed_wac.index_worker_count, 3)
+        self.assertEqual(managed_wac.preparation().worker_count, 3)
 
     def test_static_role_requires_contextual_selection(self):
         source = TileSourceConfig(

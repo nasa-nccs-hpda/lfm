@@ -1,0 +1,6 @@
+**
+!Dockerfile
+!requirements_container.txt
+!scripts/
+!scripts/shell/
+!scripts/shell/install_container_dependencies.sh

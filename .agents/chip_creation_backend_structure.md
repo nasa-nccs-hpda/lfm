@@ -249,6 +249,15 @@ For each acquisition group it:
 - Records coverage gaps and preserves completed tile records if later work
   fails.
 
+Tiling may also complete a geographically valid high-level AOI query with a
+`ProductAOIWarning` and zero records when no dynamic product intersects; mixed
+queries skip contextual static in that case. Chip acquisition must therefore
+judge success from structured record coverage, not from the absence of a
+tiling exception. Missing required chip modalities remain a typed per-sample
+failure that publishes neither artifact, while optional omissions may use the
+existing known-band placeholder policy. The current chip caller still uses the
+strict low-level AOI API, where per-tile required-source failures can raise.
+
 Intermediate tiling output is isolated under:
 
 ```text

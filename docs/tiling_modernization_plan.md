@@ -381,15 +381,27 @@ these behaviors without waiting for the tiling notebook or legacy cleanup:
   `data_dir`. The high-level preparation workflow may create a missing index.
   Automatic replacement is opt-in and limited to application-owned
   GeoPackage caches; shared and legacy indexes remain protected.
+- Missing-index preparation defaults its raster-footprint worker count to
+  `SLURM_CPUS_PER_TASK`, with an explicit `index_worker_count=1` serial
+  override. Workers inspect and transform separate rasters; the parent process
+  writes index features in deterministic source-path order.
+- `resolve_notebook_source_index()` distinguishes the canonical Explore WAC,
+  NAC, and static directories from user overrides. Canonical directories use
+  their protected shared `output_index.gpkg`; overridden directories receive
+  application-owned caches beneath the clone and may opt into atomic rebuild.
 - The strict `create_tiles_for_*` path requires a selector keyed by source name
   for every `product_id` source, and `all_intersecting` sources reject
   selectors. The high-level `create_tiles_for_aoi_by_product` path accepts an
   exact PID or `None` per product-scoped source. `None` discovers intersecting
   IDs with the source's declared resolver, groups companion files, and writes
   one dynamic cube per PID/tile while writing contextual sources once per
-  tile. A missing required product raises `MissingRequiredProductError`; an
-  optional source may yield no record while contextual records are still
-  written. Callers must not assume one record per configured source.
+  tile. A geographically valid query with no match for a product-scoped source
+  logs and emits `ProductAOIWarning`, omits that source, and may continue other
+  runnable dynamic sources. If no configured dynamic source is runnable, the
+  workflow returns an empty record list and skips contextual static for that
+  mixed query. Low-level per-tile required-source failures remain structured
+  exceptions. Callers must inspect records rather than equating “no exception”
+  with complete required coverage or assuming one record per configured source.
 - Every output is a 512×512, tiled, LZW-compressed GeoTIFF on the exact routed
   grid/zoom/tile grid. Existing numbered-LTM grid behavior remains unchanged,
   and tiling resampling is always bilinear.
@@ -453,8 +465,16 @@ validation, and static-source creation are derived below. Each variable is
 documented in a configuration glossary and annotated at its assignment, with
 special attention to AOI corner order, 1-based display bands, zoom resolution,
 and controls that affect visualization but not cube creation. Timestamped
-results are written beneath `repo_root/outputs/tiling/<RUN_ID>/`, and the
+results are written beneath `repo_root/notebooks/outputs/tiling/<RUN_ID>/`, and the
 notebook prints that location before processing.
+
+The notebook now resolves indexes through
+`model.resolve_notebook_source_index()`. The default WAC, NAC, and static
+directories use their existing shared `output_index.gpkg` files read-only.
+Changing a data directory instead selects a persistent per-clone cache, whose
+missing or invalid index the high-level workflow may safely create or rebuild.
+This prevents separate users from leaving or contending over abandoned
+per-clone default-index locks while preserving custom-data support.
 
 The WAC example uses product `M1107459759CE` and the first regression AOI at
 zoom 5. The NAC example uses product `M1117899885LE` and a small AOI centered

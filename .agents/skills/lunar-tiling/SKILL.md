@@ -69,6 +69,9 @@ NoData metadata.
   when missing; low-level tile generation queries prepared indexes read-only.
   Automatic replacement must be explicitly enabled and is allowed only for an
   application-owned GeoPackage cache. Never replace a shared or legacy index.
+- Missing-index footprint inspection defaults to `SLURM_CPUS_PER_TASK`
+  process workers. Use `index_worker_count=1` to force serial preparation.
+  Keep GeoPackage writes in the parent process and preserve source-path order.
 - Write one tiled, LZW-compressed BigTIFF per source and lunar-grid tile, with
   the routed grid CRS, exact tile transform, band names, output NoData
   metadata, and group-writable permissions.
@@ -96,10 +99,15 @@ NoData metadata.
 - Static context uses `all_intersecting` and is never product-filtered.
 - Static-only operation takes no product ID. Dynamic-only operation is valid on
   numbered LTM and polar grids.
-- A missing required source raises `MissingRequiredSourceError`. An optional
-  sparse source may be skipped. Preserve and report `completed_records` when a
-  later source fails; do not silently treat a partial result as a complete
-  sample.
+- In the high-level automatic workflow, a geographically valid AOI with no
+  intersecting product for a product-scoped dynamic source emits
+  `ProductAOIWarning` and omits that source. Other runnable dynamic sources may
+  continue. If none is runnable, return an empty record list and skip contextual
+  static cube creation for that mixed query.
+- Low-level per-tile acquisition still raises `MissingRequiredSourceError` for
+  a missing required source. An optional sparse source may be skipped. Preserve
+  and report `completed_records` when a later source fails; do not silently
+  treat a partial or empty result as a complete downstream sample.
 
 ## Preserve NoData and band contracts
 
@@ -127,12 +135,13 @@ NoData metadata.
 - Preserve repository discovery from the top-level `notebooks/` directory,
   including `/panfs/ccds02/nobackup` to `/explore/nobackup` normalization and
   insertion of `repo_root` into `sys.path`.
-- Keep shared WAC/NAC raster directories read-only. Cache their modern
-  GeoPackage indexes persistently under `outputs/tiling/indexes/` in each
-  user's clone; do not adopt or overwrite legacy indexes in shared data paths.
-  The notebook may automatically rebuild only those per-clone caches when
-  validation fails. Continue using the declared canonical static index.
-- Write each run beneath `outputs/tiling/<RUN_ID>/` without reusing a directory.
+- Keep shared raster directories and indexes read-only. The canonical WAC,
+  NAC, and static directories use their existing `output_index.gpkg` files.
+  A user-overridden data directory receives a persistent GeoPackage beneath
+  `notebooks/outputs/tiling/indexes/` in that user's clone. The notebook may
+  automatically rebuild only those per-clone caches when validation fails.
+- Write each run beneath `notebooks/outputs/tiling/<RUN_ID>/` without reusing a
+  directory.
 - Plot with sentinel pixels converted to `float64` NaN and display no more than
   four tile pairs per AOI unless the user changes that display-only limit.
 - Keep expensive or illustrative alternate queries behind

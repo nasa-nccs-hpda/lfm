@@ -2,7 +2,7 @@
 #SBATCH --job-name=probe_tileindex_progress
 #SBATCH --partition=grace
 #SBATCH --mem=8G
-#SBATCH --cpus-per-task=1
+#SBATCH --cpus-per-task=2
 #SBATCH --time=00:15:00
 #SBATCH --output=scripts/logs/probe_tileindex_progress_%j.out
 #SBATCH --error=scripts/logs/probe_tileindex_progress_%j.err

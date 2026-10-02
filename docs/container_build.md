@@ -1,0 +1,159 @@
+# LFM container builds
+
+`.github/workflows/container.yml` builds the ARM64 container on every branch
+push and supports manual runs from the Actions tab. The workflow follows the
+Buildx/login/build-and-push pattern from the supplied `pytorch-caney` example.
+It publishes to `ghcr.io/nasa-nccs-hpda/lfm` using GitHub's `GITHUB_TOKEN`:
+
+- `sha-<full commit SHA>` identifies the source commit for each build.
+- `latest` is updated only by builds of the repository's default branch.
+
+Builds are serialized per branch. A new push does not cancel an active build;
+GitHub retains the newest pending run for that branch, replacing any older
+pending run. This lets native dependency compilation finish while development
+continues.
+
+Commit the workflow, Dockerfile, `.dockerignore`, definition file,
+shared installation script, and `requirements_container.txt` before pushing.
+
+## GitHub setup
+
+Enable GitHub Actions and allow the workflow to write packages. The workflow
+requests `contents: read` and `packages: write`; it needs no Docker Hub secrets.
+Organization policy must permit the referenced `actions/*` and `docker/*`
+actions and package publication. If an existing GHCR package denies the push,
+grant this repository Actions access in that package's settings.
+
+The default runner is `ubuntu-24.04-arm`. These NVIDIA images and their source
+builds need substantial temporary disk space. The workflow removes a few unused
+SDK directories only on GitHub-hosted runners and reports available disk space.
+If the standard runner runs out of space or memory, set the repository Actions
+variable `CONTAINER_RUNNER` to a larger ARM64 runner label. A self-hosted runner
+must have a current Actions agent and a working Docker daemon accessible to the
+runner user. No GPU is required for the build-time checks.
+
+The workflow pulls the public NGC base anonymously. If your environment requires
+NGC authentication, configure a registry login before the build using an NGC API
+key stored as a GitHub secret.
+
+## Build inputs and validation
+
+Both `Dockerfile` and `lfm_container-latest.def` use
+`nvcr.io/nvidia/pytorch:26.06-py3` and run
+`scripts/shell/install_container_dependencies.sh`. Keep their base image and
+runtime environment variables aligned when changing them. The shared script
+installs native GDAL/PROJ, builds their Python bindings, protects the
+container-provided Python builds, and installs `requirements_container.txt`.
+
+Fiona is built from source alongside Rasterio, Pyproj, and Pyogrio with pip build
+isolation disabled, using the installed Cython and system GDAL headers. Its
+installed version is then constrained during the remaining dependency install.
+The native smoke checks include a Fiona GeoJSON write/read roundtrip. This shared
+installation step applies to both the Dockerfile and `.def` builds.
+
+The combined requirements select the highest recorded versions from historical
+freezes; this merged environment has not yet passed a full container build.
+Dependency resolution, `pip check`, or the native-binding smoke checks can fail
+if that combination is incompatible. These failures stop publication. The smoke
+checks exercise GDAL/NumPy array I/O, the PROJ database, and PyTorch/torchvision
+CPU NMS. They do not test GPU execution or model training.
+
+The image retains the input requirements, installed native constraints, and a
+fresh `pip freeze` in `/opt/requirements_container.txt`,
+`/opt/lfm-native-constraints.txt`, and `/opt/lfm-installed-requirements.txt`.
+Repository code, model weights, and datasets are mounted separately at runtime.
+
+For a local Docker build on ARM64, run from the repository root:
+
+```bash
+docker build --platform linux/arm64 -t lfm:local .
+```
+
+The original Apptainer build remains available from the repository root:
+
+```bash
+sudo apptainer build lfm.sif lfm_container-latest.def
+```
+
+## Build from the definition file on Explore
+
+To use the repository's `.def` file instead of the Dockerfile, submit from the
+repository root on a Slurm submission host:
+
+```bash
+sbatch scripts/shell/build_ipyleaflet_container_def.sh
+# Optional new absolute destination sandbox path:
+sbatch scripts/shell/build_ipyleaflet_container_def.sh /explore/nobackup/projects/lfm/containers/lfm-def-test
+```
+
+This copy uses `apptainer build --fakeroot --sandbox` with
+`lfm_container-latest.def`, its requirements file, and the shared installer.
+It needs working Apptainer fakeroot support but no BuildKit or Docker daemon.
+It retains the Dockerfile script's Slurm/ARM64 guards, scratch and destination
+overrides, and protection against overwriting existing containers. Its logs are
+`lfm-build-def-<jobid>.out` and `.err`.
+
+## Build directly from the Dockerfile on Explore
+
+From the repository root on a Slurm submission host:
+
+```bash
+sbatch scripts/shell/build_ipyleaflet_container.sh
+# Or choose a new persistent sandbox path:
+sbatch scripts/shell/build_ipyleaflet_container.sh /explore/nobackup/projects/lfm/containers/lfm-test
+```
+
+The script requests the `grace` partition and refuses to build without a Slurm
+job or on an architecture other than ARM64/aarch64. If a GPU login node has no
+`sbatch`, submit from a host with Slurm submission tools. Do not work around
+that by running `bash scripts/shell/build_ipyleaflet_container.sh` on a login
+node or an AMD/x86_64 node. No GPU is needed for this build.
+
+This uses Apptainer 1.5+ Dockerfile support directly:
+`apptainer build --sandbox --arch arm64 <sandbox> dockerfile:.`.
+It requires `buildctl` and an already-running BuildKit daemon with an ARM64
+worker, on the allocated compute node or a site-approved build service. Set
+`BUILDKIT_HOST` (or `APPTAINER_BUILDKIT_HOST`) to its endpoint. Load the site's
+Apptainer/BuildKit tools in the job environment as needed. Installing Apptainer
+alone is not sufficient for Dockerfile builds; see the
+[Apptainer Dockerfile documentation](https://apptainer.org/docs/user/1.5/appendix.html#dockerfile-bootstrap-agent).
+
+The script snapshots the Dockerfile, `.dockerignore`, requirements, and shared
+installer from the working tree into node-local scratch; it does not use or
+generate a `.def` file. Requirements are installed by the Dockerfile's installer.
+Keep the script's input list aligned with any future Dockerfile `COPY` changes.
+The same Dockerfile remains usable with Podman in the future.
+
+Defaults are `/lscratch/$USER` for scratch and
+`/explore/nobackup/projects/lfm/containers/lfm-container-ipyleaflet-<jobid>` for
+the completed sandbox. Override these with `LFM_BUILD_SCRATCH` and
+`LFM_CONTAINER_DIR`; use `LFM_REPO_DIR` if submitting outside the repository
+root. BuildKit has its own worker storage, which also needs sufficient space.
+The script retains scratch for inspection and never deletes or overwrites an
+existing destination. Logs are `lfm-build-<jobid>.out` and `.err` in the submission
+directory.
+
+## Download a published Apptainer sandbox on Explore
+
+Docker runs only on the GitHub runner. Your HPC system needs Apptainer and
+network access to GHCR; it does not need Docker installed. On an ARM64 host:
+
+```bash
+apptainer build --sandbox lfm-sandbox docker://ghcr.io/nasa-nccs-hpda/lfm:latest
+apptainer exec --nv lfm-sandbox python -c 'import torch; print(torch.cuda.is_available())'
+```
+
+This downloads and unpacks the already-built image into a sandbox; it does not
+repeat the dependency compilation on HPC. For a single-file image instead, use
+`apptainer pull lfm.sif docker://ghcr.io/nasa-nccs-hpda/lfm:latest`.
+
+Use the commit tag or the digest shown in the Actions run summary when you need
+to identify a specific published image. Commit tags identify source inputs but
+can be replaced by a rerun; a digest identifies the exact published contents.
+If the package is private, authenticate with `apptainer registry login
+--username YOUR_GITHUB_USERNAME docker://ghcr.io` using a token authorized to
+read that package, or configure public visibility in the GHCR package settings.
+
+References: [Docker's registry publication example](https://docs.docker.com/build/ci/github-actions/push-multi-registries/),
+[GitHub package publication](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images),
+and [Apptainer sandbox builds](https://apptainer.org/docs/user/main/build_a_container.html).

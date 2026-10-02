@@ -1,6 +1,7 @@
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
 from unittest import mock
@@ -24,6 +25,7 @@ from lfm.model.vector_index_builder import (
     create_vector_index,
     discover_raster_paths,
     ensure_vector_index,
+    resolve_index_worker_count,
 )
 
 
@@ -210,6 +212,30 @@ class VectorIndexBuildConfigTestCase(unittest.TestCase):
                 index_path=Path("/data/wac/output_index.shp"),
                 rebuild_invalid_index=True,
             )
+
+    def test_worker_count_defaults_to_slurm_and_supports_serial_override(self):
+        with mock.patch.dict(os.environ, {"SLURM_CPUS_PER_TASK": "8"}):
+            self.assertEqual(resolve_index_worker_count(), 8)
+        self.assertEqual(resolve_index_worker_count(1), 1)
+        self.assertEqual(
+            VectorIndexBuildConfig(
+                data_dir=Path("/data/wac"),
+                worker_count=4,
+            ).worker_count,
+            4,
+        )
+
+        for invalid in (True, 1.5, "2"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(TypeError, "integer or None"):
+                    resolve_index_worker_count(invalid)
+        for invalid in (0, -1):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(ValueError, "at least 1"):
+                    resolve_index_worker_count(invalid)
+        with mock.patch.dict(os.environ, {"SLURM_CPUS_PER_TASK": "bad"}):
+            with self.assertRaisesRegex(ValueError, "positive integer"):
+                resolve_index_worker_count()
 
     def test_derives_default_index_path(self):
         config = VectorIndexBuildConfig(data_dir=Path("/data/wac"))
@@ -595,6 +621,101 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
             point.AddPoint_2D(longitude, 15.0)
             self.assertEqual(footprint.Intersects(point), expected)
 
+    def test_global_geographic_raster_uses_valid_full_longitude_band(self):
+        from osgeo import ogr, osr
+
+        raster_path = self.data_dir / "global.tif"
+        dataset = self.gdal.GetDriverByName("GTiff").Create(
+            str(raster_path),
+            360,
+            180,
+            1,
+            self.gdal.GDT_Byte,
+        )
+        dataset.SetProjection(self.wkt)
+        dataset.SetGeoTransform((-180.0, 1.0, 0.0, 90.0, 0.0, -1.0))
+        dataset.GetRasterBand(1).Fill(1)
+        dataset = None
+
+        output_srs = osr.SpatialReference()
+        self.assertEqual(output_srs.ImportFromWkt(self.wkt), 0)
+        output_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        footprint = _raster_footprint(
+            raster_path,
+            output_srs=output_srs,
+            gdal=self.gdal,
+            ogr=ogr,
+            osr=osr,
+        )
+
+        self.assertTrue(footprint.IsValid())
+        self.assertEqual(footprint.GetEnvelope(), (-180.0, 180.0, -90.0, 90.0))
+        for longitude in (-179.0, 0.0, 179.0):
+            point = ogr.Geometry(ogr.wkbPoint)
+            point.AddPoint_2D(longitude, 0.0)
+            self.assertTrue(footprint.Intersects(point))
+
+    def test_global_raster_allows_one_redundant_longitude_column(self):
+        from osgeo import ogr, osr
+
+        raster_path = self.data_dir / "global_overlap.tif"
+        dataset = self.gdal.GetDriverByName("GTiff").Create(
+            str(raster_path),
+            361,
+            180,
+            1,
+            self.gdal.GDT_Byte,
+        )
+        dataset.SetProjection(self.wkt)
+        dataset.SetGeoTransform((-180.0, 1.0, 0.0, 90.0, 0.0, -1.0))
+        dataset.GetRasterBand(1).Fill(1)
+        dataset = None
+
+        output_srs = osr.SpatialReference()
+        self.assertEqual(output_srs.ImportFromWkt(self.wkt), 0)
+        output_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        footprint = _raster_footprint(
+            raster_path,
+            output_srs=output_srs,
+            gdal=self.gdal,
+            ogr=ogr,
+            osr=osr,
+        )
+
+        self.assertTrue(footprint.IsValid())
+        self.assertEqual(footprint.GetEnvelope(), (-180.0, 180.0, -90.0, 90.0))
+
+    def test_global_raster_rejects_more_than_one_redundant_column(self):
+        from osgeo import ogr, osr
+
+        raster_path = self.data_dir / "invalid_global_overlap.tif"
+        dataset = self.gdal.GetDriverByName("GTiff").Create(
+            str(raster_path),
+            362,
+            180,
+            1,
+            self.gdal.GDT_Byte,
+        )
+        dataset.SetProjection(self.wkt)
+        dataset.SetGeoTransform((-180.0, 1.0, 0.0, 90.0, 0.0, -1.0))
+        dataset.GetRasterBand(1).Fill(1)
+        dataset = None
+
+        output_srs = osr.SpatialReference()
+        self.assertEqual(output_srs.ImportFromWkt(self.wkt), 0)
+        output_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        with self.assertRaisesRegex(
+            ValueError,
+            r"measured 362 degrees; accepted maximum is 360\.997",
+        ):
+            _raster_footprint(
+                raster_path,
+                output_srs=output_srs,
+                gdal=self.gdal,
+                ogr=ogr,
+                osr=osr,
+            )
+
     def test_ensure_creates_validates_and_reuses_each_supported_format(self):
         for suffix in (".shp", ".gpkg"):
             with self.subTest(suffix=suffix):
@@ -643,6 +764,36 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
                 )
                 self.assertIn("Building raster index", creation_stdout.getvalue())
                 self.assertEqual(before_reuse, after_reuse)
+
+    def test_parallel_creation_preserves_deterministic_feature_order(self):
+        from osgeo import gdal
+
+        first = self.write_raster("a.tif", x_origin=10.0)
+        second = self.write_raster("b.tif", x_origin=11.0)
+        index_path = self.data_dir / "parallel.gpkg"
+        config = VectorIndexBuildConfig(
+            self.data_dir,
+            index_path=index_path,
+            worker_count=2,
+        )
+        stdout = io.StringIO()
+
+        created = ensure_vector_index(config, stdout=stdout)
+        dataset = gdal.OpenEx(
+            str(index_path),
+            gdal.OF_VECTOR | gdal.OF_READONLY,
+        )
+        self.assertIsNotNone(dataset)
+        layer = dataset.GetLayer(0)
+        stored_paths = tuple(
+            feature.GetField(config.location_field) for feature in layer
+        )
+        layer = None
+        dataset = None
+
+        self.assertEqual(created.raster_paths, (first, second))
+        self.assertEqual(stored_paths, (str(first), str(second)))
+        self.assertIn("Using 2 raster-footprint worker(s).", stdout.getvalue())
 
     def test_managed_geopackage_atomically_replaces_invalid_cache(self):
         raster = self.write_raster("a.tif", x_origin=10.0)

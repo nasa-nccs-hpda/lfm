@@ -15,6 +15,7 @@ from .vector_index_builder import (
     VectorIndexBuildConfig,
     VectorIndexValidationResult,
     ensure_vector_index,
+    resolve_index_worker_count,
 )
 
 
@@ -26,7 +27,8 @@ class TileSourcePreparation:
     ``image_glob`` remains a single-pattern compatibility override, while
     ``image_globs`` accepts multiple patterns. ``rebuild_invalid_index`` is
     reserved for an application-owned GeoPackage cache; shared indexes leave
-    it disabled.
+    it disabled. ``worker_count=None`` uses the Slurm CPU allocation; use one
+    to force serial footprint processing.
     """
 
     source: TileSourceConfig
@@ -35,6 +37,7 @@ class TileSourcePreparation:
     output_srs_path: Path = LUNAR_GEOGRAPHIC_WKT_PATH
     image_globs: tuple[str, ...] = DEFAULT_RASTER_GLOBS
     rebuild_invalid_index: bool = False
+    worker_count: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.source, TileSourceConfig):
@@ -43,6 +46,8 @@ class TileSourcePreparation:
             raise TypeError("enabled must be a boolean.")
         if not isinstance(self.rebuild_invalid_index, bool):
             raise TypeError("rebuild_invalid_index must be a boolean.")
+        if self.worker_count is not None:
+            resolve_index_worker_count(self.worker_count)
         image_glob = (
             None if self.image_glob is None else str(self.image_glob).strip()
         )
@@ -73,6 +78,7 @@ class TileSourcePreparation:
             location_field=self.source.location_field,
             output_srs_path=self.output_srs_path,
             rebuild_invalid_index=self.rebuild_invalid_index,
+            worker_count=self.worker_count,
         )
 
 
