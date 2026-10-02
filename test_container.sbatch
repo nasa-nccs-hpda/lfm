@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=lfm_dependencies
-#SBATCH --partition=compute
+#SBATCH --partition=grace
 #SBATCH --gpus=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
