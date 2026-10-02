@@ -2,6 +2,8 @@
 
 Working repo for LFM project. Current workflows are found in the notebooks, listed in the quickstart section below.
 
+Container build and publication instructions: [docs/container_build.md](docs/container_build.md).
+
 ## Quickstart
 
 To run one of the notebooks:
