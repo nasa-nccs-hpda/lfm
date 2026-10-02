@@ -69,6 +69,24 @@ The original Apptainer build remains available from the repository root:
 sudo apptainer build lfm.sif lfm_container-latest.def
 ```
 
+## Build from the definition file on Explore
+
+To use the repository's `.def` file instead of the Dockerfile, submit from the
+repository root on a Slurm submission host:
+
+```bash
+sbatch scripts/shell/build_ipyleaflet_container_def.sh
+# Optional new absolute destination sandbox path:
+sbatch scripts/shell/build_ipyleaflet_container_def.sh /explore/nobackup/projects/lfm/containers/lfm-def-test
+```
+
+This copy uses `apptainer build --fakeroot --sandbox` with
+`lfm_container-latest.def`, its requirements file, and the shared installer.
+It needs working Apptainer fakeroot support but no BuildKit or Docker daemon.
+It retains the Dockerfile script's Slurm/ARM64 guards, scratch and destination
+overrides, and protection against overwriting existing containers. Its logs are
+`lfm-build-def-<jobid>.out` and `.err`.
+
 ## Build directly from the Dockerfile on Explore
 
 From the repository root on a Slurm submission host:
