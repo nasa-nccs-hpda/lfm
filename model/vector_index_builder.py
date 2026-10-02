@@ -432,8 +432,21 @@ def _shift_longitude(geometry, offset: float):
     return shifted
 
 
-def _canonical_geographic_footprint(transformed_polygon, *, ogr: Any):
+def _canonical_geographic_footprint(
+    transformed_polygon,
+    *,
+    ogr: Any,
+    full_longitude_overlap_tolerance: float = 1e-9,
+):
     """Canonicalize a geographic footprint, including seams and global bands."""
+    if (
+        not math.isfinite(full_longitude_overlap_tolerance)
+        or full_longitude_overlap_tolerance < 0.0
+    ):
+        raise ValueError(
+            "full_longitude_overlap_tolerance must be a finite non-negative "
+            "number."
+        )
     ring = transformed_polygon.GetGeometryRef(0)
     if ring is None or ring.GetPointCount() < 4:
         raise ValueError("Transformed raster footprint has no exterior ring.")
@@ -461,10 +474,12 @@ def _canonical_geographic_footprint(transformed_polygon, *, ogr: Any):
     if minimum_latitude < -90.0 - 1e-9 or maximum_latitude > 90.0 + 1e-9:
         raise ValueError("Transformed raster footprint exceeds latitude bounds.")
     longitude_span = maximum_longitude - minimum_longitude
-    if longitude_span > 360.0 + 1e-9:
+    maximum_global_span = 360.0 + full_longitude_overlap_tolerance
+    if longitude_span > maximum_global_span + 1e-9:
         raise ValueError(
             "A non-polar raster footprint spans more than the full longitude "
-            "range."
+            f"range: measured {longitude_span:.12g} degrees; accepted maximum "
+            f"is {maximum_global_span:.12g} degrees."
         )
     if longitude_span >= 360.0 - 1e-9:
         return _full_longitude_band(
@@ -607,7 +622,17 @@ def _raster_footprint(
                 ogr=ogr,
             )
         try:
-            return _canonical_geographic_footprint(polygon, ogr=ogr)
+            return _canonical_geographic_footprint(
+                polygon,
+                ogr=ogr,
+                # Some global products retain one redundant seam column. A
+                # conservative index may clamp that sub-pixel overlap to the
+                # full-longitude band, but wider malformed footprints remain
+                # errors.
+                full_longitude_overlap_tolerance=(
+                    min(1.0, 360.0 / max(1.0, width - 1.0))
+                ),
+            )
         except ValueError as exc:
             raise ValueError(
                 f"Raster produced an empty or invalid index footprint: {path}. "

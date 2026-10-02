@@ -655,6 +655,67 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
             point.AddPoint_2D(longitude, 0.0)
             self.assertTrue(footprint.Intersects(point))
 
+    def test_global_raster_allows_one_redundant_longitude_column(self):
+        from osgeo import ogr, osr
+
+        raster_path = self.data_dir / "global_overlap.tif"
+        dataset = self.gdal.GetDriverByName("GTiff").Create(
+            str(raster_path),
+            361,
+            180,
+            1,
+            self.gdal.GDT_Byte,
+        )
+        dataset.SetProjection(self.wkt)
+        dataset.SetGeoTransform((-180.0, 1.0, 0.0, 90.0, 0.0, -1.0))
+        dataset.GetRasterBand(1).Fill(1)
+        dataset = None
+
+        output_srs = osr.SpatialReference()
+        self.assertEqual(output_srs.ImportFromWkt(self.wkt), 0)
+        output_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        footprint = _raster_footprint(
+            raster_path,
+            output_srs=output_srs,
+            gdal=self.gdal,
+            ogr=ogr,
+            osr=osr,
+        )
+
+        self.assertTrue(footprint.IsValid())
+        self.assertEqual(footprint.GetEnvelope(), (-180.0, 180.0, -90.0, 90.0))
+
+    def test_global_raster_rejects_more_than_one_redundant_column(self):
+        from osgeo import ogr, osr
+
+        raster_path = self.data_dir / "invalid_global_overlap.tif"
+        dataset = self.gdal.GetDriverByName("GTiff").Create(
+            str(raster_path),
+            362,
+            180,
+            1,
+            self.gdal.GDT_Byte,
+        )
+        dataset.SetProjection(self.wkt)
+        dataset.SetGeoTransform((-180.0, 1.0, 0.0, 90.0, 0.0, -1.0))
+        dataset.GetRasterBand(1).Fill(1)
+        dataset = None
+
+        output_srs = osr.SpatialReference()
+        self.assertEqual(output_srs.ImportFromWkt(self.wkt), 0)
+        output_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        with self.assertRaisesRegex(
+            ValueError,
+            r"measured 362 degrees; accepted maximum is 360\.997",
+        ):
+            _raster_footprint(
+                raster_path,
+                output_srs=output_srs,
+                gdal=self.gdal,
+                ogr=ogr,
+                osr=osr,
+            )
+
     def test_ensure_creates_validates_and_reuses_each_supported_format(self):
         for suffix in (".shp", ".gpkg"):
             with self.subTest(suffix=suffix):

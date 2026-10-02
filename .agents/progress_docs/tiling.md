@@ -58,12 +58,14 @@ Completed:
   validated `output_index.gpkg` files in the three default shared data
   directories. `WORKER_COUNT=1` provides an operational serial override.
 - Added valid full-longitude index geometry for global geographic static
-  rasters and retained rejection of footprints wider than 360 degrees.
+  rasters. A global raster may conservatively clamp at most one nominal seam
+  pixel of overlap, while wider malformed footprints remain rejected with
+  measured-span diagnostics.
 
 Validation:
 
 - The dependency-light vector-index, preparation, and workflow suites pass:
-  66 tests run with 14 GDAL-dependent skips.
+  68 tests run with 16 GDAL-dependent skips.
 - Explore job 37938224 created, validated, and reused an index for the exact
   global `LDRM_32_N_FLOAT.iau.tif` source with a plain-text progress bar.
 - The new two-process GDAL regression and shared real-data index build remain
