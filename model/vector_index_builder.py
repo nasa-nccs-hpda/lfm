@@ -183,7 +183,10 @@ def _progress_bar(*, total: int, stdout: TextIO, enabled: bool):
     """Return a stdout tqdm bar, or a no-op compatible fallback."""
     if enabled:
         try:
-            from tqdm.auto import tqdm
+            # Force tqdm's text renderer so notebook and batch execution write
+            # progress directly to the configured stdout stream without
+            # requiring an ipywidgets frontend.
+            from tqdm import tqdm
 
             return tqdm(
                 total=total,
@@ -302,6 +305,39 @@ def _full_longitude_polar_cap(transformed_polygon, *, pole_latitude: float, ogr:
     return cap
 
 
+def _full_longitude_band(
+    *,
+    minimum_latitude: float,
+    maximum_latitude: float,
+    ogr: Any,
+):
+    """Return a valid geographic footprint spanning every longitude."""
+    lower_latitude = max(-90.0, min(90.0, minimum_latitude))
+    upper_latitude = max(-90.0, min(90.0, maximum_latitude))
+    if (
+        not math.isfinite(lower_latitude)
+        or not math.isfinite(upper_latitude)
+        or upper_latitude <= lower_latitude
+    ):
+        raise ValueError(
+            "Could not construct a full-longitude footprint from the raster's "
+            "latitude range."
+        )
+    band = _polygon_from_coordinates(
+        (
+            (-180.0, lower_latitude),
+            (180.0, lower_latitude),
+            (180.0, upper_latitude),
+            (-180.0, upper_latitude),
+            (-180.0, lower_latitude),
+        ),
+        ogr=ogr,
+    )
+    if band.IsEmpty() or not band.IsValid():
+        raise ValueError("Could not construct a valid full-longitude footprint.")
+    return band
+
+
 def _unwrap_longitudes(
     coordinates: tuple[tuple[float, float], ...],
 ) -> tuple[tuple[float, float], ...]:
@@ -360,7 +396,7 @@ def _shift_longitude(geometry, offset: float):
 
 
 def _canonical_geographic_footprint(transformed_polygon, *, ogr: Any):
-    """Split a non-polar footprint at the antimeridian into valid parts."""
+    """Canonicalize a geographic footprint, including seams and global bands."""
     ring = transformed_polygon.GetGeometryRef(0)
     if ring is None or ring.GetPointCount() < 4:
         raise ValueError("Transformed raster footprint has no exterior ring.")
@@ -387,9 +423,17 @@ def _canonical_geographic_footprint(transformed_polygon, *, ogr: Any):
     )
     if minimum_latitude < -90.0 - 1e-9 or maximum_latitude > 90.0 + 1e-9:
         raise ValueError("Transformed raster footprint exceeds latitude bounds.")
-    if maximum_longitude - minimum_longitude >= 360.0 - 1e-9:
+    longitude_span = maximum_longitude - minimum_longitude
+    if longitude_span > 360.0 + 1e-9:
         raise ValueError(
-            "A non-polar raster footprint spans the full longitude range."
+            "A non-polar raster footprint spans more than the full longitude "
+            "range."
+        )
+    if longitude_span >= 360.0 - 1e-9:
+        return _full_longitude_band(
+            minimum_latitude=minimum_latitude,
+            maximum_latitude=maximum_latitude,
+            ogr=ogr,
         )
     if minimum_longitude >= -180.0 and maximum_longitude <= 180.0:
         return unwrapped

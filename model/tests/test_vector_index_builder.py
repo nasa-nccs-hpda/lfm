@@ -595,6 +595,40 @@ class VectorIndexBuildIntegrationTestCase(unittest.TestCase):
             point.AddPoint_2D(longitude, 15.0)
             self.assertEqual(footprint.Intersects(point), expected)
 
+    def test_global_geographic_raster_uses_valid_full_longitude_band(self):
+        from osgeo import ogr, osr
+
+        raster_path = self.data_dir / "global.tif"
+        dataset = self.gdal.GetDriverByName("GTiff").Create(
+            str(raster_path),
+            360,
+            180,
+            1,
+            self.gdal.GDT_Byte,
+        )
+        dataset.SetProjection(self.wkt)
+        dataset.SetGeoTransform((-180.0, 1.0, 0.0, 90.0, 0.0, -1.0))
+        dataset.GetRasterBand(1).Fill(1)
+        dataset = None
+
+        output_srs = osr.SpatialReference()
+        self.assertEqual(output_srs.ImportFromWkt(self.wkt), 0)
+        output_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        footprint = _raster_footprint(
+            raster_path,
+            output_srs=output_srs,
+            gdal=self.gdal,
+            ogr=ogr,
+            osr=osr,
+        )
+
+        self.assertTrue(footprint.IsValid())
+        self.assertEqual(footprint.GetEnvelope(), (-180.0, 180.0, -90.0, 90.0))
+        for longitude in (-179.0, 0.0, 179.0):
+            point = ogr.Geometry(ogr.wkbPoint)
+            point.AddPoint_2D(longitude, 0.0)
+            self.assertTrue(footprint.Intersects(point))
+
     def test_ensure_creates_validates_and_reuses_each_supported_format(self):
         for suffix in (".shp", ".gpkg"):
             with self.subTest(suffix=suffix):
