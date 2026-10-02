@@ -45,14 +45,14 @@ Feel free to create a new directory to run these workflows as well. To create a 
    c. With the terminal still open, run the following command to set up your environment:
 
       ```bash
-      cd lfm && bash scripts/shell/copy_kernel_graha_h100.sh
+      cd lfm && bash scripts/shell/copy_kernel.sh
       ```
 
 7. Reload the web page (by clicking the "⟳" button in your browser, or by pressing the F5 key) to finalize environment setup.
 
 8. Close the terminal tab by clicking "x" on the top tab.
 
-9. Using the file explorer interface again, navigate to the folder at `<your_folder>/lfm/notebooks/`, where `<your_folder>` is the same one you created in step 6. Following the example from earlier, the full path would look like `/explore/nobackup/people/my_username/lunar_fm/lfm/notebooks`. The `notebooks/` folder contains the Jupyter notebooks used to interact with the model. 
+9. Using the file explorer interface again, navigate to the folder at `<your_folder>/lfm/notebooks/`, where `<your_folder>` is the same one you created in step 6. Following the example from earlier, the full path would look like `/explore/nobackup/people/my_username/lunar_fm/lfm/notebooks`. The `notebooks/` folder contains the Jupyter notebooks used to interact with the model.
 
 **Note: the structure of the folders is such that we have 2 lfm/ folders; the outermost lfm/ folder contains the notebooks/ directory.**
 
