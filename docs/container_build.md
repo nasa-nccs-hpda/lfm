@@ -69,7 +69,47 @@ The original Apptainer build remains available from the repository root:
 sudo apptainer build lfm.sif lfm_container-latest.def
 ```
 
-## Build an Apptainer sandbox on Explore
+## Build directly from the Dockerfile on Explore
+
+From the repository root on a Slurm submission host:
+
+```bash
+sbatch scripts/shell/build_ipyleaflet_container.sh
+# Or choose a new persistent sandbox path:
+sbatch scripts/shell/build_ipyleaflet_container.sh /explore/nobackup/projects/lfm/containers/lfm-test
+```
+
+The script requests the `grace` partition and refuses to build without a Slurm
+job or on an architecture other than ARM64/aarch64. If a GPU login node has no
+`sbatch`, submit from a host with Slurm submission tools. Do not work around
+that by running `bash scripts/shell/build_ipyleaflet_container.sh` on a login
+node or an AMD/x86_64 node. No GPU is needed for this build.
+
+This uses Apptainer 1.5+ Dockerfile support directly:
+`apptainer build --sandbox --arch arm64 <sandbox> dockerfile:.`.
+It requires `buildctl` and an already-running BuildKit daemon with an ARM64
+worker, on the allocated compute node or a site-approved build service. Set
+`BUILDKIT_HOST` (or `APPTAINER_BUILDKIT_HOST`) to its endpoint. Load the site's
+Apptainer/BuildKit tools in the job environment as needed. Installing Apptainer
+alone is not sufficient for Dockerfile builds; see the
+[Apptainer Dockerfile documentation](https://apptainer.org/docs/user/1.5/appendix.html#dockerfile-bootstrap-agent).
+
+The script snapshots the Dockerfile, `.dockerignore`, requirements, and shared
+installer from the working tree into node-local scratch; it does not use or
+generate a `.def` file. Requirements are installed by the Dockerfile's installer.
+Keep the script's input list aligned with any future Dockerfile `COPY` changes.
+The same Dockerfile remains usable with Podman in the future.
+
+Defaults are `/lscratch/$USER` for scratch and
+`/explore/nobackup/projects/lfm/containers/lfm-container-ipyleaflet-<jobid>` for
+the completed sandbox. Override these with `LFM_BUILD_SCRATCH` and
+`LFM_CONTAINER_DIR`; use `LFM_REPO_DIR` if submitting outside the repository
+root. BuildKit has its own worker storage, which also needs sufficient space.
+The script retains scratch for inspection and never deletes or overwrites an
+existing destination. Logs are `lfm-build-<jobid>.out` and `.err` in the submission
+directory.
+
+## Download a published Apptainer sandbox on Explore
 
 Docker runs only on the GitHub runner. Your HPC system needs Apptainer and
 network access to GHCR; it does not need Docker installed. On an ARM64 host:
