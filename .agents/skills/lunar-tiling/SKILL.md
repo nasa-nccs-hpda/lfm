@@ -99,10 +99,15 @@ NoData metadata.
 - Static context uses `all_intersecting` and is never product-filtered.
 - Static-only operation takes no product ID. Dynamic-only operation is valid on
   numbered LTM and polar grids.
-- A missing required source raises `MissingRequiredSourceError`. An optional
-  sparse source may be skipped. Preserve and report `completed_records` when a
-  later source fails; do not silently treat a partial result as a complete
-  sample.
+- In the high-level automatic workflow, a geographically valid AOI with no
+  intersecting product for a product-scoped dynamic source emits
+  `ProductAOIWarning` and omits that source. Other runnable dynamic sources may
+  continue. If none is runnable, return an empty record list and skip contextual
+  static cube creation for that mixed query.
+- Low-level per-tile acquisition still raises `MissingRequiredSourceError` for
+  a missing required source. An optional sparse source may be skipped. Preserve
+  and report `completed_records` when a later source fails; do not silently
+  treat a partial or empty result as a complete downstream sample.
 
 ## Preserve NoData and band contracts
 
@@ -133,9 +138,10 @@ NoData metadata.
 - Keep shared raster directories and indexes read-only. The canonical WAC,
   NAC, and static directories use their existing `output_index.gpkg` files.
   A user-overridden data directory receives a persistent GeoPackage beneath
-  `outputs/tiling/indexes/` in that user's clone. The notebook may
+  `notebooks/outputs/tiling/indexes/` in that user's clone. The notebook may
   automatically rebuild only those per-clone caches when validation fails.
-- Write each run beneath `outputs/tiling/<RUN_ID>/` without reusing a directory.
+- Write each run beneath `notebooks/outputs/tiling/<RUN_ID>/` without reusing a
+  directory.
 - Plot with sentinel pixels converted to `float64` NaN and display no more than
   four tile pairs per AOI unless the user changes that display-only limit.
 - Keep expensive or illustrative alternate queries behind

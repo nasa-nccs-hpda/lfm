@@ -395,9 +395,13 @@ these behaviors without waiting for the tiling notebook or legacy cleanup:
   exact PID or `None` per product-scoped source. `None` discovers intersecting
   IDs with the source's declared resolver, groups companion files, and writes
   one dynamic cube per PID/tile while writing contextual sources once per
-  tile. A missing required product raises `MissingRequiredProductError`; an
-  optional source may yield no record while contextual records are still
-  written. Callers must not assume one record per configured source.
+  tile. A geographically valid query with no match for a product-scoped source
+  logs and emits `ProductAOIWarning`, omits that source, and may continue other
+  runnable dynamic sources. If no configured dynamic source is runnable, the
+  workflow returns an empty record list and skips contextual static for that
+  mixed query. Low-level per-tile required-source failures remain structured
+  exceptions. Callers must inspect records rather than equating “no exception”
+  with complete required coverage or assuming one record per configured source.
 - Every output is a 512×512, tiled, LZW-compressed GeoTIFF on the exact routed
   grid/zoom/tile grid. Existing numbered-LTM grid behavior remains unchanged,
   and tiling resampling is always bilinear.
@@ -461,7 +465,7 @@ validation, and static-source creation are derived below. Each variable is
 documented in a configuration glossary and annotated at its assignment, with
 special attention to AOI corner order, 1-based display bands, zoom resolution,
 and controls that affect visualization but not cube creation. Timestamped
-results are written beneath `repo_root/outputs/tiling/<RUN_ID>/`, and the
+results are written beneath `repo_root/notebooks/outputs/tiling/<RUN_ID>/`, and the
 notebook prints that location before processing.
 
 The notebook now resolves indexes through

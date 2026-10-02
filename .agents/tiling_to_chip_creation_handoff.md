@@ -93,6 +93,37 @@ valid boundary: chip requests derive or provide exact selectors and each
 to omitted-PID discovery without a deliberate change to sample identity,
 manifest semantics, and multi-product output handling.
 
+### Valid AOIs with no intersecting products
+
+The high-level automatic workflow no longer treats an otherwise geographically
+valid AOI as invalid merely because a product-scoped dynamic source has no
+intersecting product. Product discovery:
+
+- logs a warning and emits `ProductAOIWarning` for each unavailable requested
+  or discovered product source;
+- omits that source rather than raising `AutomaticTilingError` at product
+  discovery;
+- allows another configured dynamic source with an intersecting product to
+  continue; and
+- returns an empty `TileCubeRecord` list without starting cube creation when no
+  configured dynamic source is runnable. In that case contextual static is
+  skipped rather than written by itself for the mixed query.
+
+This does not weaken geographic validation: an AOI that cannot route to any
+lunar grid tile still raises a routing error. It also does not remove strict
+low-level per-tile required-source errors such as `MissingRequiredSourceError`.
+
+Chip acquisition currently calls the strict low-level API, so this high-level
+change may not directly alter every chip request yet. Nevertheless, chip code
+must not use “no exception” as evidence that acquisition produced usable data.
+It must inspect returned structured records against required output modalities.
+An empty record set or absent required modality becomes a typed, per-sample
+chip acquisition failure with no published chip/label pair; optional omissions
+follow the existing placeholder policy only when their band contract is known.
+Capture structured record/coverage diagnostics rather than parsing warning
+text. If chip acquisition later adopts the high-level workflow, add focused
+empty-result and alternate-dynamic-source tests before changing the API call.
+
 ### Structured results
 
 Tiling returns ordered `TileCubeRecord` objects. Use these fields rather than
@@ -227,6 +258,11 @@ and qualify every `OutputModalityConfig` by acquisition group and source.
 - deduplicates records through structured keys; and
 - stops later acquisition groups after the first group failure while retaining
   structured partial diagnostics.
+
+Because a valid tiling call may return no records under the high-level
+discovery contract, any future migration of this caller must retain an explicit
+post-call required-coverage check. A warning-only tiling outcome is not, by
+itself, a successful model-ready chip.
 
 Keep index preparation outside those per-sample directories. The prepared
 `TileSourceConfig.index_path` values should be stable inputs shared read-only

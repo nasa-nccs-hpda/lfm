@@ -82,6 +82,14 @@ a time. A phase becomes `[Complete]` when all of its sub-steps are complete.
   `MissingRequiredSourceError`; optional sparse coverage can produce no record
   for one source while other cubes have already been written. Record and clean
   up intermediate outputs according to an explicit chip-level status policy.
+- Also expect the high-level tiling workflow to warn with
+  `ProductAOIWarning` and return an empty record collection for a geographically
+  valid AOI when no configured dynamic product intersects; contextual static is
+  skipped for that mixed query. The current chip caller remains on the strict
+  low-level API, but any future migration must validate required modality
+  coverage from structured records and convert an unusable empty result into a
+  typed per-sample failure rather than publishing a chip or relying on warning
+  text.
 - Tiling always uses bilinear resampling and writes 512×512 LTM GeoTIFFs. Any
   chip-stage resampling policy is separate and must not be implemented by
   weakening the tiling contract.

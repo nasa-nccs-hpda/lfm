@@ -50,6 +50,13 @@ Goal:
 
 Completed:
 
+- Changed high-level product discovery so a geographically valid AOI with no
+  intersecting requested/discovered dynamic product emits
+  `ProductAOIWarning` instead of failing discovery. Other runnable dynamic
+  sources continue; if none is runnable, the query returns no records and does
+  not create contextual static cubes. The chip handoff now requires explicit
+  structured-record coverage checks before treating such a result as usable.
+
 - Added `model.resolve_notebook_source_index()` to distinguish canonical
   Explore WAC/NAC/static directories from user overrides. Defaults now use
   their protected shared `output_index.gpkg`; overrides use persistent,
@@ -62,6 +69,9 @@ Completed:
   configuration, resolves index paths in its derived-values section, and
   passes the ownership-specific rebuild policy into every source definition.
   Default runs no longer create or contend over per-clone WAC/NAC indexes.
+- Both tiling notebooks now place timestamped runs and custom index caches
+  beneath `notebooks/outputs/tiling/` instead of the repository-level
+  `outputs/` directory.
 - Updated both tiling and chip example notebooks. The chip notebook prepares
   or validates indexes once before chip workers start, preventing abandoned
   default per-clone locks and nested index creation inside sample workers.
@@ -89,6 +99,10 @@ Completed:
 
 Validation:
 
+- The expanded tiling workflow, preparation, vector-index, tiling-utility, and
+  legacy product-tiling suites pass 86 tests with 16 GDAL-dependent skips. The
+  new cases cover an unmatched sole product plus contextual static and an
+  unmatched explicit WAC PID alongside a runnable NAC product.
 - The focused dependency-light suite now passes 72 tests with 16
   GDAL-dependent skips, including four new resolver tests covering all three
   canonical modalities, custom-cache selection, missing shared indexes, and
@@ -509,7 +523,8 @@ P1 work started:
   legacy `LRO_WAC_Pho_Sites/output_index.shp`. Preserved strict validation and
   the shared index instead of deleting, overwriting, or weakening checks.
 - Updated the public notebook to cache canonical WAC and NAC GeoPackage
-  indexes under each clone's persistent `outputs/tiling/indexes/` directory.
+  indexes under each clone's persistent
+  `notebooks/outputs/tiling/indexes/` directory.
   Shared rasters remain read-only, separate user clones cannot interfere, and
   later notebook runs validate and reuse the per-clone caches. The canonical
   static workflow continues to use the shared `db2.shp` index.

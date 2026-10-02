@@ -66,6 +66,16 @@ a future, separately specified metadata format is added.
   an explicit product selector for every `product_id` source.
 - Continue splitting antimeridian-crossing geographic queries in chip
   acquisition and deduplicating `TileCubeRecord` objects by structured fields.
+- Treat an empty record collection as a valid possible tiling return, not as
+  proof that a chip can be assembled. The high-level tiling workflow warns and
+  returns no records when no dynamic product intersects a geographically valid
+  AOI, and it skips contextual static for that mixed query. Chip acquisition
+  must explicitly fail only that sample when a required output modality lacks
+  coverage, while preserving existing optional-modality placeholder rules.
+- Do not parse or depend on `ProductAOIWarning` text. Base chip decisions and
+  diagnostics on returned structured records, requested modalities, and their
+  required/optional policy. Retain strict routing errors for geographically
+  invalid/unroutable AOIs and strict low-level required-source exceptions.
 - Keep all label work downstream of the target request and upstream of tiling.
   Never add label cropping to `model/tiling.py`.
 - Preserve the current numbered-LTM chip restriction. Upstream polar tiling
