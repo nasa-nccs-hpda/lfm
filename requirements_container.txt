@@ -124,7 +124,7 @@ executing==2.2.1
 fastapi==0.142.2  # Other recorded versions: 0.141.1
 fastjsonschema==2.21.2
 filelock==3.29.1
-fiona==1.10.1
+fiona==1.10.1  # Built against system GDAL in the shared native installation step.
 folium==0.20.0
 fonttools==4.63.0
 fqdn==1.5.1

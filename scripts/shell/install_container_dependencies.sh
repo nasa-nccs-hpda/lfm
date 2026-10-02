@@ -49,13 +49,17 @@ python -m pip install \
 
 echo "=== Building Python geospatial wrappers against system GDAL / PROJ ==="
 
+# Fiona's source build needs Cython available while preparing wheel metadata.
+# Use the build tools installed above rather than an isolated pip environment.
+python -c 'from Cython.Build import cythonize'
 python -m pip install \
     -c /etc/pip/constraint.txt \
     --no-build-isolation \
-    --no-binary=rasterio,pyproj,pyogrio \
+    --no-binary=rasterio,pyproj,pyogrio,fiona \
     rasterio==1.5.0 \
     pyproj==3.7.2 \
-    pyogrio==0.13.0
+    pyogrio==0.13.0 \
+    fiona==1.10.1
 
 echo "=== Protecting container-provided builds ==="
 
@@ -71,7 +75,7 @@ managed = requirements.split('# BEGIN CONTAINER-MANAGED PACKAGES\n', 1)[1]
 managed = managed.split('# END CONTAINER-MANAGED PACKAGES', 1)[0]
 names = {line.strip() for line in managed.splitlines()
          if line.strip() and not line.lstrip().startswith('#')}
-names.update({'numpy', 'rasterio', 'pyproj', 'pyogrio'})
+names.update({'numpy', 'rasterio', 'pyproj', 'pyogrio', 'fiona'})
 constraints = []
 for name in sorted(names):
     try:
@@ -87,13 +91,17 @@ echo "=== Installing combined project dependencies ==="
 python -m pip install \
     -c /etc/pip/constraint.txt \
     -c /opt/lfm-native-constraints.txt \
-    --no-binary=rasterio,pyproj,pyogrio \
+    --no-binary=rasterio,pyproj,pyogrio,fiona \
     -r /opt/requirements_container.txt
 
 python -m pip check
 
 echo "=== Checking native Python bindings without a GPU ==="
 python - <<'PY'
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import fiona
 import numpy as np
 import pyogrio
 import pyproj
@@ -108,9 +116,19 @@ dataset = gdal.GetDriverByName('MEM').Create('', 2, 2, 1, gdal.GDT_Byte)
 dataset.GetRasterBand(1).WriteArray(pixels)
 np.testing.assert_array_equal(dataset.ReadAsArray(), pixels)
 assert pyproj.CRS.from_epsg(4326).to_epsg() == 4326
+with TemporaryDirectory() as tmp:
+    path = Path(tmp) / 'fiona-smoke.geojson'
+    schema = {'geometry': 'Point', 'properties': {'value': 'int'}}
+    with fiona.open(path, 'w', driver='GeoJSON', schema=schema, crs='EPSG:4326') as dst:
+        dst.write({'geometry': {'type': 'Point', 'coordinates': (0., 0.)},
+                   'properties': {'value': 1}})
+    with fiona.open(path) as src:
+        features = list(src)
+        assert len(features) == 1 and features[0]['properties']['value'] == 1
 boxes = torch.tensor([[0., 0., 2., 2.], [0., 0., 2., 2.]])
 assert nms(boxes, torch.tensor([0.9, 0.8]), 0.5).tolist() == [0]
 print('GDAL:', gdal.VersionInfo(), 'rasterio GDAL:', rasterio.__gdal_version__)
+print('Fiona:', fiona.__version__, 'Fiona GDAL:', fiona.__gdal_version__)
 print('PyTorch:', torch.__version__, 'CUDA build:', torch.version.cuda)
 PY
 

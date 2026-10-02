@@ -45,6 +45,12 @@ runtime environment variables aligned when changing them. The shared script
 installs native GDAL/PROJ, builds their Python bindings, protects the
 container-provided Python builds, and installs `requirements_container.txt`.
 
+Fiona is built from source alongside Rasterio, Pyproj, and Pyogrio with pip build
+isolation disabled, using the installed Cython and system GDAL headers. Its
+installed version is then constrained during the remaining dependency install.
+The native smoke checks include a Fiona GeoJSON write/read roundtrip. This shared
+installation step applies to both the Dockerfile and `.def` builds.
+
 The combined requirements select the highest recorded versions from historical
 freezes; this merged environment has not yet passed a full container build.
 Dependency resolution, `pip check`, or the native-binding smoke checks can fail
