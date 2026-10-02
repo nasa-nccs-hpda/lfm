@@ -130,11 +130,11 @@ NoData metadata.
 - Preserve repository discovery from the top-level `notebooks/` directory,
   including `/panfs/ccds02/nobackup` to `/explore/nobackup` normalization and
   insertion of `repo_root` into `sys.path`.
-- Keep shared WAC/NAC raster directories read-only. Cache their modern
-  GeoPackage indexes persistently under `outputs/tiling/indexes/` in each
-  user's clone; do not adopt or overwrite legacy indexes in shared data paths.
-  The notebook may automatically rebuild only those per-clone caches when
-  validation fails. Continue using the declared canonical static index.
+- Keep shared raster directories and indexes read-only. The canonical WAC,
+  NAC, and static directories use their existing `output_index.gpkg` files.
+  A user-overridden data directory receives a persistent GeoPackage beneath
+  `outputs/tiling/indexes/` in that user's clone. The notebook may
+  automatically rebuild only those per-clone caches when validation fails.
 - Write each run beneath `outputs/tiling/<RUN_ID>/` without reusing a directory.
 - Plot with sentinel pixels converted to `float64` NaN and display no more than
   four tile pairs per AOI unless the user changes that display-only limit.

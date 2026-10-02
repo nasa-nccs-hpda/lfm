@@ -46,6 +46,13 @@ Goal:
 
 Completed:
 
+- Added `model.resolve_notebook_source_index()` to distinguish canonical
+  Explore WAC/NAC/static directories from user overrides. Defaults now use
+  their protected shared `output_index.gpkg`; overrides use persistent,
+  replaceable per-clone caches.
+- Updated both tiling and chip example notebooks. The chip notebook prepares
+  or validates indexes once before chip workers start, preventing abandoned
+  default per-clone locks and nested index creation inside sample workers.
 - Added optional process-worker footprint inspection to the vector-index
   builder. The default resolves from `SLURM_CPUS_PER_TASK`; an explicit worker
   count of one retains serial behavior.
@@ -64,6 +71,9 @@ Completed:
 
 Validation:
 
+- Four focused resolver tests pass locally. Both notebooks remain valid JSON,
+  have unique cell IDs, contain syntax-valid ordinary Python cells, and retain
+  null execution counts with empty outputs.
 - The dependency-light vector-index, preparation, and workflow suites pass:
   68 tests run with 16 GDAL-dependent skips.
 - Explore job 37938224 created, validated, and reused an index for the exact

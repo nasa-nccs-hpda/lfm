@@ -67,9 +67,12 @@ a time. A phase becomes `[Complete]` when all of its sub-steps are complete.
   instantiate the deprecated `lfm.model.Pipeline.Pipeline`.
 - Supply AOIs as `ul_lat`, `ul_lon`, `lr_lat`, and `lr_lon` in IAU:30100. Use
   `load_lunar_geographic_wkt()`; do not add another inline lunar WKT string.
-- Treat every source index as a read-only input. The configured location field
-  can resolve absolute paths or paths relative to that source's `data_dir`.
-  Chip creation must not create an index as a side effect of tiling.
+- Treat every prepared source index as a read-only tiling input. The configured
+  location field can resolve absolute paths or paths relative to that source's
+  `data_dir`. Notebook or batch coordinator preflight may validate a protected
+  shared index or prepare an application-owned custom-data cache once, before
+  chip workers start. Per-sample tiling and chip workers must not create or
+  rebuild indexes.
 - Pass product selectors as a mapping keyed by source name. A source configured
   as `product_id` requires a selector; `all_intersecting` rejects one.
 - Group records by structured fields:
@@ -991,6 +994,11 @@ implying that external rasters and labels are checked into this repository.
   image, label, overlay, NoData, and target-grid visualization. Its JSON and all
   ordinary Python code cells pass local structural and syntax validation; an HPC
   execution and user review remain before C9.3-C9.7 completion.
+- The derived-path section now uses `resolve_notebook_source_index()` so the
+  canonical WAC and static directories consume their shared
+  `output_index.gpkg` files read-only, while changed directories receive
+  persistent per-clone caches. Coordinator preflight validates or prepares
+  each index exactly once before chip multiprocessing can begin.
 
 ## Phase C10 — Complete the chip migration `[Planned]`
 

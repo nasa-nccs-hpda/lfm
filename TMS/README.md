@@ -193,13 +193,13 @@ worker count defaults to `SLURM_CPUS_PER_TASK` and falls back to one outside a
 Slurm allocation. Expert callers can set `index_worker_count=1` on a source
 definition to force the earlier serial behavior.
 
-The example notebook treats shared raster collections as read-only. Its WAC
-and NAC indexes are persistent GeoPackage caches under each user's clone at
-`outputs/tiling/indexes/`, so separate clones do not compete for or overwrite
-an index in the shared data directory. The canonical static collection
-continues to use its shared `db2.shp` index. Invalid or stale WAC/NAC caches are
-rebuilt atomically after a replacement validates, while the shared source
-indexes are never automatically replaced.
+The example notebooks treat shared raster collections and indexes as
+read-only. The canonical WAC, NAC, and static directories use their existing
+`output_index.gpkg` files. If a user changes one of those data directories,
+the notebook resolves a persistent GeoPackage cache beneath its own output
+tree instead. Invalid or stale user-owned caches are rebuilt atomically only
+after a replacement validates; shared source indexes are never automatically
+replaced.
 
 ## How LFM implements the scheme
 

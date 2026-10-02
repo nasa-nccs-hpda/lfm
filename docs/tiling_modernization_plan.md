@@ -385,6 +385,10 @@ these behaviors without waiting for the tiling notebook or legacy cleanup:
   `SLURM_CPUS_PER_TASK`, with an explicit `index_worker_count=1` serial
   override. Workers inspect and transform separate rasters; the parent process
   writes index features in deterministic source-path order.
+- `resolve_notebook_source_index()` distinguishes the canonical Explore WAC,
+  NAC, and static directories from user overrides. Canonical directories use
+  their protected shared `output_index.gpkg`; overridden directories receive
+  application-owned caches beneath the clone and may opt into atomic rebuild.
 - The strict `create_tiles_for_*` path requires a selector keyed by source name
   for every `product_id` source, and `all_intersecting` sources reject
   selectors. The high-level `create_tiles_for_aoi_by_product` path accepts an
@@ -459,6 +463,14 @@ special attention to AOI corner order, 1-based display bands, zoom resolution,
 and controls that affect visualization but not cube creation. Timestamped
 results are written beneath `repo_root/outputs/tiling/<RUN_ID>/`, and the
 notebook prints that location before processing.
+
+The notebook now resolves indexes through
+`model.resolve_notebook_source_index()`. The default WAC, NAC, and static
+directories use their existing shared `output_index.gpkg` files read-only.
+Changing a data directory instead selects a persistent per-clone cache, whose
+missing or invalid index the high-level workflow may safely create or rebuild.
+This prevents separate users from leaving or contending over abandoned
+per-clone default-index locks while preserving custom-data support.
 
 The WAC example uses product `M1107459759CE` and the first regression AOI at
 zoom 5. The NAC example uses product `M1117899885LE` and a small AOI centered

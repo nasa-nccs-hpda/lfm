@@ -202,6 +202,13 @@ from .vector_index_builder import (
     resolve_index_worker_count,
     validate_vector_index,
 )
+from .notebook_indexes import (
+    DEFAULT_PROJECT_DATA_DIR,
+    DEFAULT_SHARED_INDEX_NAME,
+    DEFAULT_SOURCE_DATA_DIRS,
+    NotebookIndexResolution,
+    resolve_notebook_source_index,
+)
 from .tiling_results import (
     MissingRequiredSourceError,
     TileCubeRecord,
@@ -255,7 +262,10 @@ __all__ = [
     "CONFIGURATION_ID_ALGORITHM",
     "CHIP_DIAGNOSTIC_VERSION",
     "DATASET_MANIFEST_VERSION",
+    "DEFAULT_PROJECT_DATA_DIR",
     "DEFAULT_RASTER_GLOBS",
+    "DEFAULT_SHARED_INDEX_NAME",
+    "DEFAULT_SOURCE_DATA_DIRS",
     "DatasetPublicationValidation",
     "GeographicAOI",
     "GeographicCoverage",
@@ -277,6 +287,7 @@ __all__ = [
     "MissingRequiredSourceError",
     "MixedPercentageNumberSplitConfig",
     "NoSplitConfig",
+    "NotebookIndexResolution",
     "ModalityCubeMapping",
     "ModalityReprojectionStatus",
     "ModalityPreset",
@@ -384,6 +395,7 @@ __all__ = [
     "query_source_index_envelopes",
     "reference_sample_from_tiff",
     "resolve_label_path",
+    "resolve_notebook_source_index",
     "resolve_index_worker_count",
     "resolve_tile_index_path",
     "route_aoi",

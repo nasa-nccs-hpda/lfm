@@ -14,6 +14,7 @@ from model import (
     STATIC_BAND_NAMES,
     STATIC_OUTPUT_NODATA,
     TileSourceConfig,
+    resolve_notebook_source_index,
 )
 
 
@@ -106,5 +107,6 @@ __all__ = [
     "RUN_ID",
     "create_tiling_run_id",
     "make_static_source",
+    "resolve_notebook_source_index",
     "validate_path_pairs",
 ]
