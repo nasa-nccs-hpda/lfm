@@ -5,8 +5,8 @@ A0 is frozen, and A1 and A2 source planning are complete with user-reported
 HPC validation. A3 semantic materialization is accepted as complete. A4
 instance/GeoPackage conversion is complete with user-reported HPC validation
 (215 chip tests, OK);
-orchestration integration is implemented in A5, pending supported-container
-tests and the focused real-data HPC run.
+orchestration integration is implemented in A5 with user-reported HPC test
+success. The focused real-data HPC run and visual overlay review remain pending.
 Declarative acceptance fixtures are
 stored in [aoi_chip_contract_fixtures.json](planning_docs/aoi_chip_contract_fixtures.json).
 Tracked in
@@ -90,8 +90,8 @@ returns a validated result. The worker adapter stages the NPZ and hands it to
 pair publication; conversion itself does not acquire imagery or publish files.
 `materialize_instance_label(request, plan, staging_root=...)` is the worker-side
 adapter returning a verified `PreparedLabelArtifact`; A5 now invokes it before
-tiling and passes its artifact to publication. HPC integration validation remains
-pending. Exact NPZ files retain original bytes. Derived
+tiling and passes its artifact to publication. HPC integration tests passed;
+focused real-data validation remains pending. Exact NPZ files retain original bytes. Derived
 NPZ files contain canonical `mask`, `bboxes`, and `num_craters`, with the ID map
 and diagnostics carried by the artifact, not embedded in training arrays.
 

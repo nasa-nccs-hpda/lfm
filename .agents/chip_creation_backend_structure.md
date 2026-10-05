@@ -39,7 +39,7 @@ or the static-only 100 m rule. Typed `LabelInput`, `LabelPreparationPlan`, and
 carrying arrays. A2 validates full-scene sources and returns read-only preparation
 plans. A3/A4 semantic and instance conversion are complete. A5 now invokes those
 converters inside each worker before tiling and explicitly passes their artifacts
-to publication (HPC integration/smoke tests pending). Direct low-level acquisition
+to publication (HPC integration tests passed; real-data smoke test pending). Direct low-level acquisition
 still rejects derived plans without an artifact. Exact-label workflows stay active.
 See the [AOI implementation plan](planning_docs/aoi_chip_creation_and_label_clipping_plan.md)
 for the API and validation status. Existing exact-label workflows remain active.
@@ -258,7 +258,8 @@ semantic preparation on that plan and returns a verified `PreparedLabelArtifact`
 `model/chip_instance_labels.py` implements the corresponding instance adapter
 and independent GeoPackage converter (A4 complete). A5 calls both converters
 before imagery acquisition, with `label/clip` progress and per-sample failure
-isolation. Its integration and real-data HPC gates remain pending.
+isolation. The user reports its HPC integration tests passed; the focused
+real-data run and visual overlay review remain pending.
 
 Schema-v2 manifests and diagnostics retain label plans, artifact checksums,
 instance maps and final-grid `imagery_nodata` summaries. Partial NoData warns;

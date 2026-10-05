@@ -2,7 +2,7 @@
 """Focused A5 real-data check: two AOIs, one finished GeoPackage, WAC + static.
 
 Use the original pre-tiling WAC VIS TIFF for grid metadata, not a reference
-chip. Supply --aoi NORTH WEST SOUTH EAST twice. At least one AOI must intersect
+chip. Supply --aoi NORTH WEST SOUTH EAST twice, or --auto-aoi. At least one AOI must intersect
 an annotated crater; choose an edge crossing a crater to exercise clipping.
 """
 
@@ -28,7 +28,10 @@ def arguments():
     parser.add_argument("--layer", default="craters")
     parser.add_argument("--source-raster", type=Path, required=True, help="Original WAC VIS source TIFF.")
     parser.add_argument("--product-id", required=True)
-    parser.add_argument("--aoi", type=float, nargs=4, action="append", required=True,
+    region = parser.add_mutually_exclusive_group(required=True)
+    region.add_argument("--auto-aoi", action="store_true",
+                        help="Derive full-crater and edge-clipping AOIs from the largest annotation.")
+    region.add_argument("--aoi", type=float, nargs=4, action="append",
                         metavar=("NORTH", "WEST", "SOUTH", "EAST"))
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--wac-data-dir", type=Path, default=Path(
@@ -49,6 +52,56 @@ def sha256(path):
 def require(condition, message):
     if not condition:
         raise AssertionError(message)
+
+
+def smoke_aoi_bounds(envelope):
+    """Two small geographic envelopes; deliberately exclude dateline/polar cases."""
+    import math
+    west, east, south, north = envelope
+    require(all(math.isfinite(v) for v in envelope), "Nonfinite annotation bounds.")
+    width, height = east - west, north - south
+    require(0 < width < 180 and height > 0, "Auto AOIs need a non-wrapping polygon.")
+    full = [north + .2 * height, west - .2 * width,
+            south - .2 * height, east + .2 * width]
+    require(-82 < full[2] < full[0] < 82 and -180 < full[1] < full[3] < 180,
+            "Auto AOIs support nonpolar, non-antimeridian examples only; supply explicit AOIs.")
+    clipped = [full[0], full[1], full[2], (west + east) / 2]
+    return [full, clipped]
+
+
+def derive_smoke_aois(path, layer_name):
+    """Read-only selection; IDs remain data, never hard-coded fixture contracts."""
+    from osgeo import ogr, osr
+    from model.lunar_crs import load_lunar_geographic_wkt
+
+    ds = ogr.Open(str(path), 0)
+    require(ds is not None, "Could not open label GeoPackage.")
+    layer = ds.GetLayerByName(layer_name)
+    require(layer is not None, f"Missing label layer: {layer_name}")
+    source = layer.GetSpatialRef()
+    require(source is not None, "Label layer has no CRS.")
+    source = source.Clone()
+    source.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    geographic = osr.SpatialReference()
+    geographic.ImportFromWkt(load_lunar_geographic_wkt())
+    geographic.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    transform = osr.CoordinateTransformation(source, geographic)
+    candidates = []
+    for feature in layer:
+        geometry = feature.GetGeometryRef()
+        require(geometry is not None and not geometry.IsEmpty() and geometry.IsValid(),
+                "Smoke-test annotations must have valid, nonempty geometries.")
+        candidates.append((geometry.GetArea(), int(feature.GetField("crater_id")), geometry.Clone()))
+    require(bool(candidates), "Auto AOIs require at least one crater.")
+    _, instance, geometry = max(candidates, key=lambda item: (item[0], -item[1]))
+    # Densify before the nonlinear CRS transform; never mutate the source geometry.
+    left, right, bottom, top = geometry.GetEnvelope()
+    require(right > left and top > bottom, "Selected crater has no positive extent.")
+    geometry.Segmentize(max(right - left, top - bottom) / 256)
+    require(geometry.Transform(transform) == 0, "Could not transform crater to IAU:30100.")
+    aois = smoke_aoi_bounds(geometry.GetEnvelope())
+    ds = None
+    return aois, instance
 
 
 def inspect(result, expected_band_names, plot_path):
@@ -129,6 +182,12 @@ def run(args, report):
 
     gdal.UseExceptions()
     label_before = sha256(args.label_gpkg)
+    selected_instance = None
+    if args.auto_aoi:
+        args.aoi, selected_instance = derive_smoke_aois(args.label_gpkg, args.layer)
+        report["auto_aoi"] = {"source_instance_id": selected_instance,
+                              "cases": ["full_crater", "edge_clipping"], "aois_nwse": args.aoi}
+        print(f"Auto AOIs around source crater {selected_instance}: {args.aoi}", flush=True)
     source_stat = args.source_raster.stat()
     ds = gdal.Open(str(args.source_raster))
     require(ds.RasterCount == 5, "Use the original five-band WAC VIS source raster for the grid.")
@@ -197,6 +256,15 @@ def run(args, report):
             pixels, detail = inspect(result, (*WAC_BAND_NAMES, *STATIC_BAND_NAMES),
                                      args.output_root / "inspection_plots" / f"{mode}_{result.request.sample_id}.png")
             row.update(detail)
+            row["label_diagnostics"] = [d.__dict__ for d in result.prepared_label.diagnostics]
+            if selected_instance is not None:
+                require(selected_instance in dict(result.prepared_label.instance_id_map),
+                        "Selected crater disappeared from smoke-test labels.")
+                clipped = any(d.code == "clipped_instance" and
+                              d.message.startswith(f"Source instance {selected_instance}:")
+                              for d in result.prepared_label.diagnostics)
+                require(clipped == (result.request.sample_id == "aoi_2"),
+                        "Auto AOIs did not exercise the expected full/crater-edge cases.")
             total_instances += detail["instance_count"]
             if mode == "serial":
                 previous[result.request.sample_id] = (pixels, detail)
@@ -220,7 +288,7 @@ def run(args, report):
 
 def main():
     args = arguments()
-    require(len(args.aoi) == 2, "Supply --aoi exactly twice.")
+    require(args.auto_aoi or len(args.aoi) == 2, "Supply --aoi exactly twice.")
     require(args.max_chip_pixels > 0, "--max-chip-pixels must be positive.")
     require(args.label_gpkg.is_file() and args.source_raster.is_file(), "Source raster and GeoPackage must exist.")
     args.output_root.mkdir(parents=True, exist_ok=False)

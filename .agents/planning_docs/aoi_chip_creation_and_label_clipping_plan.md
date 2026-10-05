@@ -834,7 +834,7 @@ A4's standalone entry points are now called by A5 worker orchestration below.
 Direct low-level acquisition still requires a materialized artifact for derived
 labels. A6 notebook integration remains pending.
 
-## Phase A5 — Integrate orchestration and publication `[Implemented; HPC gates pending]`
+## Phase A5 — Integrate orchestration and publication `[HPC tests passed; real-data validation pending]`
 
 - `[Implemented]` **A5.1** Insert `label/clip` materialization after successful
   preflight and before `acquire_prepared_request()` in both serial and process
@@ -851,7 +851,7 @@ labels. A6 notebook integration remains pending.
   mutation.
 - `[Implemented]` **A5.6** Extend dataset-manifest configuration and sample
   documents with source/derived label provenance and stable configuration IDs.
-- `[Implemented; HPC pending]` **A5.7** Add serial/parallel equivalence, overwrite,
+- `[Complete; HPC tests passed]` **A5.7** Add serial/parallel equivalence, overwrite,
   source-changed-during-run, publication rollback, failure isolation, and
   manifest validation tests.
 - `[Implemented]` **A5.8** Implement partial imagery NoData warnings with
@@ -922,11 +922,48 @@ python -m unittest discover -s lfm/model/tests -t . -p 'test_chip*.py' -v
 
 #### Focused A5 real-data run
 
+HPC follow-up (2026-10-05): the user reports all tests ran successfully on HPC,
+closing A5's unit/integration test gate. The exact test count, duration, and skip
+breakdown were not supplied. A5.9's focused real-data run and visual overlay
+review remain pending; A5 as a whole is not yet complete.
+
+The supplied WAC example is now
+`test_outputs/M1412665711CE.prj.vis.mos_label_craters.gpkg` (three crater
+polygons, IDs 1–3, lunar Transverse Mercator with central meridian 24 degrees).
+Its recorded source is
+`/explore/nobackup/projects/lfm/processed_data/Lunar/LRO_WAC_Pho_Sites/M1412665711CE.prj.vis.mos.tif`.
+To run this example from the HPC checkout root:
+
+```bash
+mkdir -p scripts/logs
+LABEL_GPKG="$PWD/test_outputs/M1412665711CE.prj.vis.mos_label_craters.gpkg" \
+SOURCE_RASTER=/explore/nobackup/projects/lfm/processed_data/Lunar/LRO_WAC_Pho_Sites/M1412665711CE.prj.vis.mos.tif \
+WAC_PRODUCT_ID=M1412665711CE \
+AOI_1= AOI_2= \
+sbatch scripts/shell/all_tasks/sbatch_validate_aoi_chip_creation.sh
+```
+
+Copy the GeoPackage into that HPC checkout first if it is only present locally.
+Omitting both AOIs (or clearing inherited values as above) enables `--auto-aoi`:
+select the largest annotation by native geometry area, break ties by lowest
+source ID, densify and transform its outline to IAU:30100, then use a 20%-padded
+envelope and a second envelope ending at its longitude midpoint. These are
+test-selected geographic AOIs, not a new production AOI or label-matching policy.
+Automatic selection deliberately excludes polar and antimeridian cases; the
+existing pixel cap still applies. Both runs assert the selected crater survives,
+with `clipped_instance` only in the second case. Coordinates, selected source ID,
+and materialization diagnostics are recorded in the report. The test still runs
+WAC + 63 static bands serially and with two workers, checks failure isolation,
+output equivalence and source/index preservation, and saves visual overlays.
+The wrapper uses Grace, two CPUs, 32 GB, and a one-hour limit. Execution and
+visual acceptance remain pending; local syntax/unit checks are not HPC evidence.
+
 The user is preparing a finished GeoPackage from the crater-labeling notebook.
 `scripts/python/all_tasks/validate_aoi_chip_creation.py` and
 `scripts/shell/all_tasks/sbatch_validate_aoi_chip_creation.sh` take that file,
 the original five-band WAC VIS source TIFF, an explicit imagery product ID, and
-two AOIs in **NORTH WEST SOUTH EAST** order (IAU:30100). No reference chip or
+optionally two explicit AOIs in **NORTH WEST SOUTH EAST** order (IAU:30100),
+instead of automatic AOI selection. No reference chip or
 label-to-product filename matching is used. Choose distinct small AOIs that
 intersect annotations, ideally with a crater crossing one chip edge. Empty
 labels remain valid backend outputs, but two empty examples do not satisfy this
@@ -955,8 +992,8 @@ an application-owned index prepared once in the coordinator before workers.
 `a5_validation.json` records successes/failures, timings, paths, hashes, grids,
 ID mappings, NoData counts and source/index preservation. `inspection_plots/`
 contains chip/instance/overlay panels with clipped boxes. Numerical success is
-reported separately from pending human visual review. No HPC execution or real
-GeoPackage acceptance has been claimed yet. A7 retains the larger 16-worker,
+reported separately from pending human visual review. No focused real-data HPC
+execution or real GeoPackage acceptance has been reported yet. A7 retains the larger 16-worker,
 broader regression and notebook validation; this smoke test does not replace it.
 
 ## Phase A6 — Make the notebook AOI-first `[Not Started]`
