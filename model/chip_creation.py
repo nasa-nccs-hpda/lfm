@@ -109,7 +109,7 @@ class ChipProgressEvent:
 
 def _load_tqdm() -> Any:
     try:
-        from tqdm.auto import tqdm
+        from tqdm import tqdm
     except ImportError as exc:
         raise RuntimeError(
             "Progress display requires tqdm; install tqdm or use progress=False."

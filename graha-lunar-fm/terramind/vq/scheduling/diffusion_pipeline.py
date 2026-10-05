@@ -16,7 +16,7 @@ import torch
 from diffusers import DiffusionPipeline
 from diffusers.schedulers.scheduling_utils import SchedulerMixin
 from timm.layers.helpers import to_2tuple
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 
 def rescale_noise_cfg(noise_cfg, noise_pred_conditional, guidance_rescale=0.0):

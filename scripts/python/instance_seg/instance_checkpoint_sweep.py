@@ -32,7 +32,7 @@ from typing import Any
 
 import torch
 from lightning.pytorch import seed_everything
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 LFM_ROOT = Path(__file__).resolve().parents[3]
 if str(LFM_ROOT) not in sys.path:

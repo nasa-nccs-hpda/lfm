@@ -220,9 +220,9 @@ def _progress_bar(*, total: int, stdout: TextIO, enabled: bool):
     """Return a stdout tqdm bar, or a no-op compatible fallback."""
     if enabled:
         try:
-            # Select the renderer automatically for notebook or batch execution.
-            # Text progress uses the configured stdout stream.
-            from tqdm.auto import tqdm
+            # Use the text renderer in notebook and batch execution, writing
+            # progress to the configured stdout stream.
+            from tqdm import tqdm
 
             return tqdm(
                 total=total,

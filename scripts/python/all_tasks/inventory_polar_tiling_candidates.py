@@ -388,7 +388,7 @@ def _inspect_raster(path_text: str) -> dict[str, Any]:
 
 def _progress(iterator, *, total: int):
     try:
-        from tqdm.auto import tqdm
+        from tqdm import tqdm
 
         return tqdm(
             iterator,

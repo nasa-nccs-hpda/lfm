@@ -10,7 +10,7 @@ import rasterio
 from tiler import Tiler, Merger
 import torch
 import xarray as xr
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 
 import rioxarray as rxr
@@ -1383,7 +1383,7 @@ def preprocess_datacubes(
     Thus invalid model-input pixels become zero in normalized space. The
     original NoData mask remains available to mask merged outputs.
     """
-    from tqdm.auto import tqdm
+    from tqdm import tqdm
 
     images_hwc = np.transpose(images_raw, (0, 2, 3, 1)).astype(np.float32)
     images_normalized = np.empty_like(images_hwc)

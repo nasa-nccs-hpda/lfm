@@ -21,7 +21,7 @@ import xarray as xr
 import rioxarray as rxr
 from rasterio.enums import Resampling
 from rasterio.crs import CRS
-from tqdm.auto import tqdm
+from tqdm import tqdm
 from rioxarray.merge import merge_arrays
 
 try:

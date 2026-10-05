@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 from lfm.all_models.all_tasks import CheckpointRecord
 from lfm.all_models.all_tasks.utils import (

@@ -45,7 +45,7 @@ import rasterio
 from rasterio.transform import Affine
 import xarray as xr
 from skimage.draw import polygon
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 
 @dataclass(frozen=True)

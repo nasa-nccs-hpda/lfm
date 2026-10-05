@@ -14,7 +14,7 @@ import numpy as np
 import rasterio
 import torch
 from tiler import Tiler
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 from lfm.all_models.sem_seg.data_cube_inference import (
     WAC_NODATA_THRESHOLD,

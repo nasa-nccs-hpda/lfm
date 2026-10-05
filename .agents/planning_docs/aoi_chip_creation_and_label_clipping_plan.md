@@ -1045,8 +1045,12 @@ now retains these channels; named channels with no intersecting indexed raster
 are verified against a cached read-only source-wide metadata inventory before
 NoData filling. Static ordering and -32768 metadata are preserved, genuine
 input/schema errors remain failures, and later tiles continue for coverage gaps.
-HPC tiling tests and a NAC-plus-static notebook rerun are required before claiming
-this case resolved on real data.
+The user now reports all targeted HPC tiling tests passed (`test_tiling_coverage`,
+`test_raster_cube`, `test_configured_tiler`); exact counts, duration and skip
+breakdown were not supplied. A NAC-plus-static notebook rerun and visual review
+are still required before claiming this case resolved on real data. The earlier
+NAC-only notebook run was reported working by the user; that does not validate
+the static coverage extension.
 
 - `[Implemented]` **A6.1** Replace `REFERENCE_DIR` and `REFERENCE_CHIP` in the
   active configuration with sample ID, geographic IAU:30100 bounds, imagery

@@ -30,7 +30,7 @@ from typing import Any
 
 import torch
 from lightning.pytorch import seed_everything
-from tqdm.auto import tqdm
+from tqdm import tqdm
 from torch.utils.data import Subset
 
 LFM_ROOT = Path(__file__).resolve().parents[3]

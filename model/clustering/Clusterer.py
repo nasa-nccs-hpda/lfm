@@ -2,7 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 from osgeo import gdal
 

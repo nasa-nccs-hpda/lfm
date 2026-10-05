@@ -362,12 +362,18 @@ required/optional behavior. Canonical static cubes preserve all 63 channels in
 order with -32768 fill and warning messages, and subsequent tiles continue.
 Other sources retain configured/native NoData, falling back to -32768 when no
 sentinel exists for an empty band. Bilinear resampling and selectors are unchanged.
-Tests: `model/tests/test_tiling_coverage.py`; GDAL/NumPy HPC execution pending.
+Tests: `model/tests/test_tiling_coverage.py`; user-reported HPC test pass.
 Local model discovery: 448 tests, 300 passed and 148 dependency skips. The six
 new coverage tests are among those skipped, so no raster/HPC acceptance is
 claimed. They cover all-NoData intersecting rasters, off-tile indexed bands,
 all-off-tile named cubes, multi-tile continuation/cache reuse/index immutability,
 unknown names, unreadable off-tile inputs, and duplicate-name selection.
+
+HPC follow-up: the user reports all targeted tests passed after updating the
+checkout (`test_tiling_coverage`, `test_raster_cube`, `test_configured_tiler`).
+The exact run count, duration and skip breakdown were not supplied. This closes
+the targeted supported-container test gate; the NAC-plus-static real-data
+notebook rerun and visual review remain pending.
 
 The following is the backend handoff contract. Chip modernization may rely on
 these behaviors without waiting for the tiling notebook or legacy cleanup:
