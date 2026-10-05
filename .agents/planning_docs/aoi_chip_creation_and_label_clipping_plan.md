@@ -1068,8 +1068,15 @@ the original raster's native output lattice; enabled canonical static context
 shares the acquisition zoom and follows imagery in output order. Static
 requiredness is unchanged. Disabled static collections are not checked or indexed.
 The benchmark NAC preset points to
-`NAC_DTM_NEWCRATER6_M1219245090_80CM.TIF` and its GeoPackage; users must supply
-their geographic AOI rather than inherit the unrelated WAC bounds. The product
+`NAC_DTM_NEWCRATER6_M1219245090_80CM.TIF` and its GeoPackage. Its explicit
+geographic AOI is now `(-5.98416640, -44.15178817, -6.00815190, -44.12002357)`
+in NWSE order: all 12 outlines in the supplied 2026-10-05 GeoPackage plus a
+50 m native-coordinate margin. Geometry-envelope bounds were checked against
+the GeoPackage extent; the inverse spherical equirectangular transform uses
+the file's radius 1737400 m, standard parallel -6 degrees, central meridian
+180 degrees and zero offsets. Geographic bounds are rounded outward. This
+approximately 958 × 727 m area still requires native-raster coverage and visual
+validation on HPC; users must revise it for different labels. The product
 selector uses the tiler's filename-before-first-period resolver, so this example
 selects the entire `NAC_DTM_NEWCRATER6_M1219245090_80CM` prefix. Custom index
 discovery includes uppercase TIFF extensions and confirms the source raster is
