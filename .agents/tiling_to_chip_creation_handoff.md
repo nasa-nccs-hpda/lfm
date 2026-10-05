@@ -39,6 +39,15 @@ coordinator setup before any chip workers start.
 
 ## Stable tiling contract that chip creation may rely on
 
+2026-10-05 coverage extension (implementation; HPC tests pending): tiling now
+retains all-NoData warped channels. Missing named channels in a spatial query
+are filled only if a read-only, product-filtered inventory of indexed raster
+metadata confirms they exist. Canonical static output retains all 63 bands,
+using -32768 for uncovered channels and logging warnings instead of stopping
+subsequent tiles. Unknown names, unreadable sources and other processing errors
+still fail. An entirely uncovered source with no declared band-name schema is
+not fabricated. See `test_tiling_coverage.py` for the targeted acceptance tests.
+
 ### Grids, routing, and zooms
 
 - Geographic inputs use repository-owned IAU:30100 from

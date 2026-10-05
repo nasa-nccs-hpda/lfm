@@ -78,8 +78,11 @@ a time. A phase becomes `[Complete]` when all of its sub-steps are complete.
 - Group records by structured fields:
   `(zone, zoom_level, tile_x, tile_y, source_name)`. Filenames are for human
   inspection only and are not an orchestration interface.
-- Expect partial record sets. Required missing coverage raises
-  `MissingRequiredSourceError`; optional sparse coverage can produce no record
+- Expect partial record sets for genuine acquisition errors. Known named bands
+  outside spatial coverage now retain NoData placeholders after read-only index
+  metadata verification; all-NoData warped bands are likewise retained.
+  Unknown required-source schemas can still raise `MissingRequiredSourceError`;
+  optional sources without a declared schema can produce no record
   for one source while other cubes have already been written. Record and clean
   up intermediate outputs according to an explicit chip-level status policy.
 - Also expect the high-level tiling workflow to warn with

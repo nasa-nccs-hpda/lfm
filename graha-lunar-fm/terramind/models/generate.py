@@ -30,7 +30,7 @@ import torch.nn.functional as F
 
 from einops import rearrange, repeat
 from torch import nn
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from terramind.utils.tokenizer import EOS_TOKEN, PAD_TOKEN, S1_TOKEN, get_sentinel_to_id_mapping, merge_span_masking
 

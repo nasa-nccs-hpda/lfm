@@ -350,6 +350,25 @@ index artifact. T6.5 and Phase T6 are complete.
 
 ## Stable tiling contract for chip creation
 
+Coverage extension (2026-10-05): all-NoData warped bands are retained rather
+than dropped. For explicitly named channels absent from a tile's spatial index
+query, the tiler lazily reads a source-wide, product-filtered index inventory
+and opens its rasters for band metadata. Only bands verified in that inventory
+receive NoData placeholders; unknown/unindexed names and unreadable sources
+remain errors. Metadata is cached within the tiler run; indexes stay read-only.
+This also permits a complete empty named-band cube when no source footprint
+intersects the tile. Undeclared missing-source schemas still follow the existing
+required/optional behavior. Canonical static cubes preserve all 63 channels in
+order with -32768 fill and warning messages, and subsequent tiles continue.
+Other sources retain configured/native NoData, falling back to -32768 when no
+sentinel exists for an empty band. Bilinear resampling and selectors are unchanged.
+Tests: `model/tests/test_tiling_coverage.py`; GDAL/NumPy HPC execution pending.
+Local model discovery: 448 tests, 300 passed and 148 dependency skips. The six
+new coverage tests are among those skipped, so no raster/HPC acceptance is
+claimed. They cover all-NoData intersecting rasters, off-tile indexed bands,
+all-off-tile named cubes, multi-tile continuation/cache reuse/index immutability,
+unknown names, unreadable off-tile inputs, and duplicate-name selection.
+
 The following is the backend handoff contract. Chip modernization may rely on
 these behaviors without waiting for the tiling notebook or legacy cleanup:
 

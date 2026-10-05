@@ -7,7 +7,8 @@ from pathlib import Path
 
 from .grid_router import route_aoi
 from .grid_tile_def import tile_definition_for_grid
-from .raster_cube import warp_source_to_tile, write_tile_cube
+from .raster_cube import indexed_band_catalog, warp_source_to_tile, write_tile_cube
+from .grid_registry import GeographicCoverage
 from .tiling_config import TileConfig, TileSourceConfig
 from .tiling_policy import (
     select_source_rasters,
@@ -34,6 +35,18 @@ class ConfiguredTiler:
         self.config = config
         self.selectors = validate_source_selectors(config.sources, selectors)
         self.config.output_dir.mkdir(parents=True, exist_ok=True)
+        self._coverage_catalogs: dict[str, dict] = {}
+
+    def _coverage_catalog(self, source: TileSourceConfig) -> dict:
+        # Lazy, per-run cache: only metadata, no GDAL objects or shared writes.
+        if source.name not in self._coverage_catalogs:
+            inventory = query_source_index_envelopes(source, (
+                GeographicCoverage(south=-90, west=-180, north=90, east=180),))
+            selected = select_source_rasters(source, inventory,
+                                             selector=self.selectors.get(source.name))
+            self._coverage_catalogs[source.name] = indexed_band_catalog(
+                source, [record.path for record in selected])
+        return self._coverage_catalogs[source.name]
 
     def _product_id(self, source: TileSourceConfig) -> str | None:
         return (
@@ -82,7 +95,7 @@ class ConfiguredTiler:
                     indexed,
                     selector=self.selectors.get(source.name),
                 )
-                if not selected:
+                if not selected and not source.band_names:
                     if source.required:
                         raise MissingRequiredSourceError(
                             f"Required source {source.name!r} has no indexed data "
@@ -100,6 +113,7 @@ class ConfiguredTiler:
                     [record.path for record in selected],
                     tile_def=tile_def,
                     bounds=(ulx, uly, lrx, lry),
+                    coverage_catalog=lambda: self._coverage_catalog(source),
                 )
                 if not bands:
                     if source.required:

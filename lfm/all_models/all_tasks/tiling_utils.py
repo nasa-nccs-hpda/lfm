@@ -78,7 +78,11 @@ def make_static_source(
     location_field: str = "location",
     required: bool = True,
 ) -> TileSourceConfig:
-    """Create the canonical 63-band static lunar tiling source config."""
+    """Create the canonical 63-band static lunar tiling source config.
+
+    Tiling retains uncovered channels as -32768 after verifying indexed band
+    metadata; required still rejects genuinely missing or unreadable inputs.
+    """
     return TileSourceConfig(
         name="static",
         data_dir=Path(data_dir),

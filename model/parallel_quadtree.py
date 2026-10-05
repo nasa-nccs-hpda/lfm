@@ -5,7 +5,7 @@ import json
 from pyproj import Transformer
 from typing import List, Tuple
 import numpy as np
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from functools import lru_cache
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed

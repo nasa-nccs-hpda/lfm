@@ -18,7 +18,7 @@ from typing import Any
 
 import numpy as np
 import rasterio
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 
 DEFAULT_BASELINE_ROOT = Path(

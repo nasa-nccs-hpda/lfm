@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Callable
+import logging
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -12,6 +14,7 @@ from osgeo import gdal, gdal_array, gdalconst
 from .tiling_config import TileSourceConfig
 from .tiling_policy import band_nodata_values
 from .tiling_results import TileCubeRecord
+from .static_band_contract import STATIC_OUTPUT_NODATA
 
 
 gdal.UseExceptions()
@@ -31,6 +34,33 @@ class TileDefinition(Protocol):
     tileHeight: int
     cellSize: float
     srs: Any
+
+
+def indexed_band_catalog(source: TileSourceConfig, paths: list[Path]) -> dict:
+    """Read band names/NoData from indexed rasters, never infer them from a PID.
+
+    Only needed when a declared channel has no tile-intersecting input. Opening
+    every indexed candidate keeps absent/unreadable files distinct from coverage.
+    No raster pixels or index files are modified.
+    """
+    catalog = {}
+    for path in paths:
+        dataset = gdal.Open(str(path), gdalconst.GA_ReadOnly)
+        if dataset is None:
+            raise RuntimeError(f"Could not open indexed raster: {path}")
+        try:
+            if dataset.RasterCount < 1 or not dataset.GetProjection():
+                raise ValueError(f"Indexed raster has no bands or CRS: {path}")
+            for index in range(1, dataset.RasterCount + 1):
+                name = _band_name(dataset, path, index)
+                pair = band_nodata_values(source, band_name=name,
+                    metadata_source_nodata=dataset.GetRasterBand(index).GetNoDataValue())
+                if name in catalog and not _same_nodata_value(catalog[name][1], pair[1]):
+                    raise ValueError(f"Conflicting output NoData for indexed band {name!r}.")
+                catalog[name] = pair
+        finally:
+            dataset = None
+    return catalog
 
 
 def _gdal_nodata_argument(values: list[float | None]):
@@ -86,7 +116,15 @@ def _select_bands(
         duplicates: set[str] = set()
         for band in bands:
             if band.name in by_name:
-                duplicates.add(band.name)
+                previous = by_name[band.name]
+                previous_valid = _has_valid_pixels(previous.pixels, source_nodata=previous.source_nodata,
+                                                   output_nodata=previous.output_nodata)
+                current_valid = _has_valid_pixels(band.pixels, source_nodata=band.source_nodata,
+                                                  output_nodata=band.output_nodata)
+                if previous_valid and current_valid:
+                    duplicates.add(band.name)
+                if previous_valid or not current_valid:
+                    continue
             by_name[band.name] = band
         requested_duplicates = duplicates.intersection(source.band_names)
         if requested_duplicates:
@@ -117,6 +155,7 @@ def warp_source_to_tile(
     *,
     tile_def: TileDefinition,
     bounds: tuple[float, float, float, float],
+    coverage_catalog: Callable[[], dict] | None = None,
 ) -> list[WarpedBand]:
     """Warp all selected rasters for one source onto one lunar tile grid."""
     ulx, uly, lrx, lry = bounds
@@ -198,7 +237,8 @@ def warp_source_to_tile(
                 source_nodata=source_value,
                 output_nodata=output_value,
             ):
-                continue
+                output_value = STATIC_OUTPUT_NODATA if output_value is None else output_value
+                pixels = np.full((tile_def.tileHeight, tile_def.tileWidth), output_value, dtype=np.float64)
             if output_value is not None:
                 invalid = ~np.isfinite(pixels)
                 if source_value is not None:
@@ -214,7 +254,28 @@ def warp_source_to_tile(
             )
         warped = None
         dataset = None
-    return _select_bands(source, result)
+    if source.band_names and coverage_catalog is not None:
+        missing = set(source.band_names) - {band.name for band in result}
+        if missing:
+            catalog = coverage_catalog()
+            unknown = missing - catalog.keys()
+            if unknown:
+                raise ValueError(f"Source {source.name!r} has unknown or unindexed configured bands: {sorted(unknown)}")
+            for name in source.band_names:
+                if name in missing:
+                    source_value, output_value = catalog[name]
+                    output_value = STATIC_OUTPUT_NODATA if output_value is None else output_value
+                    result.append(WarpedBand(name,
+                        np.full((tile_def.tileHeight, tile_def.tileWidth), output_value, dtype=np.float64),
+                        source_value, output_value))
+    selected = _select_bands(source, result)
+    for band in selected:
+        if not _has_valid_pixels(band.pixels, source_nodata=band.source_nodata,
+                                 output_nodata=band.output_nodata):
+            logging.getLogger(__name__).warning(
+                "Source %r band %r has no valid coverage for tile bounds %s; filled with NoData %s.",
+                source.name, band.name, bounds, band.output_nodata)
+    return selected
 
 
 def write_tile_cube(

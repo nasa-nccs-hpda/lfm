@@ -1038,6 +1038,16 @@ must fail. Tiling and training behavior were not changed.
 
 ## Phase A6 — Make the notebook AOI-first `[Implemented; HPC Run All pending]`
 
+NAC-plus-static follow-up: the reported grid 17S tile (391, 299) failure occurs
+inside tiling, before the chip coverage policy. Tiling previously dropped
+all-NoData warped bands and then rejected the missing Mini-RF names. The tiler
+now retains these channels; named channels with no intersecting indexed raster
+are verified against a cached read-only source-wide metadata inventory before
+NoData filling. Static ordering and -32768 metadata are preserved, genuine
+input/schema errors remain failures, and later tiles continue for coverage gaps.
+HPC tiling tests and a NAC-plus-static notebook rerun are required before claiming
+this case resolved on real data.
+
 - `[Implemented]` **A6.1** Replace `REFERENCE_DIR` and `REFERENCE_CHIP` in the
   active configuration with sample ID, geographic IAU:30100 bounds, imagery
   configuration, label path, and label source-grid/provenance inputs. Derive

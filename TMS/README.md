@@ -362,6 +362,13 @@ value; dynamic sources can preserve their own source NoData value.
 
 ## Relationship to model-ready chips
 
+Tile cubes retain bands that warp entirely to NoData. Named bands excluded by
+spatial coverage are filled only after the tiler verifies their existence in
+readable indexed raster metadata. This preserves the canonical 63-band static
+layout (all empty channels use -32768), warns about coverage and lets later
+tiles continue. Unknown band names and unreadable/missing indexed rasters still
+fail. The lazy metadata inventory is read-only and cached within a tiler run.
+
 Lunar-grid cubes are intermediate, spatially standardized products. They are
 not necessarily the final training samples. The current chip-creation workflow
 accepts numbered-LTM coverage; its separate polar migration remains pending.

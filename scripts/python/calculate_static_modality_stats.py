@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 
 COMMON_CUBE_NODATA = -3.40282265508890445e38

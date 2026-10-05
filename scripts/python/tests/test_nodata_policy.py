@@ -11,7 +11,7 @@ import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import torch
 from lightning.pytorch import seed_everything
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 tqdm.__init__ = partialmethod(tqdm.__init__, disable=False)
 
