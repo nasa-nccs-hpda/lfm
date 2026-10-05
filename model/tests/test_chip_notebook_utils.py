@@ -9,6 +9,8 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
+from datetime import datetime
+import io
 
 from lfm.model import chip_notebook_utils as helpers
 from lfm.model.chip_types import ChipPreflight, ChipResult
@@ -16,6 +18,70 @@ from lfm.model.tests import test_chip_types as type_fixtures
 
 
 class NotebookHelperTestCase(unittest.TestCase):
+    def test_notebook_wac_nac_with_and_without_static(self):
+        from lfm import model
+        from lfm.model.product_ids import lunar_product_id_from_raster_path
+
+        notebook = json.loads((Path(__file__).resolve().parents[2] /
+                               "notebooks/chip_example.ipynb").read_text())
+        setup = "".join(notebook["cells"][7]["source"])
+        config = "".join(notebook["cells"][8]["source"])
+        for modality in ("wac", "nac"):
+            for static in (False, True):
+                with self.subTest(modality=modality, static=static), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    source = root / ("M123.prj.vis.mos.tif" if modality == "wac" else
+                                     "NAC_DTM_NEWCRATER6_M1219245090_80CM.TIF")
+                    source.touch()
+                    label = root / "craters.gpkg"
+                    label.touch()
+                    static_dir = root / "static"
+                    if static:
+                        static_dir.mkdir()
+                    reader = MagicMock(return_value=type_fixtures.ChipTypesTestCase().grid())
+                    prepare = MagicMock(side_effect=lambda cfg, **kw: SimpleNamespace(index_path=cfg.index_path))
+                    static_factory = MagicMock(side_effect=lambda **kw: model.TileSourceConfig(
+                        name="static", selection_mode="all_intersecting",
+                        band_names=model.STATIC_BAND_NAMES, output_nodata=model.STATIC_OUTPUT_NODATA, **kw))
+                    namespace = dict(vars(model), MODALITY=modality, INCLUDE_STATIC=static,
+                                     SOURCE_RASTER=source, LABEL_PATH=label, STATIC_DATA_DIR=static_dir,
+                                     AOI_NWSE=(1.3, 149.7, 1., 150.), OUTPUT_BASE_DIR=root / "out",
+                                     INDEX_WORKER_COUNT=1, SPLIT_CONFIG=model.NoSplitConfig(),
+                                     datetime=datetime, sys=SimpleNamespace(stdout=io.StringIO()),
+                                     print=lambda *a, **kw: None, read_source_grid=reader,
+                                     lunar_product_id_from_raster_path=lunar_product_id_from_raster_path,
+                                     ensure_vector_index=prepare, make_static_source=static_factory)
+                    exec(compile(setup, "notebook_setup", "exec"), namespace)
+                    exec(compile(config, "notebook_config", "exec"), namespace)
+                    result = namespace["chip_config"]
+                    group = result.acquisition_groups[0]
+                    self.assertEqual(group.tile_config.zoom_level, 5 if modality == "wac" else 11)
+                    self.assertEqual(len(group.tile_config.sources), 2 if static else 1)
+                    self.assertEqual(prepare.call_count, 2 if static else 1)
+                    self.assertEqual(static_factory.call_count, int(static))
+                    self.assertTrue(group.tile_config.sources[0].preserve_source_nodata)
+                    self.assertTrue(group.tile_config.sources[0].required)
+                    self.assertEqual(namespace["PRODUCT_ID"], source.name.split(".")[0])
+                    reader.assert_called_once_with(source, expected_band_count=5 if modality == "wac" else 1)
+                    output = result.output_modalities[0]
+                    if modality == "wac":
+                        self.assertEqual(output.band_names, model.WAC_BAND_NAMES)
+                    else:
+                        self.assertEqual(output.band_indices, (1,))
+                        self.assertEqual(output.output_band_names, ("nac",))
+                    if static:
+                        self.assertEqual(group.tile_config.sources[1].band_names, model.STATIC_BAND_NAMES)
+                        self.assertTrue(group.tile_config.sources[1].required)
+                    else:
+                        self.assertIsNone(namespace["STATIC_INDEX_RESOLUTION"])
+
+    def test_source_band_count_mismatch_is_rejected(self):
+        rasterio = MagicMock()
+        rasterio.open.return_value.__enter__.return_value.count = 3
+        with patch.object(helpers, "_rasterio", return_value=rasterio):
+            with self.assertRaisesRegex(ValueError, "Expected 1 source bands, found 3"):
+                helpers.read_source_grid("nac.tif", expected_band_count=1)
+
     def test_latest_export_uses_modification_time_and_ignores_other_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

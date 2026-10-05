@@ -29,11 +29,13 @@ def latest_crater_label_path(label_dir: str | Path | None = None) -> Path:
     return min(candidates, key=lambda item: (-item[0], item[1]))[2]
 
 
-def read_source_grid(path: str | Path) -> TargetGrid:
+def read_source_grid(path: str | Path, *, expected_band_count: int | None = None) -> TargetGrid:
     """Read original imagery metadata only, without loading its raster pixels."""
     from .chip_requests import raster_bounds, validate_target_grid_consistency
 
     with _rasterio().open(Path(path)) as dataset:
+        if expected_band_count is not None and dataset.count != expected_band_count:
+            raise ValueError(f"Expected {expected_band_count} source bands, found {dataset.count}: {path}")
         if dataset.crs is None:
             raise ValueError(f"Source raster has no CRS: {path}")
         transform = dataset.transform.to_gdal()

@@ -1061,6 +1061,34 @@ the checkout to `sys.path`, preventing other tests' spawned workers from finding
 `lfm.model`. The smoke-harness tests now restore the import path after loading
 the CLI; the full suite passed on rerun. Production import behavior is unchanged.
 
+A6 follow-up: the chip notebook now selects `MODALITY="wac"` or `"nac"`
+and independently toggles `INCLUDE_STATIC`. WAC remains the default with its
+existing AOI and VIS-then-UV ordering. NAC uses one imagery band, zoom 11, and
+the original raster's native output lattice; enabled canonical static context
+shares the acquisition zoom and follows imagery in output order. Static
+requiredness is unchanged. Disabled static collections are not checked or indexed.
+The benchmark NAC preset points to
+`NAC_DTM_NEWCRATER6_M1219245090_80CM.TIF` and its GeoPackage; users must supply
+their geographic AOI rather than inherit the unrelated WAC bounds. The product
+selector uses the tiler's filename-before-first-period resolver, so this example
+selects the entire `NAC_DTM_NEWCRATER6_M1219245090_80CM` prefix. Custom index
+discovery includes uppercase TIFF extensions and confirms the source raster is
+in its inventory; protected shared-index discovery remains unchanged. Source
+metadata must report five bands for WAC VIS or one for NAC. The commented batch
+workflow and display follow the selected modality. Latest-label discovery does
+not automatically select an imagery product or AOI.
+
+Validation: the notebook-helper suite exercises all four modality/static
+combinations with mocked metadata/index preparation, including band selection,
+zoom, exact selector, uppercase inventory discovery and disabled-static behavior.
+HPC NAC-only Run All and overlay inspection are still required, followed by an
+optional NAC-plus-static run subject to the deferred static coverage policy.
+
+Local full chip discovery: 240 tests, 138 passed and 102 dependency skips.
+Notebook-helper discovery: eight passed, one plotting dependency skip. Notebook
+syntax, commented batch syntax, cleared outputs and unique cell IDs were checked.
+These checks do not establish real-data NAC correctness.
+
 ## Phase A7 — Regression and real-data validation `[Not Started]`
 
 - `[Not Started]` **A7.1** Run the focused request, label, preflight,
