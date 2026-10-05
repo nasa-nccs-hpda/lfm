@@ -199,7 +199,7 @@ class ChipCreationTestCase(unittest.TestCase):
             sample_dir.mkdir(parents=True)
             other_dir.mkdir(parents=True)
             (sample_dir / "cube.tif").write_bytes(b"cube")
-            acquisition = self.acquisition(prepared, config)
+            acquisition = self.acquisition(prepared, config, records=(self.record(sample_dir / "cube.tif"),))
             acquire.return_value = acquisition
             reproject.return_value = object()
             write.return_value = object()

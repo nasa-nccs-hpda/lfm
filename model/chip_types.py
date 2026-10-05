@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, fields
 import math
 from pathlib import Path
 import re
@@ -18,6 +18,7 @@ ChipStatus = Literal["pending", "success", "skipped", "partial", "failed"]
 DiagnosticSeverity = Literal["info", "warning", "error"]
 ChipDiagnosticStage = Literal[
     "preflight",
+    "label_preparation",
     "acquisition",
     "reprojection",
     "assembly",
@@ -31,6 +32,7 @@ CHIP_STATUSES = ("pending", "success", "skipped", "partial", "failed")
 DIAGNOSTIC_SEVERITIES = ("info", "warning", "error")
 CHIP_DIAGNOSTIC_STAGES = (
     "preflight",
+    "label_preparation",
     "acquisition",
     "reprojection",
     "assembly",
@@ -80,8 +82,19 @@ def _finite_tuple(
     return result
 
 
+class _DictionaryRecord:
+    """JSON-safe metadata only; reconstruction runs the normal validators."""
+
+    def to_dict(self) -> dict:
+        return chip_contract_to_dict(self)
+
+    @classmethod
+    def from_dict(cls, document: Mapping):
+        return _contract_from_dict(cls, document)
+
+
 @dataclass(frozen=True)
-class GeographicAOI:
+class GeographicAOI(_DictionaryRecord):
     """One logical geographic query AOI in upper-left/lower-right order."""
 
     upper_left_latitude: float
@@ -125,7 +138,7 @@ class GeographicAOI:
 
 
 @dataclass(frozen=True)
-class TargetGrid:
+class TargetGrid(_DictionaryRecord):
     """The complete authoritative output raster grid for one chip."""
 
     crs_wkt: str
@@ -253,7 +266,171 @@ class LabelValidationDiagnostic:
 
 
 @dataclass(frozen=True)
-class ChipRequest:
+class LabelInput(_DictionaryRecord):
+    """Explicit label association, not a filename/product matching rule.
+
+    ``auto`` infers known file kinds; legacy unsupported suffixes are left for
+    preflight to reject, preserving per-sample rather than constructor failure.
+    No file is opened by this record.
+    """
+
+    path: Path
+    kind: Literal["auto", "semantic", "raster_instance", "vector_instance"] = "auto"
+    source_grid: TargetGrid | None = None
+    relation: Literal["exact", "clip_to_target"] = "exact"
+    layer: str | None = None
+    source_id: str | None = None
+    sidecar_path: Path | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.path, (str, Path)) or not str(self.path).strip():
+            raise ValueError("label path must be a nonempty path.")
+        object.__setattr__(self, "path", Path(self.path))
+        if self.kind not in ("auto", "semantic", "raster_instance", "vector_instance"):
+            raise ValueError("Unsupported label kind.")
+        if self.kind == "auto":
+            inferred = {".npy": "semantic", ".tif": "semantic", ".tiff": "semantic",
+                        ".npz": "raster_instance", ".gpkg": "vector_instance"}
+            object.__setattr__(self, "kind", inferred.get(self.path.suffix.lower(), "auto"))
+        if self.source_grid is not None and not isinstance(self.source_grid, TargetGrid):
+            raise TypeError("source_grid must be a TargetGrid or None.")
+        if self.relation not in ("exact", "clip_to_target"):
+            raise ValueError("label relation must be exact or clip_to_target.")
+        if self.kind == "vector_instance":
+            if self.source_grid is not None:
+                raise ValueError("Vector labels embed a CRS, not a raster source_grid.")
+            object.__setattr__(self, "layer", "craters" if self.layer is None else self.layer)
+        elif self.layer is not None:
+            raise ValueError("layer is only applicable to vector-instance labels.")
+        for name in ("layer", "source_id"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _non_empty_text(value, field_name=name))
+        if self.sidecar_path is not None:
+            if not str(self.sidecar_path).strip():
+                raise ValueError("sidecar_path must not be empty.")
+            object.__setattr__(self, "sidecar_path", Path(self.sidecar_path))
+
+
+def _sha256(value: str, name: str) -> str:
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-fA-F]{64}", value) is None:
+        raise ValueError(f"{name} must be a SHA-256 hex digest.")
+    return value.lower()
+
+
+def _label_diagnostics(value) -> tuple[LabelValidationDiagnostic, ...]:
+    diagnostics = tuple(value)
+    if any(not isinstance(item, LabelValidationDiagnostic) for item in diagnostics):
+        raise TypeError("diagnostics must contain LabelValidationDiagnostic objects.")
+    return diagnostics
+
+
+@dataclass(frozen=True)
+class LabelPreparationPlan(_DictionaryRecord):
+    """Non-writing, picklable plan; coverage must be established by preflight."""
+
+    source: LabelInput
+    target_grid: TargetGrid
+    method: Literal["exact", "aligned_window", "nearest_warp", "vector_rasterize"]
+    source_sha256: str
+    source_window: tuple[int, int, int, int] | None = None  # column, row, width, height
+    diagnostics: tuple[LabelValidationDiagnostic, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source, LabelInput) or not isinstance(self.target_grid, TargetGrid):
+            raise TypeError("A label plan requires LabelInput and TargetGrid records.")
+        if self.method not in ("exact", "aligned_window", "nearest_warp", "vector_rasterize"):
+            raise ValueError("Unsupported label preparation method.")
+        if self.source.kind == "auto":
+            raise ValueError("A label plan requires a resolved label kind.")
+        if self.source.relation == "exact" and self.method != "exact":
+            raise ValueError("An exact label input cannot request a clipping method.")
+        if (self.source.kind == "vector_instance") != (self.method == "vector_rasterize"):
+            raise ValueError("Vector labels require vector_rasterize; raster labels cannot use it.")
+        if self.method in ("aligned_window", "nearest_warp") and self.source.source_grid is None:
+            raise ValueError("Raster clipping plans require a resolved source_grid.")
+        object.__setattr__(self, "source_sha256", _sha256(self.source_sha256, "source_sha256"))
+        if self.source_window is not None:
+            window = tuple(self.source_window)
+            if len(window) != 4 or any(isinstance(v, bool) or not isinstance(v, int) for v in window):
+                raise ValueError("source_window must contain four integers.")
+            if min(window[:2]) < 0 or min(window[2:]) < 1:
+                raise ValueError("source_window requires nonnegative offsets and positive dimensions.")
+            if self.method != "aligned_window":
+                raise ValueError("source_window is only valid for aligned_window plans.")
+            source_grid = self.source.source_grid
+            if window[0] + window[2] > source_grid.width or window[1] + window[3] > source_grid.height:
+                raise ValueError("source_window extends beyond the source grid.")
+            if window[2:] != (self.target_grid.width, self.target_grid.height):
+                raise ValueError("aligned source_window dimensions must match the target grid.")
+            object.__setattr__(self, "source_window", window)
+        elif self.method == "aligned_window":
+            raise ValueError("aligned_window requires source_window.")
+        object.__setattr__(self, "diagnostics", _label_diagnostics(self.diagnostics))
+
+    @property
+    def output_kind(self) -> str:
+        return "semantic" if self.source.kind == "semantic" else "raster_instance"
+
+    @property
+    def output_suffix(self) -> str:
+        return ".npy" if self.output_kind == "semantic" else ".npz"
+
+    @property
+    def requires_materialization(self) -> bool:
+        return self.method != "exact" or self.source.path.suffix.lower() != self.output_suffix
+
+
+@dataclass(frozen=True)
+class PreparedLabelArtifact(_DictionaryRecord):
+    """Validated target-sized label metadata; never carries an in-memory mask."""
+
+    path: Path
+    plan: LabelPreparationPlan
+    sha256: str
+    instance_id_map: tuple[tuple[int, int], ...] = ()
+    diagnostics: tuple[LabelValidationDiagnostic, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.path, (str, Path)) or not str(self.path).strip():
+            raise ValueError("artifact path must be a nonempty path.")
+        object.__setattr__(self, "path", Path(self.path))
+        if not isinstance(self.plan, LabelPreparationPlan):
+            raise TypeError("plan must be a LabelPreparationPlan.")
+        object.__setattr__(self, "sha256", _sha256(self.sha256, "sha256"))
+        # Exact array archives retain the legacy byte-copy path. An exact-grid
+        # GeoTIFF still needs format conversion to the training NPY contract.
+        exact_archive = (self.plan.method == "exact"
+                         and self.plan.source.path.suffix.lower() in (".npy", ".npz"))
+        if exact_archive and self.sha256 != self.plan.source_sha256:
+            raise ValueError("Exact-label artifacts must preserve source bytes/hash.")
+        expected_suffix = ".npy" if self.kind == "semantic" else ".npz"
+        if self.path.suffix.lower() != expected_suffix:
+            raise ValueError(f"Prepared {self.kind} labels must use {expected_suffix}.")
+        mapping = tuple(tuple(pair) for pair in self.instance_id_map)
+        if any(len(pair) != 2 or any(isinstance(v, bool) or not isinstance(v, int) or v < 1 for v in pair)
+               for pair in mapping):
+            raise ValueError("instance_id_map must contain positive integer ID pairs.")
+        if [pair[0] for pair in mapping] != sorted(set(pair[0] for pair in mapping)):
+            raise ValueError("Source instance IDs must be unique and ascending.")
+        if [pair[1] for pair in mapping] != list(range(1, len(mapping) + 1)):
+            raise ValueError("Target instance IDs must be compact 1..N.")
+        if mapping and self.plan.source.kind == "semantic":
+            raise ValueError("Semantic labels do not have an instance ID map.")
+        object.__setattr__(self, "instance_id_map", mapping)
+        object.__setattr__(self, "diagnostics", _label_diagnostics(self.diagnostics))
+
+    @property
+    def target_grid(self) -> TargetGrid:
+        return self.plan.target_grid
+
+    @property
+    def kind(self) -> str:
+        return "semantic" if self.plan.source.kind == "semantic" else "raster_instance"
+
+
+@dataclass(frozen=True)
+class ChipRequest(_DictionaryRecord):
     """One intended final chip and its complete target/query identity."""
 
     sample_id: str
@@ -265,6 +442,8 @@ class ChipRequest:
     assigned_split: SplitName | None = None
     source_selectors: tuple[SourceSelector, ...] = ()
     reference_path: Path | None = None
+    label_input: LabelInput | None = None
+    requested_aoi: GeographicAOI | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "sample_id", _sample_id(self.sample_id))
@@ -284,6 +463,19 @@ class ChipRequest:
             object.__setattr__(self, "label_path", Path(self.label_path))
         if self.label_grid is not None and not isinstance(self.label_grid, TargetGrid):
             raise TypeError("label_grid must be a TargetGrid or None.")
+        if self.requested_aoi is not None and not isinstance(self.requested_aoi, GeographicAOI):
+            raise TypeError("requested_aoi must be a GeographicAOI or None.")
+        if self.label_input is not None:
+            if not isinstance(self.label_input, LabelInput):
+                raise TypeError("label_input must be a LabelInput or None.")
+            if self.label_path is not None and self.label_path != self.label_input.path:
+                raise ValueError("label_path conflicts with label_input.path.")
+            if self.label_grid is not None and self.label_grid != self.label_input.source_grid:
+                raise ValueError("label_grid conflicts with label_input.source_grid.")
+            object.__setattr__(self, "label_path", self.label_input.path)
+            object.__setattr__(self, "label_grid", self.label_input.source_grid)
+        elif self.label_path is not None:
+            object.__setattr__(self, "label_input", LabelInput(self.label_path, source_grid=self.label_grid))
         if self.reference_path is not None:
             object.__setattr__(self, "reference_path", Path(self.reference_path))
         if self.assigned_split is not None:
@@ -334,8 +526,11 @@ class ChipPreflight:
     assigned_split: AssignmentName | None = None
     resolved_label_path: Path | None = None
     label_diagnostics: tuple[LabelValidationDiagnostic, ...] = ()
+    label_plan: LabelPreparationPlan | None = None
 
     def __post_init__(self) -> None:
+        if self.label_plan is not None and not isinstance(self.label_plan, LabelPreparationPlan):
+            raise TypeError("label_plan must be a LabelPreparationPlan or None.")
         if self.status not in PREFLIGHT_STATUSES:
             valid = ", ".join(PREFLIGHT_STATUSES)
             raise ValueError(f"preflight status must be one of {valid}.")
@@ -420,8 +615,16 @@ class ChipResult:
     message: str | None = None
     elapsed_seconds: float | None = None
     diagnostics: tuple[ChipDiagnostic, ...] = ()
+    prepared_label: PreparedLabelArtifact | None = None
+    imagery_nodata: dict | None = None
+    preserved_pair: dict | None = None
 
     def __post_init__(self) -> None:
+        if self.prepared_label is not None:
+            if not isinstance(self.prepared_label, PreparedLabelArtifact):
+                raise TypeError("prepared_label must be a PreparedLabelArtifact or None.")
+            if self.prepared_label.target_grid != self.request.target_grid:
+                raise ValueError("Prepared label must match the request target grid.")
         if not isinstance(self.request, ChipRequest):
             raise TypeError("request must be a ChipRequest.")
         if self.status not in CHIP_STATUSES:
@@ -469,6 +672,60 @@ class ChipResult:
             object.__setattr__(self, "elapsed_seconds", elapsed)
 
 
+def chip_contract_to_dict(record) -> dict:
+    """Encode a chip metadata record for JSON manifests and worker configuration."""
+    supported = (GeographicAOI, TargetGrid, SourceSelector, LabelValidationDiagnostic,
+                 LabelInput, LabelPreparationPlan, PreparedLabelArtifact, ChipRequest)
+
+    def encode(value):
+        if isinstance(value, supported):
+            return {field.name: encode(getattr(value, field.name)) for field in fields(value)}
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, tuple):
+            return [encode(item) for item in value]
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        raise TypeError(f"Unsupported chip metadata value: {type(value).__name__}.")
+
+    if not isinstance(record, supported):
+        raise TypeError("Expected a chip metadata record.")
+    return encode(record)
+
+
+def _contract_from_dict(cls, document: Mapping):
+    if not isinstance(document, Mapping):
+        raise TypeError("Contract document must be a mapping.")
+    nested = {
+        LabelInput: {"source_grid": TargetGrid},
+        LabelPreparationPlan: {"source": LabelInput, "target_grid": TargetGrid},
+        PreparedLabelArtifact: {"plan": LabelPreparationPlan},
+        ChipRequest: {"target_grid": TargetGrid, "label_grid": TargetGrid,
+                      "geographic_aoi": GeographicAOI, "requested_aoi": GeographicAOI,
+                      "label_input": LabelInput},
+    }
+    values = dict(document)
+    for name, child_type in nested.get(cls, {}).items():
+        if values.get(name) is not None:
+            values[name] = _contract_from_dict(child_type, values[name])
+    if "diagnostics" in values and cls in (LabelPreparationPlan, PreparedLabelArtifact):
+        values["diagnostics"] = tuple(LabelValidationDiagnostic(**item) for item in values["diagnostics"])
+    if cls is ChipRequest and "source_selectors" in values:
+        values["source_selectors"] = tuple(SourceSelector(**item) for item in values["source_selectors"])
+    return cls(**values)
+
+
+def label_preparation_provenance(request: ChipRequest, preflight: ChipPreflight,
+                                 result: ChipResult) -> dict:
+    """Additive provenance shared by sample diagnostics and dataset manifests."""
+    return {
+        "requested_aoi": None if request.requested_aoi is None else request.requested_aoi.to_dict(),
+        "label_input": None if request.label_input is None else request.label_input.to_dict(),
+        "label_preparation_plan": None if preflight.label_plan is None else preflight.label_plan.to_dict(),
+        "prepared_label": None if result.prepared_label is None else result.prepared_label.to_dict(),
+    }
+
+
 class LabelMismatchError(ValueError):
     """A label failed identity, archive, shape, or grid preflight for one sample."""
 
@@ -507,10 +764,15 @@ __all__ = [
     "DiagnosticSeverity",
     "GeographicAOI",
     "LabelMismatchError",
+    "LabelInput",
+    "LabelPreparationPlan",
+    "PreparedLabelArtifact",
     "LabelValidationDiagnostic",
     "PreflightStatus",
     "ReferenceSample",
     "SourceSelector",
     "TargetGrid",
     "validate_request_contracts",
+    "chip_contract_to_dict",
+    "label_preparation_provenance",
 ]

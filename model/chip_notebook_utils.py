@@ -5,7 +5,45 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .chip_types import ChipResult
+from .chip_types import ChipResult, TargetGrid
+
+
+def latest_crater_label_path(label_dir: str | Path | None = None) -> Path:
+    """Find the most recently modified crater-notebook export, read-only.
+
+    Defaults to this checkout's notebooks/outputs/labels. Search only immediate
+    *_label_craters.gpkg files: the producer's temporary GeoPackages and unrelated
+    indexes are excluded. Equal mtimes use ascending filename order. Discovery
+    does not validate labels or imply a match to the selected imagery/AOI.
+    """
+    directory = (Path(__file__).resolve().parents[1] / "notebooks/outputs/labels"
+                 if label_dir is None else Path(label_dir).expanduser().resolve())
+    if not directory.is_dir():
+        raise FileNotFoundError(f"Label directory does not exist: {directory}. "
+                                "Accept/export craters first, or supply the labeling notebook's LABEL_DIR.")
+    candidates = [(path.stat().st_mtime_ns, path.name, path)
+                  for path in directory.glob("*_label_craters.gpkg") if path.is_file()]
+    if not candidates:
+        raise FileNotFoundError(f"No *_label_craters.gpkg exports found in {directory}. "
+                                "Accept/export craters in the labeling notebook first.")
+    return min(candidates, key=lambda item: (-item[0], item[1]))[2]
+
+
+def read_source_grid(path: str | Path, *, expected_band_count: int | None = None) -> TargetGrid:
+    """Read original imagery metadata only, without loading its raster pixels."""
+    from .chip_requests import raster_bounds, validate_target_grid_consistency
+
+    with _rasterio().open(Path(path)) as dataset:
+        if expected_band_count is not None and dataset.count != expected_band_count:
+            raise ValueError(f"Expected {expected_band_count} source bands, found {dataset.count}: {path}")
+        if dataset.crs is None:
+            raise ValueError(f"Source raster has no CRS: {path}")
+        transform = dataset.transform.to_gdal()
+        grid = TargetGrid(dataset.crs.to_wkt(), transform,
+                          raster_bounds(transform, dataset.width, dataset.height),
+                          dataset.width, dataset.height)
+    validate_target_grid_consistency(grid)
+    return grid
 
 
 def _numpy():
@@ -116,7 +154,7 @@ def plot_chip_result(
     dpi: int = 150,
     show: bool = True,
 ) -> tuple[Any, Any]:
-    """Build the standard four-panel notebook inspection for one chip result.
+    """Plot chip, label and overlay, plus a reference only when one exists.
 
     The returned figure and axes remain available for notebook-specific edits.
     When ``figure_path`` is supplied, the figure is also saved to that path.
@@ -156,9 +194,13 @@ def plot_chip_result(
     absent_ids = absent_instance_ids(label, instance_count)
     vmin, vmax = _display_limits(generated)
 
-    figure, axes = plt.subplots(2, 2, figsize=(10, 9), squeeze=False)
-    axes[0, 0].imshow(generated, cmap="gray", vmin=vmin, vmax=vmax)
-    axes[0, 0].set_title(f"generated | {generated_name}")
+    has_reference = request.reference_path is not None
+    figure, axes = plt.subplots(2 if has_reference else 1, 2 if has_reference else 3,
+                               figsize=(10, 9) if has_reference else (14, 4), squeeze=False)
+    generated_axis = axes.flat[0]
+    label_axis, overlay_axis = axes.flat[-2], axes.flat[-1]
+    generated_axis.imshow(generated, cmap="gray", vmin=vmin, vmax=vmax)
+    generated_axis.set_title(f"generated | {generated_name}")
 
     if request.reference_path is not None:
         reference, reference_name = read_display_band(
@@ -173,28 +215,19 @@ def plot_chip_result(
             vmax=reference_max,
         )
         axes[0, 1].set_title(f"reference | {reference_name}")
-    else:
-        axes[0, 1].text(
-            0.5,
-            0.5,
-            "explicit AOI\n(no reference TIFF)",
-            ha="center",
-            va="center",
-        )
-
-    axes[1, 0].imshow(instances, cmap="tab20", vmin=-0.5, vmax=19.5)
-    axes[1, 0].set_title(
+    label_axis.imshow(instances, cmap="tab20", vmin=-0.5, vmax=19.5)
+    label_axis.set_title(
         f"label | IDs absent from mask: {list(absent_ids) or 'none'}"
     )
-    axes[1, 1].imshow(generated, cmap="gray", vmin=vmin, vmax=vmax)
-    axes[1, 1].imshow(
+    overlay_axis.imshow(generated, cmap="gray", vmin=vmin, vmax=vmax)
+    overlay_axis.imshow(
         instances,
         cmap="tab20",
         vmin=-0.5,
         vmax=19.5,
         alpha=0.45,
     )
-    axes[1, 1].set_title("diagnostic overlay")
+    overlay_axis.set_title("diagnostic overlay")
 
     for axis in axes.flat:
         axis.axis("off")
@@ -212,7 +245,9 @@ def plot_chip_result(
 
 __all__ = [
     "absent_instance_ids",
+    "latest_crater_label_path",
     "plot_chip_result",
     "read_display_band",
     "read_label",
+    "read_source_grid",
 ]

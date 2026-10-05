@@ -20,7 +20,7 @@ Reference TIFFs or explicit AOIs
        +------+------+
               |
               v
- Tiling -> mosaic/reproject/clip -> assemble/write -> publish
+ Label preparation -> tiling -> mosaic/reproject/clip -> assemble/write -> publish
               |
               v
  ChipResult + diagnostic JSON per sample
@@ -31,6 +31,18 @@ Reference TIFFs or explicit AOIs
 
 Each worker processes one chip serially. Parallelism happens by running
 multiple independent chips simultaneously.
+
+AOI-first extension status (A1–A5): requests can now derive an outward-rounded
+output grid from a geographic IAU:30100 AOI plus original source-grid metadata,
+or the static-only 100 m rule. Typed `LabelInput`, `LabelPreparationPlan`, and
+`PreparedLabelArtifact` records describe full-scene label preparation without
+carrying arrays. A2 validates full-scene sources and returns read-only preparation
+plans. A3/A4 semantic and instance conversion are complete. A5 now invokes those
+converters inside each worker before tiling and explicitly passes their artifacts
+to publication (HPC integration tests passed; real-data smoke test pending). Direct low-level acquisition
+still rejects derived plans without an artifact. Exact-label workflows stay active.
+See the [AOI implementation plan](planning_docs/aoi_chip_creation_and_label_clipping_plan.md)
+for the API and validation status. Existing exact-label workflows remain active.
 
 ## Behavior map for files under `model/`
 
@@ -56,9 +68,20 @@ in a modern chip-creation run.
 - `model/chip_splits.py` owns deterministic, group-atomic dataset assignment,
   fixed-count priorities, percentage assignment, prior-manifest locks, no-split
   assignment, and nonfatal target-shortfall warnings.
-- `model/chip_labels.py` owns label lookup, sample-identity matching, semantic
-  and instance archive validation, shape checks, instance-occlusion handling,
-  and optional label-grid/sidecar comparison.
+- `model/chip_labels.py` owns label lookup (identity matching for directories
+  only), final semantic/instance archive validation, shape checks,
+  instance-occlusion handling, and optional label-grid/sidecar comparison.
+- `model/chip_label_planning.py` owns read-only source validation, source-grid
+  resolution, raster coverage/relation checks, GeoPackage validation, hashes,
+  and compact label-preparation plans.
+- `model/chip_label_materialization.py` owns standalone worker-side semantic
+  preparation: exact NPY reuse, source windows, integer-preserving nearest
+  reprojection, verified no-clobber NPY staging, and artifact provenance. Shared
+  mask reading also supports NPZ for the instance converter.
+- `model/chip_instance_labels.py` owns standalone GeoPackage rasterization and
+  joint NPZ mask/box/count conversion: clipped-outline boxes, center inclusion,
+  highest-source-ID overlap priority, compact IDs, occlusion/omission diagnostics,
+  deterministic archive staging, source verification, and safe rollback.
 - `model/chip_preflight.py` owns the non-writing batch gate: deterministic
   request materialization, geographic checks, split planning, conditional label
   validation, and construction of `PreparedChipRequest` objects.
@@ -214,15 +237,36 @@ Important properties:
 
 ## Label validation and preflight
 
-`model/chip_labels.py` owns label resolution and validation:
+`model/chip_labels.py` owns label resolution and final-target validation:
 
-- Resolves by full sample identity, including row/column offsets.
-- Requires the label shape to equal the target chip's height and width.
+- Resolves directories by full sample identity, including row/column offsets;
+  explicit file associations do not require identity matching.
+- Requires final training-label shape to equal the target chip's height and width.
 - Validates semantic masks and instance archives.
 - Checks instance counts, IDs, bounding boxes, and the accepted occlusion
   heuristic.
 - Validates label grid metadata against the requested chip grid when a sidecar
   or explicit label grid is available.
+
+`model/chip_label_planning.py` validates source labels separately from final
+labels. It reads source-grid sidecars or GeoTIFF metadata, classifies exact,
+aligned-window, and nearest-warp raster relations, checks lunar CRS/coverage
+and NoData gaps, and validates GeoPackage crater layers. It produces compact,
+hashed `LabelPreparationPlan` records without writing any label, dataset, or
+intermediate files. `model/chip_label_materialization.py` separately implements
+semantic preparation on that plan and returns a verified `PreparedLabelArtifact`.
+`model/chip_instance_labels.py` implements the corresponding instance adapter
+and independent GeoPackage converter (A4 complete). A5 calls both converters
+before imagery acquisition, with `label/clip` progress and per-sample failure
+isolation. The user reports its HPC integration tests passed; the focused
+real-data run and visual overlay review remain pending.
+
+Schema-v2 manifests and diagnostics retain label plans, artifact checksums,
+instance maps and final-grid `imagery_nodata` summaries. Partial NoData warns;
+missing imagery or wholly invalid required bands fail. Batch overwrite failures
+may record a verified `preserved_pair` from the previous run without claiming a
+new success. Original labels/sidecars cannot reside under the intermediate root;
+retention/cleanup applies to derived labels and cubes, never those inputs.
 
 `model/chip_preflight.py` coordinates the batch-level preflight:
 
@@ -230,7 +274,7 @@ Important properties:
 2. Validate target grids and AOIs.
 3. Plan splits.
 4. Skip requests left unassigned by a number-only policy.
-5. Resolve and validate labels for assigned requests.
+5. Resolve and validate source labels and build preparation plans for assigned requests.
 6. Produce one `PreparedChipRequest` per input.
 
 A failed label never reaches tiling, and no chip is written for it.

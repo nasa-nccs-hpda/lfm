@@ -90,7 +90,7 @@ class ChipLabelTestCase(unittest.TestCase):
         self.assertEqual(first_result.name, first.name)
         self.assertEqual(second_result.name, second.name)
 
-    def test_missing_duplicate_and_misidentified_labels_raise_typed_error(self):
+    def test_missing_duplicate_labels_fail_but_explicit_association_is_trusted(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             request = self.request()
@@ -107,8 +107,7 @@ class ChipLabelTestCase(unittest.TestCase):
                 resolve_label_path(request, root)
             wrong = root / "M1_r300_c0_label.npy"
             np.save(wrong, np.zeros((3, 4), dtype=np.uint8))
-            with self.assertRaisesRegex(LabelMismatchError, "normalizes"):
-                resolve_label_path(self.request(label_path=wrong), root)
+            self.assertEqual(resolve_label_path(self.request(label_path=wrong), root), wrong)
 
     def test_semantic_label_requires_integer_2d_target_shape(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

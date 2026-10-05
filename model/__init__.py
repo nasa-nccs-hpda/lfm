@@ -43,6 +43,10 @@ from .chip_types import (
     ChipResult,
     GeographicAOI,
     LabelMismatchError,
+    LabelInput,
+    LabelPreparationPlan,
+    PreparedLabelArtifact,
+    chip_contract_to_dict,
     LabelValidationDiagnostic,
     ReferenceSample,
     SourceSelector,
@@ -61,6 +65,9 @@ from .chip_creation import (
     create_chips_from_reference_directory,
 )
 from .chip_labels import preflight_label, resolve_label_path, validate_label
+from .chip_label_planning import classify_label_grid, plan_label_preparation
+from .chip_label_materialization import materialize_semantic_label
+from .chip_instance_labels import InstanceLabelConversion, convert_crater_labels, materialize_instance_label
 from .chip_preflight import (
     BatchPreflightResult,
     PreparedChipRequest,
@@ -81,6 +88,9 @@ from .chip_requests import (
     product_id_from_sample_id,
     reference_sample_from_tiff,
     target_grid_from_bounds,
+    target_grid_from_geographic_aoi,
+    target_grid_from_pixel_bounds,
+    static_grid_reference,
     validate_request_geographic_aoi,
     validate_target_grid_consistency,
 )
@@ -282,6 +292,19 @@ __all__ = [
     "LUNAR_GEOGRAPHIC_WKT_PATH",
     "LabelMismatchError",
     "LabelValidationDiagnostic",
+    "classify_label_grid",
+    "plan_label_preparation",
+    "materialize_semantic_label",
+    "InstanceLabelConversion",
+    "convert_crater_labels",
+    "materialize_instance_label",
+    "LabelInput",
+    "LabelPreparationPlan",
+    "PreparedLabelArtifact",
+    "chip_contract_to_dict",
+    "target_grid_from_geographic_aoi",
+    "target_grid_from_pixel_bounds",
+    "static_grid_reference",
     "MINIRF_SOURCE_NODATA",
     "MINIRF_SOURCE_NODATA_BANDS",
     "MissingRequiredProductError",

@@ -449,6 +449,9 @@ def acquire_prepared_request(
             f"Sample {prepared.request.sample_id!r} did not pass acquisition "
             "preflight."
         )
+    from .chip_label_planning import require_materialized_label
+
+    require_materialized_label(prepared)
     try:
         selectors = derive_source_selectors(prepared.request, config)
     except SelectorResolutionError as exc:

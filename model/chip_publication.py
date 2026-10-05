@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -14,7 +15,7 @@ import shutil
 from typing import Any
 from uuid import uuid4
 
-from .chip_assembly import WrittenChip, validate_written_chip
+from .chip_assembly import WrittenChip, validate_written_chip, summarize_imagery_nodata
 from .chip_config import (
     ChipConfig,
     MixedPercentageNumberSplitConfig,
@@ -27,10 +28,11 @@ from .chip_config import (
 from .chip_labels import validate_label
 from .chip_preflight import PreparedChipRequest
 from .chip_splits import SplitPlan
-from .chip_types import ChipResult, GeographicAOI, SourceSelector, TargetGrid
+from .chip_types import (ChipResult, ChipDiagnostic, GeographicAOI, SourceSelector, TargetGrid,
+                         LabelInput, PreparedLabelArtifact, label_preparation_provenance)
 
 
-DATASET_MANIFEST_VERSION = 1
+DATASET_MANIFEST_VERSION = 2
 CONFIGURATION_ID_ALGORITHM = "sha256"
 SPLIT_HASH_ALGORITHM = "blake2b"
 PUBLICATION_ASSIGNMENTS = ("train", "val", "test", "unsplit")
@@ -145,6 +147,7 @@ def publish_chip_pair(
     config: ChipConfig,
     *,
     overwrite: bool = False,
+    prepared_label: PreparedLabelArtifact | None = None,
 ) -> ChipResult:
     """Publish one chip and byte-preserved label as a rollback-safe pair."""
     if not isinstance(written, WrittenChip):
@@ -161,6 +164,12 @@ def publish_chip_pair(
             code="publication_config_mismatch",
         )
     prepared = assembled.reprojection.acquisition.prepared_request
+    from .chip_label_planning import require_materialized_label
+
+    if prepared_label is not None:
+        prepared = replace(prepared, prepared_label=prepared_label)
+    require_materialized_label(prepared)
+    artifact = prepared.prepared_label
     request = prepared.request
     split = prepared.assignment.assigned_split
     if (
@@ -173,7 +182,7 @@ def publish_chip_pair(
             "Only a preflight-valid request with a consistent split may publish.",
             code="ineligible_publication",
         )
-    source_label = prepared.preflight.resolved_label_path
+    source_label = artifact.path if artifact is not None else prepared.preflight.resolved_label_path
     if source_label is None or not source_label.is_file():
         raise _publication_error(
             request.sample_id,
@@ -197,7 +206,20 @@ def publish_chip_pair(
 
     # Recheck the source label and chip immediately before any final directory
     # is touched. This catches a changed label or staged raster after C2/C5.
-    validate_label(request, source_label)
+    if artifact is not None:
+        from .chip_label_materialization import _verify_source
+        from .chip_label_planning import _resolve_grid
+        _verify_source(request, artifact.plan)
+        if artifact.plan.source.kind != "vector_instance":
+            # Sidecars are not covered by the array's byte hash. Re-read their
+            # grid contract so a changed/new sidecar cannot silently pass.
+            _resolve_grid(request, artifact.plan.source)
+        validation_request = replace(request, label_path=source_label,
+                                     label_grid=request.target_grid,
+                                     label_input=LabelInput(source_label, source_grid=request.target_grid))
+    else:
+        validation_request = request
+    validate_label(validation_request, source_label)
     validate_written_chip(
         written.path,
         assembled,
@@ -205,6 +227,18 @@ def publish_chip_pair(
     )
     validated_chip_hash = _sha256(written.path)
     validated_label_hash = _sha256(source_label)
+    if artifact is not None and validated_label_hash != artifact.sha256:
+        raise _publication_error(request.sample_id, "Prepared label changed before publication.",
+                                 code="label_artifact_changed")
+    nodata = summarize_imagery_nodata(assembled)
+    coverage_diagnostics = ()
+    if nodata["union_invalid_count"]:
+        coverage_diagnostics = (ChipDiagnostic(
+            stage="assembly", code="partial_imagery_nodata", severity="warning",
+            message=(f"NoData in {nodata['union_invalid_count']}/{nodata['spatial_pixel_count']} "
+                     f"spatial pixels ({nodata['union_invalid_percent']:.2f}%); "
+                     "per-band counts and percentages are recorded in imagery_nodata.")),)
+        logging.getLogger(__name__).warning("%s: %s", request.sample_id, coverage_diagnostics[0].message)
     effective_selectors = _effective_selectors(written)
 
     try:
@@ -253,6 +287,9 @@ def publish_chip_pair(
         label_path=label_path,
         cube_records=assembled.reprojection.acquisition.records,
         effective_selectors=effective_selectors,
+        prepared_label=artifact,
+        imagery_nodata=nodata,
+        diagnostics=coverage_diagnostics,
     )
     destinations = (chip_path, label_path)
     for destination in destinations:
@@ -315,6 +352,8 @@ def publish_chip_pair(
                 code="publication_source_changed",
             )
         if overwrite:
+            if artifact is not None:
+                _verify_source(request, artifact.plan)
             for destination, backup in zip(destinations, backups):
                 if destination.exists():
                     os.replace(destination, backup)
@@ -322,6 +361,8 @@ def publish_chip_pair(
         # A hard link within each destination directory gives no-overwrite
         # publication. If the second link fails, the first is rolled back and
         # any explicitly replaced pair is restored.
+        if artifact is not None:
+            _verify_source(request, artifact.plan)
         os.link(staged_chip, chip_path)
         published.append(chip_path)
         os.link(staged_label, label_path)
@@ -538,6 +579,7 @@ def _configuration_document(config: ChipConfig) -> dict[str, Any]:
         )
     return {
         "output_root": str(config.output_root),
+        "label_preparation_policy_version": 1,
         "intermediate_root": str(config.intermediate_root),
         "label_source": str(config.label_source),
         "output_suffix": config.final_output_suffix,
@@ -688,6 +730,8 @@ def _expected_paths(
     source_label = prepared.preflight.resolved_label_path
     if split is None or source_label is None:
         return None
+    if prepared.preflight.label_plan is not None:
+        source_label = source_label.with_suffix(prepared.preflight.label_plan.output_suffix)
     split_root = _assignment_root(config, split)
     return (
         split_root
@@ -715,6 +759,27 @@ def _actual_split_files(config: ChipConfig) -> dict[tuple[str, str], set[Path]]:
                 )
             files[(split, role)] = entries
     return files
+
+
+def snapshot_published_pair(prepared, config):
+    """Identify an existing pair before explicit overwrite; never claim success."""
+    split = prepared.assignment.assigned_split
+    if split is None:
+        return None
+    root = _assignment_root(config, split)
+    sample_id = prepared.request.sample_id
+    chip = root / "chips" / f"{sample_id}{config.final_output_suffix}"
+    labels = [root / "labels" / f"{sample_id}_label{suffix}" for suffix in (".npy", ".npz")]
+    labels = [path for path in labels if path.exists() or path.is_symlink()]
+    # A failed new preflight may not resolve a label at all, or may request a
+    # different label format. Snapshot the prior pair, not its prospective path.
+    if len(labels) != 1:
+        return None
+    paths = (chip, labels[0])
+    if not all(path.is_file() and not path.is_symlink() for path in paths):
+        return None
+    return {role: {"path": str(path), "sha256": _sha256(path)}
+            for role, path in zip(("chips", "labels"), paths)}
 
 
 def _validate_membership(
@@ -788,6 +853,11 @@ def _validate_membership(
             raise ValueError(
                 f"Non-success sample {request.sample_id!r} exposes final paths."
             )
+        if result.preserved_pair is not None:
+            if result.status == "success" or snapshot_published_pair(prepared, config) != result.preserved_pair:
+                raise ValueError("Preserved prior pair is inconsistent with this failed attempt.")
+            for role, item in result.preserved_pair.items():
+                expected_files[(split, role)].add(Path(item["path"]))
 
     actual_files = _actual_split_files(config)
     for key, expected in expected_files.items():
@@ -836,6 +906,11 @@ def _sample_document(
         "preflight_assigned_split": prepared.preflight.assigned_split,
         "target_grid_id": _configuration_id(target_grid),
         "target_grid": target_grid,
+        **label_preparation_provenance(request, prepared.preflight, result),
+        "label_preparation_id": (None if prepared.preflight.label_plan is None else
+                                 _configuration_id(prepared.preflight.label_plan.to_dict())),
+        "imagery_nodata": result.imagery_nodata,
+        "preserved_pair": result.preserved_pair,
         "geographic_aoi": _geographic_aoi_document(request.geographic_aoi),
         "reference_path": (
             None if request.reference_path is None else str(request.reference_path)
