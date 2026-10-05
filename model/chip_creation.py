@@ -160,7 +160,7 @@ class _ChipProgressReporter:
             self._tqdm = _load_tqdm()
             self._overall = self._tqdm(
                 total=total,
-                desc="Reference chips",
+                desc="Chips",
                 unit="chip",
                 file=sys.stdout,
                 dynamic_ncols=self.mode == "live",
