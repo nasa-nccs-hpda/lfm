@@ -32,6 +32,18 @@ Reference TIFFs or explicit AOIs
 Each worker processes one chip serially. Parallelism happens by running
 multiple independent chips simultaneously.
 
+AOI-first extension status (A1–A2): requests can now derive an outward-rounded
+output grid from a geographic IAU:30100 AOI plus original source-grid metadata,
+or the static-only 100 m rule. Typed `LabelInput`, `LabelPreparationPlan`, and
+`PreparedLabelArtifact` records describe full-scene label preparation without
+carrying arrays. The diagram above still describes the executable pipeline:
+clipping/materialization and GeoPackage conversion are later phases. A2
+validates full-scene sources and returns read-only preparation plans. Plans
+needing conversion fail safely at execution with `label_preparation_not_available`
+before tiling or overwrite cleanup; exact array plans remain executable.
+See the [AOI implementation plan](planning_docs/aoi_chip_creation_and_label_clipping_plan.md)
+for the API and validation status. Existing exact-label workflows remain active.
+
 ## Behavior map for files under `model/`
 
 The `model/` directory contains the modern chip pipeline, the tiling backend it
@@ -56,9 +68,12 @@ in a modern chip-creation run.
 - `model/chip_splits.py` owns deterministic, group-atomic dataset assignment,
   fixed-count priorities, percentage assignment, prior-manifest locks, no-split
   assignment, and nonfatal target-shortfall warnings.
-- `model/chip_labels.py` owns label lookup, sample-identity matching, semantic
-  and instance archive validation, shape checks, instance-occlusion handling,
-  and optional label-grid/sidecar comparison.
+- `model/chip_labels.py` owns label lookup (identity matching for directories
+  only), final semantic/instance archive validation, shape checks,
+  instance-occlusion handling, and optional label-grid/sidecar comparison.
+- `model/chip_label_planning.py` owns read-only source validation, source-grid
+  resolution, raster coverage/relation checks, GeoPackage validation, hashes,
+  and compact label-preparation plans.
 - `model/chip_preflight.py` owns the non-writing batch gate: deterministic
   request materialization, geographic checks, split planning, conditional label
   validation, and construction of `PreparedChipRequest` objects.
@@ -214,15 +229,24 @@ Important properties:
 
 ## Label validation and preflight
 
-`model/chip_labels.py` owns label resolution and validation:
+`model/chip_labels.py` owns label resolution and final-target validation:
 
-- Resolves by full sample identity, including row/column offsets.
-- Requires the label shape to equal the target chip's height and width.
+- Resolves directories by full sample identity, including row/column offsets;
+  explicit file associations do not require identity matching.
+- Requires final training-label shape to equal the target chip's height and width.
 - Validates semantic masks and instance archives.
 - Checks instance counts, IDs, bounding boxes, and the accepted occlusion
   heuristic.
 - Validates label grid metadata against the requested chip grid when a sidecar
   or explicit label grid is available.
+
+`model/chip_label_planning.py` validates source labels separately from final
+labels. It reads source-grid sidecars or GeoTIFF metadata, classifies exact,
+aligned-window, and nearest-warp raster relations, checks lunar CRS/coverage
+and NoData gaps, and validates GeoPackage crater layers. It produces compact,
+hashed `LabelPreparationPlan` records without writing any label, dataset, or
+intermediate files. GeoPackage rasterization and raster-label materialization
+are later phases; their pending execution is explicitly guarded.
 
 `model/chip_preflight.py` coordinates the batch-level preflight:
 
@@ -230,7 +254,7 @@ Important properties:
 2. Validate target grids and AOIs.
 3. Plan splits.
 4. Skip requests left unassigned by a number-only policy.
-5. Resolve and validate labels for assigned requests.
+5. Resolve and validate source labels and build preparation plans for assigned requests.
 6. Produce one `PreparedChipRequest` per input.
 
 A failed label never reaches tiling, and no chip is written for it.

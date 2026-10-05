@@ -22,7 +22,7 @@ from .chip_types import (
 )
 
 
-LABEL_SUFFIXES = (".npy", ".npz")
+LABEL_SUFFIXES = (".npy", ".npz", ".tif", ".tiff", ".gpkg")
 
 
 def _numpy():
@@ -54,26 +54,11 @@ def _label_error(
     )
 
 
-def _validate_label_identity(request: ChipRequest, path: Path) -> None:
-    actual = normalize_sample_id(path)
-    if actual.casefold() != request.sample_id.casefold():
-        raise _label_error(
-            request,
-            code="label_identity_mismatch",
-            message=(
-                f"Label {path} normalizes to sample {actual!r}, not request "
-                f"{request.sample_id!r}."
-            ),
-            expected=request.sample_id,
-            actual=actual,
-        )
-
-
 def resolve_label_path(
     request: ChipRequest,
     label_source: str | Path,
 ) -> Path:
-    """Resolve exactly one full-sample-ID label for a request."""
+    """Trust explicit associations; use full-sample-ID lookup for directories."""
     if request.label_path is not None:
         path = request.label_path
         if not path.is_file():
@@ -140,7 +125,6 @@ def resolve_label_path(
             expected=LABEL_SUFFIXES,
             actual=path.suffix,
         )
-    _validate_label_identity(request, path)
     return path
 
 
@@ -343,7 +327,9 @@ def _sidecar_path(label_path: Path) -> Path | None:
 
 
 def _grid_from_metadata(metadata: Mapping[str, Any]) -> TargetGrid:
-    grid_values = metadata.get("target_grid", metadata)
+    if "source_grid" in metadata and "target_grid" in metadata:
+        raise ValueError("Label sidecar cannot specify both source_grid and target_grid.")
+    grid_values = metadata.get("source_grid", metadata.get("target_grid", metadata))
     if not isinstance(grid_values, Mapping):
         raise ValueError("Label sidecar target_grid must be an object.")
     required = ("crs_wkt", "transform", "bounds", "width", "height")
@@ -368,6 +354,7 @@ def _crs_is_same(first_wkt: str, second_wkt: str) -> bool:
         return True
     try:
         from osgeo import osr
+        from .lunar_crs import raster_crs_equivalent
     except ImportError:
         return False
     try:
@@ -378,7 +365,9 @@ def _crs_is_same(first_wkt: str, second_wkt: str) -> bool:
             or second.ImportFromWkt(second_wkt) != 0
         ):
             return False
-        return bool(first.IsSame(second))
+        first.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        second.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        return raster_crs_equivalent(first, second)
     except Exception:
         return False
 
@@ -425,21 +414,14 @@ def _validate_grid_match(
 
 def _validate_sidecar(request: ChipRequest, label_path: Path) -> bool:
     try:
-        sidecar = _sidecar_path(label_path)
+        sidecar = (request.label_input.sidecar_path
+                   if request.label_input is not None and request.label_input.sidecar_path is not None
+                   else _sidecar_path(label_path))
         if sidecar is None:
             return False
         metadata = json.loads(sidecar.read_text(encoding="utf-8"))
         if not isinstance(metadata, Mapping):
             raise ValueError("Label sidecar must contain a JSON object.")
-        sidecar_sample = metadata.get("sample_id")
-        if (
-            sidecar_sample is not None
-            and str(sidecar_sample).casefold() != request.sample_id.casefold()
-        ):
-            raise ValueError(
-                f"Label sidecar sample_id {sidecar_sample!r} does not match "
-                f"{request.sample_id!r}."
-            )
         _validate_grid_match(request, _grid_from_metadata(metadata))
         return True
     except LabelMismatchError:
@@ -456,10 +438,9 @@ def validate_label(
     request: ChipRequest,
     path: str | Path,
 ) -> tuple[LabelValidationDiagnostic, ...]:
-    """Validate label identity, contents, shape, and available grid metadata."""
+    """Validate final target-sized arrays; source planning is a separate step."""
     np = _numpy()
     label_path = Path(path)
-    _validate_label_identity(request, label_path)
     content_diagnostics: tuple[LabelValidationDiagnostic, ...] = ()
     try:
         has_grid_metadata = request.label_grid is not None
@@ -496,7 +477,7 @@ def validate_label(
     diagnostics = [
         LabelValidationDiagnostic(
             code="label_validated",
-            message="Label identity, contents, and spatial shape are valid.",
+            message="Label contents and spatial shape are valid.",
             severity="info",
         )
     ]
@@ -507,7 +488,7 @@ def validate_label(
                 code="label_grid_unverified",
                 message=(
                     "The array label has no independent geospatial metadata; "
-                    "identity and spatial shape are the verifiable boundary."
+                    "spatial shape is the verifiable boundary."
                 ),
                 severity="warning",
             )
@@ -522,9 +503,11 @@ def preflight_label(
     assigned_split: AssignmentName,
 ) -> ChipPreflight:
     """Resolve and validate one label, raising a typed per-sample error."""
+    from .chip_label_planning import plan_label_preparation
+
     path = resolve_label_path(request, label_source)
     try:
-        diagnostics = validate_label(request, path)
+        plan = plan_label_preparation(request, path)
     except LabelMismatchError as exc:
         if exc.label_path is None:
             exc.label_path = path
@@ -533,7 +516,8 @@ def preflight_label(
         status="passed",
         assigned_split=assigned_split,
         resolved_label_path=path,
-        label_diagnostics=diagnostics,
+        label_diagnostics=plan.diagnostics,
+        label_plan=plan,
     )
 
 

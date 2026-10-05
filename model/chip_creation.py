@@ -46,6 +46,7 @@ from .chip_types import (
     ChipRequest,
     ChipResult,
     LabelMismatchError,
+    label_preparation_provenance,
     ReferenceSample,
     SourceSelector,
 )
@@ -55,6 +56,7 @@ CHIP_DIAGNOSTIC_VERSION = 1
 
 ChipProgressStage = Literal[
     "preflight",
+    "label/clip",
     "tiling",
     "mosaic/reproject/clip",
     "assemble/write",
@@ -66,6 +68,7 @@ ProgressMode = Literal["auto", "live", "log"]
 _PROGRESS_STAGES = frozenset(
     {
         "preflight",
+        "label/clip",
         "tiling",
         "mosaic/reproject/clip",
         "assemble/write",
@@ -528,6 +531,9 @@ def _diagnostic_document(
         "status": result.status,
         "assigned_split": prepared.assignment.assigned_split,
         "preflight_status": prepared.preflight.status,
+        "target_grid": prepared.request.target_grid.to_dict(),
+        "geographic_aoi": prepared.request.geographic_aoi.to_dict(),
+        **label_preparation_provenance(prepared.request, prepared.preflight, result),
         "elapsed_seconds": result.elapsed_seconds,
         "message": result.message,
         "diagnostics": [
@@ -773,6 +779,9 @@ def create_chip(
         "completed",
     )
 
+    from .chip_label_planning import require_materialized_label
+
+    require_materialized_label(prepared)
     if overwrite:
         cleanup = _clear_sample_intermediates(prepared, config)
         if cleanup is not None:

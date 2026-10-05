@@ -15,7 +15,7 @@ production contracts remain documented in:
 - [`docs/tiling_modernization_plan.md`](../../docs/tiling_modernization_plan.md)
 - [`TMS/README.md`](../../TMS/README.md)
 
-The proposed crater GeoPackage extension is specified in
+The accepted crater GeoPackage extension is specified in
 [`crater_labeling_to_chip_creation_contract.md`](../crater_labeling_to_chip_creation_contract.md).
 Its user-approved geographic AOI, full-raster label assumption, explicit label
 association, and imagery NoData policies govern A0. This plan now owns the
@@ -41,8 +41,8 @@ label-conversion interface and semantics; no external handoff is required.
 8. Derive output resolution from the native resolution of the selected dynamic
    imagery (WAC or NAC). When only static modalities are selected, use WAC
    resolution. Static bands are resampled to the chosen output grid.
-9. Multiple selected dynamic modalities emit a warning that WAC takes
-   precedence; align all selected modalities to the WAC grid.
+9. Multiple selected dynamic modalities including WAC emit a warning that WAC
+   takes precedence. Without WAC, require an explicit grid reference.
 10. Clip crater annotations to the final raster edges. Do not enlarge the
     raster to accommodate a crater crossing its boundary. Detailed instance
     encoding is defined by this plan's label-conversion interface.
@@ -51,12 +51,46 @@ label-conversion interface and semantics; no external handoff is required.
     Read this CRS from source metadata, not from the intermediate LTM cubes.
 
 These decisions supersede earlier proposed review and identity gates. A0 is
-not complete: static-only grid definition, pixel-window rules, numerical tolerances, the
-conversion interface, and fixtures remain to be finalized.
+complete; the supplement and linked contract freeze the grid, numerical,
+conversion, and fixture details. A1 is complete; A2 is implemented pending HPC
+validation, as recorded in the phase evidence below.
 
 ## Status convention
 
+### Accepted decisions supplement (2026-10-05)
+
+The user-approved
+[crater conversion contract](../crater_labeling_to_chip_creation_contract.md)
+defines the frozen A0 conversion and grid rules. A0 is complete as a design
+and fixture phase; backend implementation starts at A1.
+
+- Public inputs are geographic IAU:30100 AOIs: one in the example, multiple in
+  batch processing. Output CRS/grid comes from original source imagery before
+  tiling, with WAC VIS taking precedence (with a warning) over other dynamic
+  modalities. Static-only uses WAC's 100 m reference resolution in the LTM zone
+  containing the AOI center, anchored at multiples of 100 m in projected units.
+- Round outward on the chosen pixel lattice, preserving source spacing and
+  including the whole requested AOI. The realized footprint may be larger;
+  record both extents and clip labels to the realized raster edges.
+- Trust explicitly supplied label associations without filename/product checks.
+  GeoPackages are assumed finished and full-raster; no review-status gate or
+  mandatory coverage-certification layer is required.
+- Partial imagery NoData warns with counts/percentages and permits usable
+  chips. No available imagery fails only the sample and publishes neither pair
+  member.
+- We own the conversion interface. Clip outlines at raster edges, include
+  pixels by their centers, let highest source instance ID win overlaps, and
+  compact retained IDs in source order. Boxes follow clipped original outlines
+  regardless of overlap. Omit unsupported subpixel craters with a warning;
+  fully overwritten supported craters retain their boxes. Empty labels are zero.
+- A0 freezes and tests these semantics; A4 implements them through a reusable
+  GeoPackage/layer/target-grid to instance-result interface.
+
+### Phase status definitions
+
 - `[Not Started]`: no implementation work has begun.
+- `[Implemented]`: code and local checks are in place; the phase may still
+  require its recorded HPC validation gate.
 - `[In Progress]`: active work; only one sub-step should have this status.
 - `[Complete]`: implemented, tested, documented, and accepted for its stated
   scope.
@@ -66,7 +100,7 @@ conversion interface, and fixtures remain to be finalized.
 Phases and sub-steps are sequential. A phase is complete only when all required
 sub-steps and validation gates in that phase are complete.
 
-## Current behavior and gap
+## Starting behavior and remaining gap
 
 The backend already supports `chip_request_from_aoi()`, but the active path in
 `notebooks/chip_example.ipynb` still:
@@ -74,15 +108,17 @@ The backend already supports `chip_request_from_aoi()`, but the active path in
 - requires `REFERENCE_CHIP` during path validation;
 - extracts the exact target grid from that TIFF;
 - derives the request sample ID and product selector from its filename; and
-- expects a label whose identity, dimensions, and optional grid exactly match
-  the final chip.
+- originally expected a label whose identity, dimensions, and optional grid
+  exactly matched the final chip.
 
-The current label pipeline accepts semantic `.npy` and instance `.npz` files.
-`model/chip_labels.py` rejects any mask whose shape differs from the target
+Before A1/A2, the label pipeline accepted semantic `.npy` and instance `.npz` files.
+Final-label validation in `model/chip_labels.py` rejects any mask whose shape differs from the target
 grid, and optional label-grid metadata must match the target exactly.
 `model/chip_publication.py` then byte-copies that source label into the dataset.
 These are deliberate safeguards, but they prevent reuse of a georeferenced
-label covering a full source scene or other larger parent AOI.
+label covering a full source scene or other larger parent AOI. A2 now plans
+larger array, GeoTIFF, and GeoPackage labels separately, without identity checks
+for explicit paths. Materialization and notebook integration remain pending.
 
 The phrase **full-TIFF label** in this plan means a label mask covering the full
 spatial extent of a source TIFF. The label may be:
@@ -124,19 +160,22 @@ vector GeoPackage input derives its mask, boxes, and count together.
 
 ### Target grid and AOI
 
-- The public user AOI is geographic IAU:30100 and remains the final output goal.
-  One example AOI and iterables of batch AOIs use the same contract.
-  Pixel sizing and dynamic output CRS follow the selected native grid below.
-  A request must materialize one
+- The public geographic IAU:30100 AOI selects the study area. Single examples
+  and batches share this contract. Each request materializes one
   complete `TargetGrid`: lunar-compatible CRS, finite rectangular bounds,
   invertible affine transform, positive width, and positive height.
 - The final chip and final label must have exactly that grid and shape. LTM tile
   boundaries remain intermediate acquisition geometry and must not replace the
   target extent.
-- An AOI geometry alone is not a raster grid. The notebook accepts geographic
-  bounds with fixed IAU:30100 CRS and derives width/height from the selected
-  modality's native resolution. Do not infer a different study area from a projected
-  bounding envelope. Freeze longitude-seam handling alongside grid derivation.
+- Derive dimensions from the original dynamic source grid, using WAC VIS when
+  WAC is selected. No reference chip is required. For static-only, load the
+  repository CRS of the AOI-center LTM zone and use a north-up 100 m lattice
+  anchored at projected `(0, 0)`. The linked contract defines zone-edge ties,
+  antimeridian midpoint, outward rounding, and numeric tolerances.
+- Outward rounding and transformed-perimeter envelopes may enlarge the output
+  footprint. Preserve native pixel spacing, record requested/realized extents,
+  and clip labels at the final raster edges. Do not silently crop the grid to
+  the available imagery; partial imagery NoData is permitted with diagnostics.
 - Initial scope remains rectangular AOIs. Do not silently replace an arbitrary
   polygon with its envelope. Polygon masking is a separate feature.
 
@@ -184,28 +223,21 @@ WAC wins when multiple dynamic modalities are selected, with a visible warning
 and a recorded grid-reference choice. Reproject NAC/static and labels to that
 same target. Source metadata inspection must precede label preparation.
 
-Crater geometry crossing the final raster boundary is clipped at that boundary
-under the user's decision. That rule governs label geometry; an integer
-pixel-window convention is still needed to construct the raster. Specify and
-test its treatment of partial edge pixels without shifting or rescaling the
-native lattice silently. Record both requested geographic bounds and realized
-raster footprint. A projected envelope of a geographic rectangle may also
-include area outside the requested rectangle; settle that footprint handling
-explicitly rather than treating crater clipping as a solution to it.
+Crater geometry crossing the final raster boundary is clipped at that boundary.
+A0 froze outward integer windows and densified geographic-footprint handling:
+preserve the native lattice and record requested bounds and realized footprint,
+which may include area outside the geographic rectangle. The linked contract
+specifies the numerical tolerances and boundary rules.
 
-A0 must still define the following implementation details:
+The formerly open grid decisions are resolved as follows:
 
-- Use the established 100 m WAC VIS reference resolution for the static-only
-  fallback without opening or acquiring WAC imagery. Its standalone CRS and
-  pixel-lattice selection are addressed below.
-- Selection among multiple candidate rasters within the winning modality and
-  the fallback for multiple custom dynamic modalities with no WAC configured;
-  do not add WAC imagery or choose by file iteration order implicitly.
-- Static-only output CRS and pixel lattice: WAC-equivalent resolution alone
-  does not supply these, and static-only must not require intersecting WAC data.
-- Integer source-window convention, transformed geographic footprint handling,
-  and numerical tolerances. Craters clip to the resulting raster edges;
-  native-grid alignment and the requested study extent must be accounted for.
+- Static-only uses 100 m pixels in the AOI-center LTM zone, anchored at projected
+  `(0, 0)`, without opening or acquiring WAC imagery.
+- Equivalent source lattices share a grid. Conflicting candidates within the
+  winning modality require an explicit reference rather than file-order choice.
+- Multiple non-WAC dynamic modalities require an explicit grid reference.
+- Outward rounding preserves native spacing; label geometry clips to the
+  realized raster edges rather than changing the selected output grid.
 
 Changing final pixel spacing cannot recover detail already lost in acquisition
 at a coarser LTM zoom. Check the acquisition/output resolution relationship
@@ -231,13 +263,12 @@ policy does not turn unknown categorical label values into background.
 - A label larger than the target is accepted only when its source grid is
   independently known. Array shape alone cannot locate the chip AOI within a
   full-scene mask.
-- For raster/array labels, the source grid must cover the target; array shape
-  alone cannot locate labels. For GeoPackages, assume the scientist supplied
-  full-raster labels without requiring reviewed-coverage metadata. Coordinate
-  source-footprint representation in the conversion interface if containment is
-  needed; do not use crater feature bounds as the raster footprint.
-- Do not validate label filenames, sample IDs, or product IDs against imagery.
-  Preserve technical file, CRS, geometry, and final target-grid validation.
+- Raster/array labels must cover the realized target grid. Missing coverage
+  cannot be padded as background. For vector GeoPackages, the user asserts
+  full-raster annotation; no certified footprint or review status is required.
+  Do not infer a source raster's extent from crater polygon bounds.
+- Do not validate explicitly supplied label filenames, sample IDs, or product IDs
+  against imagery. Preserve technical file, CRS, geometry, and final-grid checks.
 - Label reprojection is categorical and uses nearest-neighbor only. Tiling
   remains bilinear; the two policies must not be conflated.
 - Label planning and source validation occur before tiling. A label failure is
@@ -256,13 +287,12 @@ The notebook's active request supplies:
 - `SAMPLE_ID`: unique output identity. For WAC/NAC it retains the product ID as
   the first underscore-delimited component so selector derivation remains
   deterministic.
-- `AOI_BOUNDS`: geographic `(west, south, east, north)` in repository IAU:30100;
-  map explicitly to tiling's named corner arguments.
+- `AOI_BOUNDS`: geographic `(west, south, east, north)` in repository IAU:30100.
+  Convert explicitly to tiling's named corner arguments.
+- Output CRS, affine, width, and height are derived using the selected source
+  grid and outward rounding, or the static-only grid rule. An explicit
+  reference-source choice resolves competing source grids within one modality.
 - AOI CRS is loaded from repository IAU:30100 rather than user-selected.
-- Output resolution: derived from selected dynamic imagery, or the WAC default
-  for static-only operation. Dimensions are derived, not required example
-  inputs. Dynamic output CRS follows the selected raster (WAC precedence);
-  static-only grid definition and integer edge-window rules remain to finalize.
 - `LABEL_PATH`: explicit source-label association.
 - `LABEL_SOURCE_GRID`: optional structured source grid when the label does not
   embed one. This may be read from a sidecar or derived explicitly from the
@@ -270,10 +300,10 @@ The notebook's active request supplies:
 - `SPLIT_GROUP_KEY`: normally the WAC/NAC product ID or another scientifically
   meaningful leakage group.
 
-Adapt `chip_request_from_aoi()` to the agreed geographic-input/output-grid
-contract once sizing and CRS are frozen. Validate that the grid represents the
-requested study area, including longitude wrapping. The active notebook no
-longer requires `REFERENCE_DIR` or `REFERENCE_CHIP`.
+Extend request construction to accept the geographic AOI and resolved grid
+reference before label preflight. Preserve existing explicit target-grid and
+reference-TIFF entry points for compatibility. The notebook no longer requires
+`REFERENCE_DIR` or `REFERENCE_CHIP` for the active example.
 
 ### Explicit label input and provenance
 
@@ -290,13 +320,16 @@ recommended record contains:
 Keep `ChipRequest.label_path` and `label_grid` as backward-compatible inputs,
 normalizing them into this record. New AOI callers should use the typed form.
 
-The caller explicitly supplies the label path for each request, including
-exact labels. Do not require filename, sample-ID, product-ID, or source-scene
-equality with the chip. One label may feed multiple AOIs, including imagery
-from another modality. Batch input must provide these associations explicitly;
-do not introduce automatic label matching. Existing directory-discovery
-compatibility needs an explicit migration decision, not a new validation gate.
-Imagery selectors and unique output sample IDs remain independent requirements.
+The scientist explicitly associates each request with a label path. Do not
+require label filename, sample-ID, or product equality with the imagery.
+One parent label may feed multiple AOIs. Source identity is optional provenance;
+technical file/georeferencing and target-grid validation still apply.
+
+New AOI/batch workflows supply associations explicitly, including labels reused
+with another imagery modality. Legacy directory lookup remains a compatibility
+convenience using the full offset-qualified sample ID; it is not a validation
+gate for explicit paths. Imagery selectors and unique output sample IDs remain
+independent requirements.
 
 For `.npy` and `.npz`, accept source-grid metadata from either:
 
@@ -328,23 +361,31 @@ footprints, not bounds alone. Reject a target that is partially outside the
 source label, crosses an unrepresented gap, has an incompatible lunar CRS, or
 cannot be mapped invertibly.
 
+GeoPackages use a separate `vector_rasterize` preparation method under the
+linked contract. File readability, lunar CRS, positive unique instance IDs,
+and valid polygon geometry are required; identity matching and review status
+are not. Empty annotation layers are valid.
+
 ### Semantic-label output
 
 - Read only the needed source window when the storage format permits it.
 - Produce one 2D integer mask with shape `(AOI_HEIGHT, AOI_WIDTH)`.
 - Preserve class IDs. Map declared source NoData only according to an explicit
   label NoData policy; do not infer invalid pixels from magnitude.
+- Initially reject source label NoData inside a derived target unless an
+  existing explicit label encoding accounts for it; do not invent background
+  or an ignore class. This differs from permitted partial imagery NoData.
 - Validate the derived mask against the target grid and publish it as
   `<sample-id>_label.npy`.
 
 ### Instance-label output
 
-The following raster-archive algorithm is a proposal to freeze during A0.
-This plan owns the clipping, ID, box, overlap, and occlusion semantics, including
-GeoPackage conversion. Use the interface in the linked GeoPackage contract to
-produce a consistent target-sized mask/boxes/count artifact and local fixtures.
+For vector GeoPackages, use the accepted conversion rules in the linked
+contract, including highest-source-ID overlap priority, pixel-center inclusion,
+clipped-outline boxes, subpixel warnings, and fully occluded annotations.
+The following algorithm describes raster archive conversion.
 
-Proposed raster instance clipping updates mask, boxes, and count together:
+Instance clipping must update the mask, boxes, and count as one transaction:
 
 1. Window or nearest-warp the integer instance mask to the target grid.
 2. Transform each source COCO `(x, y, width, height)` box through source pixel
@@ -399,29 +440,30 @@ Publication must accept a validated `PreparedLabelArtifact`:
 - the manifest records source label, source grid, relation, clip/warp method,
   derived label, target grid, ID mapping summary, hashes, and diagnostics.
 
-## Phase A0 — Freeze AOI and label-clipping contracts `[Not Started]`
+## Phase A0 — Freeze AOI and label-clipping contracts `[Complete]`
 
-- `[Not Started]` **A0.1** Confirm the initial input formats: semantic `.npy`,
-  instance `.npz`, single-band integer semantic GeoTIFF, and crater GeoPackage.
-  Explicitly defer instance GeoTIFFs without box/count metadata.
-- `[Not Started]` **A0.2** Freeze the notebook's AOI inputs, output-grid
+- `[Complete]` **A0.1** Confirm the initial input formats: semantic `.npy`,
+  instance `.npz`, crater GeoPackage, and single-band integer semantic GeoTIFF. Explicitly defer
+  instance GeoTIFFs without box/count metadata.
+- `[Complete]` **A0.2** Freeze the notebook's AOI inputs, output-grid
   derivation, sample/product identity rules, and rectangular-only scope.
-- `[Not Started]` **A0.3** Specify explicit label-path association for exact and
-  full-scene inputs without filename/product matching; permit parent-label reuse
-  across AOIs. Define migration of legacy directory-based discovery.
-- `[Not Started]` **A0.4** Freeze exact, aligned-window, and nearest-warp
+- `[Complete]` **A0.3** Trust explicit label association without identity
+  matching, including reuse of one parent label by multiple AOIs. Retain
+  legacy directory lookup as a compatibility convenience, not an identity gate
+  for explicitly supplied paths.
+- `[Complete]` **A0.4** Freeze exact, aligned-window, nearest-warp, and vector
   relations; full-coverage requirements; categorical NoData behavior; and
   numerical tolerances.
-- `[Not Started]` **A0.5** Define our label-conversion interface: GeoPackage
-  path, layer, exact target grid, conversion options, validated instance result,
-  and structured diagnostics. Freeze clipping/ID/box/overlap/subpixel/occlusion
-  semantics using the current producer code and synthetic acceptance fixtures;
-  a real notebook run is not a prerequisite.
-- `[Not Started]` **A0.6** Add small committed fixtures or fixture builders for
+- `[Complete]` **A0.5** Formalize and fixture-test the accepted vector
+  conversion interface and semantics in the linked contract. Highest source ID
+  wins overlap; IDs compact in ascending order; boxes follow clipped outlines;
+  unsupported subpixel features warn and drop; empty masks are zero; pixel
+  centers determine inclusion. No external labeling handoff is required.
+- `[Complete]` **A0.6** Add small repository fixtures or fixture builders for
   exact, larger aligned, differently projected, partial-coverage, semantic,
   overlapping-instance, and the linked GeoPackage acceptance cases before
   implementation.
-- `[Not Started]` **A0.7** Incorporate the accepted GeoPackage full-raster
+- `[Complete]` **A0.7** Incorporate the accepted GeoPackage full-raster
   assumption, no readiness state, no label matching, partial imagery NoData
   warnings, and no-imagery failures. Define geometric metadata and conversion
   within this plan and carry integration/test work into phases A1–A8.
@@ -429,50 +471,179 @@ Publication must accept a validated `PreparedLabelArtifact`:
 Exit gate: the accepted contract and fixtures make every expected output,
 warning, and failure deterministic without relying on a real Explore dataset.
 
-## Phase A1 — Extend request and label types `[Not Started]`
+A0 completion evidence (2026-10-05): the linked conversion contract specifies
+grid choice, outward windows, zero-anchor static grids, boundary ties, numeric
+tolerances, source ambiguity handling, and label semantics.
+`aoi_chip_contract_fixtures.json` records explicit expected windows, masks,
+boxes, IDs, semantic windows/nearest samples, NoData summaries, and failure
+outcomes. Six dependency-free tests in `model/tests/test_chip_a0_fixtures.py`
+passed, including every permutation of feature order for the vector fixtures.
+Command: `python3 -m unittest discover -s model/tests -p test_chip_a0_fixtures.py -v`.
+These are analytic fixture checks, not runtime converter tests. GDAL/Fiona/NumPy
+are unavailable locally; actual CRS transformations, GeoPackage materialization,
+and production serial/parallel tests remain A1–A7 work. A1 implementation and
+subsequent HPC validation are recorded below.
 
-- `[Not Started]` **A1.1** Add immutable `LabelInput`,
+## Phase A1 — Extend request and label types `[Complete]`
+
+- `[Complete]` **A1.1** Add immutable `LabelInput`,
   `LabelPreparationPlan`, and `PreparedLabelArtifact` records in the chip type
   layer with path, kind, grid, relation, hash, and diagnostic
   validation.
-- `[Not Started]` **A1.2** Extend `ChipRequest` compatibly so legacy
+- `[Complete]` **A1.2** Extend `ChipRequest` compatibly so legacy
   `label_path`/`label_grid` requests normalize to exact mode while AOI callers
   can explicitly request clipping.
-- `[Not Started]` **A1.3** Keep `chip_request_from_aoi()` as the canonical
-  constructor and derive width/height using the accepted native-dynamic/WAC
-  static-only resolution policy and A0 grid rules. Resolve needed source
-  metadata before label preparation, without running tiling. Preserve explicit
-  reference-grid compatibility and reject ambiguous grid-reference choices.
-- `[Not Started]` **A1.4** Extend result, diagnostic, progress-stage, and
+- `[Complete]` **A1.3** Keep `chip_request_from_aoi()` as the canonical
+  constructor and support geographic inputs with source-grid metadata or the
+  static-only rule, deriving dimensions by outward rounding. Preserve existing
+  explicit-grid callers and report ambiguous grid-reference choices.
+- `[Complete]` **A1.4** Extend result, diagnostic, progress-stage, and
   manifest schemas with label-preparation provenance without placing arrays in
   serializable request objects.
-- `[Not Started]` **A1.5** Add dictionary/config round-trip tests and
+- `[Complete]` **A1.5** Add dictionary/config round-trip tests and
   backward-compatibility tests for existing exact-label callers.
 
 Exit gate: old requests behave identically; new requests can describe a
 full-scene label and exact target grid without a reference TIFF.
 
-## Phase A2 — Resolve source labels and plan clipping `[Not Started]`
+### A1 implementation and validation
 
-- `[Not Started]` **A2.1** Refactor label validation into source-structure,
+`model/chip_types.py` now provides frozen, JSON/pickle-compatible metadata
+records. `LabelInput` uses `semantic`, `raster_instance`, or `vector_instance`
+kinds (known suffixes resolve `auto`), `exact`/`clip_to_target` relations, optional
+source grid, layer, source identity, and sidecar path. Legacy `label_path` and
+`label_grid` normalize to exact input; conflicting legacy/typed fields fail.
+`LabelPreparationPlan` records the method, target grid, source SHA-256, optional
+aligned window, and diagnostics. `PreparedLabelArtifact` records the plan,
+output SHA-256, compact instance-ID mapping, and diagnostics. Exact NPY/NPZ
+artifacts require matching source/output hashes; an exact-grid semantic TIFF
+still needs conversion to NPY and may therefore have different bytes.
+
+`chip_request_from_aoi()` retains the old explicit-grid arguments. Geographic
+mode accepts `geographic_aoi=GeographicAOI(...)` and exactly one of:
+
+- `source_grid=TargetGrid(...)`: an explicit original, pre-tiling raster grid;
+- `source_grids={"wac": (vis_grid, ...), ...}`: metadata candidates, with WAC
+  precedence and a warning for multiple dynamic modalities. WAC candidates
+  must be VIS source grids, not UV grids. Different pixel lattices within the
+  selected modality require an explicit `source_grid`; or
+- `static_only=True`: the approved 100 m, zero-anchored, midpoint-LTM lattice.
+
+The constructor transforms/densifies the geographic boundary and rounds
+outward while preserving native CRS/affine. `requested_aoi` stores the original
+geographic input; existing `geographic_aoi` continues to mean the realized
+output-grid envelope used for acquisition. Both extents and the target grid
+are retained in diagnostics/manifests. Source discovery and automatic metadata
+loading for the notebook are not part of A1.
+
+Preflight/result records now have optional `label_plan`/`prepared_label` fields.
+Diagnostics accept `label_preparation`; progress accepts `label/clip`.
+Provenance fields are additive to the existing version-1 JSON documents; old
+keys retain their meanings. A1 does not emit materialization events or write
+derived labels. A1 initially rejected `clip_to_target` at preflight to prevent
+legacy copying. A2 below replaces that gate with source planning and an
+execution-time guard for plans needing materialization. The notebook is unchanged.
+
+Local chip-suite validation: 144 tests discovered, 103 passed, 41 skipped for
+missing runtime dependencies. `test_chip_a1_contracts` includes A0 production
+rounding/zone fixtures, JSON/pickle round trips, legacy dictionaries, invalid
+metadata and hashes, grid-choice ambiguity, adaptive-boundary failure, and
+manifest/diagnostic provenance. Its real-GDAL tests cover native CRS offsets,
+static-only grids, rotated affines, and antimeridian AOIs; HPC validation is
+recorded below.
+Full model discovery also encounters four legacy modules that import absent
+GDAL unconditionally; those import errors are an environment limitation, not
+a passing full-suite result.
+
+Run from the directory containing the `lfm` checkout inside the HPC container:
+
+```bash
+python -m unittest discover -s lfm/model/tests -t . -p 'test_chip*.py' -v
+```
+
+HPC validation: the user reports all chip-suite tests pass in the container
+after setting its working directory to the checkout's parent and using the
+discovery command above. This closes A1's environment-dependent validation
+gate. The exact HPC test count was not supplied.
+
+## Phase A2 — Resolve source labels and plan clipping `[Implemented; HPC validation pending]`
+
+- `[Implemented]` **A2.1** Refactor label validation into source-structure,
   source-grid/relation, and final-target validation rather than applying the
   target shape check while opening the source.
-- `[Not Started]` **A2.2** Support explicit array, GeoTIFF, and GeoPackage
-  label paths and sidecar georeferencing. Implement the agreed migration for
-  directory-based callers without imposing identity checks on supplied labels.
-- `[Not Started]` **A2.3** Verify explicitly associated labels are readable and
-  structurally/geospatially usable; do not compare their names or products with
-  the request's imagery selectors.
-- `[Not Started]` **A2.4** Compute exact/aligned/warp relations, source windows,
+- `[Implemented]` **A2.2** Extend resolution to supported GeoTIFF/GeoPackage labels and
+  the new sidecar schema while retaining exact full-sample-ID lookup for legacy
+  directory-based labels.
+- `[Implemented]` **A2.3** Accept explicit label paths without filename/product
+  equality checks; preserve structural and geospatial validation.
+- `[Implemented]` **A2.4** Compute exact/aligned/warp relations, source windows,
   densified coverage, and output encoding without writing files.
-- `[Not Started]` **A2.5** Return typed per-sample failures for missing grid
+- `[Implemented]` **A2.5** Return typed per-sample failures for missing grid
   metadata, incompatible CRS, incomplete coverage, ambiguous sidecars,
   malformed source contents, and unsupported formats.
-- `[Not Started]` **A2.6** Prove preflight remains read-only and never invokes
+- `[Implemented]` **A2.6** Prove preflight remains read-only and never invokes
   tiling for a rejected label.
 
 Exit gate: preflight deterministically accepts or rejects every A0 fixture and
 produces no dataset/intermediate output.
+
+### A2 implementation and validation
+
+`model/chip_label_planning.py` owns read-only `plan_label_preparation()` and
+`classify_label_grid()`. `preflight_label()` now returns a `label_plan` for a
+valid source. Existing NPY/NPZ target-sized validation remains separately
+available through `validate_label()` for publication; larger array sources
+are validated against their own source grid, not the chip dimensions.
+
+- Explicit request paths and file-valued `label_source` associations bypass
+  filename/product/sample matching. Directory lookup still requires one full
+  offset-qualified sample-ID match. Sidecar `sample_id` is provenance only.
+- Arrays in clipping mode require a source grid. Sidecars may use
+  `{"source_grid": {...}}`; automatic discovery considers `<label.ext>.json`
+  and `<label>.json` and rejects ambiguity. An explicit `sidecar_path` selects
+  one deliberately. Conflicting embedded/typed/sidecar grids fail. Legacy
+  `target_grid` or bare-grid sidecars remain exact-chip associations, not
+  silent full-scene clipping metadata. Old exact arrays without a grid retain
+  their `label_grid_unverified` warning for compatibility.
+- Raster relations use lunar CRS compatibility, pixel-space alignment,
+  round-trip checks, and adaptively densified footprint containment. GeoTIFFs
+  must have one integer band and embedded georeferencing. Unknown/NoData cells
+  intersecting the realized target footprint fail, even if downsampling would
+  otherwise hide the gap. Cells outside the footprint do not invalidate it;
+  mask checks read bounded blocks without allocating a full-scene mask.
+- GeoPackages validate the selected layer (default `craters`), lunar CRS,
+  integer positive unique `crater_id`, and valid polygon/multipolygon geometry.
+  Empty layers, arbitrary nonconsecutive IDs, overlaps, and outside features
+  are valid. No completion flag, coverage certification, or imagery identity
+  is required. No clipping/rasterization occurs yet.
+- Plans retain resolved grids, selected sidecars, preparation method/window,
+  source SHA-256, and diagnostics. Computed `output_kind`/`output_suffix`
+  properties describe semantic NPY versus instance NPZ output. Source hashes
+  are checked before and after validation to detect concurrent changes.
+
+Until A3–A5 are implemented, plans requiring materialization are blocked with
+`label_preparation_not_available` before acquisition or overwrite cleanup;
+direct acquisition/publication entry points are guarded too. Exact NPY/NPZ
+plans remain executable. This guard does not turn valid source plans into
+preflight failures. The notebook and converter implementations are unchanged.
+
+Local verification: chip discovery ran 161 tests (112 passed, 49 dependency
+skips); the dependency-aware model suite ran 361 (274 passed, 87 skips).
+`test_chip_label_planning.py` adds 17 tests, including nine locally runnable
+metadata/affine/control-flow checks and eight GDAL-backed checks pending HPC.
+Source snapshots prove read-only behavior in the applicable tests. A0 vector
+fixtures are used as valid source inputs; converted masks/boxes are A3/A4
+checks, and imagery-availability outcomes remain outside A2.
+
+Run the same chip-suite discovery command documented under A1, from the
+checkout's parent directory inside the HPC container. The new module is also
+individually runnable with:
+
+```bash
+python -m unittest -v lfm.model.tests.test_chip_label_planning
+```
+
+A2 remains awaiting HPC validation; A3 has not started.
 
 ## Phase A3 — Materialize semantic labels `[Not Started]`
 
@@ -543,9 +714,10 @@ target-sized archive whose IDs and boxes are valid in target pixel space.
 - `[Not Started]` **A5.7** Add serial/parallel equivalence, overwrite,
   source-changed-during-run, publication rollback, failure isolation, and
   manifest validation tests.
-- `[Not Started]` **A5.8** Report final-grid partial NoData counts/percentages
-  as warnings while allowing usable chips; fail samples with no imagery or
-  unusable required imagery and preserve later batch processing.
+- `[Not Started]` **A5.8** Implement partial imagery NoData warnings with
+  final-grid counts and percentages per band and spatial union. No available
+  imagery or wholly invalid required imagery fails the sample; do not publish
+  placeholders as a substitute for missing required imagery.
 
 Exit gate: exact and clipped labels both participate in the same atomic
 chip-label publication contract under serial and multiprocessing execution.
@@ -553,9 +725,9 @@ chip-label publication contract under serial and multiprocessing execution.
 ## Phase A6 — Make the notebook AOI-first `[Not Started]`
 
 - `[Not Started]` **A6.1** Replace `REFERENCE_DIR` and `REFERENCE_CHIP` in the
-  active configuration with sample ID, IAU:30100 geographic bounds, agreed
-  output-grid sizing, label
-  path, and label source-grid/provenance inputs.
+  active configuration with sample ID, geographic IAU:30100 bounds, imagery
+  configuration, label path, and label source-grid/provenance inputs. Derive
+  dimensions and print the selected CRS/grid and requested/realized footprints.
 - `[Not Started]` **A6.2** Keep source directories, split behavior, chip worker
   count, index worker count, output root, and index ownership in the same
   user/derived separation established by the tiling notebook and handoff.
@@ -643,8 +815,9 @@ modernization plan describe the same implemented behavior.
 | WAC or NAC plus static | Dynamic imagery determines output resolution; static follows that grid |
 | Multiple dynamic modalities including WAC | Emit precedence warning; all bands/labels match the WAC grid |
 | Crater crossing a raster boundary | Clip at the raster edge using the A0 conversion contract |
-| Static only | WAC resolution without requiring intersecting WAC imagery |
+| Static only | AOI-center LTM zone, 100 m pixels, projected zero anchor; no intersecting WAC required |
 | No imagery or unusable required imagery | Clear per-sample failure; no pair; later samples continue |
+| Outward grid rounding | Preserve native affine lattice; contain AOI; clip labels at realized raster edges |
 | Larger array with no source grid | Typed failure; never infer location from shape |
 | Arbitrary nonrectangular geometry | Explicit rejection; no silent envelope |
 | Antimeridian AOI | Existing split-query acquisition; one logical target request |
@@ -686,8 +859,9 @@ editing them.
 | AOI is rounded or snapped away from the scientist's study extent | Make the request target grid authoritative; warp labels to it, never replace it with tile or source-label bounds |
 | Categorical IDs are corrupted by interpolation | Nearest-neighbor only; validate integer values after materialization |
 | Instance boxes, mask IDs, and count diverge | Transform, clip, remap, and validate them as one artifact transaction |
-| Raster label grid does not cover the complete AOI | Densified footprint containment; fail before tiling and never pad truth; coordinate vector footprint handling with labeling owner |
-| Supplied labels cannot be transformed to the target grid | Validate georeferencing and output alignment; trust the scientist's explicit association without filename/product checks |
+| Raster label grid does not cover the realized output | Densified containment; fail before tiling; no background padding; vector inputs use the full-raster assumption |
+| Differently named labels are rejected despite explicit association | Remove identity gates for supplied paths; retain technical format/georeferencing checks |
+| Supplied labels cannot be transformed to the target grid | Validate georeferencing and output alignment without filename/product checks |
 | Full `.npz` masks create high worker memory | Keep plans small, materialize in workers, window formats that support it, measure `.npz` peak memory, and document limits |
 | Derived labels weaken publication atomicity | Hash validated artifacts and retain the existing staged pair/rollback protocol |
 | Batch workers rebuild indexes | Preserve coordinator-only index preparation from the handoff |

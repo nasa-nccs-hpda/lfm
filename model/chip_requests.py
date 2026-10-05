@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
+import json
 import math
 from pathlib import Path
+import warnings
 
 from .chip_config import SplitName
 from .chip_types import (
     ChipRequest,
     GeographicAOI,
+    LabelInput,
     ReferenceSample,
     SourceSelector,
     TargetGrid,
@@ -544,6 +547,7 @@ def chip_request_from_reference(
     assigned_split: SplitName | None = None,
     source_selectors: Sequence[SourceSelector] = (),
     edge_samples: int = DEFAULT_EDGE_SAMPLES,
+    label_input: LabelInput | None = None,
 ) -> ChipRequest:
     """Construct one request from a validated reference TIFF."""
     reference = reference_sample_from_tiff(
@@ -561,16 +565,143 @@ def chip_request_from_reference(
         assigned_split=assigned_split,
         source_selectors=tuple(source_selectors),
         reference_path=reference.path,
+        label_input=label_input,
     )
+
+
+def _projected_to_pixel(grid: TargetGrid, x: float, y: float) -> tuple[float, float]:
+    origin_x, a, b, origin_y, c, d = grid.transform
+    determinant = a * d - b * c
+    x, y = x - origin_x, y - origin_y
+    return (d * x - b * y) / determinant, (-c * x + a * y) / determinant
+
+
+def target_grid_from_pixel_bounds(
+    source_grid: TargetGrid, pixel_bounds: Sequence[float],
+) -> TargetGrid:
+    """Round outward on the original pixel lattice, retaining rotated affines.
+
+    Bounds are min-column, min-row, max-column, max-row. Negative windows are
+    allowed: imagery coverage/NoData is evaluated separately, never by cropping
+    the requested output to the source extent.
+    """
+    validate_target_grid_consistency(source_grid)
+    if len(pixel_bounds) != 4 or any(not math.isfinite(v) for v in pixel_bounds):
+        raise ValueError("pixel_bounds must contain four finite values.")
+    left, top, right, bottom = pixel_bounds
+    if left >= right or top >= bottom:
+        raise ValueError("pixel_bounds must have positive width and height.")
+
+    def snap(value):
+        nearest = round(value)
+        return nearest if abs(value - nearest) <= 1e-8 else value
+
+    col, row = math.floor(snap(left)), math.floor(snap(top))
+    end_col, end_row = math.ceil(snap(right)), math.ceil(snap(bottom))
+    origin_x, origin_y = pixel_to_projected(source_grid.transform, col, row)
+    _, a, b, _, c, d = source_grid.transform
+    affine = (origin_x, a, b, origin_y, c, d)
+    width, height = end_col - col, end_row - row
+    return TargetGrid(source_grid.crs_wkt, affine, raster_bounds(affine, width, height), width, height)
+
+
+def static_grid_reference(aoi: GeographicAOI) -> TargetGrid:
+    """100 m, zero-anchored LTM lattice in the zone containing the AOI center."""
+    geographic_query_parts(aoi)  # also checks polar coverage and ambiguous spans
+    span = (aoi.lower_right_longitude - aoi.upper_left_longitude) % 360.0
+    longitude = ((aoi.upper_left_longitude + span / 2 + 180) % 360) - 180
+    latitude = (aoi.upper_left_latitude + aoi.lower_right_latitude) / 2
+    zone = math.floor((longitude + 180) / 8) + 1
+    hemisphere = "N" if latitude >= 0 else "S"
+    path = Path(__file__).resolve().parents[1] / "TMS" / "RG" / f"tms_LTM_{zone}{hemisphere}RG.json"
+    crs = json.loads(path.read_text())["crs"]
+    # The one-pixel extent is only a lattice reference, not a coverage limit.
+    return TargetGrid(crs, (0, 100, 0, 0, 0, -100), (0, -100, 100, 0), 1, 1)
+
+
+def _select_source_grid(source_grids: Mapping[str, Sequence[TargetGrid]]) -> TargetGrid:
+    """Resolve modality precedence; competing lattices need an explicit choice.
+
+    WAC candidates must be the original VIS rasters, not UV or tiled datacubes.
+    """
+    candidates = {str(name).lower(): tuple(grids) for name, grids in source_grids.items()}
+    if len(candidates) != len(source_grids) or not candidates or any(not grids for grids in candidates.values()):
+        raise ValueError("source_grids must have unique modality names and nonempty candidate lists.")
+    if any(not isinstance(grid, TargetGrid) for grids in candidates.values() for grid in grids):
+        raise TypeError("source_grids candidates must be TargetGrid records.")
+    if len(candidates) > 1:
+        if "wac" not in candidates:
+            raise ValueError("Multiple dynamic modalities require an explicit source_grid when WAC is absent.")
+        warnings.warn("Multiple dynamic modalities: WAC takes precedence for the output grid.", UserWarning, stacklevel=3)
+        grids = candidates["wac"]
+    else:
+        grids = next(iter(candidates.values()))
+    chosen = grids[0]
+    for grid in grids:
+        validate_target_grid_consistency(grid)
+        # Equal WKT is the dependency-free fast path; equivalent WKT encodings
+        # are accepted using the same GDAL CRS comparison as the rest of chips.
+        same_crs = chosen.crs_wkt == grid.crs_wkt or bool(
+            _spatial_reference(chosen.crs_wkt).IsSame(_spatial_reference(grid.crs_wkt)))
+        same_linear = all(math.isclose(chosen.transform[i], grid.transform[i], rel_tol=0, abs_tol=1e-10)
+                          for i in (1, 2, 4, 5))
+        origin = _projected_to_pixel(chosen, grid.transform[0], grid.transform[3])
+        if not same_crs or not same_linear or any(abs(v - round(v)) > 1e-8 for v in origin):
+            raise ValueError("Competing source pixel lattices require an explicit source_grid reference.")
+    return chosen
+
+
+def target_grid_from_geographic_aoi(
+    aoi: GeographicAOI, source_grid: TargetGrid,
+) -> TargetGrid:
+    """Transform an IAU:30100 boundary and round outward on a native lattice."""
+    geographic_query_parts(aoi)
+    validate_target_grid_consistency(source_grid)
+    transformation = _create_transformation(
+        _spatial_reference(load_lunar_geographic_wkt()),
+        _spatial_reference(source_grid.crs_wkt),
+    )
+    west = ((aoi.upper_left_longitude + 180) % 360) - 180
+    east = west + ((aoi.lower_right_longitude - aoi.upper_left_longitude) % 360)
+    north, south = aoi.upper_left_latitude, aoi.lower_right_latitude
+
+    def project(point):
+        return _projected_to_pixel(source_grid, *_transform_point(transformation, *point))
+
+    points = []
+
+    def refine(start, end, first, last, depth=0):
+        middle = ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
+        mapped = project(middle)
+        error = math.hypot(mapped[0] - (first[0] + last[0]) / 2,
+                           mapped[1] - (first[1] + last[1]) / 2)
+        if error > 1e-4:
+            if depth >= 20:
+                raise ValueError("AOI boundary transformation did not converge within 20 subdivisions.")
+            refine(start, middle, first, mapped, depth + 1)
+            refine(middle, end, mapped, last, depth + 1)
+        else:
+            points.extend((first, mapped, last))
+
+    corners = ((west, north), (east, north), (east, south), (west, south))
+    for start, end in zip(corners, corners[1:] + corners[:1]):
+        samples = [(start[0] + (end[0] - start[0]) * i / 20,
+                    start[1] + (end[1] - start[1]) * i / 20) for i in range(21)]
+        for first, last in zip(samples, samples[1:]):
+            refine(first, last, project(first), project(last))
+    return target_grid_from_pixel_bounds(source_grid, (
+        min(p[0] for p in points), min(p[1] for p in points),
+        max(p[0] for p in points), max(p[1] for p in points),
+    ))
 
 
 def chip_request_from_aoi(
     *,
     sample_id: str,
-    crs_wkt: str,
-    bounds: Sequence[float],
-    width: int,
-    height: int,
+    crs_wkt: str | None = None,
+    bounds: Sequence[float] | None = None,
+    width: int | None = None,
+    height: int | None = None,
     split_group_key: str,
     transform: Sequence[float] | None = None,
     label_path: str | Path | None = None,
@@ -578,28 +709,51 @@ def chip_request_from_aoi(
     assigned_split: SplitName | None = None,
     source_selectors: Sequence[SourceSelector] = (),
     edge_samples: int = DEFAULT_EDGE_SAMPLES,
+    geographic_aoi: GeographicAOI | None = None,
+    source_grid: TargetGrid | None = None,
+    source_grids: Mapping[str, Sequence[TargetGrid]] | None = None,
+    static_only: bool = False,
+    label_input: LabelInput | None = None,
 ) -> ChipRequest:
-    """Construct one request from an explicit rectangular target AOI/grid."""
-    grid = target_grid_from_bounds(
-        crs_wkt=crs_wkt,
-        bounds=bounds,
-        width=width,
-        height=height,
-        transform=transform,
-    )
-    geographic_aoi = geographic_aoi_from_target_grid(
+    """Construct a geographic AOI request, or preserve the explicit-grid API.
+
+    Geographic mode requires original pre-tiling source metadata (WAC VIS),
+    resolved candidates, or ``static_only=True``. It does not read imagery or
+    labels. ``geographic_aoi`` is IAU:30100; output pixels use the native grid.
+    """
+    requested_aoi = geographic_aoi
+    if not isinstance(static_only, bool):
+        raise TypeError("static_only must be a boolean.")
+    if geographic_aoi is not None:
+        if any(value is not None for value in (crs_wkt, bounds, width, height, transform)):
+            raise ValueError("Geographic AOI and explicit target-grid arguments cannot be mixed.")
+        if sum((source_grid is not None, source_grids is not None, static_only)) != 1:
+            raise ValueError("Choose exactly one of source_grid, source_grids, or static_only.")
+        reference = (static_grid_reference(geographic_aoi) if static_only else
+                     _select_source_grid(source_grids) if source_grids is not None else source_grid)
+        grid = target_grid_from_geographic_aoi(geographic_aoi, reference)
+    else:
+        if source_grid is not None or source_grids is not None or static_only:
+            raise ValueError("Source grid selection requires geographic_aoi.")
+        if any(value is None for value in (crs_wkt, bounds, width, height)):
+            raise ValueError("Explicit-grid mode requires crs_wkt, bounds, width, and height.")
+        grid = target_grid_from_bounds(crs_wkt=crs_wkt, bounds=bounds, width=width,
+                                       height=height, transform=transform)
+    realized_aoi = geographic_aoi_from_target_grid(
         grid,
         edge_samples=edge_samples,
     )
     return ChipRequest(
         sample_id=sample_id,
         target_grid=grid,
-        geographic_aoi=geographic_aoi,
+        geographic_aoi=realized_aoi,
         split_group_key=split_group_key,
         label_path=label_path,
         label_grid=label_grid,
         assigned_split=assigned_split,
         source_selectors=tuple(source_selectors),
+        label_input=label_input,
+        requested_aoi=requested_aoi,
     )
 
 
@@ -674,6 +828,9 @@ __all__ = [
     "raster_bounds",
     "reference_sample_from_tiff",
     "target_grid_from_bounds",
+    "target_grid_from_geographic_aoi",
+    "target_grid_from_pixel_bounds",
+    "static_grid_reference",
     "validate_numbered_ltm_coverage",
     "validate_request_geographic_aoi",
     "validate_target_grid_consistency",

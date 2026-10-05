@@ -27,7 +27,7 @@ from .chip_config import (
 from .chip_labels import validate_label
 from .chip_preflight import PreparedChipRequest
 from .chip_splits import SplitPlan
-from .chip_types import ChipResult, GeographicAOI, SourceSelector, TargetGrid
+from .chip_types import ChipResult, GeographicAOI, SourceSelector, TargetGrid, label_preparation_provenance
 
 
 DATASET_MANIFEST_VERSION = 1
@@ -161,6 +161,9 @@ def publish_chip_pair(
             code="publication_config_mismatch",
         )
     prepared = assembled.reprojection.acquisition.prepared_request
+    from .chip_label_planning import require_materialized_label
+
+    require_materialized_label(prepared)
     request = prepared.request
     split = prepared.assignment.assigned_split
     if (
@@ -836,6 +839,7 @@ def _sample_document(
         "preflight_assigned_split": prepared.preflight.assigned_split,
         "target_grid_id": _configuration_id(target_grid),
         "target_grid": target_grid,
+        **label_preparation_provenance(request, prepared.preflight, result),
         "geographic_aoi": _geographic_aoi_document(request.geographic_aoi),
         "reference_path": (
             None if request.reference_path is None else str(request.reference_path)
