@@ -119,9 +119,18 @@ def _pixel_mapper(request: ChipRequest, source_grid: TargetGrid):
         if target_srs.IsGeographic():
             rx = branch(rx, target)
         back = _projected_to_pixel(target, rx, ry)
-        if not all(math.isfinite(value) for value in (*pixel, *back)) or math.hypot(back[0] - col, back[1] - row) > 1e-4:
-            raise _label_error(request, code="invalid_label_transform",
-                               message="Label-to-target CRS mapping failed its pixel-space round trip.")
+        error = math.hypot(back[0] - col, back[1] - row)
+        if not all(math.isfinite(value) for value in (*pixel, *back)) or error > 1e-4:
+            raise _label_error(
+                request, code="invalid_label_transform",
+                message=(
+                    "Label-to-target CRS mapping failed its pixel-space round trip "
+                    f"at ({col:.9g}, {row:.9g}): returned "
+                    f"({back[0]:.9g}, {back[1]:.9g}), error={error:.9g} pixels "
+                    "(tolerance=0.0001)."
+                ),
+                expected=(col, row), actual=back,
+            )
         return pixel
 
     return map_pixel, same
@@ -148,9 +157,20 @@ def _covered_footprint(request: ChipRequest, source_grid: TargetGrid):
         middle = ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
         mapped = check(middle)
         # Measure curvature in target pixels, not map units or source pixels.
-        dx, dy = mapper(middle[0] + 1, middle[1]), mapper(middle[0], middle[1] + 1)
-        a, c = dx[0] - mapped[0], dx[1] - mapped[1]
-        b, d = dy[0] - mapped[0], dy[1] - mapped[1]
+        # Probe toward the farther raster edge, capped at one pixel. Always
+        # adding one steps outside bottom/right edges (even an entire one-row
+        # chip), unnecessarily testing the CRS outside the required footprint.
+        # Divide by the signed steps to preserve the Jacobian's scale/direction.
+        def inward_step(coordinate, extent):
+            return (min(1.0, extent - coordinate) if coordinate <= extent / 2
+                    else -min(1.0, coordinate))
+
+        col_step = inward_step(middle[0], target.width)
+        row_step = inward_step(middle[1], target.height)
+        dx = mapper(middle[0] + col_step, middle[1])
+        dy = mapper(middle[0], middle[1] + row_step)
+        a, c = (dx[0] - mapped[0]) / col_step, (dx[1] - mapped[1]) / col_step
+        b, d = (dy[0] - mapped[0]) / row_step, (dy[1] - mapped[1]) / row_step
         determinant = a * d - b * c
         if not math.isfinite(determinant) or abs(determinant) < 1e-20:
             raise _label_error(request, code="invalid_label_transform", message="Label mapping is locally singular.")

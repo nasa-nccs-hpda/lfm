@@ -643,6 +643,18 @@ individually runnable with:
 python -m unittest -v lfm.model.tests.test_chip_label_planning
 ```
 
+HPC follow-up: the user reported one error in
+`GridRelationTestCase.test_different_crs_uses_nearest_warp`, during the
+round-trip check on a curvature derivative probe. Review found that the
+unconditional `row + 1`/`column + 1` probes could leave the target footprint,
+including this fixture's one-row target. Derivative probes now stay inside
+the grid and account for signed, potentially fractional steps. The `1e-4`
+pixel round-trip tolerance is unchanged; failures now report coordinates and
+error magnitude. Two dependency-free regression tests cover one-row/column
+grids and continued rejection of genuinely bad round trips. The updated local
+chip suite ran 163 tests (114 passed, 49 dependency skips). The original GDAL
+test is unchanged and still requires an HPC rerun to confirm this correction.
+
 A2 remains awaiting HPC validation; A3 has not started.
 
 ## Phase A3 — Materialize semantic labels `[Not Started]`

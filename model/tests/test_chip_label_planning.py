@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from lfm.model.chip_acquisition import acquire_prepared_request
 from lfm.model.chip_creation import create_chip
 from lfm.model.chip_label_planning import (
-    _resolve_grid, classify_label_grid, plan_label_preparation,
+    _pixel_mapper, _resolve_grid, classify_label_grid, plan_label_preparation,
 )
 from lfm.model.chip_labels import preflight_label, resolve_label_path
 from lfm.model.chip_preflight import PreparedChipRequest, preflight_chip_requests
@@ -46,6 +46,40 @@ def snapshot(root):
 
 
 class PlanningMetadataTestCase(unittest.TestCase):
+    def test_derivative_probes_stay_inside_small_target_grids(self):
+        for width, height in ((2, 1), (1, 2), (1, 1)):
+            target = grid(width, height)
+            source = grid(width + 2, height + 2)
+
+            def bounded_mapper(col, row):
+                self.assertTrue(0 <= col <= width, (col, row))
+                self.assertTrue(0 <= row <= height, (col, row))
+                return col + 1, row + 1
+
+            for same_crs in (True, False):
+                with self.subTest(width=width, height=height, same_crs=same_crs):
+                    with patch("lfm.model.chip_label_planning._pixel_mapper",
+                               return_value=(bounded_mapper, same_crs)):
+                        relation = classify_label_grid(request(target=target), source)
+                    expected = ("aligned_window", (1, 1, width, height)) if same_crs else ("nearest_warp", None)
+                    self.assertEqual(relation, expected)
+
+    def test_invalid_round_trip_is_still_rejected_with_coordinates(self):
+        srs = SimpleNamespace(IsGeographic=lambda: False, Clone=lambda: srs)
+        forward = SimpleNamespace(TransformPoint=lambda x, y: (x, y, 0))
+        reverse = SimpleNamespace(TransformPoint=lambda x, y: (x + 1, y, 0))
+        with patch("lfm.model.chip_label_planning._lunar_srs", return_value=srs), \
+             patch("lfm.model.chip_label_planning._crs_is_same", return_value=False), \
+             patch("lfm.model.chip_label_planning._create_transformation", side_effect=(forward, reverse)):
+            mapper, _ = _pixel_mapper(request(), grid())
+            with self.assertRaises(LabelMismatchError) as caught:
+                mapper(0.5, 0.5)
+        diagnostic = caught.exception.diagnostics[0]
+        self.assertEqual(diagnostic.code, "invalid_label_transform")
+        self.assertIn("at (0.5, 0.5)", diagnostic.message)
+        self.assertIn("error=0.01 pixels", diagnostic.message)
+        self.assertEqual(diagnostic.expected, "(0.5, 0.5)")
+
     def test_affine_classification_and_pixel_space_coverage_without_gdal(self):
         srs = SimpleNamespace(IsGeographic=lambda: False)
         with patch("lfm.model.chip_label_planning._lunar_srs", return_value=srs):
