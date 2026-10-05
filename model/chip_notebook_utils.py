@@ -8,6 +8,27 @@ from typing import Any
 from .chip_types import ChipResult, TargetGrid
 
 
+def latest_crater_label_path(label_dir: str | Path | None = None) -> Path:
+    """Find the most recently modified crater-notebook export, read-only.
+
+    Defaults to this checkout's notebooks/outputs/labels. Search only immediate
+    *_label_craters.gpkg files: the producer's temporary GeoPackages and unrelated
+    indexes are excluded. Equal mtimes use ascending filename order. Discovery
+    does not validate labels or imply a match to the selected imagery/AOI.
+    """
+    directory = (Path(__file__).resolve().parents[1] / "notebooks/outputs/labels"
+                 if label_dir is None else Path(label_dir).expanduser().resolve())
+    if not directory.is_dir():
+        raise FileNotFoundError(f"Label directory does not exist: {directory}. "
+                                "Accept/export craters first, or supply the labeling notebook's LABEL_DIR.")
+    candidates = [(path.stat().st_mtime_ns, path.name, path)
+                  for path in directory.glob("*_label_craters.gpkg") if path.is_file()]
+    if not candidates:
+        raise FileNotFoundError(f"No *_label_craters.gpkg exports found in {directory}. "
+                                "Accept/export craters in the labeling notebook first.")
+    return min(candidates, key=lambda item: (-item[0], item[1]))[2]
+
+
 def read_source_grid(path: str | Path) -> TargetGrid:
     """Read original imagery metadata only, without loading its raster pixels."""
     from .chip_requests import raster_bounds, validate_target_grid_consistency
@@ -222,6 +243,7 @@ def plot_chip_result(
 
 __all__ = [
     "absent_instance_ids",
+    "latest_crater_label_path",
     "plot_chip_result",
     "read_display_band",
     "read_label",

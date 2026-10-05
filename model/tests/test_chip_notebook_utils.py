@@ -3,7 +3,9 @@
 import ast
 import importlib.util
 import json
+import os
 from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
@@ -14,6 +16,40 @@ from lfm.model.tests import test_chip_types as type_fixtures
 
 
 class NotebookHelperTestCase(unittest.TestCase):
+    def test_latest_export_uses_modification_time_and_ignores_other_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = root / "a_label_craters.gpkg"
+            second = root / "b_label_craters.gpkg"
+            for path, timestamp in ((first, 100), (second, 200), (root / "tmp123.gpkg", 300),
+                                    (root / "output_index.gpkg", 400)):
+                path.touch()
+                os.utime(path, ns=(timestamp, timestamp))
+            (root / "directory_label_craters.gpkg").mkdir()
+            self.assertEqual(helpers.latest_crater_label_path(root), second)
+            # An autosave updates an existing name, rather than creating a new one.
+            os.utime(first, ns=(500, 500))
+            self.assertEqual(helpers.latest_crater_label_path(root), first)
+            os.utime(second, ns=(500, 500))
+            self.assertEqual(helpers.latest_crater_label_path(root), first)
+
+    def test_latest_export_default_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            labels = root / "notebooks/outputs/labels"
+            labels.mkdir(parents=True)
+            expected = labels / "sample_label_craters.gpkg"
+            expected.touch()
+            with patch.object(helpers, "__file__", str(root / "model/chip_notebook_utils.py")):
+                self.assertEqual(helpers.latest_crater_label_path(), expected)
+
+    def test_latest_export_missing_or_empty_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(FileNotFoundError, "Label directory does not exist"):
+                helpers.latest_crater_label_path(Path(tmp) / "missing")
+            with self.assertRaisesRegex(FileNotFoundError, "No .* exports found"):
+                helpers.latest_crater_label_path(tmp)
+
     def test_source_grid_reads_metadata_not_pixels(self):
         dataset = MagicMock()
         dataset.width, dataset.height = 4, 3
