@@ -186,7 +186,7 @@ class LabelPipelineTestCase(unittest.TestCase):
         self.assertFalse((config.output_root / "chips/a_bad_input_static_chip.tif").exists())
 
     def test_changed_source_and_no_imagery_fail_without_pair(self):
-        for name in ("changed", "empty", "invalid"):
+        for name in ("changed", "empty"):
             with self.subTest(name=name):
                 batch = self.run_batch((self.request(name),), name=name)
                 result = batch.results[0]
@@ -194,6 +194,21 @@ class LabelPipelineTestCase(unittest.TestCase):
                 self.assertIsNone(result.chip_path)
                 self.assertIsNone(result.label_path)
                 self.assertFalse(any((self.root / name / "dataset/chips").glob("*")))
+
+    def test_wholly_uncovered_acquired_raster_publishes_nodata_pair(self):
+        from osgeo import gdal
+
+        result = self.run_batch((self.request("invalid"),)).results[0]
+        self.assertEqual(result.status, "success", result.message)
+        self.assertTrue(result.label_path.is_file())
+        self.assertEqual(result.imagery_nodata["union_invalid_percent"], 100.)
+        self.assertIn("uncovered_imagery_bands", [d.code for d in result.diagnostics])
+        dataset = gdal.Open(str(result.chip_path))
+        band = dataset.GetRasterBand(1)
+        self.assertEqual(band.GetNoDataValue(), -32768.)
+        self.assertTrue(self.np.all(band.ReadAsArray() == -32768.))
+        self.assertFalse(band.GetMaskBand().ReadAsArray().any())
+        band = dataset = None
 
     def test_partial_nodata_warns_and_records_spatial_union(self):
         result = self.run_batch((self.request("partial"),)).results[0]
@@ -284,22 +299,25 @@ class LabelPipelineTestCase(unittest.TestCase):
         self.assertTrue(result.prepared_label.path.is_file())
         self.assertEqual(self.label.read_bytes(), before)
 
-    def test_partial_nodata_union_is_not_sum_and_static_cannot_rescue_required_band(self):
+    def test_nodata_union_accounts_for_empty_dynamic_and_wholly_empty_chips(self):
         from types import SimpleNamespace
-        from lfm.model.chip_assembly import summarize_imagery_nodata, ChipAssemblyError
+        from lfm.model.chip_assembly import summarize_imagery_nodata
 
         reprojection = SimpleNamespace(acquisition=SimpleNamespace(prepared_request=SimpleNamespace(request=self.request())))
         mask = self.np.asarray([[[True, False], [True, True]], [[False, False], [True, True]]])
         assembled = SimpleNamespace(valid_mask=mask, pixels=self.np.ones((2, 2, 2)), target_grid=self.grid,
                                     band_names=("dynamic", "static"), required_bands=(True, False),
+                                    band_origins=(("dynamic", "wac"), ("static", "static")),
                                     reprojection=reprojection)
         summary = summarize_imagery_nodata(assembled)
         self.assertEqual([b["invalid_count"] for b in summary["bands"]], [1, 2])
         self.assertEqual(summary["union_invalid_count"], 2)
         mask[0] = False
-        with self.assertRaises(ChipAssemblyError) as caught:
-            summarize_imagery_nodata(assembled)
-        self.assertEqual(caught.exception.code, "no_valid_required_imagery")
+        summary = summarize_imagery_nodata(assembled)
+        self.assertEqual(summary["bands"][0]["invalid_percent"], 100.)
+        mask[:] = False
+        summary = summarize_imagery_nodata(assembled)
+        self.assertEqual(summary["union_invalid_percent"], 100.)
 
 
 if __name__ == "__main__":

@@ -137,7 +137,7 @@ invalid inputs. Typed conversion failures affect only the current sample.
 Prepare and validate labels before tiling; publish target-sized instance NPZ
 and chip GeoTIFF atomically. Partial imagery NoData warns with per-band counts
 and percentages and a spatial union summary, but usable chips can proceed.
-No imagery fails the sample with a clear message and no published pair.
+No acquired raster records fails the sample with a clear message and no published pair; acquired rasters that are wholly NoData on the target grid are allowed.
 NoData values must not be confused with valid zero-background label pixels.
 
 ## Imagery NoData and absent imagery
@@ -151,7 +151,18 @@ spatial pixel once. Include per-band detail so optional placeholder channels do
 not obscure required imagery coverage. Use declared masks/NoData and nonfinite
 values, never pixel magnitude, to determine validity.
 
-If no imagery is available, fail the sample with a clear message such as
+Individual final-grid bands with no coverage are retained in their normal order
+as entirely NoData arrays, including bands from required sources. Chip output
+uses `ChipConfig.common_nodata`, default **-32768.0** (not -32767); custom values
+remain supported. GeoTIFF NoData metadata and validity masks must agree with
+the fill. An empty static band or one empty dynamic channel does not invalidate
+otherwise usable imagery. Entirely uncovered dynamic or static sources, including
+an entirely NoData final chip, are also permitted once raster records and their
+band schemas exist. Emit `uncovered_imagery_bands` warnings identifying the
+channels and fill value; keep labels unchanged by imagery coverage. Missing/corrupt source files, unknown band schemas and acquisition errors
+are not silently reclassified as spatial coverage gaps.
+
+If no raster records were acquired, fail the sample with a clear message such as
 “No imagery was available for this AOI.” An empty tiling return is not a chip
 success. Completely missing required imagery cannot be rescued by static-only
 context or placeholder bands; partially valid imagery can proceed with a

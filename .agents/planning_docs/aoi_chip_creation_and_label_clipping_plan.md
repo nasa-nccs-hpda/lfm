@@ -855,9 +855,10 @@ labels. A6 notebook integration remains pending.
   source-changed-during-run, publication rollback, failure isolation, and
   manifest validation tests.
 - `[Implemented]` **A5.8** Implement partial imagery NoData warnings with
-  final-grid counts and percentages per band and spatial union. No available
-  imagery or wholly invalid required imagery fails the sample; do not publish
-  placeholders as a substitute for missing required imagery.
+  final-grid counts and percentages per band and spatial union. No acquired
+  raster records remains an error; wholly invalid acquired imagery now
+  publishes NoData-filled bands with coverage warnings. Do not invent unknown
+  band schemas or substitute placeholders for acquisition errors.
 - `[Harness implemented; real data pending]` **A5.9** Run a focused HPC smoke
   test using a finished labeling-notebook GeoPackage, two small geographic AOIs,
   the original pre-tiling WAC VIS grid, and canonical static bands. Compare
@@ -901,10 +902,13 @@ not count it as a newly successful sample. Failed replacement never silently
 deletes the old pair to satisfy membership checks.
 
 Partial final-grid NoData logs a warning, appears in progress output, and records
-per-band counts/percentages plus the spatial union in `imagery_nodata`. Fully
-invalid required bands fail with `no_valid_required_imagery` before chip writing;
-an empty record collection becomes `no_imagery`. Static/optional placeholders cannot substitute
-for required dynamic coverage. Tiling behavior itself is unchanged.
+per-band counts/percentages plus the spatial union in `imagery_nodata`. Individual
+fully uncovered bands are now retained and filled with `common_nodata` (default
+-32768), including required-source bands. Entirely uncovered acquired sources
+and wholly NoData chips are also allowed, with `uncovered_imagery_bands` warnings
+identifying empty channels and fill values. An empty record collection still
+becomes `no_imagery`; no missing band schema is invented.
+Tiling behavior and acquisition-error handling are unchanged.
 
 `model/tests/test_chip_a5_integration.py` adds protected-cleanup checks and
 NumPy/GDAL stage integration with synthetic acquisition only: real label
@@ -1004,6 +1008,33 @@ The harness stopped before parallel comparison. Logs are in
 `test_outputs/validate_aoi_chips_37938962.{out,err}`. A5.9 remains open; the user
 explicitly deferred the static-policy decision and authorized proceeding to A6.
 No static requiredness or NoData policy was changed to bypass this failure.
+
+Subsequent user-requested coverage-policy change: final-grid empty bands no
+longer fail assembly or reopened-raster validation individually. They remain in
+band order, filled with the configured common sentinel, and are reported as
+100% NoData. Repository inspection confirmed -32768 in `ChipConfig`, the static
+contract, tiling notebooks and training/inference exclusion lists—not -32767.
+`lfm/full_models` does not exist; `lfm/full_model` consumes configurable model
+NoData policies and was inspected instead. Label ignore indices are distinct
+from raster fill values. Existing user edits in training/loss code were untouched.
+Local chip discovery: 241 tests, 138 passed and 103 dependency skips. New GDAL
+coverage checks reopen mixed valid/empty dynamic/static output and verify values,
+masks, band order, and custom-sentinel overrides; their HPC execution remains
+pending. Re-run job 37938962's smoke command after these tests pass. No successful
+real-data rerun or visual review is claimed yet.
+
+Latest user-requested coverage extension: remove the remaining post-tiling
+whole-source/whole-chip validity rejection. Known acquired bands are written
+with configured NoData (default -32768), even when every dynamic or static band
+is outside final-AOI coverage. Publication emits `uncovered_imagery_bands`
+warnings, retaining per-band and union statistics and the validated label.
+Zero acquired records, missing required modality records, corrupt inputs and
+processing failures remain errors, distinct from known-raster coverage masks.
+Tests now cover fully empty dynamic raster writing, fully empty static pair
+publication, and complete-empty coverage accounting. Local discovery ran 242
+tests: 138 passed, 104 dependency skips; GDAL/NumPy checks still require HPC.
+This supersedes the earlier requirement that wholly uncovered dynamic imagery
+must fail. Tiling and training behavior were not changed.
 
 ## Phase A6 — Make the notebook AOI-first `[Implemented; HPC Run All pending]`
 

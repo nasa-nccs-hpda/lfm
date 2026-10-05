@@ -459,14 +459,8 @@ def summarize_imagery_nodata(assembled: AssembledChip) -> dict:
     valid = np.asarray(assembled.valid_mask, dtype=bool) & np.isfinite(assembled.pixels)
     total = assembled.target_grid.width * assembled.target_grid.height
     counts = np.count_nonzero(~valid, axis=(1, 2))
-    for name, required, count in zip(assembled.band_names, assembled.required_bands, counts):
-        if required and int(count) == total:
-            raise _error(assembled.reprojection,
-                         f"No imagery was available for required band {name!r} on this AOI.",
-                         code="no_valid_required_imagery", band_name=name)
-    if not valid.any():
-        raise _error(assembled.reprojection, "No imagery was available for this AOI.",
-                     code="no_valid_imagery")
+    # Coverage is diagnostic, even if every acquired band is empty on the final
+    # grid. The writer retains the known band schema and fills common_nodata.
     union = int(np.count_nonzero(np.any(~valid, axis=0)))
     return {
         "spatial_pixel_count": total,
@@ -688,13 +682,6 @@ def validate_written_chip(
                     band_name=expected_name,
                 )
             valid_count = int(actual_mask.sum())
-            if assembled.required_bands[index - 1] and valid_count == 0:
-                raise _error(
-                    assembled.reprojection,
-                    f"No imagery was available for required band {expected_name!r} on this AOI.",
-                    code="empty_required_band",
-                    band_name=expected_name,
-                )
             names.append(name)
             valid_counts.append(valid_count)
         return ChipWriteValidation(
@@ -747,7 +734,7 @@ def write_model_ready_chip(
 
     np, gdal, _ = _libraries()
     output, typed_nodata = _cast_pixels(assembled, config.output_dtype, np)
-    summarize_imagery_nodata(assembled)  # Reject unusable imagery before writing a chip.
+    summarize_imagery_nodata(assembled)  # Check coverage accounting before writing.
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.stem}.{uuid4().hex}.tmp.tif")
     dataset = None

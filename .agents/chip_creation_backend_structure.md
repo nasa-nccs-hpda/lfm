@@ -262,8 +262,12 @@ isolation. The user reports its HPC integration tests passed; the focused
 real-data run and visual overlay review remain pending.
 
 Schema-v2 manifests and diagnostics retain label plans, artifact checksums,
-instance maps and final-grid `imagery_nodata` summaries. Partial NoData warns;
-missing imagery or wholly invalid required bands fail. Batch overwrite failures
+instance maps and final-grid `imagery_nodata` summaries. Partial NoData and
+individual fully uncovered bands warn; empty channels retain their positions
+and are filled with `ChipConfig.common_nodata` (default -32768). Wholly uncovered acquired dynamic/static rasters and entirely NoData chips are
+also allowed, with named `uncovered_imagery_bands` warnings. No acquired raster
+records remains an error because the complete band schema is not established.
+Missing/corrupt sources and acquisition errors remain failures. Batch overwrite failures
 may record a verified `preserved_pair` from the previous run without claiming a
 new success. Original labels/sidecars cannot reside under the intermediate root;
 retention/cleanup applies to derived labels and cubes, never those inputs.

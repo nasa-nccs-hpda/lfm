@@ -440,7 +440,41 @@ class ChipAssemblyRasterTestCase(unittest.TestCase):
             self.assertEqual(context.exception.code, "integer_cast_not_lossless")
             self.assertFalse(staged_chip_path(config, assembled.sample_id).exists())
 
-    def test_empty_required_band_fails_before_writing(self):
+    def test_empty_bands_preserve_order_nodata_and_masks_on_disk(self):
+        from dataclasses import replace
+        from osgeo import gdal
+        from lfm.model.chip_assembly import summarize_imagery_nodata
+
+        for sentinel in (-32768.0, -9999.0):
+            with self.subTest(sentinel=sentinel), tempfile.TemporaryDirectory() as directory:
+                config = replace(self.config(Path(directory), (
+                    OutputModalityConfig("coarse", "wac", "wac", output_band_names=("VIS", "UV")),
+                    OutputModalityConfig("coarse", "static", "static", output_band_names=("radar",)),
+                )), common_nodata=sentinel)
+                dynamic = self.values((1.25, -1234.0))
+                mask = self.np.ones(dynamic.shape, dtype=bool)
+                mask[1] = False
+                static = self.values((42.0,))
+                result = self.reprojection(config, (
+                    (("source_vis", "source_uv"), dynamic, mask, "complete"),
+                    (("source_radar",), static, self.np.zeros(static.shape, dtype=bool), "complete"),
+                ))
+                assembled = assemble_chip(result, config)
+                summary = summarize_imagery_nodata(assembled)
+                self.assertEqual([b["invalid_percent"] for b in summary["bands"]], [0., 100., 100.])
+                written = write_model_ready_chip(assembled, config)
+                self.assertEqual(written.validation.band_names, ("VIS", "UV", "radar"))
+                self.assertEqual(written.validation.valid_pixel_counts, (6, 0, 0))
+                dataset = gdal.Open(str(written.path))
+                self.np.testing.assert_array_equal(dataset.GetRasterBand(1).ReadAsArray(), dynamic[0])
+                for index in (2, 3):
+                    band = dataset.GetRasterBand(index)
+                    self.assertEqual(band.GetNoDataValue(), sentinel)
+                    self.assertTrue(self.np.all(band.ReadAsArray() == sentinel))
+                    self.assertFalse(band.GetMaskBand().ReadAsArray().any())
+                band = dataset = None
+
+    def test_wholly_empty_dynamic_imagery_writes_nodata(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             modality = OutputModalityConfig(
@@ -459,12 +493,9 @@ class ChipAssemblyRasterTestCase(unittest.TestCase):
             assembled = assemble_chip(result, config)
             output = staged_chip_path(config, assembled.sample_id)
 
-            with self.assertRaises(ChipAssemblyError) as context:
-                write_model_ready_chip(assembled, config)
-
-            self.assertEqual(context.exception.code, "no_valid_required_imagery")
-            self.assertFalse(output.exists())
-            self.assertFalse(output.parent.exists())
+            written = write_model_ready_chip(assembled, config)
+            self.assertEqual(written.validation.valid_pixel_counts, (0,))
+            self.assertTrue(output.is_file())
 
 
 if __name__ == "__main__":

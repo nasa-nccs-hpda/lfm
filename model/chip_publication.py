@@ -239,6 +239,15 @@ def publish_chip_pair(
                      f"spatial pixels ({nodata['union_invalid_percent']:.2f}%); "
                      "per-band counts and percentages are recorded in imagery_nodata.")),)
         logging.getLogger(__name__).warning("%s: %s", request.sample_id, coverage_diagnostics[0].message)
+    uncovered = [band["name"] for band in nodata["bands"]
+                 if band["invalid_count"] == nodata["spatial_pixel_count"]]
+    if uncovered:
+        diagnostic = ChipDiagnostic(
+            stage="assembly", code="uncovered_imagery_bands", severity="warning",
+            message=(f"No valid coverage after tiling on the final chip grid for bands {uncovered}; "
+                     f"retained and filled with NoData {assembled.common_nodata:g}."))
+        coverage_diagnostics += (diagnostic,)
+        logging.getLogger(__name__).warning("%s: %s", request.sample_id, diagnostic.message)
     effective_selectors = _effective_selectors(written)
 
     try:
