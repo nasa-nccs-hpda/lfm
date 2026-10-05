@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import textwrap
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
@@ -11,6 +12,32 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import rasterio
+
+
+SUBPLOT_TITLE_MAX_CHARACTERS = 45
+
+
+def wrap_subplot_title(
+    title: str,
+    *,
+    width: int = SUBPLOT_TITLE_MAX_CHARACTERS,
+) -> str:
+    """Wrap every logical subplot-title line to at most ``width`` characters."""
+    if isinstance(width, bool) or not isinstance(width, int) or width < 1:
+        raise ValueError("width must be a positive integer.")
+
+    wrapped_lines: list[str] = []
+    for line in str(title).split("\n"):
+        wrapped_lines.extend(
+            textwrap.wrap(
+                line,
+                width=width,
+                break_long_words=True,
+                break_on_hyphens=False,
+            )
+            or [""]
+        )
+    return "\n".join(wrapped_lines)
 
 
 def tile_key(record: Any) -> tuple[str, int, int, int]:
@@ -223,7 +250,11 @@ def plot_cube_pairs(
             vmin, vmax = robust_limits(image)
             plotted = display_array(image)
             rendered = axis.imshow(plotted, cmap=cmap, vmin=vmin, vmax=vmax)
-            axis.set_title(f"{tile_title}\n{label} band {number}: {name}")
+            axis.set_title(
+                wrap_subplot_title(
+                    f"{tile_title}\n{label} band {number}: {name}"
+                )
+            )
             axis.set_xlim(-0.5, plotted.shape[1] - 0.5)
             axis.set_ylim(plotted.shape[0] - 0.5, -0.5)
             axis.set_aspect("equal", adjustable="box")
@@ -288,7 +319,10 @@ def plot_cube_records(
         plotted = display_array(image)
         rendered = axis.imshow(plotted, cmap=cmap, vmin=vmin, vmax=vmax)
         axis.set_title(
-            f"{title}\n{source_label} band {resolved_number}: {resolved_name}"
+            wrap_subplot_title(
+                f"{title}\n{source_label} band {resolved_number}: "
+                f"{resolved_name}"
+            )
         )
         axis.set_xlim(-0.5, plotted.shape[1] - 0.5)
         axis.set_ylim(plotted.shape[0] - 0.5, -0.5)
@@ -434,7 +468,11 @@ def plot_modern_legacy_cube_comparison(
                     vmax=vmax,
                 )
             render_warnings.extend(image_warnings)
-            axis.set_title(f"{tile_title}\n{label} band {number}: {name}")
+            axis.set_title(
+                wrap_subplot_title(
+                    f"{tile_title}\n{label} band {number}: {name}"
+                )
+            )
             axis.set_xlim(-0.5, plotted.shape[1] - 0.5)
             axis.set_ylim(plotted.shape[0] - 0.5, -0.5)
             axis.set_aspect("equal", adjustable="box")
@@ -492,6 +530,7 @@ def plot_modern_legacy_cube_comparison(
 
 
 __all__ = [
+    "SUBPLOT_TITLE_MAX_CHARACTERS",
     "display_array",
     "pair_dynamic_and_static",
     "plot_cube_pairs",
@@ -503,4 +542,5 @@ __all__ = [
     "read_record_band",
     "robust_limits",
     "tile_key",
+    "wrap_subplot_title",
 ]

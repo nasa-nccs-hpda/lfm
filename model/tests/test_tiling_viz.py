@@ -24,9 +24,11 @@ if HAS_VIZ_DEPS:
     SPEC.loader.exec_module(MODULE)
     pair_dynamic_and_static = MODULE.pair_dynamic_and_static
     plot_tiling_records = MODULE.plot_tiling_records
+    wrap_subplot_title = MODULE.wrap_subplot_title
 else:
     pair_dynamic_and_static = None
     plot_tiling_records = None
+    wrap_subplot_title = None
 
 
 @unittest.skipUnless(HAS_VIZ_DEPS, "Notebook visualization dependencies required")
@@ -53,6 +55,21 @@ class TilingVisualizationTestCase(unittest.TestCase):
         )
 
         self.assertEqual(pairs, [(first, static), (second, static)])
+
+    def test_subplot_title_lines_are_limited_to_45_characters(self):
+        title = (
+            "LPS_N z4 tile (123, 456) product M1107459759CE\n"
+            "STATIC band 63: an_extremely_long_static_band_filename.tif"
+        )
+
+        wrapped = wrap_subplot_title(title)
+
+        self.assertGreater(len(wrapped.splitlines()), 2)
+        self.assertTrue(
+            all(len(line) <= 45 for line in wrapped.splitlines()),
+            wrapped,
+        )
+        self.assertEqual("".join(wrapped.split()), "".join(title.split()))
 
     def test_rejects_duplicate_product_on_one_tile(self):
         records = [
