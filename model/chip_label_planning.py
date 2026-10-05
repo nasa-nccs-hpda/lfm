@@ -333,15 +333,28 @@ def _validate_vector(request: ChipRequest, source: LabelInput):
 
 
 def require_materialized_label(prepared: PreparedChipRequest) -> None:
-    """Temporary A2 safety gate until A3–A5 stage and publish derived labels."""
+    """Prevent direct acquisition/publication of an unmaterialized source."""
     plan = prepared.preflight.label_plan
+    artifact = prepared.prepared_label
+    if artifact is not None:
+        if artifact.plan != plan or artifact.target_grid != prepared.request.target_grid:
+            raise _label_error(prepared.request, code="label_plan_mismatch",
+                               message="Prepared label does not match this sample's plan.")
+        try:
+            intact = artifact.path.is_file() and _hash_file(artifact.path) == artifact.sha256
+        except OSError:
+            intact = False
+        if not intact:
+            raise _label_error(prepared.request, code="label_artifact_changed",
+                               message="Prepared label is missing or changed before acquisition/publication.")
+        return
     if (plan is not None and plan.requires_materialization) or (
         plan is None and prepared.request.label_input is not None
         and prepared.request.label_input.relation == "clip_to_target"
     ):
         raise _label_error(
-            prepared.request, code="label_preparation_not_available",
-            message="Label planning passed, but materialization requires the upcoming A3–A5 backend.",
+            prepared.request, code="label_materialization_required",
+            message="Materialize the label before calling acquisition/publication directly.",
         )
 
 

@@ -737,31 +737,31 @@ python -m unittest -v lfm.model.tests.test_chip_label_materialization
 python -m unittest discover -s lfm/model/tests -t . -p 'test_chip*.py' -v
 ```
 
-## Phase A4 — Materialize instance labels `[Implemented; HPC validation pending]`
+## Phase A4 — Materialize instance labels `[Complete]`
 
 Implement the interface and semantics frozen in A0 for raster archives and
 GeoPackage input. The converter remains usable independently of the notebook
 and imagery acquisition.
 
-- `[Implemented]` **A4.1** Implement aligned-window and nearest-neighbor mask
+- `[Complete]` **A4.1** Implement aligned-window and nearest-neighbor mask
   preparation for `.npz` archives.
-- `[Implemented]` **A4.2** Transform and clip COCO boxes into target pixel
+- `[Complete]` **A4.2** Transform and clip COCO boxes into target pixel
   coordinates, including rotated/different-CRS grids.
-- `[Implemented]` **A4.3** Drop fully outside annotations, remap retained IDs
+- `[Complete]` **A4.3** Drop fully outside annotations, remap retained IDs
   stably, and update every mask pixel, box row, and `num_craters` together.
-- `[Implemented]` **A4.4** Reapply the established overlap/occlusion heuristic
+- `[Complete]` **A4.4** Reapply the established overlap/occlusion heuristic
   after clipping; distinguish valid occlusion from disappearance caused by AOI
   exclusion or resampling.
-- `[Implemented]` **A4.5** Validate and hash the target archive, including the
+- `[Complete]` **A4.5** Validate and hash the target archive, including the
   valid empty-label case.
-- `[Implemented]` **A4.6** Add focused tests for partial boxes, fully outside
+- `[Complete]` **A4.6** Add focused tests for partial boxes, fully outside
   instances, ID gaps, overlapping/occluded instances, subpixel instances,
   empty AOIs, malformed archives, and deterministic output bytes.
-- `[Implemented]` **A4.7** Implement GeoPackage layer reading, CRS transformation,
+- `[Complete]` **A4.7** Implement GeoPackage layer reading, CRS transformation,
   clipping, and rasterization through the A0 interface. Return mask, boxes,
   count, ID mapping, and diagnostics; the worker adapter stages and validates
   the resulting NPZ before tiling. Keep source files read-only.
-- `[Implemented; HPC pending]` **A4.8** Test synthetic GeoPackages matching the current
+- `[Complete]` **A4.8** Test synthetic GeoPackages matching the current
   labeling export, including source-grid differences, empty intersections,
   overlap, edge clipping, and invalid geometry. Later validate one real export.
 
@@ -812,14 +812,16 @@ different-CRS grids, larger scenes, partial boxes, compacted IDs, raster
 occlusion and vanished support, empty labels, malformed inputs, exact-byte
 reuse, deterministic bytes, stale sources/sidecars, reopen corruption,
 symlinks, source ownership, and concurrent installation. NumPy/GDAL integration
-checks must run on HPC; local skipped tests do not establish geospatial
+checks run on HPC; local skipped tests do not establish geospatial
 correctness. A real labeling-notebook export remains a later integration check.
 
 Local validation: the new module has 27 tests (six passed, 21 dependency skips).
 Chip discovery ran 215 tests (126 passed, 89 skipped). Broader dependency-aware
 model discovery (`test_[a-z]*.py`) ran 414 tests (288 passed, 126 skipped).
-NumPy and GDAL are unavailable locally; A4 is not marked complete until the
-container's integration tests pass.
+NumPy and GDAL are unavailable locally. The user subsequently reported the HPC
+chip suite passing: **215 tests in 2.060 seconds, OK**, with no skips reported.
+This satisfies A4's runtime validation gate; A4 is complete. The real notebook
+export check remains deferred as described above.
 
 Run from the checkout's parent directory in the HPC container:
 
@@ -828,37 +830,134 @@ python -m unittest -v lfm.model.tests.test_chip_instance_labels
 python -m unittest discover -s lfm/model/tests -t . -p 'test_chip*.py' -v
 ```
 
-A5 orchestration/publication and A6 notebook integration are unchanged. The
-execution guard still rejects plans needing materialization before tiling;
-these new entry points are independently usable, not yet automatically called.
+A4's standalone entry points are now called by A5 worker orchestration below.
+Direct low-level acquisition still requires a materialized artifact for derived
+labels. A6 notebook integration remains pending.
 
-## Phase A5 — Integrate orchestration and publication `[Not Started]`
+## Phase A5 — Integrate orchestration and publication `[Implemented; HPC gates pending]`
 
-- `[Not Started]` **A5.1** Insert `label/clip` materialization after successful
+- `[Implemented]` **A5.1** Insert `label/clip` materialization after successful
   preflight and before `acquire_prepared_request()` in both serial and process
   worker paths.
-- `[Not Started]` **A5.2** Ensure materialization failure records a failed
+- `[Implemented]` **A5.2** Ensure materialization failure records a failed
   sample, emits structured diagnostics, starts no tiling, and lets later batch
   samples continue.
-- `[Not Started]` **A5.3** Pass the validated label artifact explicitly to
+- `[Implemented]` **A5.3** Pass the validated label artifact explicitly to
   publication rather than recovering it indirectly from the source-label path.
-- `[Not Started]` **A5.4** Preserve byte-identical exact-label publication and
+- `[Implemented]` **A5.4** Preserve byte-identical exact-label publication and
   add rollback-safe publication of derived labels.
-- `[Not Started]` **A5.5** Integrate intermediate cleanup/retention and protect
+- `[Implemented]` **A5.5** Integrate intermediate cleanup/retention and protect
   source labels, shared indexes, and unrelated sample intermediates from
   mutation.
-- `[Not Started]` **A5.6** Extend dataset-manifest configuration and sample
+- `[Implemented]` **A5.6** Extend dataset-manifest configuration and sample
   documents with source/derived label provenance and stable configuration IDs.
-- `[Not Started]` **A5.7** Add serial/parallel equivalence, overwrite,
+- `[Implemented; HPC pending]` **A5.7** Add serial/parallel equivalence, overwrite,
   source-changed-during-run, publication rollback, failure isolation, and
   manifest validation tests.
-- `[Not Started]` **A5.8** Implement partial imagery NoData warnings with
+- `[Implemented]` **A5.8** Implement partial imagery NoData warnings with
   final-grid counts and percentages per band and spatial union. No available
   imagery or wholly invalid required imagery fails the sample; do not publish
   placeholders as a substitute for missing required imagery.
+- `[Harness implemented; real data pending]` **A5.9** Run a focused HPC smoke
+  test using a finished labeling-notebook GeoPackage, two small geographic AOIs,
+  the original pre-tiling WAC VIS grid, and canonical static bands. Compare
+  serial/two-worker output pixels, hashes, grids and instance maps; check failure
+  isolation with a deliberately missing label. Verify source/index preservation,
+  final band order, NoData summaries, cleanup, and visually review saved overlays.
 
 Exit gate: exact and clipped labels both participate in the same atomic
-chip-label publication contract under serial and multiprocessing execution.
+chip-label publication contract under serial and multiprocessing execution;
+supported-container tests and the focused real-data smoke test pass.
+
+### A5 implementation and validation
+
+`create_chip()` dispatches semantic/instance preparation inside each worker,
+emits `label/clip` progress before tiling, and carries the immutable artifact on
+the worker's `PreparedChipRequest`. Parent request/preflight records stay intact;
+only artifact metadata returns in `ChipResult`. Direct low-level acquisition of
+an unmaterialized derived plan fails with `label_materialization_required`.
+Materialization failures become failed sample results and never start tiling.
+Preflight/source-hash failures before worker staging retain the typed exception
+contract and are isolated by the batch adapter.
+
+Publication receives `prepared_label` explicitly, verifies the source and
+prepared hashes plus raster sidecar metadata, validates the final-sized label,
+and uses the existing rollback-safe pair publisher. Derived format determines
+the expected dataset suffix (GeoPackage -> NPZ, semantic GeoTIFF -> NPY).
+Exact arrays retain their original bytes. Source-grid/target-grid provenance,
+ID maps, label diagnostics and stable label-plan IDs are stored in schema-v2
+manifests/diagnostics, with a versioned label-preparation policy in configuration
+identity. A staged artifact path may no longer exist after successful cleanup;
+the final `label_path` identifies its published copy.
+
+Cleanup checks protected inputs and rejects sample-directory symlinks. Original
+labels/sidecars must be outside the entire intermediate root, preventing another
+worker's cleanup from owning them. Overwrite checks the source hash before
+clearing old sample intermediates. `never`, `on_failure`, and `always` retention
+apply to derived labels as well as imagery. When a batch overwrite fails but its
+prior pair survives unchanged, the failed result records `preserved_pair` paths
+and hashes; directory validation permits only that verified prior pair and does
+not count it as a newly successful sample. Failed replacement never silently
+deletes the old pair to satisfy membership checks.
+
+Partial final-grid NoData logs a warning, appears in progress output, and records
+per-band counts/percentages plus the spatial union in `imagery_nodata`. Fully
+invalid required bands fail with `no_valid_required_imagery` before chip writing;
+an empty record collection becomes `no_imagery`. Static/optional placeholders cannot substitute
+for required dynamic coverage. Tiling behavior itself is unchanged.
+
+`model/tests/test_chip_a5_integration.py` adds protected-cleanup checks and
+NumPy/GDAL stage integration with synthetic acquisition only: real label
+materialization, chip reprojection, assembly, pair publication, spawned workers,
+manifest equivalence, source-change detection, retention, rollback, GeoPackage
+publication, and NoData accounting. Local dependency-aware discovery ran 427
+tests (290 passed, 137 skipped); the 13 new tests had two local passes and eleven
+NumPy/GDAL skips. Chip-only discovery ran 228 tests (128 passed, 100 skipped).
+These skips do not validate raster behavior. Run the full chip
+suite in the supported container from the checkout's parent:
+
+```bash
+python -m unittest discover -s lfm/model/tests -t . -p 'test_chip*.py' -v
+```
+
+#### Focused A5 real-data run
+
+The user is preparing a finished GeoPackage from the crater-labeling notebook.
+`scripts/python/all_tasks/validate_aoi_chip_creation.py` and
+`scripts/shell/all_tasks/sbatch_validate_aoi_chip_creation.sh` take that file,
+the original five-band WAC VIS source TIFF, an explicit imagery product ID, and
+two AOIs in **NORTH WEST SOUTH EAST** order (IAU:30100). No reference chip or
+label-to-product filename matching is used. Choose distinct small AOIs that
+intersect annotations, ideally with a crater crossing one chip edge. Empty
+labels remain valid backend outputs, but two empty examples do not satisfy this
+visual smoke test. The default cap is 512*512 output pixels per chip.
+
+Submit from the repository root; substitute actual paths/coordinates:
+
+```bash
+mkdir -p scripts/logs
+LABEL_GPKG=/path/to/finished_label_craters.gpkg \
+SOURCE_RASTER=/path/to/PRODUCT.prj.vis.mos.tif \
+WAC_PRODUCT_ID=PRODUCT \
+AOI_1="NORTH WEST SOUTH EAST" \
+AOI_2="NORTH WEST SOUTH EAST" \
+sbatch scripts/shell/all_tasks/sbatch_validate_aoi_chip_creation.sh
+```
+
+These are inline environment assignments: do not put `&&` between them. Optional
+overrides are `LABEL_LAYER`, `WAC_DATA_DIR`, `STATIC_DATA_DIR`, `OUTPUT_ROOT`, and
+`CONTAINER_PATH`. The wrapper uses Grace, two CPUs, and
+`lfm-container-ipyleaflet`; outputs default to
+`notebooks/outputs/chip_a5_<job-id>/`. It refuses to reuse that run directory.
+Canonical shared indexes are validated/reused read-only; custom collections get
+an application-owned index prepared once in the coordinator before workers.
+
+`a5_validation.json` records successes/failures, timings, paths, hashes, grids,
+ID mappings, NoData counts and source/index preservation. `inspection_plots/`
+contains chip/instance/overlay panels with clipped boxes. Numerical success is
+reported separately from pending human visual review. No HPC execution or real
+GeoPackage acceptance has been claimed yet. A7 retains the larger 16-worker,
+broader regression and notebook validation; this smoke test does not replace it.
 
 ## Phase A6 — Make the notebook AOI-first `[Not Started]`
 

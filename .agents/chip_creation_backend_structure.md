@@ -20,7 +20,7 @@ Reference TIFFs or explicit AOIs
        +------+------+
               |
               v
- Tiling -> mosaic/reproject/clip -> assemble/write -> publish
+ Label preparation -> tiling -> mosaic/reproject/clip -> assemble/write -> publish
               |
               v
  ChipResult + diagnostic JSON per sample
@@ -32,16 +32,15 @@ Reference TIFFs or explicit AOIs
 Each worker processes one chip serially. Parallelism happens by running
 multiple independent chips simultaneously.
 
-AOI-first extension status (A1–A4): requests can now derive an outward-rounded
+AOI-first extension status (A1–A5): requests can now derive an outward-rounded
 output grid from a geographic IAU:30100 AOI plus original source-grid metadata,
 or the static-only 100 m rule. Typed `LabelInput`, `LabelPreparationPlan`, and
 `PreparedLabelArtifact` records describe full-scene label preparation without
-carrying arrays. The diagram above still describes the executable pipeline:
-automatic worker materialization remains A5. A2 validates full-scene sources
-and returns read-only preparation plans. A3 semantic materialization is complete;
-A4 adds standalone instance/GeoPackage conversion (pending HPC validation). Plans
-needing conversion fail safely at execution with `label_preparation_not_available`
-before tiling or overwrite cleanup; exact array plans remain executable.
+carrying arrays. A2 validates full-scene sources and returns read-only preparation
+plans. A3/A4 semantic and instance conversion are complete. A5 now invokes those
+converters inside each worker before tiling and explicitly passes their artifacts
+to publication (HPC integration/smoke tests pending). Direct low-level acquisition
+still rejects derived plans without an artifact. Exact-label workflows stay active.
 See the [AOI implementation plan](planning_docs/aoi_chip_creation_and_label_clipping_plan.md)
 for the API and validation status. Existing exact-label workflows remain active.
 
@@ -257,8 +256,16 @@ hashed `LabelPreparationPlan` records without writing any label, dataset, or
 intermediate files. `model/chip_label_materialization.py` separately implements
 semantic preparation on that plan and returns a verified `PreparedLabelArtifact`.
 `model/chip_instance_labels.py` implements the corresponding instance adapter
-and independent GeoPackage converter (A4; HPC validation pending). Automatic
-execution remains A5; pending orchestration materialization is explicitly guarded.
+and independent GeoPackage converter (A4 complete). A5 calls both converters
+before imagery acquisition, with `label/clip` progress and per-sample failure
+isolation. Its integration and real-data HPC gates remain pending.
+
+Schema-v2 manifests and diagnostics retain label plans, artifact checksums,
+instance maps and final-grid `imagery_nodata` summaries. Partial NoData warns;
+missing imagery or wholly invalid required bands fail. Batch overwrite failures
+may record a verified `preserved_pair` from the previous run without claiming a
+new success. Original labels/sidecars cannot reside under the intermediate root;
+retention/cleanup applies to derived labels and cubes, never those inputs.
 
 `model/chip_preflight.py` coordinates the batch-level preflight:
 

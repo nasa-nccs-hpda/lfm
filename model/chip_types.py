@@ -616,6 +616,8 @@ class ChipResult:
     elapsed_seconds: float | None = None
     diagnostics: tuple[ChipDiagnostic, ...] = ()
     prepared_label: PreparedLabelArtifact | None = None
+    imagery_nodata: dict | None = None
+    preserved_pair: dict | None = None
 
     def __post_init__(self) -> None:
         if self.prepared_label is not None:

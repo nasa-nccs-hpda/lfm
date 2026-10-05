@@ -20,6 +20,7 @@ from .chip_types import (
     ChipRequest,
     LabelMismatchError,
     LabelValidationDiagnostic,
+    PreparedLabelArtifact,
 )
 
 
@@ -30,6 +31,14 @@ class PreparedChipRequest:
     request: ChipRequest
     assignment: SplitAssignment
     preflight: ChipPreflight
+    prepared_label: PreparedLabelArtifact | None = None
+
+    def __post_init__(self):
+        if self.prepared_label is not None and (
+            self.prepared_label.plan != self.preflight.label_plan
+            or self.prepared_label.target_grid != self.request.target_grid
+        ):
+            raise ValueError("Prepared artifact must match this request's label plan.")
 
     @property
     def eligible_for_acquisition(self) -> bool:

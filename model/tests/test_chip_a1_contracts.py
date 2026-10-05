@@ -146,7 +146,7 @@ class LabelContractTestCase(unittest.TestCase):
                                        ChipPreflight("passed", "unsplit"))
         with self.assertRaises(LabelMismatchError) as caught:
             require_materialized_label(prepared)
-        self.assertEqual(caught.exception.diagnostics[0].code, "label_preparation_not_available")
+        self.assertEqual(caught.exception.diagnostics[0].code, "label_materialization_required")
 
     def test_provenance_and_new_stages(self):
         source = LabelInput("full.gpkg", relation="clip_to_target")

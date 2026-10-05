@@ -25,6 +25,8 @@ from .chip_acquisition import (
 )
 from .chip_assembly import ChipAssemblyError, assemble_and_write_chip
 from .chip_config import ChipConfig
+from .chip_label_materialization import materialize_semantic_label, _verify_source
+from .chip_instance_labels import materialize_instance_label
 from .chip_preflight import (
     BatchPreflightResult,
     PreparedChipRequest,
@@ -33,6 +35,7 @@ from .chip_preflight import (
 from .chip_publication import (
     ChipPublicationError,
     publish_chip_pair,
+    snapshot_published_pair,
     write_dataset_manifest,
 )
 from .chip_reprojection import ChipReprojectionError, reproject_acquisition
@@ -52,7 +55,7 @@ from .chip_types import (
 )
 
 
-CHIP_DIAGNOSTIC_VERSION = 1
+CHIP_DIAGNOSTIC_VERSION = 2
 
 ChipProgressStage = Literal[
     "preflight",
@@ -438,9 +441,38 @@ def _is_partial(acquisition: ChipAcquisitionResult) -> bool:
 
 def _sample_intermediate_dir(config: ChipConfig, sample_id: str) -> Path:
     root = config.intermediate_root.resolve(strict=False)
-    sample_dir = (config.intermediate_root / sample_id).resolve(strict=False)
-    if sample_dir.parent != root:
+    candidate = root / sample_id
+    sample_dir = candidate.resolve(strict=False)
+    if candidate.is_symlink() or sample_dir != candidate or sample_dir.parent != root:
         raise ValueError("Resolved sample intermediate directory escaped its root.")
+    return sample_dir
+
+
+def _protect_sample_inputs(prepared, config):
+    """Never let overwrite/retention recursively own source inputs or indexes."""
+    sample_dir = _sample_intermediate_dir(config, prepared.request.sample_id)
+    source = prepared.preflight.label_plan.source if prepared.preflight.label_plan else prepared.request.label_input
+    paths = [prepared.request.reference_path, prepared.preflight.resolved_label_path,
+             config.label_source, config.output_root]
+    if source is not None:
+        paths.extend((source.path, source.sidecar_path))
+    # Another sample may clean its subtree concurrently. Original labels and
+    # sidecars must stay outside the entire intermediate root, not just ours.
+    label_paths = [prepared.preflight.resolved_label_path, prepared.request.reference_path]
+    if source is not None:
+        label_paths.extend((source.path, source.sidecar_path))
+    intermediate_root = config.intermediate_root.resolve()
+    for path in label_paths:
+        if path is not None and (Path(path).resolve().is_relative_to(intermediate_root)
+                                 or Path(path).absolute().is_relative_to(intermediate_root)):
+            raise ValueError(f"Original labels/references must be outside all sample intermediates: {path}")
+    for group in config.acquisition_groups:
+        for item in group.tile_config.sources:
+            paths.extend((item.data_dir, item.index_path))
+    for path in paths:
+        if path is not None and (Path(path).resolve().is_relative_to(sample_dir)
+                                 or Path(path).absolute().is_relative_to(sample_dir)):
+            raise ValueError(f"Sample intermediates must not contain protected input/output: {path}")
     return sample_dir
 
 
@@ -467,13 +499,13 @@ def _clear_sample_intermediates(
     config: ChipConfig,
 ) -> ChipDiagnostic | None:
     """Remove only this sample's validated intermediate directory."""
-    sample_dir = _sample_intermediate_dir(config, prepared.request.sample_id)
     try:
+        sample_dir = _protect_sample_inputs(prepared, config)
         if sample_dir.is_symlink():
             raise OSError(f"Refusing to recursively clean symlink {sample_dir}.")
         if sample_dir.exists():
             shutil.rmtree(sample_dir)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         return ChipDiagnostic(
             stage="cleanup",
             code="intermediate_cleanup_failed",
@@ -534,6 +566,8 @@ def _diagnostic_document(
         "target_grid": prepared.request.target_grid.to_dict(),
         "geographic_aoi": prepared.request.geographic_aoi.to_dict(),
         **label_preparation_provenance(prepared.request, prepared.preflight, result),
+        "imagery_nodata": result.imagery_nodata,
+        "preserved_pair": result.preserved_pair,
         "elapsed_seconds": result.elapsed_seconds,
         "message": result.message,
         "diagnostics": [
@@ -781,7 +815,27 @@ def create_chip(
 
     from .chip_label_planning import require_materialized_label
 
-    require_materialized_label(prepared)
+    # Validate source identity and deletion boundaries before overwrite cleanup.
+    plan = prepared.preflight.label_plan
+    if plan is None:
+        require_materialized_label(prepared)
+    if plan is not None:
+        _emit_progress(_progress_callback, prepared, "label/clip", "started", plan.method)
+        try:
+            _verify_source(prepared.request, plan)
+        except LabelMismatchError as exc:
+            exc.stage = "label_preparation"
+            _emit_progress(_progress_callback, prepared, "label/clip", "failed", str(exc))
+            raise
+    try:
+        _protect_sample_inputs(prepared, config)
+    except ValueError as exc:
+        from .chip_labels import _label_error
+        failure = _label_error(prepared.request, code="unsafe_label_staging_path", message=str(exc))
+        failure.stage = "label_preparation"
+        if plan is not None:
+            _emit_progress(_progress_callback, prepared, "label/clip", "failed", str(exc))
+        raise failure from exc
     if overwrite:
         cleanup = _clear_sample_intermediates(prepared, config)
         if cleanup is not None:
@@ -805,6 +859,19 @@ def create_chip(
     acquisition: ChipAcquisitionResult | None = None
     diagnostics = list(preflight_diagnostics)
     try:
+        if plan is not None:
+            materializer = materialize_semantic_label if plan.output_kind == "semantic" else materialize_instance_label
+            try:
+                artifact = materializer(prepared.request, plan, staging_root=config.intermediate_root)
+            except LabelMismatchError as exc:
+                _emit_progress(_progress_callback, prepared, "label/clip", "failed", str(exc))
+                raise
+            prepared = replace(prepared, prepared_label=artifact)
+            diagnostics.extend(ChipDiagnostic(stage="label_preparation", code=item.code, message=item.message,
+                                              severity=item.severity) for item in artifact.diagnostics
+                               if item not in plan.diagnostics)
+            _emit_progress(_progress_callback, prepared, "label/clip", "completed", plan.method)
+        require_materialized_label(prepared)
         _emit_progress(
             _progress_callback,
             prepared,
@@ -812,6 +879,10 @@ def create_chip(
             "started",
         )
         acquisition = acquire_prepared_request(prepared, config)
+        if acquisition.status == "complete" and not acquisition.records:
+            acquisition = replace(acquisition, status="failed", diagnostics=(
+                *acquisition.diagnostics, AcquisitionDiagnostic(
+                    "no_imagery", "No imagery was available for this AOI.", "error")))
         diagnostics.extend(_acquisition_diagnostics(acquisition, config))
         selectors = _effective_selectors(acquisition)
         if acquisition.status == "failed":
@@ -881,19 +952,23 @@ def create_chip(
                     "publish",
                     "started",
                 )
-                result = publish_chip_pair(written, config, overwrite=overwrite)
+                publication_args = {} if prepared.prepared_label is None else {"prepared_label": prepared.prepared_label}
+                result = publish_chip_pair(written, config, overwrite=overwrite, **publication_args)
                 _emit_progress(
                     _progress_callback,
                     prepared,
                     "publish",
                     "completed",
+                    next((d.message for d in result.diagnostics if d.code == "partial_imagery_nodata"), None),
                 )
                 result = replace(
                     result,
-                    diagnostics=tuple(diagnostics),
+                    diagnostics=(*diagnostics, *result.diagnostics),
                     elapsed_seconds=time.perf_counter() - started,
                 )
-            except LabelMismatchError:
+            except LabelMismatchError as exc:
+                exc.stage = "publication"
+                _emit_progress(_progress_callback, prepared, "publish", "failed", str(exc))
                 raise
             except ChipReprojectionError as exc:
                 _emit_progress(
@@ -952,6 +1027,7 @@ def create_chip(
                     message=str(exc),
                     elapsed_seconds=time.perf_counter() - started,
                 )
+        result = replace(result, prepared_label=prepared.prepared_label)
         return _finish_result(
             prepared,
             result,
@@ -960,9 +1036,17 @@ def create_chip(
             overwrite=overwrite,
             progress_callback=_progress_callback,
         )
-    except LabelMismatchError:
-        _cleanup_intermediates(prepared, config, "failed")
-        raise
+    except LabelMismatchError as exc:
+        result = ChipResult(prepared.request, "failed", prepared.preflight,
+                            cube_records=() if acquisition is None else acquisition.records,
+                            prepared_label=prepared.prepared_label,
+                            diagnostics=(*diagnostics, *(ChipDiagnostic(
+                                stage=getattr(exc, "stage", "label_preparation"),
+                                code=d.code, message=d.message, severity=d.severity)
+                                for d in exc.diagnostics)),
+                            message=str(exc), elapsed_seconds=time.perf_counter() - started)
+        return _finish_result(prepared, result, acquisition, config, overwrite=overwrite,
+                              progress_callback=_progress_callback)
     finally:
         # Raster datasets are closed inside their owning stage. Dropping these
         # potentially large arrays promptly keeps each worker bounded.
@@ -980,7 +1064,7 @@ def _label_failure_result(
 ) -> ChipResult:
     diagnostics = tuple(
         ChipDiagnostic(
-            stage="preflight",
+            stage=getattr(exc, "stage", "preflight"),
             code=item.code,
             message=item.message,
             severity=item.severity,
@@ -1013,17 +1097,15 @@ def _run_prepared_request(
 ) -> ChipResult:
     """Run one prepared request with the batch-level label-error contract."""
     started = time.perf_counter()
+    previous = snapshot_published_pair(prepared, config) if overwrite else None
     try:
         if progress_callback is None:
-            return create_chip(prepared, config, overwrite=overwrite)
-        return create_chip(
-            prepared,
-            config,
-            overwrite=overwrite,
-            _progress_callback=progress_callback,
-        )
+            result = create_chip(prepared, config, overwrite=overwrite)
+        else:
+            result = create_chip(prepared, config, overwrite=overwrite,
+                                 _progress_callback=progress_callback)
     except LabelMismatchError as exc:
-        return _label_failure_result(
+        result = _label_failure_result(
             prepared,
             exc,
             config,
@@ -1031,6 +1113,15 @@ def _run_prepared_request(
             elapsed_seconds=time.perf_counter() - started,
             progress_callback=progress_callback,
         )
+    if previous is not None and result.status != "success":
+        if snapshot_published_pair(prepared, config) != previous:
+            raise RuntimeError("Failed overwrite did not preserve the previously published pair.")
+        result = replace(result, preserved_pair=previous)
+        # Keep durable diagnostics consistent with the manifest after rollback.
+        document = json.loads(result.diagnostic_path.read_text())
+        document["preserved_pair"] = previous
+        _write_json_atomic(result.diagnostic_path, document, overwrite=True)
+    return result
 
 
 def _initialize_chip_worker(progress_queue: Any | None = None) -> None:

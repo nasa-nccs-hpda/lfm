@@ -173,7 +173,7 @@ class PlanningMetadataTestCase(unittest.TestCase):
             self.assertFalse((root / "dataset").exists())
             tiling.assert_not_called()
 
-    def test_pending_materialization_is_blocked_before_tiling_or_cleanup(self):
+    def test_missing_planned_source_is_blocked_before_tiling_or_cleanup(self):
         item = request("full.gpkg")
         plan = LabelPreparationPlan(item.label_input, item.target_grid, "vector_rasterize", "a" * 64)
         prepared = PreparedChipRequest(item, SplitAssignment(item.sample_id, "M1", "train", "explicit"),
@@ -184,7 +184,7 @@ class PlanningMetadataTestCase(unittest.TestCase):
                  patch("lfm.model.chip_creation._clear_sample_intermediates") as cleanup:
                 with self.assertRaises(LabelMismatchError) as caught:
                     create_chip(prepared, config, overwrite=True)
-            self.assertEqual(caught.exception.diagnostics[0].code, "label_preparation_not_available")
+            self.assertEqual(caught.exception.diagnostics[0].code, "label_source_changed")
             acquire.assert_not_called()
             cleanup.assert_not_called()
             with patch("lfm.model.chip_acquisition.derive_source_selectors") as select:

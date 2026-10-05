@@ -440,7 +440,7 @@ class ChipAssemblyRasterTestCase(unittest.TestCase):
             self.assertEqual(context.exception.code, "integer_cast_not_lossless")
             self.assertFalse(staged_chip_path(config, assembled.sample_id).exists())
 
-    def test_empty_required_band_fails_reopen_validation_and_cleans_temp(self):
+    def test_empty_required_band_fails_before_writing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             modality = OutputModalityConfig(
@@ -462,9 +462,9 @@ class ChipAssemblyRasterTestCase(unittest.TestCase):
             with self.assertRaises(ChipAssemblyError) as context:
                 write_model_ready_chip(assembled, config)
 
-            self.assertEqual(context.exception.code, "empty_required_band")
+            self.assertEqual(context.exception.code, "no_valid_required_imagery")
             self.assertFalse(output.exists())
-            self.assertEqual(tuple(output.parent.iterdir()), ())
+            self.assertFalse(output.parent.exists())
 
 
 if __name__ == "__main__":

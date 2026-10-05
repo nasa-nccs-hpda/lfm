@@ -453,6 +453,31 @@ def assemble_chip(
     )
 
 
+def summarize_imagery_nodata(assembled: AssembledChip) -> dict:
+    """Final-grid NoData counts; union counts a spatial pixel only once."""
+    np, _, _ = _libraries()
+    valid = np.asarray(assembled.valid_mask, dtype=bool) & np.isfinite(assembled.pixels)
+    total = assembled.target_grid.width * assembled.target_grid.height
+    counts = np.count_nonzero(~valid, axis=(1, 2))
+    for name, required, count in zip(assembled.band_names, assembled.required_bands, counts):
+        if required and int(count) == total:
+            raise _error(assembled.reprojection,
+                         f"No imagery was available for required band {name!r} on this AOI.",
+                         code="no_valid_required_imagery", band_name=name)
+    if not valid.any():
+        raise _error(assembled.reprojection, "No imagery was available for this AOI.",
+                     code="no_valid_imagery")
+    union = int(np.count_nonzero(np.any(~valid, axis=0)))
+    return {
+        "spatial_pixel_count": total,
+        "bands": [{"name": name, "required": required, "invalid_count": int(count),
+                   "invalid_percent": 100.0 * int(count) / total}
+                  for name, required, count in zip(assembled.band_names, assembled.required_bands, counts)],
+        "union_invalid_count": union,
+        "union_invalid_percent": 100.0 * union / total,
+    }
+
+
 def _cast_pixels(assembled: AssembledChip, dtype_name: str, np):
     dtype = np.dtype(dtype_name)
     pixels = np.asarray(assembled.pixels)
@@ -666,7 +691,7 @@ def validate_written_chip(
             if assembled.required_bands[index - 1] and valid_count == 0:
                 raise _error(
                     assembled.reprojection,
-                    f"Required band {expected_name!r} has no finite coverage.",
+                    f"No imagery was available for required band {expected_name!r} on this AOI.",
                     code="empty_required_band",
                     band_name=expected_name,
                 )
@@ -722,6 +747,7 @@ def write_model_ready_chip(
 
     np, gdal, _ = _libraries()
     output, typed_nodata = _cast_pixels(assembled, config.output_dtype, np)
+    summarize_imagery_nodata(assembled)  # Reject unusable imagery before writing a chip.
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.stem}.{uuid4().hex}.tmp.tif")
     dataset = None
