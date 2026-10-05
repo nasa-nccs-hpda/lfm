@@ -1,5 +1,15 @@
 # LFM container builds
 
+To test a container through its Jupyter kernel, open
+[`notebooks/container_kernel_validation.ipynb`](../notebooks/container_kernel_validation.ipynb),
+select the new container kernel, and restart/run all cells. It checks the runtime
+and Matplotlib cache settings, package and repo imports, synthetic geospatial/data
+roundtrips, CPU/CUDA operations, data-loader workers, and a two-step Lightning fit.
+Afterward, interact with the slider and map and confirm the inline figure is
+visible, then rerun the report cell. Browser checks stay pending until confirmed.
+JSON reports are saved to `test_outputs/kernel_validation/`. No datasets or model
+weights are needed; GPU tests require a GPU allocation in JupyterHub.
+
 `.github/workflows/container.yml` builds the ARM64 container on every branch
 push and supports manual runs from the Actions tab. The workflow follows the
 Buildx/login/build-and-push pattern from the supplied `pytorch-caney` example.
