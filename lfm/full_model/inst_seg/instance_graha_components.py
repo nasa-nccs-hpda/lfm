@@ -303,12 +303,45 @@ def import_project_dependencies() -> dict[str, Any]:
 
 
 def make_downstream_object_detection_task_class(lunar_object_detection_task_cls):
-    """Create a task subclass that handles zero-instance Mask R-CNN targets."""
+    """Handle zero-instance targets and pixelwise NoData mask loss exclusion."""
 
     class LunarDownstreamObjectDetectionTask(lunar_object_detection_task_cls):
+        def __init__(
+            self,
+            *args: Any,
+            ignore_nodata_in_loss: bool = False,
+            **kwargs: Any,
+        ) -> None:
+            super().__init__(*args, **kwargs)
+            self.ignore_nodata_in_loss = bool(ignore_nodata_in_loss)
+
+        def forward(self, *args: Any, **kwargs: Any):
+            from lfm.all_models.inst_seg.mask_rcnn_nodata import (
+                use_nodata_aware_maskrcnn_loss,
+            )
+
+            with use_nodata_aware_maskrcnn_loss(
+                self.ignore_nodata_in_loss and self.training
+            ):
+                return super().forward(*args, **kwargs)
+
         def reformat_batch(self, batch: Any, batch_size: int):
+            from lfm.all_models.inst_seg.mask_rcnn_nodata import (
+                encode_nodata_in_instance_masks,
+            )
+
             y = []
             has_masks = "masks" in batch or "mask" in batch or self.masks_field in batch
+            if (
+                self.ignore_nodata_in_loss
+                and self.training
+                and has_masks
+                and "valid_mask" not in batch
+            ):
+                raise KeyError(
+                    "ignore_nodata_in_loss=True requires a per-sample "
+                    "'valid_mask' in the object-detection batch."
+                )
             for i in range(batch_size):
                 target = {
                     "boxes": batch[self.boxes_field][i],
@@ -322,7 +355,17 @@ def make_downstream_object_detection_task_class(lunar_object_detection_task_cls)
                         raise ValueError(
                             f"Expected masks to have shape (N,H,W), got {tuple(masks.shape)}"
                         )
-                    target["masks"] = masks.to(torch.uint8)
+                    masks = masks.to(torch.uint8)
+                    if (
+                        self.ignore_nodata_in_loss
+                        and self.training
+                        and "valid_mask" in batch
+                    ):
+                        masks = encode_nodata_in_instance_masks(
+                            masks,
+                            batch["valid_mask"][i],
+                        )
+                    target["masks"] = masks
                 y.append(target)
             return y
 
@@ -505,6 +548,7 @@ def create_task(
         anchor_sizes=config.anchor_sizes,
         anchor_aspect_ratios=config.anchor_aspect_ratios,
         score_threshold=config.score_threshold,
+        ignore_nodata_in_loss=config.ignore_nodata_in_loss,
     )
 
 

@@ -239,7 +239,10 @@ def _add_nodata_args(
         help=(
             "Ignore TIFF nodata pixels in semantic segmentation loss and metrics."
             if semantic_help
-            else "Thread TIFF nodata pixels through instance target preprocessing."
+            else (
+                "Exclude TIFF nodata pixels from the Graha/GFFT Mask R-CNN "
+                "instance-mask loss."
+            )
         ),
     )
     parser.add_argument(
