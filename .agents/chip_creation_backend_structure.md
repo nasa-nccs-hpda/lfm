@@ -32,13 +32,14 @@ Reference TIFFs or explicit AOIs
 Each worker processes one chip serially. Parallelism happens by running
 multiple independent chips simultaneously.
 
-AOI-first extension status (A1–A2): requests can now derive an outward-rounded
+AOI-first extension status (A1–A3): requests can now derive an outward-rounded
 output grid from a geographic IAU:30100 AOI plus original source-grid metadata,
 or the static-only 100 m rule. Typed `LabelInput`, `LabelPreparationPlan`, and
 `PreparedLabelArtifact` records describe full-scene label preparation without
 carrying arrays. The diagram above still describes the executable pipeline:
-clipping/materialization and GeoPackage conversion are later phases. A2
-validates full-scene sources and returns read-only preparation plans. Plans
+automatic materialization and GeoPackage conversion are later phases. A2
+validates full-scene sources and returns read-only preparation plans. A3 adds
+standalone semantic materialization (pending HPC validation), but plans
 needing conversion fail safely at execution with `label_preparation_not_available`
 before tiling or overwrite cleanup; exact array plans remain executable.
 See the [AOI implementation plan](planning_docs/aoi_chip_creation_and_label_clipping_plan.md)
@@ -74,6 +75,10 @@ in a modern chip-creation run.
 - `model/chip_label_planning.py` owns read-only source validation, source-grid
   resolution, raster coverage/relation checks, GeoPackage validation, hashes,
   and compact label-preparation plans.
+- `model/chip_label_materialization.py` owns standalone worker-side semantic
+  preparation: exact NPY reuse, source windows, integer-preserving nearest
+  reprojection, verified no-clobber NPY staging, and artifact provenance. Shared
+  mask reading supports NPZ, but instance mask/box/count conversion remains A4.
 - `model/chip_preflight.py` owns the non-writing batch gate: deterministic
   request materialization, geographic checks, split planning, conditional label
   validation, and construction of `PreparedChipRequest` objects.
@@ -245,8 +250,10 @@ labels. It reads source-grid sidecars or GeoTIFF metadata, classifies exact,
 aligned-window, and nearest-warp raster relations, checks lunar CRS/coverage
 and NoData gaps, and validates GeoPackage crater layers. It produces compact,
 hashed `LabelPreparationPlan` records without writing any label, dataset, or
-intermediate files. GeoPackage rasterization and raster-label materialization
-are later phases; their pending execution is explicitly guarded.
+intermediate files. `model/chip_label_materialization.py` separately implements
+semantic preparation on that plan and returns a verified `PreparedLabelArtifact`.
+GeoPackage/instance conversion and automatic execution remain later phases;
+pending orchestration materialization is explicitly guarded.
 
 `model/chip_preflight.py` coordinates the batch-level preflight:
 

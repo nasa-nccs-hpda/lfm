@@ -1,8 +1,10 @@
 # Crater Labeling to Chip Creation Contract
 
 Accepted user decisions, updated 2026-10-05. This is an implementation contract;
-A0 is frozen, A1 is complete, and A2 source planning is implemented pending
-HPC validation. Conversion/materialization remains pending. Declarative acceptance fixtures are
+A0 is frozen, and A1 and A2 source planning are complete with user-reported
+HPC validation. A3 semantic materialization is implemented pending HPC validation;
+instance/GeoPackage conversion and orchestration integration remain pending.
+Declarative acceptance fixtures are
 stored in [aoi_chip_contract_fixtures.json](planning_docs/aoi_chip_contract_fixtures.json).
 Tracked in
 [the AOI plan](planning_docs/aoi_chip_creation_and_label_clipping_plan.md).

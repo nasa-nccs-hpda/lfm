@@ -52,8 +52,8 @@ label-conversion interface and semantics; no external handoff is required.
 
 These decisions supersede earlier proposed review and identity gates. A0 is
 complete; the supplement and linked contract freeze the grid, numerical,
-conversion, and fixture details. A1 is complete; A2 is implemented pending HPC
-validation, as recorded in the phase evidence below.
+conversion, and fixture details. A1 and A2 are complete, with successful HPC
+validation recorded in the phase evidence below.
 
 ## Status convention
 
@@ -566,22 +566,22 @@ after setting its working directory to the checkout's parent and using the
 discovery command above. This closes A1's environment-dependent validation
 gate. The exact HPC test count was not supplied.
 
-## Phase A2 — Resolve source labels and plan clipping `[Implemented; HPC validation pending]`
+## Phase A2 — Resolve source labels and plan clipping `[Complete]`
 
-- `[Implemented]` **A2.1** Refactor label validation into source-structure,
+- `[Complete]` **A2.1** Refactor label validation into source-structure,
   source-grid/relation, and final-target validation rather than applying the
   target shape check while opening the source.
-- `[Implemented]` **A2.2** Extend resolution to supported GeoTIFF/GeoPackage labels and
+- `[Complete]` **A2.2** Extend resolution to supported GeoTIFF/GeoPackage labels and
   the new sidecar schema while retaining exact full-sample-ID lookup for legacy
   directory-based labels.
-- `[Implemented]` **A2.3** Accept explicit label paths without filename/product
+- `[Complete]` **A2.3** Accept explicit label paths without filename/product
   equality checks; preserve structural and geospatial validation.
-- `[Implemented]` **A2.4** Compute exact/aligned/warp relations, source windows,
+- `[Complete]` **A2.4** Compute exact/aligned/warp relations, source windows,
   densified coverage, and output encoding without writing files.
-- `[Implemented]` **A2.5** Return typed per-sample failures for missing grid
+- `[Complete]` **A2.5** Return typed per-sample failures for missing grid
   metadata, incompatible CRS, incomplete coverage, ambiguous sidecars,
   malformed source contents, and unsupported formats.
-- `[Implemented]` **A2.6** Prove preflight remains read-only and never invokes
+- `[Complete]` **A2.6** Prove preflight remains read-only and never invokes
   tiling for a rejected label.
 
 Exit gate: preflight deterministically accepts or rejects every A0 fixture and
@@ -653,27 +653,89 @@ pixel round-trip tolerance is unchanged; failures now report coordinates and
 error magnitude. Two dependency-free regression tests cover one-row/column
 grids and continued rejection of genuinely bad round trips. The updated local
 chip suite ran 163 tests (114 passed, 49 dependency skips). The original GDAL
-test is unchanged and still requires an HPC rerun to confirm this correction.
+test is unchanged. The user subsequently reports all tests pass on HPC after
+this correction, closing A2's runtime validation gate. The exact HPC test count
+was not supplied.
 
-A2 remains awaiting HPC validation; A3 has not started.
+A2 is complete; A3 implementation and its remaining HPC gate are recorded below.
 
-## Phase A3 — Materialize semantic labels `[Not Started]`
+## Phase A3 — Materialize semantic labels `[Implemented; HPC validation pending]`
 
-- `[Not Started]` **A3.1** Implement the exact no-copy plan and integer-window
+- `[Implemented]` **A3.1** Implement the exact no-copy plan and integer-window
   slicing for aligned `.npy`, `.npz` masks, and semantic GeoTIFFs.
-- `[Not Started]` **A3.2** Implement nearest-neighbor warp to the exact target
+- `[Implemented]` **A3.2** Implement nearest-neighbor warp to the exact target
   transform, CRS, width, and height for non-aligned semantic labels.
-- `[Not Started]` **A3.3** Preserve integer class IDs and apply only declared
+- `[Implemented]` **A3.3** Preserve integer class IDs and apply only declared
   NoData/background rules; reject values or conversions that cannot be
   represented safely.
-- `[Not Started]` **A3.4** Write derived semantic labels to deterministic
+- `[Implemented]` **A3.4** Write derived semantic labels to deterministic
   per-sample staging paths, validate their shape/content/grid provenance, and
   compute hashes.
-- `[Not Started]` **A3.5** Add window-versus-warp equivalence, CRS, rotated
+- `[Implemented]` **A3.5** Add window-versus-warp equivalence, CRS, rotated
   grid, edge, empty-background, partial-coverage, dtype, and NoData tests.
 
 Exit gate: every accepted semantic source produces one target-sized integer
 `.npy` label before tiling, with exact-grid inputs still byte-preservable.
+
+### A3 implementation and validation
+
+`model/chip_label_materialization.py` exposes
+`materialize_semantic_label(request, plan, staging_root=...)`. It returns a
+`PreparedLabelArtifact` with source/target-grid provenance, hashes, and
+diagnostics, without invoking imagery acquisition or dataset publication.
+
+- Exact NPY plans reuse the original file without copying or creating staging
+  directories. Exact GeoTIFFs still need conversion to canonical NPY.
+- Aligned NPY and GeoTIFF inputs use integer source windows. The shared mask
+  reader also supports NPZ mask windows for A4; the semantic entry point rejects
+  instance sources rather than separating their masks from boxes/counts.
+- Nearest-neighbor reprojection inverse-maps target pixel centers into source
+  pixels. Equal projected CRSs use vectorized affine mapping; differing CRSs
+  and geographic longitude branches use the validated OSR mapping. Only
+  coordinates use floating point: class values retain their source integer
+  dtype, including signed/unsigned 64-bit IDs beyond float64's exact range.
+  Ties within `1e-8` source pixel of an integer boundary select its right/bottom
+  pixel. Rotated target/source affines are preserved.
+- Source hashes, grids, relation/window plans, and sidecar/embedded metadata
+  are rechecked before writing. A2's full-coverage and declared label-NoData
+  checks still apply; unknown areas are never filled with background. Zero
+  background and negative integer class encodings remain valid when not
+  declared NoData. Changed/unreadable sources fail with typed diagnostics.
+- Derived paths are
+  `<staging_root>/<sample_id>/labels/<sample_id>_label.npy`. Reads and output
+  processing use bounded blocks; NPY uses read-only memory mapping and GeoTIFF
+  reads source windows. NPZ mask access necessarily decompresses its mask.
+  Output uses a disk-backed NPY, then is reopened to verify shape, dtype, and
+  a digest of the generated pixel content. The complete file is also hashed.
+- Temporary files are installed with atomic no-clobber links. Existing or
+  concurrently installed artifacts are never overwritten. Sample symlink
+  traversal and staging that would own source labels/sidecars are rejected.
+  Failures remove only this call's files; cleanup failures have diagnostics,
+  and empty directories may remain for A5's retention policy.
+
+Grid provenance is retained in the immutable artifact plan, not a new output
+sidecar. A5 will persist it through the existing diagnostic/manifest schemas
+and integrate worker execution, cleanup, and atomic dataset publication.
+The existing orchestration materialization guard remains in place; notebook
+and publication behavior have not been changed. A4 instance conversion has
+not started.
+
+Local chip discovery: 188 tests ran, 120 passed and 68 were skipped for absent
+dependencies. The new `test_chip_label_materialization` module contains 25
+tests: six locally runnable metadata/safety checks, three NumPy checks, and
+sixteen NumPy/GDAL integration checks. Runtime tests cover exact reuse,
+windows, differing CRS, rotation, categorical ties, wide integers (including
+GeoTIFF UInt64), empty background, multi-block processing, NoData and coverage
+failures, stale source/sidecar/plan rejection, corruption detection, output
+collisions, and shared-parent sample isolation. These runtime checks remain
+pending on HPC; local skips are not evidence of raster correctness.
+
+Run from the checkout's parent directory in the HPC container:
+
+```bash
+python -m unittest -v lfm.model.tests.test_chip_label_materialization
+python -m unittest discover -s lfm/model/tests -t . -p 'test_chip*.py' -v
+```
 
 ## Phase A4 — Materialize instance labels `[Not Started]`
 
