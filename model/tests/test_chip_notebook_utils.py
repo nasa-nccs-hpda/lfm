@@ -39,12 +39,14 @@ class NotebookHelperTestCase(unittest.TestCase):
                     if static:
                         static_dir.mkdir()
                     reader = MagicMock(return_value=type_fixtures.ChipTypesTestCase().grid())
+                    latest = MagicMock(return_value=label)
                     prepare = MagicMock(side_effect=lambda cfg, **kw: SimpleNamespace(index_path=cfg.index_path))
                     static_factory = MagicMock(side_effect=lambda **kw: model.TileSourceConfig(
                         name="static", selection_mode="all_intersecting",
                         band_names=model.STATIC_BAND_NAMES, output_nodata=model.STATIC_OUTPUT_NODATA, **kw))
                     namespace = dict(vars(model), MODALITY=modality, INCLUDE_STATIC=static,
-                                     SOURCE_RASTER=source, LABEL_PATH=label, STATIC_DATA_DIR=static_dir,
+                                     SOURCE_RASTER=source, LABEL_PATH=label if static else None,
+                                     STATIC_DATA_DIR=static_dir, latest_crater_label_path=latest,
                                      AOI_NWSE=(1.3, 149.7, 1., 150.), OUTPUT_BASE_DIR=root / "out",
                                      INDEX_WORKER_COUNT=1, SPLIT_CONFIG=model.NoSplitConfig(),
                                      datetime=datetime, sys=SimpleNamespace(stdout=io.StringIO()),
@@ -54,6 +56,8 @@ class NotebookHelperTestCase(unittest.TestCase):
                     exec(compile(setup, "notebook_setup", "exec"), namespace)
                     exec(compile(config, "notebook_config", "exec"), namespace)
                     result = namespace["chip_config"]
+                    self.assertEqual(namespace["LABEL_PATH"], label)
+                    self.assertEqual(latest.call_count, 0 if static else 1)
                     group = result.acquisition_groups[0]
                     self.assertEqual(group.tile_config.zoom_level, 5 if modality == "wac" else 11)
                     self.assertEqual(len(group.tile_config.sources), 2 if static else 1)
@@ -160,6 +164,7 @@ class NotebookHelperTestCase(unittest.TestCase):
         self.assertNotIn("REFERENCE_CHIP", active)
         self.assertNotIn("reference_sample_from_tiff", active)
         self.assertIn('relation="clip_to_target"', active)
+        self.assertEqual(active.count("    LABEL_PATH = None"), 2)
 
     @unittest.skipUnless(all(importlib.util.find_spec(name) for name in ("numpy", "matplotlib")),
                          "NumPy/Matplotlib unavailable")
