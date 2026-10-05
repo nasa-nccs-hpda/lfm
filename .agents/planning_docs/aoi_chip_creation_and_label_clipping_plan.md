@@ -992,42 +992,74 @@ an application-owned index prepared once in the coordinator before workers.
 `a5_validation.json` records successes/failures, timings, paths, hashes, grids,
 ID mappings, NoData counts and source/index preservation. `inspection_plots/`
 contains chip/instance/overlay panels with clipped boxes. Numerical success is
-reported separately from pending human visual review. No focused real-data HPC
-execution or real GeoPackage acceptance has been reported yet. A7 retains the larger 16-worker,
+reported separately from pending human visual review. A7 retains the larger 16-worker,
 broader regression and notebook validation; this smoke test does not replace it.
 
-## Phase A6 — Make the notebook AOI-first `[Not Started]`
+HPC follow-up, job **37938962**: the serial full-crater AOI published successfully,
+with 78.63% spatial-union NoData (not a WAC-only statistic). The edge-clipping
+AOI completed vector conversion, tiling and reprojection but failed assembly:
+required static band `GlobeNoPolesDeltaCPR_v2-offsetto49d.iau` had no valid pixels.
+The intentional missing-label request failed before acquisition as expected.
+The harness stopped before parallel comparison. Logs are in
+`test_outputs/validate_aoi_chips_37938962.{out,err}`. A5.9 remains open; the user
+explicitly deferred the static-policy decision and authorized proceeding to A6.
+No static requiredness or NoData policy was changed to bypass this failure.
 
-- `[Not Started]` **A6.1** Replace `REFERENCE_DIR` and `REFERENCE_CHIP` in the
+## Phase A6 — Make the notebook AOI-first `[Implemented; HPC Run All pending]`
+
+- `[Implemented]` **A6.1** Replace `REFERENCE_DIR` and `REFERENCE_CHIP` in the
   active configuration with sample ID, geographic IAU:30100 bounds, imagery
   configuration, label path, and label source-grid/provenance inputs. Derive
   dimensions and print the selected CRS/grid and requested/realized footprints.
-- `[Not Started]` **A6.2** Keep source directories, split behavior, chip worker
+- `[Implemented]` **A6.2** Keep source directories, split behavior, chip worker
   count, index worker count, output root, and index ownership in the same
   user/derived separation established by the tiling notebook and handoff.
-- `[Not Started]` **A6.3** Construct the active request only through
+- `[Implemented]` **A6.3** Construct the active request only through
   `chip_request_from_aoi()` and display the materialized target grid and
   transformed geographic query AOI before execution.
-- `[Not Started]` **A6.4** Remove reference-TIFF validation from the active
+- `[Implemented]` **A6.4** Remove reference-TIFF validation from the active
   path. Keep the reference-directory API only as a clearly labeled optional
   compatibility/batch example if it still provides instructional value.
-- `[Not Started]` **A6.5** Update the commented full workflow to accept a
+- `[Implemented]` **A6.5** Update the commented full workflow to accept a
   deterministic iterable of AOI requests (including GeoDataFrame-derived
   rectangular requests constructed outside the backend) rather than scanning
   a reference directory.
-- `[Not Started]` **A6.6** Update visualization for a request with no reference
+- `[Implemented]` **A6.6** Update visualization for a request with no reference
   image: show generated chip, clipped label, overlay, and concise source-label
   clipping provenance without leaving a blank reference panel.
-- `[Not Started]` **A6.7** State prominently that arbitrary polygons are not
+- `[Implemented]` **A6.7** State prominently that arbitrary polygons are not
   silently converted to bounding boxes and that larger array labels require
   geospatial source-grid metadata.
-- `[Not Started]` **A6.8** Preserve one-time coordinator index preparation via
+- `[Implemented]` **A6.8** Preserve one-time coordinator index preparation via
   `resolve_notebook_source_index()` and `ensure_vector_index()` before chip
   workers start.
 
 Exit gate: a clean-kernel **Run All** creates and visualizes one WAC-plus-static
 chip from explicit AOI inputs and a larger source label without reading a
 reference chip.
+
+Implementation: `notebooks/chip_example.ipynb` uses the supplied WAC GeoPackage,
+explicit product selector and the full-crater geographic AOI from job 37938962.
+`read_source_grid()` reads original raster metadata only; output dimensions,
+CRS, affine and requested/realized bounds are displayed before acquisition.
+Labels use explicit `LabelInput(..., relation="clip_to_target")`. The commented
+batch workflow constructs sorted AOI requests and preserves product-grouped
+splits, warning that one product cannot populate independent dataset splits.
+AOI plots have three panels; reference workflows retain the four-panel layout.
+Source-label provenance, instance mappings and clipping diagnostics are printed;
+failed requests show diagnostics without attempting a plot. Shared-index setup
+and static policy are unchanged. Notebook outputs and execution counts are clear.
+
+Local helper validation: three tests passed, one NumPy/Matplotlib plotting test
+skipped. Checks cover metadata-only reads (including rotated affines), missing
+CRS rejection, notebook cell syntax, uncommented batch-example syntax and unique
+cell IDs. The supported-container plotting test and clean-kernel Run All remain
+pending; no notebook execution or visual acceptance is claimed. Full local chip
+discovery then ran 235 tests: 133 passed, 102 dependency skips. The first full
+run exposed a test-isolation issue: importing the standalone smoke CLI prepended
+the checkout to `sys.path`, preventing other tests' spawned workers from finding
+`lfm.model`. The smoke-harness tests now restore the import path after loading
+the CLI; the full suite passed on rerun. Production import behavior is unchanged.
 
 ## Phase A7 — Regression and real-data validation `[Not Started]`
 

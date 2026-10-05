@@ -2,6 +2,7 @@
 
 import importlib.util
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 
@@ -9,7 +10,13 @@ import unittest
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts/python/all_tasks/validate_aoi_chip_creation.py"
 SPEC = importlib.util.spec_from_file_location("aoi_smoke", SCRIPT)
 smoke = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(smoke)
+# The standalone CLI prepends the checkout for notebook-style imports. Do not
+# leak that into suite discovery: spawned tests import from the checkout parent.
+original_sys_path = sys.path[:]
+try:
+    SPEC.loader.exec_module(smoke)
+finally:
+    sys.path[:] = original_sys_path
 
 
 class SmokeAOITestCase(unittest.TestCase):
@@ -47,7 +54,13 @@ class SmokeAOITestCase(unittest.TestCase):
                 feature = None
             layer = ds = None
             before = smoke.sha256(path)
-            aois, selected = smoke.derive_smoke_aois(path, "craters")
+            # Only the script call needs its standalone import convention.
+            original_sys_path = sys.path[:]
+            try:
+                sys.path.insert(0, str(SCRIPT.parents[3]))
+                aois, selected = smoke.derive_smoke_aois(path, "craters")
+            finally:
+                sys.path[:] = original_sys_path
             self.assertEqual(selected, 12)
             self.assertEqual(len(aois), 2)
             self.assertGreater(aois[0][3], aois[1][3])
