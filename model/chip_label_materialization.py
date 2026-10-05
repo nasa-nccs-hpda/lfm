@@ -185,7 +185,7 @@ def _staging_path(request, plan, staging_root):
     root = Path(staging_root).resolve()
     sample_root = root / request.sample_id
     directory = sample_root / "labels"
-    destination = directory / f"{request.sample_id}_label.npy"
+    destination = directory / f"{request.sample_id}_label{plan.output_suffix}"
     for path in (sample_root, directory, destination):
         if path.is_symlink() or path.resolve() != path:
             raise _label_error(request, code="unsafe_label_staging_path",

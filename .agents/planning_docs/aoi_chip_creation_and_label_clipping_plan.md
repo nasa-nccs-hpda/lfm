@@ -657,21 +657,21 @@ test is unchanged. The user subsequently reports all tests pass on HPC after
 this correction, closing A2's runtime validation gate. The exact HPC test count
 was not supplied.
 
-A2 is complete; A3 implementation and its remaining HPC gate are recorded below.
+A2 and A3 are complete; the user accepted A3 before authorizing A4.
 
-## Phase A3 — Materialize semantic labels `[Implemented; HPC validation pending]`
+## Phase A3 — Materialize semantic labels `[Complete]`
 
-- `[Implemented]` **A3.1** Implement the exact no-copy plan and integer-window
+- `[Complete]` **A3.1** Implement the exact no-copy plan and integer-window
   slicing for aligned `.npy`, `.npz` masks, and semantic GeoTIFFs.
-- `[Implemented]` **A3.2** Implement nearest-neighbor warp to the exact target
+- `[Complete]` **A3.2** Implement nearest-neighbor warp to the exact target
   transform, CRS, width, and height for non-aligned semantic labels.
-- `[Implemented]` **A3.3** Preserve integer class IDs and apply only declared
+- `[Complete]` **A3.3** Preserve integer class IDs and apply only declared
   NoData/background rules; reject values or conversions that cannot be
   represented safely.
-- `[Implemented]` **A3.4** Write derived semantic labels to deterministic
+- `[Complete]` **A3.4** Write derived semantic labels to deterministic
   per-sample staging paths, validate their shape/content/grid provenance, and
   compute hashes.
-- `[Implemented]` **A3.5** Add window-versus-warp equivalence, CRS, rotated
+- `[Complete]` **A3.5** Add window-versus-warp equivalence, CRS, rotated
   grid, edge, empty-background, partial-coverage, dtype, and NoData tests.
 
 Exit gate: every accepted semantic source produces one target-sized integer
@@ -717,8 +717,7 @@ Grid provenance is retained in the immutable artifact plan, not a new output
 sidecar. A5 will persist it through the existing diagnostic/manifest schemas
 and integrate worker execution, cleanup, and atomic dataset publication.
 The existing orchestration materialization guard remains in place; notebook
-and publication behavior have not been changed. A4 instance conversion has
-not started.
+and publication behavior have not been changed. A4 instance conversion follows.
 
 Local chip discovery: 188 tests ran, 120 passed and 68 were skipped for absent
 dependencies. The new `test_chip_label_materialization` module contains 25
@@ -727,8 +726,9 @@ sixteen NumPy/GDAL integration checks. Runtime tests cover exact reuse,
 windows, differing CRS, rotation, categorical ties, wide integers (including
 GeoTIFF UInt64), empty background, multi-block processing, NoData and coverage
 failures, stale source/sidecar/plan rejection, corruption detection, output
-collisions, and shared-parent sample isolation. These runtime checks remain
-pending on HPC; local skips are not evidence of raster correctness.
+collisions, and shared-parent sample isolation. A3 was subsequently accepted
+by the user as complete before starting A4; no additional HPC test count was
+provided. Local skips alone are not evidence of raster correctness.
 
 Run from the checkout's parent directory in the HPC container:
 
@@ -737,36 +737,100 @@ python -m unittest -v lfm.model.tests.test_chip_label_materialization
 python -m unittest discover -s lfm/model/tests -t . -p 'test_chip*.py' -v
 ```
 
-## Phase A4 — Materialize instance labels `[Not Started]`
+## Phase A4 — Materialize instance labels `[Implemented; HPC validation pending]`
 
 Implement the interface and semantics frozen in A0 for raster archives and
 GeoPackage input. The converter remains usable independently of the notebook
 and imagery acquisition.
 
-- `[Not Started]` **A4.1** Implement aligned-window and nearest-neighbor mask
+- `[Implemented]` **A4.1** Implement aligned-window and nearest-neighbor mask
   preparation for `.npz` archives.
-- `[Not Started]` **A4.2** Transform and clip COCO boxes into target pixel
+- `[Implemented]` **A4.2** Transform and clip COCO boxes into target pixel
   coordinates, including rotated/different-CRS grids.
-- `[Not Started]` **A4.3** Drop fully outside annotations, remap retained IDs
+- `[Implemented]` **A4.3** Drop fully outside annotations, remap retained IDs
   stably, and update every mask pixel, box row, and `num_craters` together.
-- `[Not Started]` **A4.4** Reapply the established overlap/occlusion heuristic
+- `[Implemented]` **A4.4** Reapply the established overlap/occlusion heuristic
   after clipping; distinguish valid occlusion from disappearance caused by AOI
   exclusion or resampling.
-- `[Not Started]` **A4.5** Validate and hash the target archive, including the
+- `[Implemented]` **A4.5** Validate and hash the target archive, including the
   valid empty-label case.
-- `[Not Started]` **A4.6** Add focused tests for partial boxes, fully outside
+- `[Implemented]` **A4.6** Add focused tests for partial boxes, fully outside
   instances, ID gaps, overlapping/occluded instances, subpixel instances,
   empty AOIs, malformed archives, and deterministic output bytes.
-- `[Not Started]` **A4.7** Implement GeoPackage layer reading, CRS transformation,
+- `[Implemented]` **A4.7** Implement GeoPackage layer reading, CRS transformation,
   clipping, and rasterization through the A0 interface. Return mask, boxes,
   count, ID mapping, and diagnostics; the worker adapter stages and validates
   the resulting NPZ before tiling. Keep source files read-only.
-- `[Not Started]` **A4.8** Test synthetic GeoPackages matching the current
+- `[Implemented; HPC pending]` **A4.8** Test synthetic GeoPackages matching the current
   labeling export, including source-grid differences, empty intersections,
   overlap, edge clipping, and invalid geometry. Later validate one real export.
 
 Exit gate: every accepted instance source publishes a self-consistent
 target-sized archive whose IDs and boxes are valid in target pixel space.
+
+### A4 implementation and validation
+
+`model/chip_instance_labels.py` adds independently callable public APIs:
+
+- `convert_crater_labels(path, target_grid=..., layer="craters")` returns
+  `InstanceLabelConversion(mask, bboxes, num_craters, id_mapping, diagnostics)`.
+  It validates the finished GeoPackage and never writes or acquires imagery.
+- `materialize_instance_label(request, plan, staging_root=...)` returns a
+  `PreparedLabelArtifact`. Exact NPZ inputs retain their original bytes and
+  extra arrays; derived NPZs contain the three canonical training arrays.
+  Array data stays in the worker, not the request or preparation plan.
+
+Vector outlines (including holes/multipart geometry) are transformed into
+target pixel coordinates, adaptively densified for CRS changes, and clipped
+to the realized raster footprint. Isolated line/point intersections are
+discarded before computing boxes. Explicit point/geometry intersection tests
+include boundary-coincident pixel centers without all-touched enlargement or
+buffering. Only each clipped feature's pixel window is visited. Supported
+features are painted in ascending original ID order; full occlusions retain
+their original clipped-outline boxes. Subpixel omissions warn. Source IDs are
+compacted monotonically and retained in the artifact map.
+
+Raster archives reuse A3's integer window/nearest-center sampling. Boxes are
+transformed as outlines before clipping, including rotated and differing-CRS
+grids. Fully excluded annotations are dropped even if a straddling source
+pixel carried their ID into the nearest sample (reported separately). Absent
+IDs with clipped boxes are retained only when another surviving instance has
+pixels in their box region; otherwise they are omitted with a warning. This
+remains the accepted raster overlap heuristic, not proof of vector occlusion.
+
+Derived outputs use `<staging_root>/<sample_id>/labels/<sample_id>_label.npz`.
+Archives have fixed member order, timestamps, NPY version, and uncompressed ZIP
+storage for deterministic bytes. The adapter revalidates source metadata and
+hashes, reopens the archive to validate every array against the conversion,
+hashes the artifact, and installs it with a no-clobber link. Failures remove
+only files owned by that call; existing/concurrent outputs and source labels
+are protected. Empty staging directories remain the caller's responsibility.
+
+`test_chip_instance_labels.py` covers the A0 vector oracles in both feature
+orders, holes, multipart/touch-only geometry, boundary centers, rotated and
+different-CRS grids, larger scenes, partial boxes, compacted IDs, raster
+occlusion and vanished support, empty labels, malformed inputs, exact-byte
+reuse, deterministic bytes, stale sources/sidecars, reopen corruption,
+symlinks, source ownership, and concurrent installation. NumPy/GDAL integration
+checks must run on HPC; local skipped tests do not establish geospatial
+correctness. A real labeling-notebook export remains a later integration check.
+
+Local validation: the new module has 27 tests (six passed, 21 dependency skips).
+Chip discovery ran 215 tests (126 passed, 89 skipped). Broader dependency-aware
+model discovery (`test_[a-z]*.py`) ran 414 tests (288 passed, 126 skipped).
+NumPy and GDAL are unavailable locally; A4 is not marked complete until the
+container's integration tests pass.
+
+Run from the checkout's parent directory in the HPC container:
+
+```bash
+python -m unittest -v lfm.model.tests.test_chip_instance_labels
+python -m unittest discover -s lfm/model/tests -t . -p 'test_chip*.py' -v
+```
+
+A5 orchestration/publication and A6 notebook integration are unchanged. The
+execution guard still rejects plans needing materialization before tiling;
+these new entry points are independently usable, not yet automatically called.
 
 ## Phase A5 — Integrate orchestration and publication `[Not Started]`
 

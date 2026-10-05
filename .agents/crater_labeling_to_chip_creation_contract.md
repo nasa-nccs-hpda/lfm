@@ -2,8 +2,9 @@
 
 Accepted user decisions, updated 2026-10-05. This is an implementation contract;
 A0 is frozen, and A1 and A2 source planning are complete with user-reported
-HPC validation. A3 semantic materialization is implemented pending HPC validation;
-instance/GeoPackage conversion and orchestration integration remain pending.
+HPC validation. A3 semantic materialization is accepted as complete. A4
+instance/GeoPackage conversion is implemented pending HPC validation;
+orchestration integration remains A5.
 Declarative acceptance fixtures are
 stored in [aoi_chip_contract_fixtures.json](planning_docs/aoi_chip_contract_fixtures.json).
 Tracked in
@@ -74,7 +75,7 @@ with a native-CRS `craters` polygon layer
 with `crater_id`, `method`, `source`, `band`, `seed_col`, `seed_row`, and
 `area_native`. Treat annotation provenance as descriptive, not a matching gate.
 
-Proposed callable names may change during implementation:
+Implemented standalone interface (A4; HPC validation pending):
 
 ```text
 convert_crater_labels(path, layer="craters", target_grid=...)
@@ -85,6 +86,11 @@ The source is read-only. The target grid specifies CRS, affine transform,
 width, and height. Conversion transforms source geometry into that grid and
 returns a validated result. The worker adapter stages the NPZ and hands it to
 pair publication; conversion itself does not acquire imagery or publish files.
+`materialize_instance_label(request, plan, staging_root=...)` is the worker-side
+adapter returning a verified `PreparedLabelArtifact`; automatic worker invocation
+and publication wiring remain A5. Exact NPZ files retain original bytes. Derived
+NPZ files contain canonical `mask`, `bboxes`, and `num_craters`, with the ID map
+and diagnostics carried by the artifact, not embedded in training arrays.
 
 ## Accepted instance conversion rules
 

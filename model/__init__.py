@@ -67,6 +67,7 @@ from .chip_creation import (
 from .chip_labels import preflight_label, resolve_label_path, validate_label
 from .chip_label_planning import classify_label_grid, plan_label_preparation
 from .chip_label_materialization import materialize_semantic_label
+from .chip_instance_labels import InstanceLabelConversion, convert_crater_labels, materialize_instance_label
 from .chip_preflight import (
     BatchPreflightResult,
     PreparedChipRequest,
@@ -294,6 +295,9 @@ __all__ = [
     "classify_label_grid",
     "plan_label_preparation",
     "materialize_semantic_label",
+    "InstanceLabelConversion",
+    "convert_crater_labels",
+    "materialize_instance_label",
     "LabelInput",
     "LabelPreparationPlan",
     "PreparedLabelArtifact",
