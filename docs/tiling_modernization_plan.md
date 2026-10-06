@@ -356,6 +356,15 @@ index artifact. T6.5 and Phase T6 are complete.
 
 ## Stable tiling contract for chip creation
 
+Polar chip update (2026-10-06): the chip backend now accepts initial
+single-region north/south polar requests, using the existing tiler unchanged.
+The preview notebook uses family defaults (WAC/static 4, NAC 10); explicit
+TileConfig zooms remain authoritative. Dynamic output keeps its source lattice;
+static-only output uses a zero-anchored 100 m hemisphere LPS grid. Chip seam,
+polar antimeridian and pole-containing cases remain rejected. HPC and real-data
+acceptance are still pending in A6P; older blanket polar-rejection statements
+below describe the previous handoff, not this limited extension.
+
 Coverage extension (2026-10-05): all-NoData warped bands are retained rather
 than dropped. For explicitly named channels absent from a tile's spatial index
 query, the tiler lazily reads a source-wide, product-filtered index inventory

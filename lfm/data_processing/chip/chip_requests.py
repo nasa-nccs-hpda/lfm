@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-import json
 import math
 from pathlib import Path
 import warnings
 
-from .._paths import REPO_ROOT
 from .chip_config import SplitName
 from .chip_types import (
     ChipRequest,
@@ -20,6 +18,8 @@ from .chip_types import (
     validate_request_contracts,
 )
 from ..tiling.lunar_crs import load_lunar_geographic_wkt
+from ..tiling.grid_registry import GridFamily, default_grid_registry
+from ..tiling.grid_router import route_aoi, route_point
 
 
 DEFAULT_SAMPLE_ID_SUFFIXES = (
@@ -41,7 +41,7 @@ LTM_MAX_LATITUDE = 82.0
 
 
 class UnsupportedCoverageError(ValueError):
-    """A target footprint extends outside numbered-LTM coverage."""
+    """A target footprint uses an unsupported polar edge case."""
 
     status = "unsupported_polar_coverage"
 
@@ -361,9 +361,17 @@ def geographic_aoi_from_target_grid(
             )
     if not projected_points:
         raise ValueError("Target-grid perimeter is empty.")
+    # A projected rectangle can contain the pole even if no perimeter sample
+    # reaches 90 degrees. Reject that singular footprint before enveloping it.
+    for pole in (90.0, -90.0):
+        if (pole > 0 and max(latitudes) > 82) or (pole < 0 and min(latitudes) < -82):
+            pole_x, pole_y = _transform_point(reverse, 0.0, pole)
+            col, row = _projected_to_pixel(grid, pole_x, pole_y)
+            if -1e-8 <= col <= grid.width + 1e-8 and -1e-8 <= row <= grid.height + 1e-8:
+                raise UnsupportedCoverageError("Pole-containing target grids are not yet supported.")
     west, east, _, _ = longitude_envelope(longitudes)
     aoi = GeographicAOI(max(latitudes), west, min(latitudes), east)
-    validate_numbered_ltm_coverage(aoi)
+    chip_grid_family(aoi)
     return aoi
 
 
@@ -381,9 +389,36 @@ def validate_numbered_ltm_coverage(aoi: GeographicAOI) -> None:
         )
 
 
+def chip_grid_family(aoi: GeographicAOI) -> GridFamily:
+    """Accept LTM or one non-wrapping polar region; gate seam/pole cases."""
+    if not isinstance(aoi, GeographicAOI):
+        raise TypeError("aoi must be a GeographicAOI.")
+    if aoi.upper_left_latitude == 90 or aoi.lower_right_latitude == -90:
+        raise UnsupportedCoverageError("Pole-touching/containing AOIs are not yet supported.")
+    routes = route_aoi(ul_lat=aoi.upper_left_latitude, ul_lon=aoi.upper_left_longitude,
+                       lr_lat=aoi.lower_right_latitude, lr_lon=aoi.lower_right_longitude)
+    families = {part.family for part in routes}
+    if len(families) != 1:
+        raise UnsupportedCoverageError("Chips crossing the +/-82 degree LTM/polar seam are not yet supported.")
+    family = next(iter(families))
+    if family != GridFamily.LTM and len(routes) != 1:
+        raise UnsupportedCoverageError("Polar antimeridian chip footprints are not yet supported.")
+    return family
+
+
+def default_chip_zoom(aoi: GeographicAOI, modality: str) -> int:
+    """Family-aware acquisition default; explicit TileConfig zooms stay authoritative."""
+    from ..tiling.tiling_workflow import default_zoom_for_modality
+
+    name = modality.casefold()
+    zoom = default_zoom_for_modality("wac" if name == "static" else name, chip_grid_family(aoi))
+    if zoom is None:
+        raise ValueError("Custom modalities require an explicit acquisition zoom.")
+    return zoom
+
+
 def geographic_query_parts(aoi: GeographicAOI) -> tuple[GeographicAOI, ...]:
     """Convert one logical AOI into one or two non-wrapping tiler queries."""
-    validate_numbered_ltm_coverage(aoi)
     logical_west = aoi.upper_left_longitude
     logical_east = aoi.lower_right_longitude
     while logical_east <= logical_west:
@@ -394,6 +429,7 @@ def geographic_query_parts(aoi: GeographicAOI) -> tuple[GeographicAOI, ...]:
             "Logical AOI longitude span must be less than 180 degrees; "
             f"computed span was {span}."
         )
+    chip_grid_family(aoi)
     west = ((logical_west + 180.0) % 360.0) - 180.0
     east = west + span
     if east <= 180.0:
@@ -607,15 +643,13 @@ def target_grid_from_pixel_bounds(
 
 
 def static_grid_reference(aoi: GeographicAOI) -> TargetGrid:
-    """100 m, zero-anchored LTM lattice in the zone containing the AOI center."""
+    """100 m, zero-anchored LTM or hemisphere LPS lattice at the AOI center."""
     geographic_query_parts(aoi)  # also checks polar coverage and ambiguous spans
     span = (aoi.lower_right_longitude - aoi.upper_left_longitude) % 360.0
     longitude = ((aoi.upper_left_longitude + span / 2 + 180) % 360) - 180
     latitude = (aoi.upper_left_latitude + aoi.lower_right_latitude) / 2
-    zone = math.floor((longitude + 180) / 8) + 1
-    hemisphere = "N" if latitude >= 0 else "S"
-    path = REPO_ROOT / "TMS" / "RG" / f"tms_LTM_{zone}{hemisphere}RG.json"
-    crs = json.loads(path.read_text())["crs"]
+    grid_id = route_point(lat=latitude, lon=longitude).grid_id
+    crs = default_grid_registry()[grid_id].crs_wkt
     # The one-pixel extent is only a lattice reference, not a coverage limit.
     return TargetGrid(crs, (0, 100, 0, 0, 0, -100), (0, -100, 100, 0), 1, 1)
 
@@ -832,6 +866,8 @@ __all__ = [
     "target_grid_from_geographic_aoi",
     "target_grid_from_pixel_bounds",
     "static_grid_reference",
+    "chip_grid_family",
+    "default_chip_zoom",
     "validate_numbered_ltm_coverage",
     "validate_request_geographic_aoi",
     "validate_target_grid_consistency",

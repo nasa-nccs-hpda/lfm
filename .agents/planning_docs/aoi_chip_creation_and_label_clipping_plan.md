@@ -1244,13 +1244,48 @@ produce validated canonical training artifacts, and pass supported-container
 tests and focused real-data visual review. Existing semantic support alone does
 not close this phase.
 
-## Phase A6P — Polar chip creation `[Not Started]`
+## Phase A6P — Polar chip creation `[In Progress]`
+
+Initial single-region implementation (2026-10-06):
+
+- User approved 100 m, zero-anchored static-only grids in the repository's
+  hemisphere-specific LPS CRS. Dynamic chips retain the original raster lattice.
+  At the user's request, A6P development proceeds while A6T real-data review
+  remains open; this does not close A6T or waive either phase's acceptance gates.
+- `chip_grid_family` uses the tiling router/registry. Small non-wrapping AOIs
+  wholly north of +82 or south of -82 are accepted. Both requested and realized
+  footprints must be supported. Cross-82 seams, polar antimeridian requests,
+  pole-touching/containing targets and >=180-degree spans remain rejected.
+  The projected rectangle is checked for pole containment before its geographic
+  envelope is constructed. LTM antimeridian splitting remains unchanged.
+- `default_chip_zoom` reuses WAC polar 4 / NAC polar 10; static-only uses WAC's
+  acquisition default. Explicit TileConfig zooms remain authoritative. Mixed
+  family acquisition is deferred with seam support, rather than applying one
+  zoom across a mixed-family request.
+- `notebooks/chip_polar_example.ipynb` is an output-free validation preview,
+  not a real-data-accepted example. It has WAC/NAC/static-only modes, explicit
+  single-band versus VIS/UV WAC selection, latest-GPKG or explicit TIFF labels,
+  label/grid summaries, a configurable pixel-count guard, and optional static.
+  It indexes only the chosen dynamic file/product into run-owned storage and
+  reuses protected static indexes. The ordinary chip notebook remains the LTM
+  example. A source raster and labels covering the chosen AOI must be supplied
+  or verified; the example coordinates do not assert data availability.
+- Focused tests cover family routing, static grid identity, defaults, preserved
+  explicit zoom/selectors, unsupported edge cases, native-grid preservation,
+  pole containment, and synthetic north/south TIFF publication in serial/spawn.
+  Synthetic publication substitutes acquisition; it does not validate real
+  polar tiling/source coverage. GPKG polar integration, real WAC/NAC/static
+  runs, and north/south overlay review remain required.
+- Local chip-suite discovery after this extension: **264 tests, 145 passed,
+  119 dependency skips, no failures**. The nine new polar tests include six
+  dependency-free passes and three GDAL/NumPy skips. Notebook JSON/code syntax
+  checks and `git diff --check` passed. No polar HPC execution is claimed.
 
 - `[Not Started]` **A6P.1 — Freeze supported AOIs and target grids.** Start with
   small rectangular geographic AOIs wholly within one polar region, north and
   south. Keep IAU:30100 input and original dynamic raster CRS/affine/resolution
   as the output contract; polar tile CRS does not replace the source grid.
-  Confirm the static-only counterpart: proposed 100 m, zero-anchored grid in
+  Confirmed static-only counterpart: 100 m, zero-anchored grid in
   the repository's hemisphere-specific `LPS_N`/`LPS_S` CRS. Define requested vs
   realized footprint semantics, longitude normalization and exact ±82° routing.
   Explicitly decide pole-containing/full-longitude AOI representation; longitude

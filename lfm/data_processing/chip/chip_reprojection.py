@@ -602,7 +602,7 @@ def reproject_modality(
         except Exception as exc:
             raise _error(
                 mapping,
-                f"Could not reproject LTM{zone_group.zone}: {exc}",
+                f"Could not reproject grid {zone_group.zone}: {exc}",
             ) from exc
         if band_names is None:
             band_names = zone_names
@@ -615,7 +615,7 @@ def reproject_modality(
         elif zone_names != band_names:
             raise _error(
                 mapping,
-                "LTM zone groups do not share one band contract.",
+                "Lunar grid groups do not share one band contract.",
                 code="inconsistent_zone_bands",
             )
         np.copyto(output, zone_pixels, where=zone_mask)

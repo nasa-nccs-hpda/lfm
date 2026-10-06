@@ -370,8 +370,11 @@ tiles continue. Unknown band names and unreadable/missing indexed rasters still
 fail. The lazy metadata inventory is read-only and cached within a tiler run.
 
 Lunar-grid cubes are intermediate, spatially standardized products. They are
-not necessarily the final training samples. The current chip-creation workflow
-accepts numbered-LTM coverage; its separate polar migration remains pending.
+not necessarily the final training samples. The chip workflow accepts numbered
+LTM and now has initial single-region polar support, pending HPC acceptance.
+See `notebooks/chip_polar_example.ipynb`: dynamic chips retain the original
+source lattice; static-only polar chips use a zero-anchored 100 m LPS grid.
+Cross-82 seams, polar antimeridian and pole-containing chips remain rejected.
 It can group matching cube addresses, merge adjacent tiles, reproject them onto
 a label or reference-image grid, clip them to the desired area, and select or
 combine bands for a particular machine-learning dataset.

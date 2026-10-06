@@ -91,6 +91,8 @@ from .chip_requests import (
     target_grid_from_geographic_aoi,
     target_grid_from_pixel_bounds,
     static_grid_reference,
+    chip_grid_family,
+    default_chip_zoom,
     validate_request_geographic_aoi,
     validate_target_grid_consistency,
 )
@@ -246,6 +248,8 @@ __all__ = [
     "split_config_from_dict",
     "staged_chip_path",
     "static_grid_reference",
+    "chip_grid_family",
+    "default_chip_zoom",
     "target_grid_from_bounds",
     "target_grid_from_geographic_aoi",
     "target_grid_from_pixel_bounds",
