@@ -359,9 +359,13 @@ index artifact. T6.5 and Phase T6 are complete.
 Chip seam update (2026-10-06): the chip consumer now partitions ±82° queries
 into single-family calls with optional per-family zooms. This reuses the strict
 tiler without changing tiling runtime. Target-grid compositing uses geographic
-family precedence with per-band valid-data fallback. Pole-containing chips
-remain rejected; seam HPC/real-data acceptance is pending in A6P. This
-supersedes the earlier cross-82 rejection in the historical update below.
+family precedence with per-band valid-data fallback. User reports seam tests
+and visual validation passed. Pole chips now accept canonical full-longitude
+caps on pole-centered stereographic grids: output is an unmasked rectangle,
+and acquisition uses the existing full-cap tiler to cover its corners with
+0.001° latitude padding. Padded envelopes must stay within one polar region.
+Pole HPC/real-data acceptance is pending in A6P. This supersedes the earlier
+cross-82 and pole rejections in historical updates below.
 
 Polar chip update (2026-10-06): the chip backend now accepts initial
 single-region north/south polar requests, using the existing tiler unchanged.

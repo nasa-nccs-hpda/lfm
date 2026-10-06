@@ -38,6 +38,24 @@ REFERENCE_SUFFIXES = (".tif", ".tiff")
 DEFAULT_EDGE_SAMPLES = 21
 LTM_MIN_LATITUDE = -82.0
 LTM_MAX_LATITUDE = 82.0
+POLAR_CAP_QUERY_PADDING = 0.001  # ~30 m: exceed the tiler's 10 m overlap gate.
+
+
+def _is_full_polar_cap(aoi: GeographicAOI) -> bool:
+    """Canonical 360-degree caps only; do not normalize 360 to zero."""
+    return (aoi.upper_left_longitude == -180 and aoi.lower_right_longitude == 180
+            and ((aoi.upper_left_latitude == 90 and 82 <= aoi.lower_right_latitude < 90)
+                 or (aoi.lower_right_latitude == -90 and -90 < aoi.upper_left_latitude <= -82)))
+
+
+def _require_pole_projection(srs, pole):
+    """Pole-centered stereographic has a finite, continuous native pixel grid."""
+    projection = (srs.GetAttrValue("PROJECTION") or "").casefold()
+    if (not srs.IsProjected() or "stereographic" not in projection
+            or not math.isclose(srs.GetProjParm("latitude_of_origin", 0), pole,
+                                rel_tol=0, abs_tol=1e-8)):
+        raise UnsupportedCoverageError(
+            "Pole-containing chips require a pole-centered stereographic target CRS.")
 
 
 class UnsupportedCoverageError(ValueError):
@@ -361,14 +379,23 @@ def geographic_aoi_from_target_grid(
             )
     if not projected_points:
         raise ValueError("Target-grid perimeter is empty.")
-    # A projected rectangle can contain the pole even if no perimeter sample
-    # reaches 90 degrees. Reject that singular footprint before enveloping it.
+    # A rectangle can contain the pole even when its perimeter never reaches
+    # 90 degrees. Its acquisition envelope must cover every longitude and the
+    # farthest corners, not merely the originally requested circular cap.
     for pole in (90.0, -90.0):
         if (pole > 0 and max(latitudes) > 82) or (pole < 0 and min(latitudes) < -82):
             pole_x, pole_y = _transform_point(reverse, 0.0, pole)
             col, row = _projected_to_pixel(grid, pole_x, pole_y)
             if -1e-8 <= col <= grid.width + 1e-8 and -1e-8 <= row <= grid.height + 1e-8:
-                raise UnsupportedCoverageError("Pole-containing target grids are not yet supported.")
+                _require_pole_projection(source_srs, pole)
+                boundary = (min(latitudes) - POLAR_CAP_QUERY_PADDING if pole > 0
+                            else max(latitudes) + POLAR_CAP_QUERY_PADDING)
+                if (pole > 0 and boundary < 82) or (pole < 0 and boundary > -82):
+                    raise UnsupportedCoverageError(
+                        "Pole-containing output rectangle (including acquisition padding) "
+                        "extends beyond polar coverage; reduce the AOI.")
+                return (GeographicAOI(90, -180, boundary, 180) if pole > 0 else
+                        GeographicAOI(boundary, -180, -90, 180))
     west, east, _, _ = longitude_envelope(longitudes)
     aoi = GeographicAOI(max(latitudes), west, min(latitudes), east)
     chip_grid_family(aoi)
@@ -390,11 +417,12 @@ def validate_numbered_ltm_coverage(aoi: GeographicAOI) -> None:
 
 
 def chip_grid_family(aoi: GeographicAOI) -> GridFamily:
-    """Return the sole family, or center family for a seam; reject pole cases."""
+    """Return the sole family or center family; allow explicit full polar caps."""
     if not isinstance(aoi, GeographicAOI):
         raise TypeError("aoi must be a GeographicAOI.")
-    if aoi.upper_left_latitude == 90 or aoi.lower_right_latitude == -90:
-        raise UnsupportedCoverageError("Pole-touching/containing AOIs are not yet supported.")
+    if (aoi.upper_left_latitude == 90 or aoi.lower_right_latitude == -90) and not _is_full_polar_cap(aoi):
+        raise UnsupportedCoverageError(
+            "Pole AOIs must use full longitude (-180, 180) and remain within one polar region.")
     routes = route_aoi(ul_lat=aoi.upper_left_latitude, ul_lon=aoi.upper_left_longitude,
                        lr_lat=aoi.lower_right_latitude, lr_lon=aoi.lower_right_longitude)
     families = {part.family for part in routes}
@@ -423,6 +451,8 @@ def default_chip_zoom(aoi: GeographicAOI, modality: str) -> int:
 
 def geographic_query_parts(aoi: GeographicAOI) -> tuple[GeographicAOI, ...]:
     """Split at the antimeridian and +/-82 into single-family tiler queries."""
+    if _is_full_polar_cap(aoi):
+        return (aoi,)  # The tiler already supports one deduplicated circular cap query.
     logical_west = aoi.upper_left_longitude
     logical_east = aoi.lower_right_longitude
     while logical_east <= logical_west:
@@ -702,12 +732,17 @@ def target_grid_from_geographic_aoi(
     """Transform an IAU:30100 boundary and round outward on a native lattice."""
     geographic_query_parts(aoi)
     validate_target_grid_consistency(source_grid)
+    full_cap = _is_full_polar_cap(aoi)
+    if full_cap:
+        _require_pole_projection(_spatial_reference(source_grid.crs_wkt),
+                                 90 if aoi.upper_left_latitude == 90 else -90)
     transformation = _create_transformation(
         _spatial_reference(load_lunar_geographic_wkt()),
         _spatial_reference(source_grid.crs_wkt),
     )
     west = ((aoi.upper_left_longitude + 180) % 360) - 180
-    east = west + ((aoi.lower_right_longitude - aoi.upper_left_longitude) % 360)
+    east = west + (360 if full_cap else
+                   (aoi.lower_right_longitude - aoi.upper_left_longitude) % 360)
     north, south = aoi.upper_left_latitude, aoi.lower_right_latitude
 
     def project(point):
@@ -734,9 +769,12 @@ def target_grid_from_geographic_aoi(
                     start[1] + (end[1] - start[1]) * i / 20) for i in range(21)]
         for first, last in zip(samples, samples[1:]):
             refine(first, last, project(first), project(last))
+    # Bound the remaining chord approximation error before outward rounding,
+    # especially when the native lattice is rotated relative to the cap.
+    padding = 1e-4 if full_cap else 0
     return target_grid_from_pixel_bounds(source_grid, (
-        min(p[0] for p in points), min(p[1] for p in points),
-        max(p[0] for p in points), max(p[1] for p in points),
+        min(p[0] for p in points) - padding, min(p[1] for p in points) - padding,
+        max(p[0] for p in points) + padding, max(p[1] for p in points) + padding,
     ))
 
 

@@ -79,9 +79,14 @@ do not independently replan splits per worker. Prepare labels before tiling.
   `ltm_zoom_level`/`polar_zoom_level`; omitted overrides preserve the scalar
   TileConfig zoom. Composite by target pixel-center latitude: polar preferred
   at |latitude| >=82°, LTM below, with per-band valid-data fallback. Static-only
-  seam grids follow the AOI-center rule. Pole-touching/containing targets,
-  spans >=180°, and both-polar-region requests remain gated. Check requested
-  and realized coverage; consult the plan for pending HPC/real-data acceptance.
+  seam grids follow the AOI-center rule. Full-longitude caps use exactly
+  west=-180/east=180 and reach ±90°. Pole-centered stereographic output is an
+  unmasked enclosing rectangle: retain corner imagery AND labels. Acquire a
+  padded full cap covering the rectangle, not merely the requested cap.
+  The padded envelope must stay within one polar region. Partial-longitude
+  pole AOIs, other spans >=180°, and both-polar-region requests remain gated.
+  Check requested and realized coverage; consult the plan for pending
+  pole HPC/real-data acceptance.
 - Acquisition groups include configuration/zoom, not only modality. Preserve
   source selectors and PID grouping. Reference sample IDs retain row/column
   offsets because one product can supply multiple chips/labels.

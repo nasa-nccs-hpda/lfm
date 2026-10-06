@@ -19,8 +19,13 @@ now extends to ±82° seam queries. Dynamic output still inherits the source
 lattice. Static-only uses the existing 100 m center-selected grid, including
 hemisphere LPS when the center is polar. Labels are converted once on that
 final grid, independently of the number of acquisition families; seam crossing
-must not split or duplicate instance IDs. Pole-containing targets remain
-unsupported. See A6P in the AOI plan for pending HPC/real-data acceptance;
+must not split or duplicate instance IDs. Canonical full-longitude caps reaching
+±90° now use an enclosing pole-centered stereographic rectangle without a
+circular mask. Keep imagery and labels in the corners outside the input cap;
+raster labels must cover the entire realized rectangle, and vector outlines
+are clipped to that rectangle. Acquisition covers its farthest corners.
+The rectangle plus query padding must remain within one polar region.
+See A6P in the AOI plan for pending pole HPC/real-data acceptance;
 older polar exclusions below describe the original scope.
 
 The notebook takes one geographic IAU:30100 AOI; batch creation iterates over

@@ -28,6 +28,46 @@ Its user-approved geographic AOI, full-raster label assumption, explicit label
 association, and imagery NoData policies govern A0. This plan now owns the
 label-conversion interface and semantics; no external handoff is required.
 
+## A6P pole extension — accepted rectangle policy (2026-10-06)
+
+User chose **no circular mask**. Canonical full-longitude AOIs such as
+`GeographicAOI(90, -180, 89.5, 180)` (or the southern equivalent) produce
+an outward-rounded enclosing rectangle on the native pole-centered
+stereographic lattice. Imagery and labels in the rectangle's corners remain,
+even outside the original cap. Static-only retains its zero-anchored 100 m LPS
+grid. Original requested AOI and realized target grid remain in provenance.
+
+Implemented in `chip_requests.py`: pole-containing/touching projected grids
+derive a full-longitude acquisition cap reaching their farthest corners,
+with 0.001° latitude padding to exceed the tiler's 10 m overlap threshold.
+The existing tiler accepts this as one cap query and deduplicates addresses;
+no tiling runtime change is required. Labels are prepared once over the whole
+rectangle, with unchanged coverage, categorical and instance rules.
+
+Initial bounds: the entire rectangle plus acquisition padding must stay in
+one polar region. Reject rectangles extending across ±82°, partial-longitude
+pole AOIs, non-pole-centered target projections, non-cap spans >=180°, and
+both-pole requests. These are explicit limits, not silent clipping.
+
+`test_chip_poles.py` covers both hemispheres, rotated grids, pole edge/corner
+contacts, full-cap acquisition, unmasked semantic/instance TIFF and GPKG
+labels, serial/spawn equivalence, and real tiling-to-publication with a
+synthetic raster. GDAL-dependent execution and real pole-data overlay review
+remain pending on HPC. The polar notebook has a disabled-by-default pole
+example; existing supplied outlines are not near the immediate pole.
+User reported seam-crossing visual results look good; polar NAC real-data
+coverage remains untested. Do not mark all A6P acceptance complete.
+This update supersedes historical pole rejections below.
+
+Local validation: chip discovery ran 285 tests, OK with 113 dependency skips
+using `/tmp/lfm-labeling-py312/bin/python` (no GDAL). Notebook JSON, unique
+cell IDs and code syntax passed; the updated chip skill passed its validator.
+This is not a notebook Run All or GDAL integration acceptance. Run on HPC:
+
+```bash
+python -m unittest discover -s lfm/data_processing/tests/chip -t . -p 'test_chip*.py' -v
+```
+
 ## Accepted A0 decisions
 
 1. Public AOIs use repository IAU:30100. The notebook demonstrates one AOI;
@@ -1284,6 +1324,17 @@ and serial/spawn semantic/GPKG pair publication without duplicate instances.
 These tests and real-data seam overlays still require HPC execution.
 The user could not find a polar NAC raster; real-data NAC polar acceptance
 remains unverified, not implicitly completed.
+
+HPC follow-up: after replacing the stale request-test expectation that seams
+must fail, the user reports all tests passed. The seam unit-test gate is now
+satisfied; real-data seam acceptance remains pending. The polar notebook adds
+an enabled-by-default second north-WAC query `(86.1, -48.7, 81.95, -19.5)`
+using `WAC_GLOBAL_P900N0000_100M.eqc.iau2.LPS_N_label_craters (2).gpkg`.
+Read-only inspection confirms this AOI contains source craters 13–20 and crosses
+82°N; its projected bounding rectangle is approximately 2.2 million pixels
+at 100 m. No supplied crater outline intersects the seam, so this example
+validates imagery joining and retained polar labels, not a seam-straddling
+real annotation. Both requests share a product/split group and dataset manifest.
 
 Polar antimeridian extension (2026-10-06):
 

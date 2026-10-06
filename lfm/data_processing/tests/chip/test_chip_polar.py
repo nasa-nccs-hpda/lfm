@@ -213,13 +213,16 @@ class PolarChipGridTestCase(unittest.TestCase):
             self.assertEqual(native.target_grid.transform[1], 1)
             validate_request_geographic_aoi(native)
 
-    def test_rectangle_enclosing_pole_rejected(self):
+    def test_rectangle_enclosing_pole_uses_full_longitude_envelope(self):
         for name in ("LPS_N", "LPS_S"):
             grid = target_grid_from_bounds(crs_wkt=default_grid_registry()[name].crs_wkt,
                                            bounds=(499000, 499000, 501000, 501000),
                                            width=20, height=20)
-            with self.assertRaises(UnsupportedCoverageError):
-                geographic_aoi_from_target_grid(grid)
+            aoi = geographic_aoi_from_target_grid(grid)
+            self.assertEqual((aoi.upper_left_longitude, aoi.lower_right_longitude), (-180, 180))
+            self.assertEqual(aoi.upper_left_latitude if name == "LPS_N" else aoi.lower_right_latitude,
+                             90 if name == "LPS_N" else -90)
+            self.assertEqual(len(geographic_query_parts(aoi)), 1)
 
 
 @unittest.skipUnless(all(importlib.util.find_spec(name) for name in ("osgeo", "numpy")),

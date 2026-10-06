@@ -45,9 +45,16 @@ strict tiler. Optional acquisition-group `ltm_zoom_level`/`polar_zoom_level`
 override the base scalar zoom; the polar notebook uses WAC/static 5/4 or NAC
 11/10. Final-grid compositing prefers the geographic owner family, falling
 back to valid other-family data per band. Dynamic native grids remain intact;
-static-only uses the AOI-center grid at 100 m. Pole-containing chips remain
-unsupported. This supersedes older blanket polar/seam rejections below.
-Seam GDAL/HPC and real-data validation are pending in the AOI plan.
+static-only uses the AOI-center grid at 100 m. User reports seam tests and
+visual validation passed. This supersedes older blanket polar/seam rejections.
+
+2026-10-06 pole extension: canonical full-longitude caps reaching ±90° now
+produce unmasked enclosing rectangles on pole-centered stereographic grids.
+Retain corner imagery and labels; acquire a full-longitude cap covering the
+rectangle's farthest corners, padded by 0.001° latitude. The existing tiler
+handles that cap in one deduplicated query. Keep the entire padded envelope
+inside one polar region; reject larger cross-82 caps and ambiguous pole AOIs.
+Pole GDAL/HPC integration and real-data acceptance are pending in the AOI plan.
 
 2026-10-05 coverage extension (user-reported HPC tests passed): tiling now
 retains all-NoData warped channels. Missing named channels in a spatial query
