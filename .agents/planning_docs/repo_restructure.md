@@ -1,6 +1,7 @@
 # Data Processing Package Restructure
 
-Created: 2026-10-06. Status: planning complete; implementation not started.
+Created: 2026-10-06. Status: backend migration implemented and locally validated;
+container/HPC and interactive notebook validation remain outstanding.
 
 ## Objective and scope
 
@@ -11,7 +12,8 @@ resource lookup, execution wrappers, and documentation together.
 
 The user requested `chip/`, `tiling/`, and `labeling/`, and accepted a separate
 `clustering/` directory for the existing clustering utilities. This document
-plans the migration; creating it does not initiate the code moves.
+tracks the migration. The user subsequently authorized implementation, including
+consistent canonical imports throughout the repository.
 
 Keep processing behavior, module filenames, public function signatures, output
 schemas, numerical policies, and data locations stable. Training/inference
@@ -154,7 +156,7 @@ Use `[Not Started]`, `[In Progress]`, `[Implemented]`, and `[Complete]`.
 `[Implemented]` means edits and local checks are done but required container
 validation remains. `[Complete]` requires the phase's recorded evidence.
 
-### R0 — Baseline and caller inventory `[Not Started]`
+### R0 — Baseline and caller inventory `[Implemented]`
 
 - Record the starting revision and preserve unrelated working-tree changes.
 - Inventory every source file and assign its destination using the mapping
@@ -171,7 +173,7 @@ validation remains. `[Complete]` requires the phase's recorded evidence.
 Acceptance: complete file/caller mapping and an explicit baseline, including
 any pre-existing failures. No claim of baseline success from static counts.
 
-### R1 — Relocate implementation and establish imports `[Not Started]`
+### R1 — Relocate implementation and establish imports `[Complete]`
 
 - Move files with content-preserving operations so Git can detect renames.
 - Add package initializers; distribute the old facade exports by ownership.
@@ -189,7 +191,7 @@ Acceptance: canonical imports resolve to the moved files, cross-package
 imports are acyclic, and resource lookup works independently of the caller's
 working directory. No change to scientific behavior or data locations.
 
-### R2 — Update callers and execution wrappers `[Not Started]`
+### R2 — Update callers and execution wrappers `[Complete]`
 
 - Update active and archived notebook imports and root-discovery guards that
   currently require a root `model/` directory. Preserve their configurations,
@@ -210,7 +212,7 @@ Acceptance: repository entry points resolve the new package without depending
 on the checkout directory being named `lfm` or importing the outer checkout as
 a package. Existing CLI arguments and container bind destinations still work.
 
-### R3 — Migrate tests and validate behavior `[Not Started]`
+### R3 — Migrate tests and validate behavior `[Implemented]`
 
 - Move existing tests by ownership, update mock strings, shared-fixture
   imports, and repository-relative fixture/script lookup.
@@ -240,7 +242,7 @@ Acceptance: no unexplained new failures, skips, missing tests, import errors,
 resource-path failures, or output-contract differences. Record local checks
 separately from container/HPC and interactive notebook evidence.
 
-### R4 — Documentation and retirement of old paths `[Not Started]`
+### R4 — Documentation and retirement of old paths `[Implemented]`
 
 - Update README, `TMS/README.md`, current documentation under `docs/`, and
   executable examples to show the new layout and imports.
@@ -286,3 +288,69 @@ it should not require relocating datasets, labels, indexes, or checkpoints.
 - 2026-10-06: Created this plan after inspecting the current package layout,
   import conventions, resource lookup, notebook entry points, and Slurm test
   wrapper. No implementation moves or runtime validation performed.
+- 2026-10-06: Implemented the authorized migration from baseline revision
+  `bfdd494aa8147806723affd277e1e1b93fe523cb`. The starting worktree was clean.
+  Moved all implementation files and the existing 43 test modules according to
+  the mapping above. Split all 199 original public exports between the chip
+  and tiling facades. Preserved all original test methods.
+- Added `lfm/data_processing/_paths.py` for repository-owned resources. Removed
+  the retired `model/`, `lfm/labeling/`, and empty outer `__init__.py`. No
+  compatibility aliases remain. Relative imports stay within the canonical
+  package; external callers use `lfm.data_processing.*` with the checkout root
+  on `sys.path`.
+- Updated eight notebooks, the shared tiling helper, Python entry points,
+  container smoke imports, and affected Slurm wrappers. Verified 21 Python
+  entry-point bootstraps and all eight notebook bootstrap cells resolve the
+  checkout root from their supported locations. Archived notebooks correctly
+  account for their extra `toy_model/` directory level.
+- Preserved notebook outputs, execution counts, cell metadata, and existing
+  cell IDs. Changed source cells parse after accounting for notebook magics;
+  changed notebook JSON is valid and existing cell IDs are unique. Historical
+  output tracebacks may still contain the old paths, intentionally.
+- Parsed 267 repository Python files outside the vendored Graha tree and
+  verified all explicit local backend import targets exist. Changed shell
+  wrappers pass `bash -n`. Mocked Apptainer/Slurm execution verified canonical
+  test module names, working directories, bind/entry paths, and flag forwarding.
+- Baseline local discovery from the checkout parent ran 465 test cases:
+  301 passed, 160 skipped, and four test-module import errors caused by missing
+  `osgeo` (`test_Pipeline`, `test_TmsIntersector`, `test_TmsTileDef`, and
+  `test_TmsZoneDef`). The migrated original suite produced the same counts.
+- Added five package-layout regression tests covering public export/class
+  identity, tiling import isolation from chip/widget packages, resource lookup
+  from another working directory, a differently named checkout path, and
+  type identity through a spawned worker. Final local discovery ran 470 cases:
+  306 passed, 160 skipped, and the same four missing-GDAL import errors.
+  No additional failures or skips were introduced.
+- Current README, TMS documentation, backend structure/handoff references, and
+  the lunar-tiling skill use the new package paths. Historical plans have a
+  migration note instead of rewritten execution evidence. Labeling/clustering
+  test directories were not created empty; future tests can use those planned
+  destinations.
+- R0/R3/R4 retain `[Implemented]` status because this environment has neither
+  Apptainer nor Slurm and lacks scientific dependencies needed for full runtime
+  validation. No container/GPU job, real-data raster comparison, or interactive
+  labeling/clustering session was run. Those checks remain necessary for full
+  environment acceptance; the backend and repository caller migration itself
+  is implemented.
+
+### Remaining environment validation
+
+From the checkout root in the supported container, run:
+
+```bash
+python -m unittest discover -s lfm/data_processing/tests -t . -v
+python scripts/python/test_container_dependencies.py --skip-gpu
+```
+
+For the existing GPU/container and tiling Slurm entry points, submit from the
+checkout root:
+
+```bash
+sbatch scripts/shell/test_container.sbatch /absolute/path/to/container
+sbatch scripts/shell/all_tasks/sbatch_tiling_modernization_tests.sh
+```
+
+Then exercise the tiling/chip notebook workflows and interactive labeling and
+archived clustering workflows, recording dependency versions and any output
+differences against existing acceptance evidence. Retain the existing shared
+source-index protections and per-run output directories.

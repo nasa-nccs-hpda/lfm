@@ -1,5 +1,12 @@
 # Polar Tiling Integration Plan
 
+Package migration (2026-10-06): backend imports now use
+`lfm.data_processing.chip`, `lfm.data_processing.tiling`, and
+`lfm.data_processing.labeling`, with the checkout root on `sys.path`.
+Historical phase records retain their original paths. See
+[repo_restructure.md](repo_restructure.md) for the file mapping and new test
+commands.
+
 This document is the sequential implementation plan for adding Armstrong polar
 tiling to the modern LFM tiling workflow. It also covers two related usability
 changes required by the public workflow: automatic source-index preparation and

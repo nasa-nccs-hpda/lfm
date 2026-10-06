@@ -44,124 +44,124 @@ still rejects derived plans without an artifact. Exact-label workflows stay acti
 See the [AOI implementation plan](planning_docs/aoi_chip_creation_and_label_clipping_plan.md)
 for the API and validation status. Existing exact-label workflows remain active.
 
-## Behavior map for files under `model/`
+## Behavior map for files under `lfm/data_processing/`
 
-The `model/` directory contains the modern chip pipeline, the tiling backend it
+The `lfm/data_processing/` directory contains the modern chip pipeline, the tiling backend it
 uses, and older or offline TMS utilities. Not every file participates directly
 in a modern chip-creation run.
 
 ### Modern chip-creation files
 
-- `model/__init__.py` is the public import surface. It re-exports the supported
-  chip, tiling, CRS, index, and band-contract objects; it does not implement a
-  processing stage.
-- `model/chip_types.py` owns the shared request, grid, AOI, preflight,
+- `lfm/data_processing/chip/__init__.py` exports the supported chip APIs.
+  `lfm/data_processing/tiling/__init__.py` exports tiling, CRS, index, and
+  band-contract APIs. Neither facade implements a processing stage.
+- `lfm/data_processing/chip/chip_types.py` owns the shared request, grid, AOI, preflight,
   diagnostic, result, and typed-error records, plus invariants involving more
   than one request.
-- `model/chip_config.py` owns acquisition-group, output-modality, split,
+- `lfm/data_processing/chip/chip_config.py` owns acquisition-group, output-modality, split,
   output-format, NoData, sample-limit, and intermediate-retention policies. It
   also applies built-in zoom and WAC band defaults.
-- `model/chip_requests.py` owns reference-TIFF discovery, sample/product
+- `lfm/data_processing/chip/chip_requests.py` owns reference-TIFF discovery, sample/product
   identity, reference-to-request conversion, explicit-AOI request creation,
   target-grid derivation, geographic validation, and antimeridian query
   splitting.
-- `model/chip_splits.py` owns deterministic, group-atomic dataset assignment,
+- `lfm/data_processing/chip/chip_splits.py` owns deterministic, group-atomic dataset assignment,
   fixed-count priorities, percentage assignment, prior-manifest locks, no-split
   assignment, and nonfatal target-shortfall warnings.
-- `model/chip_labels.py` owns label lookup (identity matching for directories
+- `lfm/data_processing/chip/chip_labels.py` owns label lookup (identity matching for directories
   only), final semantic/instance archive validation, shape checks,
   instance-occlusion handling, and optional label-grid/sidecar comparison.
-- `model/chip_label_planning.py` owns read-only source validation, source-grid
+- `lfm/data_processing/chip/chip_label_planning.py` owns read-only source validation, source-grid
   resolution, raster coverage/relation checks, GeoPackage validation, hashes,
   and compact label-preparation plans.
-- `model/chip_label_materialization.py` owns standalone worker-side semantic
+- `lfm/data_processing/chip/chip_label_materialization.py` owns standalone worker-side semantic
   preparation: exact NPY reuse, source windows, integer-preserving nearest
   reprojection, verified no-clobber NPY staging, and artifact provenance. Shared
   mask reading also supports NPZ for the instance converter.
-- `model/chip_instance_labels.py` owns standalone GeoPackage rasterization and
+- `lfm/data_processing/chip/chip_instance_labels.py` owns standalone GeoPackage rasterization and
   joint NPZ mask/box/count conversion: clipped-outline boxes, center inclusion,
   highest-source-ID overlap priority, compact IDs, occlusion/omission diagnostics,
   deterministic archive staging, source verification, and safe rollback.
-- `model/chip_preflight.py` owns the non-writing batch gate: deterministic
+- `lfm/data_processing/chip/chip_preflight.py` owns the non-writing batch gate: deterministic
   request materialization, geographic checks, split planning, conditional label
   validation, and construction of `PreparedChipRequest` objects.
-- `model/chip_acquisition.py` owns source-selector derivation, acquisition-group
+- `lfm/data_processing/chip/chip_acquisition.py` owns source-selector derivation, acquisition-group
   execution, calls into the tiling API, antimeridian result combination,
   structured cube-record grouping, source-coverage checks, and preservation of
   partial tiling results.
-- `model/chip_reprojection.py` owns cube validation, grouping by LTM zone,
+- `lfm/data_processing/chip/chip_reprojection.py` owns cube validation, grouping by LTM zone,
   per-zone mosaicking, source NoData normalization, warping onto the exact
   target grid, cross-zone compositing, and reprojected modality results.
-- `model/chip_assembly.py` owns configured band selection and ordering,
+- `lfm/data_processing/chip/chip_assembly.py` owns configured band selection and ordering,
   product-qualified band-name matching, modality concatenation, common-NoData
   conversion, safe dtype conversion, staged GeoTIFF writing, and reopen
   validation.
-- `model/chip_publication.py` owns final split-directory selection,
+- `lfm/data_processing/chip/chip_publication.py` owns final split-directory selection,
   checksum-verified and rollback-safe chip/label publication, byte-preserving
   label copies, dataset membership validation, and deterministic manifest
   creation.
-- `model/chip_creation.py` owns the public single-chip, batch, and
+- `lfm/data_processing/chip/chip_creation.py` owns the public single-chip, batch, and
   reference-directory APIs. It coordinates stages, multiprocessing, worker
   progress, per-sample failure isolation, diagnostic JSON files, intermediate
   cleanup/retention, deterministic result ordering, and final manifest writing.
-- `model/wac_band_contract.py` owns the canonical five-VIS-then-two-UV WAC
+- `lfm/data_processing/tiling/wac_band_contract.py` owns the canonical five-VIS-then-two-UV WAC
   selection and output order. It contains constants rather than processing
   behavior.
-- `model/static_band_contract.py` owns the canonical static band order and the
+- `lfm/data_processing/tiling/static_band_contract.py` owns the canonical static band order and the
   special source/output NoData rules used for static data. It also contains
   constants rather than a processing stage.
 
 ### Modern tiling files used by chip acquisition
 
-- `model/tiling.py` is the small public tiling facade. Its index, point, and AOI
+- `lfm/data_processing/tiling/tiling.py` is the small public tiling facade. Its index, point, and AOI
   functions construct a `ConfiguredTiler` and return structured records.
-- `model/tiling_config.py` owns modality-neutral tile/source configuration,
+- `lfm/data_processing/tiling/tiling_config.py` owns modality-neutral tile/source configuration,
   including paths, source selection mode, bands, resampling, required/optional
   behavior, and per-band NoData overrides.
-- `model/tiling_policy.py` owns dependency-light policies for product-ID versus
+- `lfm/data_processing/tiling/tiling_policy.py` owns dependency-light policies for product-ID versus
   all-intersecting source selection, selector validation, and effective
   per-band NoData values.
-- `model/tiling_results.py` owns tile-cube filenames, `TileCubeRecord`, and typed
+- `lfm/data_processing/tiling/tiling_results.py` owns tile-cube filenames, `TileCubeRecord`, and typed
   source errors that preserve completed records when later tile work fails.
-- `model/configured_tiler.py` is the configuration-driven tiling engine. It
+- `lfm/data_processing/tiling/configured_tiler.py` is the configuration-driven tiling engine. It
   resolves intersecting LTM tiles, queries each configured source, creates one
   source cube per tile, tracks partial completion, and implements index, point,
   and AOI execution.
-- `model/raster_cube.py` owns the low-level GDAL operations for selecting source
+- `lfm/data_processing/tiling/raster_cube.py` owns the low-level GDAL operations for selecting source
   bands, warping them to one LTM tile, preserving/normalizing NoData according
   to policy, writing a cube, and returning its structured record.
-- `model/vector_index.py` owns format-independent Shapefile/GeoPackage access,
+- `lfm/data_processing/tiling/vector_index.py` owns format-independent Shapefile/GeoPackage access,
   spatial source-footprint queries, location-field validation, and resolution
   of stored raster paths.
-- `model/vector_index_builder.py` owns explicit creation of source-raster vector
+- `lfm/data_processing/tiling/vector_index_builder.py` owns explicit creation of source-raster vector
   indexes. It is a data-preparation utility, not a per-chip processing stage.
-- `model/lunar_crs.py` owns the repository path and loader for the bundled lunar
+- `lfm/data_processing/tiling/lunar_crs.py` owns the repository path and loader for the bundled lunar
   geographic CRS used by both request and tiling code.
 
 ### Low-level, legacy, or offline TMS files
 
-- `model/TmsIntersector.py` loads the numbered LTM zones and returns the zones
+- `lfm/data_processing/tiling/TmsIntersector.py` loads the numbered LTM zones and returns the zones
   and tile definitions intersecting an AOI. The modern configured tiler still
   uses this low-level geometry component.
-- `model/TmsZoneDef.py` represents one LTM zone, including its CRS, bounds,
+- `lfm/data_processing/tiling/TmsZoneDef.py` represents one LTM zone, including its CRS, bounds,
   intersection logic, and access to zoom-specific tile definitions. It is used
   through `TmsIntersector`.
-- `model/TmsTileDef.py` implements LTM tile-matrix geometry: coordinate
+- `lfm/data_processing/tiling/TmsTileDef.py` implements LTM tile-matrix geometry: coordinate
   transforms, tile indices, overlapping-tile queries, tile bounds, matrix
   dimensions, resolution, and origin. The modern configured tiler and raster
   cube writer still use it.
-- `model/Pipeline.py` is the older stateful tiling/cube pipeline. It contains
+- `lfm/data_processing/tiling/Pipeline.py` is the older stateful tiling/cube pipeline. It contains
   legacy query, clipping, static handling, and cube-writing behavior, but the
-  modern chip path calls `model/tiling.py` and `ConfiguredTiler` instead.
-- `model/create_gpkg.py` is an offline utility for generating GeoPackage tile
+  modern chip path calls `lfm/data_processing/tiling/tiling.py` and `ConfiguredTiler` instead.
+- `lfm/data_processing/tiling/create_gpkg.py` is an offline utility for generating GeoPackage tile
   geometry/index data across LTM zones. It is not run for each chip.
-- `model/parallel_quadtree.py` contains alternate parallel/quadtree tile-index
+- `lfm/data_processing/tiling/parallel_quadtree.py` contains alternate parallel/quadtree tile-index
   generation and query utilities. It is not part of the normal modern chip
   execution path.
 
 ## Core contracts
 
-`model/chip_types.py` defines the vocabulary shared across the pipeline:
+`lfm/data_processing/chip/chip_types.py` defines the vocabulary shared across the pipeline:
 
 - `ChipRequest`: the requested output chip, including its exact grid,
   geographic AOI, sample ID, split-group identity, optional label path, and
@@ -178,7 +178,7 @@ assignments within one group.
 
 ## Configuration
 
-`model/chip_config.py` defines policies shared by the batch:
+`lfm/data_processing/chip/chip_config.py` defines policies shared by the batch:
 
 - `AcquisitionGroupConfig`: a group of sources tiled at one zoom and grid
   policy. In the current WAC-plus-static workflow, WAC and static belong to
@@ -194,11 +194,11 @@ assignments within one group.
   static output modality is declared after WAC.
 
 The WAC and static band lists are maintained separately in
-`model/wac_band_contract.py` and `model/static_band_contract.py`.
+`lfm/data_processing/tiling/wac_band_contract.py` and `lfm/data_processing/tiling/static_band_contract.py`.
 
 ## Request construction
 
-`model/chip_requests.py` turns user inputs into `ChipRequest` objects.
+`lfm/data_processing/chip/chip_requests.py` turns user inputs into `ChipRequest` objects.
 
 There are two primary routes:
 
@@ -220,7 +220,7 @@ This module also:
 
 ## Split planning
 
-`model/chip_splits.py` assigns requests to dataset partitions before labels or
+`lfm/data_processing/chip/chip_splits.py` assigns requests to dataset partitions before labels or
 imagery are processed.
 
 Important properties:
@@ -237,7 +237,7 @@ Important properties:
 
 ## Label validation and preflight
 
-`model/chip_labels.py` owns label resolution and final-target validation:
+`lfm/data_processing/chip/chip_labels.py` owns label resolution and final-target validation:
 
 - Resolves directories by full sample identity, including row/column offsets;
   explicit file associations do not require identity matching.
@@ -248,14 +248,14 @@ Important properties:
 - Validates label grid metadata against the requested chip grid when a sidecar
   or explicit label grid is available.
 
-`model/chip_label_planning.py` validates source labels separately from final
+`lfm/data_processing/chip/chip_label_planning.py` validates source labels separately from final
 labels. It reads source-grid sidecars or GeoTIFF metadata, classifies exact,
 aligned-window, and nearest-warp raster relations, checks lunar CRS/coverage
 and NoData gaps, and validates GeoPackage crater layers. It produces compact,
 hashed `LabelPreparationPlan` records without writing any label, dataset, or
-intermediate files. `model/chip_label_materialization.py` separately implements
+intermediate files. `lfm/data_processing/chip/chip_label_materialization.py` separately implements
 semantic preparation on that plan and returns a verified `PreparedLabelArtifact`.
-`model/chip_instance_labels.py` implements the corresponding instance adapter
+`lfm/data_processing/chip/chip_instance_labels.py` implements the corresponding instance adapter
 and independent GeoPackage converter (A4 complete). A5 calls both converters
 before imagery acquisition, with `label/clip` progress and per-sample failure
 isolation. The user reports its HPC integration tests passed; the focused
@@ -272,7 +272,7 @@ may record a verified `preserved_pair` from the previous run without claiming a
 new success. Original labels/sidecars cannot reside under the intermediate root;
 retention/cleanup applies to derived labels and cubes, never those inputs.
 
-`model/chip_preflight.py` coordinates the batch-level preflight:
+`lfm/data_processing/chip/chip_preflight.py` coordinates the batch-level preflight:
 
 1. Materialize and deterministically sort requests.
 2. Validate target grids and AOIs.
@@ -285,7 +285,7 @@ A failed label never reaches tiling, and no chip is written for it.
 
 ## Acquisition
 
-`model/chip_acquisition.py` adapts prepared chip requests to the modern tiling
+`lfm/data_processing/chip/chip_acquisition.py` adapts prepared chip requests to the modern tiling
 API.
 
 For each acquisition group it:
@@ -318,7 +318,7 @@ reconstructing information from filenames.
 
 ## Reprojection
 
-`model/chip_reprojection.py` converts tiling cubes into arrays on the
+`lfm/data_processing/chip/chip_reprojection.py` converts tiling cubes into arrays on the
 authoritative target grid.
 
 For each output modality it:
@@ -335,7 +335,7 @@ whichever source raster happens to be opened.
 
 ## Assembly and staged writing
 
-`model/chip_assembly.py` combines the reprojected modalities.
+`lfm/data_processing/chip/chip_assembly.py` combines the reprojected modalities.
 
 It:
 
@@ -355,7 +355,7 @@ For the current run, the final order is:
 
 ## Publication
 
-`model/chip_publication.py` moves the validated staged chip and original label
+`lfm/data_processing/chip/chip_publication.py` moves the validated staged chip and original label
 into the dataset.
 
 Publication is pair-atomic:
@@ -387,7 +387,7 @@ and failures.
 
 ## Orchestration and multiprocessing
 
-`model/chip_creation.py` connects everything.
+`lfm/data_processing/chip/chip_creation.py` connects everything.
 
 The three important entrypoints are:
 

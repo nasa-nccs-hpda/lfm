@@ -9,7 +9,11 @@ from pathlib import Path
 import sys
 from time import perf_counter
 
-from lfm.model.vector_index_builder import (
+REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from lfm.data_processing.tiling.vector_index_builder import (
     DEFAULT_RASTER_GLOBS,
     VectorIndexBuildConfig,
     ensure_vector_index,

@@ -12,10 +12,10 @@ from time import perf_counter
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(REPO_ROOT.parent) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT.parent))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from lfm.model import (
+from lfm.data_processing.tiling import (
     TileSourceConfig,
     TileSourcePreparation,
     compose_tile_sources,
@@ -108,8 +108,8 @@ def create_comparison_plot(
     import numpy as np
     from osgeo import gdal, osr
 
-    from lfm.model.grid_tile_def import tile_definition_for_grid
-    from lfm.model.lunar_crs import raster_crs_equivalent
+    from lfm.data_processing.tiling.grid_tile_def import tile_definition_for_grid
+    from lfm.data_processing.tiling.lunar_crs import raster_crs_equivalent
 
     gdal.UseExceptions()
     tile_def = tile_definition_for_grid(grid_id, zoom_level)
@@ -321,8 +321,8 @@ def inspect_cube(record, *, grid_id: str, zoom_level: int) -> dict[str, object]:
     import numpy as np
     from osgeo import gdal, osr
 
-    from lfm.model.grid_tile_def import tile_definition_for_grid
-    from lfm.model.lunar_crs import raster_crs_equivalent
+    from lfm.data_processing.tiling.grid_tile_def import tile_definition_for_grid
+    from lfm.data_processing.tiling.lunar_crs import raster_crs_equivalent
 
     gdal.UseExceptions()
     path = record.path

@@ -22,7 +22,6 @@ else
   exit 1
 fi
 
-REPO_PARENT="$(dirname "${REPO_DIR}")"
 CONTAINER_PATH="${CONTAINER_PATH:-/explore/nobackup/projects/lfm/containers/lfm-container-ipyleaflet}"
 APPTAINER_BIN="${APPTAINER_BIN:-apptainer}"
 APPTAINER_BIND_PATHS="${APPTAINER_BIND_PATHS:-/panfs/ccds02/nobackup:/explore/nobackup}"
@@ -42,7 +41,7 @@ APPTAINER_ARGS=(
   exec
   --bind "${APPTAINER_BIND_PATHS}"
   --bind "${REPO_DIR}"
-  --pwd "${REPO_PARENT}"
+  --pwd "${REPO_DIR}"
   "${CONTAINER_PATH}"
 )
 
@@ -54,8 +53,8 @@ echo "Probing gdal.TileIndex callback behavior..."
 echo
 echo "Running vector-index builder and preparation tests with GDAL enabled..."
 "${APPTAINER_BIN}" "${APPTAINER_ARGS[@]}" python -m unittest \
-  lfm.model.tests.test_vector_index_builder \
-  lfm.model.tests.test_tiling_preparation
+  lfm.data_processing.tests.tiling.test_vector_index_builder \
+  lfm.data_processing.tests.tiling.test_tiling_preparation
 
 echo
 echo "GDAL TileIndex probe and focused index tests completed."

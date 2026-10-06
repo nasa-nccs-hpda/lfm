@@ -1,5 +1,11 @@
 # Tiling Modernization Plan
 
+Package migration (2026-10-06): current tiling imports use
+`lfm.data_processing.tiling`, with the checkout root on `sys.path`.
+Earlier phase/evidence entries retain historical paths; use
+[the restructuring plan](../.agents/planning_docs/repo_restructure.md) for their
+current destinations.
+
 ## Objective
 
 Replace the WAC-specific, partially hard-coded tiling interface with a
@@ -378,9 +384,10 @@ notebook rerun and visual review remain pending.
 The following is the backend handoff contract. Chip modernization may rely on
 these behaviors without waiting for the tiling notebook or legacy cleanup:
 
-- Public objects and functions are exported from `model/__init__.py`. Scripts
-  that add the repository parent to `sys.path` import the equivalent package as
-  `lfm.model`.
+- Public tiling objects and functions are exported from
+  `lfm/data_processing/tiling/__init__.py`. All callers put the repository root
+  on `sys.path` and import `lfm.data_processing.tiling`; chip APIs live in
+  `lfm.data_processing.chip`. Historical evidence below retains its old paths.
 - `TileSourceConfig` describes one modality. It owns the modality name, raster
   directory, existing `.shp` or `.gpkg` index, optional index layer,
   `location_field`, selection mode, requested bands, NoData policy, bilinear
@@ -432,7 +439,7 @@ these behaviors without waiting for the tiling notebook or legacy cleanup:
   and tiling resampling is always bilinear.
 - WAC and NAC examples preserve their native source NoData. The canonical
   63-band static source uses the exact order in
-  `model/static_band_contract.py`, masks the two Mini-RF source sentinel bands
+  `lfm/data_processing/tiling/static_band_contract.py`, masks the two Mini-RF source sentinel bands
   explicitly, and writes `-32768` for every static output band. This uniform
   static value is required because GeoTIFF persists only one dataset-wide
   `TIFFTAG_GDAL_NODATA` value.
@@ -455,7 +462,7 @@ these behaviors without waiting for the tiling notebook or legacy cleanup:
   static sources are contextual `all_intersecting` inputs and static-only runs
   do not accept product IDs.
 
-The deprecated `model/Pipeline.py` remains only as a regression and temporary
+The deprecated `lfm/data_processing/tiling/Pipeline.py` remains only as a regression and temporary
 compatibility adapter. Its hard-coded static path, WAC-oriented constructor,
 `list[Path]` results, and filename-parsing expectations must not be copied into
 `ChipConfig` or the new chip orchestration.

@@ -10,10 +10,14 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(REPO_ROOT.parent) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT.parent))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from lfm.model import TileConfig, TileSourceConfig, create_tiles_for_aoi
+from lfm.data_processing.tiling import (
+    TileConfig,
+    TileSourceConfig,
+    create_tiles_for_aoi,
+)
 
 from validate_wac_tiling import inspect_record
 

@@ -1,5 +1,12 @@
 # Polar Tiling Extended Contract
 
+Package migration (2026-10-06): backend imports now use
+`lfm.data_processing.chip`, `lfm.data_processing.tiling`, and
+`lfm.data_processing.labeling`, with the checkout root on `sys.path`.
+Historical phase records retain their original paths. See
+[repo_restructure.md](repo_restructure.md) for the file mapping and new test
+commands.
+
 This document is the Phase P0 design contract for extending the modern LFM
 tiler from numbered Lunar Transverse Mercator (LTM) grids to automatic LTM and
 polar routing. It is prospective: until the later implementation and validation

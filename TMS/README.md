@@ -203,12 +203,12 @@ replaced.
 
 ## How LFM implements the scheme
 
-The modern entry points are exported from [`model`](../model/__init__.py). The
-strict functions live in [`model/tiling.py`](../model/tiling.py), optional AOI
+The modern entry points are exported from [`lfm.data_processing.tiling`](../lfm/data_processing/tiling/__init__.py). The
+strict functions live in [`lfm/data_processing/tiling/tiling.py`](../lfm/data_processing/tiling/tiling.py), optional AOI
 product discovery lives in
-[`model/product_tiling.py`](../model/product_tiling.py), and the easiest
+[`lfm/data_processing/tiling/product_tiling.py`](../lfm/data_processing/tiling/product_tiling.py), and the easiest
 automatic entry point lives in
-[`model/tiling_workflow.py`](../model/tiling_workflow.py):
+[`lfm/data_processing/tiling/tiling_workflow.py`](../lfm/data_processing/tiling/tiling_workflow.py):
 
 - `create_tiles_for_aoi(...)` routes geographic bounds and is the strict
   low-level path: every `product_id` source requires an explicit selector and
@@ -225,10 +225,10 @@ automatic entry point lives in
   `ProductAOIWarning` and is skipped. If no dynamic product source remains,
   the call returns an empty list without generating contextual static tiles.
 
-[`model/grid_registry.py`](../model/grid_registry.py) validates the 90 numbered
+[`lfm/data_processing/tiling/grid_registry.py`](../lfm/data_processing/tiling/grid_registry.py) validates the 90 numbered
 LTM definitions plus `LPS_N` and `LPS_S` and exposes their CRS, geographic
 coverage, and tile matrices without inferring every grid from an LTM filename.
-[`model/grid_router.py`](../model/grid_router.py) validates and normalizes
+[`lfm/data_processing/tiling/grid_router.py`](../lfm/data_processing/tiling/grid_router.py) validates and normalizes
 geographic requests, routes points at `>= +82` to `LPS_N` and at `<= -82` to
 `LPS_S`, and partitions AOIs at the polar thresholds, equator, longitude-zone
 edges, and antimeridian. The grid-neutral tile-definition factory and automatic
@@ -240,16 +240,16 @@ The implementation follows this sequence:
    sources. Each `TileSourceConfig` declares its data directory, vector index,
    location field, raster selection rule, bands, NoData policy, and whether the
    source is required.
-2. [`model/grid_router.py`](../model/grid_router.py) partitions the AOI into
+2. [`lfm/data_processing/tiling/grid_router.py`](../lfm/data_processing/tiling/grid_router.py) partitions the AOI into
    canonical numbered LTM, `LPS_N`, and `LPS_S` query parts.
-3. [`model/grid_tile_def.py`](../model/grid_tile_def.py) retains
-   [`TmsTileDef`](../model/TmsTileDef.py) for proven LTM geometry and uses a
+3. [`lfm/data_processing/tiling/grid_tile_def.py`](../lfm/data_processing/tiling/grid_tile_def.py) retains
+   [`TmsTileDef`](../lfm/data_processing/tiling/TmsTileDef.py) for proven LTM geometry and uses a
    dedicated polar definition for densified stereographic intersection. Both
    paths require at least 10 meters of overlap in both projected dimensions,
    avoiding tiles touched only by insignificant boundary effects.
 4. For each tile, its projected perimeter is transformed back to lunar
    longitude and latitude. Polar perimeters are densified and expressed as one
-   or more non-wrapping envelopes. [`model/vector_index.py`](../model/vector_index.py)
+   or more non-wrapping envelopes. [`lfm/data_processing/tiling/vector_index.py`](../lfm/data_processing/tiling/vector_index.py)
    applies those envelopes as read-only OGR spatial filters and deduplicates
    returned raster paths. The low-level tiler treats source indexes as
    read-only. The automatic workflow may create or atomically rebuild a
@@ -266,7 +266,7 @@ The implementation follows this sequence:
    runnable dynamic source. If none is runnable, it returns no records and
    skips contextual static for that mixed query; callers must not interpret the
    absence of an exception as complete downstream coverage.
-6. [`model/raster_cube.py`](../model/raster_cube.py) uses GDAL to warp every
+6. [`lfm/data_processing/tiling/raster_cube.py`](../lfm/data_processing/tiling/raster_cube.py) uses GDAL to warp every
    selected raster onto the exact 512×512 routed tile grid. Tiling uses bilinear
    resampling, preserves or normalizes NoData according to each source's
    configuration, and maintains deterministic band ordering.
@@ -308,7 +308,7 @@ contracts remain explicit.
 ```python
 from pathlib import Path
 
-from model import (
+from lfm.data_processing.tiling import (
     TileConfig,
     TileSourceConfig,
     compose_tile_sources,

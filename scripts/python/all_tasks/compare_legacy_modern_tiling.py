@@ -22,10 +22,10 @@ from osgeo import gdal, gdalconst
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(REPO_ROOT.parent) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT.parent))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from lfm.model import (  # noqa: E402
+from lfm.data_processing.tiling import (
     BandNoDataOverride,
     MINIRF_SOURCE_NODATA,
     MINIRF_SOURCE_NODATA_BANDS,
@@ -35,7 +35,7 @@ from lfm.model import (  # noqa: E402
     TileSourceConfig,
     create_tiles_for_aoi,
 )
-from lfm.model.Pipeline import Pipeline  # noqa: E402
+from lfm.data_processing.tiling.Pipeline import Pipeline  # noqa: E402
 
 
 gdal.UseExceptions()
