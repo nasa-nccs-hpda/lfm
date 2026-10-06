@@ -390,7 +390,7 @@ def validate_numbered_ltm_coverage(aoi: GeographicAOI) -> None:
 
 
 def chip_grid_family(aoi: GeographicAOI) -> GridFamily:
-    """Accept LTM or one non-wrapping polar region; gate seam/pole cases."""
+    """Accept one grid family, including longitude wraps; gate seam/pole cases."""
     if not isinstance(aoi, GeographicAOI):
         raise TypeError("aoi must be a GeographicAOI.")
     if aoi.upper_left_latitude == 90 or aoi.lower_right_latitude == -90:
@@ -401,8 +401,9 @@ def chip_grid_family(aoi: GeographicAOI) -> GridFamily:
     if len(families) != 1:
         raise UnsupportedCoverageError("Chips crossing the +/-82 degree LTM/polar seam are not yet supported.")
     family = next(iter(families))
-    if family != GridFamily.LTM and len(routes) != 1:
-        raise UnsupportedCoverageError("Polar antimeridian chip footprints are not yet supported.")
+    # Two longitude parts on the same polar grid are one continuous projected
+    # footprint, not two families. geographic_query_parts splits acquisition;
+    # target-grid construction follows the short, unwrapped longitude interval.
     return family
 
 

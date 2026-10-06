@@ -1246,6 +1246,32 @@ not close this phase.
 
 ## Phase A6P — Polar chip creation `[In Progress]`
 
+Polar antimeridian extension (2026-10-06):
+
+- User reports the previous CRS-fix test rerun passed; no count/timing was
+  supplied. This is not acceptance evidence for the new antimeridian tests.
+- Requests spanning 180 degrees are now accepted within one polar family
+  (longitude width still <180 degrees), including west=179.9/east=-179.9 and
+  the equivalent unwrapped east=180.1. Query splitting is reused; final imagery
+  and labels use one compact source-native or static-only LPS grid.
+- Existing tiling already routes these AOIs and deduplicates tile addresses
+  within a call. New north/south tests cover that behavior. Chips retain two
+  non-wrapping calls and deduplicate structured results, including completed
+  records after a later failure. A shared tile can be acquired again across
+  the two calls; it appears only once in the final mosaic, not twice as bands.
+- Added north/south wrapped native/static grid tests, TIFF serial/spawn
+  publication across the wrap, geographic TIFF label branch equivalence
+  (179..181 versus -181..-179), and one projected GPKG instance spanning the
+  wrap. Raster-dependent checks require the HPC container. The polar notebook
+  includes an optional wrapped AOI without changing its ordinary defaults.
+- Cross-82 seam and pole-containing restrictions remain in force. Real-data
+  antimeridian review remains open; this does not close the full A6P phase.
+- Local validation: chip suite **269 tests, 148 passed, 121 dependency skips**;
+  targeted configured-tiler/router/tile-definition suite **29 tests, 17 passed,
+  12 dependency skips**. No failures; notebook code-cell parsing and
+  `git diff --check` passed. GDAL-backed acquisition, geometry, label and
+  publication tests remain pending in the supported HPC container.
+
 HPC follow-up: the north/south TIFF serial/spawn integration test failed all
 four samples at reopened-chip validation (`written_crs_mismatch`). Publication
 still used strict OSR `IsSame`, unlike label validation and polar tiling tests,
@@ -1325,7 +1351,7 @@ Initial single-region implementation (2026-10-06):
   rules. Add synthetic north/south tests for WAC, NAC and static-only layouts,
   TIFF/GPKG labels, NoData bands and serial/parallel equality. Validate one small
   real north and south example before exposing single-region polar notebook use.
-- `[Not Started]` **A6P.5 — Close seam and pole edge cases.** Test AOIs crossing
+- `[In Progress; antimeridian implemented, HPC pending]` **A6P.5 — Close seam and pole edge cases.** Test AOIs crossing
   ±82°, polar antimeridian AOIs, both hemispheres, and pole-containing footprints
   under the representation approved in A6P.1. Ensure acquisition-part overlap
   neither duplicates bands/instances nor leaves coverage gaps; define stable

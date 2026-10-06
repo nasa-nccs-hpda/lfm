@@ -66,16 +66,18 @@ class PolarTileDefinitionTestCase(unittest.TestCase):
                 )
 
     def test_antimeridian_query_parts_produce_deduplicable_addresses(self):
-        tile_def = self.definition("LPS_N", 4)
-        east = tile_def.getOverlappingTiles(85, 178, 84, 180)
-        west = tile_def.getOverlappingTiles(85, -180, 84, -178)
-        combined = east + west
-
-        self.assertTrue(east)
-        self.assertTrue(west)
-        self.assertLessEqual(len(set(combined)), len(combined))
-        self.assertIn(tile_def.llToTileIndex(84.5, 179), set(combined))
-        self.assertIn(tile_def.llToTileIndex(84.5, -179), set(combined))
+        for zone, north, south in (("LPS_N", 85, 84), ("LPS_S", -84, -85)):
+            with self.subTest(zone=zone):
+                tile_def = self.definition(zone, 4)
+                east = tile_def.getOverlappingTiles(north, 178, south, 180)
+                west = tile_def.getOverlappingTiles(north, -180, south, -178)
+                combined = set(east + west)
+                self.assertTrue(east)
+                self.assertTrue(west)
+                latitude = (north + south) / 2
+                self.assertIn(tile_def.llToTileIndex(latitude, 179), combined)
+                self.assertIn(tile_def.llToTileIndex(latitude, -179), combined)
+                self.assertLess(len(combined), 20)  # Small seam AOI, not global coverage.
 
     def test_full_polar_caps_are_projected_as_finite_circular_coverage(self):
         cases = (

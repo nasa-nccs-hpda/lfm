@@ -89,14 +89,28 @@ class PolarChipContractTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             default_chip_zoom(aoi, "custom")
 
-    def test_unsupported_seams_poles_and_polar_antimeridian(self):
+    def test_unsupported_seams_and_poles(self):
         for aoi in (GeographicAOI(82.1, 10, 81.9, 11),
                     GeographicAOI(-81.9, 10, -82.1, 11),
                     GeographicAOI(90, 10, 89, 11),
-                    GeographicAOI(-89, 10, -90, 11),
-                    GeographicAOI(86, 179, 85, -179)):
+                    GeographicAOI(-89, 10, -90, 11)):
             with self.subTest(aoi=aoi), self.assertRaises(UnsupportedCoverageError):
                 geographic_query_parts(aoi)
+
+    def test_polar_antimeridian_parts_share_family_and_zoom(self):
+        for north, south, family in ((86.1, 85.9, GridFamily.LPS_N),
+                                     (-85.9, -86.1, GridFamily.LPS_S)):
+            for east in (-179.8, 180.2):
+                aoi = GeographicAOI(north, 179.8, south, east)
+                self.assertEqual(chip_grid_family(aoi), family)
+                parts = geographic_query_parts(aoi)
+                self.assertEqual(len(parts), 2)
+                self.assertEqual(parts[0].lower_right_longitude, 180)
+                self.assertEqual(parts[1].upper_left_longitude, -180)
+                self.assertAlmostEqual(parts[1].lower_right_longitude, -179.8)
+                self.assertEqual(default_chip_zoom(aoi, "nac"), 10)
+                self.assertEqual(static_grid_reference(aoi).crs_wkt,
+                                 default_grid_registry()[family.value.upper()].crs_wkt)
 
     def test_exact_threshold_routes_by_positive_area(self):
         self.assertEqual(chip_grid_family(GeographicAOI(83, 10, 82, 11)), GridFamily.LPS_N)
@@ -117,6 +131,31 @@ class PolarChipContractTestCase(unittest.TestCase):
             self.assertEqual(tiler.call_args.args[0].zoom_level, 9)
             self.assertEqual(tiler.call_args.kwargs["selectors"], {"nac": "M100"})
             self.assertEqual(tiler.call_args.kwargs["ul_lat"], 86)
+
+    def test_antimeridian_acquisition_deduplicates_and_retains_partial_results(self):
+        from lfm.data_processing.tests.chip.test_chip_acquisition import ChipAcquisitionTestCase
+        from lfm.data_processing.chip.chip_acquisition import acquire_prepared_request
+        from lfm.data_processing.tiling.tiling_results import TileSourceError
+        helper = ChipAcquisitionTestCase()
+        for north, south, zone in ((86, 85.9, "LPS_N"), (-85.9, -86, "LPS_S")):
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                group = helper.group("polar", root, 4, helper.source("wac", selection_mode="product_id"))
+                config = helper.config(root, (group,))
+                req = helper.request(aoi=GeographicAOI(north, 179.9, south, -179.9))
+                record = helper.record(root / "cube.tif", zone=zone, zoom=4)
+                failure = TileSourceError("test failure", source_name="wac", zone=zone,
+                                          tile_x=2, tile_y=63, completed_records=(record,))
+                for second in ([record], failure):
+                    with patch("lfm.data_processing.chip.chip_acquisition.create_tiles_for_aoi",
+                               side_effect=([record], second)) as tiler:
+                        result = acquire_prepared_request(helper.prepared(req), config)
+                    self.assertEqual(tiler.call_count, 2)
+                    self.assertEqual(result.records, (record,))
+                    self.assertEqual(len(result.group_results[0].record_groups), 1)
+                    self.assertEqual(tiler.call_args_list[0].kwargs["lr_lon"], 180)
+                    self.assertEqual(tiler.call_args_list[1].kwargs["ul_lon"], -180)
+                    self.assertEqual(result.status, "failed" if second is failure else "complete")
 
     def test_polar_notebook_cells_compile(self):
         notebook = json.loads((REPO_ROOT / "notebooks/chip_polar_example.ipynb").read_text())
@@ -153,13 +192,18 @@ class PolarChipGridTestCase(unittest.TestCase):
 
     def test_north_south_native_and_static_requests(self):
         for aoi in (GeographicAOI(86.01, -.02, 86, .02),
-                    GeographicAOI(-86, -.02, -86.01, .02)):
+                    GeographicAOI(-86, -.02, -86.01, .02),
+                    GeographicAOI(86.01, 179.98, 86, -179.98),
+                    GeographicAOI(-86, 179.98, -86.01, -179.98)):
             request = chip_request_from_aoi(sample_id="polar", split_group_key="polar",
                                             geographic_aoi=aoi, static_only=True)
             self.assertEqual(request.target_grid.transform[1], 100)
             self.assertEqual(request.target_grid.transform[5], -100)
             self.assertEqual(request.requested_aoi, aoi)
             validate_request_geographic_aoi(request)
+            if aoi.upper_left_longitude > 179:
+                self.assertEqual(len(geographic_query_parts(request.geographic_aoi)), 2)
+                self.assertLess(request.target_grid.width, 20)  # Not a near-global envelope.
             # Preserve an explicitly chosen 1 m lattice, not the acquisition grid.
             source = target_grid_from_bounds(crs_wkt=request.target_grid.crs_wkt,
                                              bounds=request.target_grid.bounds,
@@ -183,6 +227,51 @@ class PolarChipGridTestCase(unittest.TestCase):
 @unittest.skipUnless(all(importlib.util.find_spec(name) for name in ("osgeo", "numpy")),
                      "GDAL/NumPy unavailable")
 class PolarChipPipelineTestCase(unittest.TestCase):
+    def test_antimeridian_labels_use_continuous_projected_and_geographic_footprints(self):
+        import numpy as np
+        from osgeo import gdal
+        from lfm.data_processing.chip import LabelInput
+        from lfm.data_processing.chip.chip_instance_labels import materialize_instance_label, convert_crater_labels, _rectangle
+        from lfm.data_processing.chip.chip_label_planning import plan_label_preparation
+        from lfm.data_processing.tiling.lunar_crs import load_lunar_geographic_wkt
+        from lfm.data_processing.tests.chip.test_chip_instance_labels import InstanceConversionTestCase
+
+        helper = InstanceConversionTestCase()
+        helper.setUp()
+        self.addCleanup(helper.doCleanups)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name, north, south in (("north", 86.01, 86), ("south", -86, -86.01)):
+                req = chip_request_from_aoi(sample_id=name, split_group_key=name, static_only=True,
+                                            geographic_aoi=GeographicAOI(north, 179.98, south, -179.98))
+                masks = []
+                for west in (179., -181.):
+                    path = root / f"{name}_{west}.tif"
+                    ds = gdal.GetDriverByName("GTiff").Create(str(path), 20, 10, 1, gdal.GDT_UInt16)
+                    ds.SetProjection(load_lunar_geographic_wkt())
+                    ds.SetGeoTransform((west, .1, 0, north + .2, 0, -.1))
+                    values = np.full((10, 20), 12, dtype=np.uint16)
+                    values[:, 10:] = 38
+                    ds.GetRasterBand(1).WriteArray(values)
+                    ds = None
+                    item = replace(req, label_input=LabelInput(path, kind="raster_instance", relation="clip_to_target"))
+                    plan = plan_label_preparation(item, path)
+                    self.assertEqual(plan.method, "nearest_warp")
+                    artifact = materialize_instance_label(item, plan, staging_root=root / str(west))
+                    self.assertEqual(artifact.instance_id_map, ((12, 1), (38, 2)))
+                    with np.load(artifact.path) as archive:
+                        masks.append(archive["mask"].copy())
+                        self.assertEqual(int(archive["num_craters"]), 2)
+                np.testing.assert_array_equal(*masks)
+                grid = req.target_grid
+                # A single projected outline crosses 180 degrees without being
+                # split into two annotations or assigned two instance IDs.
+                polygon = _rectangle(0, 0, grid.width, grid.height)
+                gpkg = helper.gpkg(grid, [(90, polygon)], name=f"{name}.gpkg")
+                converted = convert_crater_labels(gpkg, target_grid=grid)
+                self.assertEqual(converted.num_craters, 1)
+                np.testing.assert_array_equal(converted.mask, np.ones((grid.height, grid.width)))
+
     def test_both_hemispheres_tiff_tasks_publish_serial_and_spawn(self):
         import numpy as np
         from osgeo import gdal
@@ -192,7 +281,9 @@ class PolarChipPipelineTestCase(unittest.TestCase):
             root = Path(tmp)
             requests = []
             for name, aoi in (("north", GeographicAOI(86.01, -.02, 86, .02)),
-                              ("south", GeographicAOI(-86, -.02, -86.01, .02))):
+                              ("south", GeographicAOI(-86, -.02, -86.01, .02)),
+                              ("north_am", GeographicAOI(86.01, 179.98, 86, -179.98)),
+                              ("south_am", GeographicAOI(-86, 179.98, -86.01, -179.98))):
                 req = chip_request_from_aoi(sample_id=name, split_group_key=name,
                                             geographic_aoi=aoi, static_only=True)
                 grid = req.target_grid
@@ -200,7 +291,9 @@ class PolarChipPipelineTestCase(unittest.TestCase):
                 ds = gdal.GetDriverByName("GTiff").Create(str(path), grid.width, grid.height, 1, gdal.GDT_UInt16)
                 ds.SetProjection(grid.crs_wkt)
                 ds.SetGeoTransform(grid.transform)
-                ds.GetRasterBand(1).WriteArray(np.full((grid.height, grid.width), 12, dtype=np.uint16))
+                values = np.full((grid.height, grid.width), 12, dtype=np.uint16)
+                values[:, grid.width // 2:] = 38
+                ds.GetRasterBand(1).WriteArray(values)
                 ds = None
                 for kind in ("semantic", "raster_instance"):
                     requests.append(replace(req, sample_id=f"{name}_{kind}",
@@ -213,7 +306,19 @@ class PolarChipPipelineTestCase(unittest.TestCase):
                 with patch("lfm.data_processing.chip.chip_creation.acquire_prepared_request", side_effect=polar_acquire), \
                      patch("lfm.data_processing.chip.chip_creation._run_prepared_task", new=polar_worker):
                     batch = create_chips(requests, config, max_workers=workers, overwrite=workers == 2)
-                self.assertEqual([r.status for r in batch.results], ["success"] * 4,
+                self.assertEqual([r.status for r in batch.results], ["success"] * len(requests),
                                  [r.message for r in batch.results])
+                for result in batch.results:
+                    chip = gdal.Open(str(result.chip_path))
+                    self.assertEqual(chip.RasterCount, 1)
+                    chip = None
+                    expected = np.full((result.request.target_grid.height, result.request.target_grid.width), 12)
+                    expected[:, expected.shape[1] // 2:] = 38
+                    if result.label_path.suffix == ".npy":
+                        np.testing.assert_array_equal(np.load(result.label_path), expected)
+                    else:
+                        with np.load(result.label_path) as archive:
+                            np.testing.assert_array_equal(archive["mask"], np.where(expected == 12, 1, 2))
+                            self.assertEqual(int(archive["num_craters"]), 2)
                 outputs.append([(r.chip_path.read_bytes(), r.label_path.read_bytes()) for r in batch.results])
             self.assertEqual(outputs[0], outputs[1])

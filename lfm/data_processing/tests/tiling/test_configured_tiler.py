@@ -10,6 +10,27 @@ HAS_OSGEO = importlib.util.find_spec("osgeo") is not None
 
 @unittest.skipUnless(HAS_OSGEO, "GDAL/OGR is required for configured tiler tests")
 class ConfiguredTilerIntegrationTestCase(unittest.TestCase):
+    def test_polar_antimeridian_writes_each_address_once(self):
+        from lfm.data_processing.tiling.configured_tiler import ConfiguredTiler
+        from lfm.data_processing.tiling.tiling_config import TileConfig, TileSourceConfig
+
+        for north, south, zone in ((86, 85, "LPS_N"), (-85, -86, "LPS_S")):
+            with self.subTest(zone=zone), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                source = TileSourceConfig("static", root, root / "index.gpkg")
+                tiler = ConfiguredTiler(TileConfig(root / "out", 4, (source,)))
+                definition = mock.Mock()
+                # Deliberately shared address tests deduplication independently
+                # of whether the geometric seam falls exactly on a tile edge.
+                definition.getOverlappingTiles.side_effect = ([(8, 3), (7, 3)], [(7, 3), (7, 2)])
+                with mock.patch("lfm.data_processing.tiling.configured_tiler.tile_definition_for_grid",
+                                return_value=definition), \
+                     mock.patch.object(tiler, "run_tile_index", return_value=[]) as write:
+                    tiler.run_aoi(north, 179.9, south, -179.9)
+                self.assertEqual(write.call_args_list,
+                                 [mock.call(7, 2, zone), mock.call(7, 3, zone), mock.call(8, 3, zone)])
+                self.assertEqual(definition.getOverlappingTiles.call_count, 2)
+
     def record(self, path, *, tile_x, source_name="static"):
         from lfm.data_processing.tiling.tiling_results import TileCubeRecord
 
