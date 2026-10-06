@@ -9,6 +9,34 @@ from .._paths import REPO_ROOT
 from .chip_types import ChipResult, TargetGrid
 
 
+def chip_batch_fingerprints(batch) -> dict[str, tuple[str, str, str | None]]:
+    """Hash successful published pairs and split assignments for replay checks.
+
+    Deliberately exclude manifest paths/timings, which vary between isolated
+    runs. Failures, empty batches and duplicate IDs cannot count as equality.
+    """
+    import hashlib
+
+    def digest(path):
+        with Path(path).open("rb") as stream:
+            checksum = hashlib.sha256()
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                checksum.update(block)
+        return checksum.hexdigest()
+
+    result = {}
+    for item in batch.results:
+        sample_id = item.request.sample_id
+        if item.status != "success":
+            raise ValueError(f"Cannot compare unsuccessful sample {sample_id}: {item.message}")
+        if sample_id in result:
+            raise ValueError(f"Duplicate sample ID: {sample_id}")
+        result[sample_id] = (digest(item.chip_path), digest(item.label_path), item.preflight.assigned_split)
+    if not result:
+        raise ValueError("Cannot compare an empty batch.")
+    return result
+
+
 def latest_crater_label_path(label_dir: str | Path | None = None) -> Path:
     """Find the most recently modified crater-notebook export, read-only.
 

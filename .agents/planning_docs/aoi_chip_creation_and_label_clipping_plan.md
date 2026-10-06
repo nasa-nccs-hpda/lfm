@@ -68,6 +68,18 @@ This is not a notebook Run All or GDAL integration acceptance. Run on HPC:
 python -m unittest discover -s lfm/data_processing/tests/chip -t . -p 'test_chip*.py' -v
 ```
 
+Notebook acceptance extension (2026-10-06): `chip_polar_example.ipynb` now
+includes a validation matrix, opt-in antimeridian/combined-seam/exact-boundary
+real-data presets mirrored for both hemispheres, per-case label overrides,
+visual-review records, isolated serial/parallel byte-and-split comparisons,
+and a fresh-process chip/tiling regression runner with saved logs. Synthetic
+tests cover pole edge/corner contact, rotation, label edge cases and intentional
+failures without modifying shared source data. Skips are reported as incomplete;
+real-data review is never inferred from an empty mask or synthetic test success.
+Existing pole and seam toggles remain. New presets need scientist-confirmed
+imagery/label coverage; they are not prevalidated annotated AOIs. The notebook
+does not claim exhaustive testing of every modality/geometry/label combination.
+
 ## Accepted A0 decisions
 
 1. Public AOIs use repository IAU:30100. The notebook demonstrates one AOI;
