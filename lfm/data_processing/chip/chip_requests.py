@@ -390,7 +390,7 @@ def validate_numbered_ltm_coverage(aoi: GeographicAOI) -> None:
 
 
 def chip_grid_family(aoi: GeographicAOI) -> GridFamily:
-    """Accept one grid family, including longitude wraps; gate seam/pole cases."""
+    """Return the sole family, or center family for a seam; reject pole cases."""
     if not isinstance(aoi, GeographicAOI):
         raise TypeError("aoi must be a GeographicAOI.")
     if aoi.upper_left_latitude == 90 or aoi.lower_right_latitude == -90:
@@ -399,7 +399,10 @@ def chip_grid_family(aoi: GeographicAOI) -> GridFamily:
                        lr_lat=aoi.lower_right_latitude, lr_lon=aoi.lower_right_longitude)
     families = {part.family for part in routes}
     if len(families) != 1:
-        raise UnsupportedCoverageError("Chips crossing the +/-82 degree LTM/polar seam are not yet supported.")
+        if GridFamily.LPS_N in families and GridFamily.LPS_S in families:
+            raise UnsupportedCoverageError("Chips spanning both polar regions are not supported.")
+        latitude = (aoi.upper_left_latitude + aoi.lower_right_latitude) / 2
+        return route_point(lat=latitude, lon=aoi.upper_left_longitude).family
     family = next(iter(families))
     # Two longitude parts on the same polar grid are one continuous projected
     # footprint, not two families. geographic_query_parts splits acquisition;
@@ -419,7 +422,7 @@ def default_chip_zoom(aoi: GeographicAOI, modality: str) -> int:
 
 
 def geographic_query_parts(aoi: GeographicAOI) -> tuple[GeographicAOI, ...]:
-    """Convert one logical AOI into one or two non-wrapping tiler queries."""
+    """Split at the antimeridian and +/-82 into single-family tiler queries."""
     logical_west = aoi.upper_left_longitude
     logical_east = aoi.lower_right_longitude
     while logical_east <= logical_west:
@@ -431,6 +434,12 @@ def geographic_query_parts(aoi: GeographicAOI) -> tuple[GeographicAOI, ...]:
             f"computed span was {span}."
         )
     chip_grid_family(aoi)
+    north, south = aoi.upper_left_latitude, aoi.lower_right_latitude
+    edges = [north, *(v for v in (82.0, -82.0) if south < v < north), south]
+    if len(edges) > 2:
+        return tuple(part for top, bottom in zip(edges, edges[1:])
+                     for part in geographic_query_parts(GeographicAOI(
+                         top, logical_west, bottom, logical_east)))
     west = ((logical_west + 180.0) % 360.0) - 180.0
     east = west + span
     if east <= 180.0:

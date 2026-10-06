@@ -143,6 +143,8 @@ class AcquisitionGroupConfig:
 
     name: str
     tile_config: TileConfig
+    ltm_zoom_level: int | None = None
+    polar_zoom_level: int | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -152,6 +154,19 @@ class AcquisitionGroupConfig:
         )
         if not isinstance(self.tile_config, TileConfig):
             raise TypeError("tile_config must be a TileConfig.")
+        for field_name, maximum in (("ltm_zoom_level", 26), ("polar_zoom_level", 15)):
+            value = getattr(self, field_name)
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int)
+                                      or not 1 <= value <= maximum):
+                raise ValueError(f"{field_name} must be an integer in [1, {maximum}] or None.")
+
+    def zoom_for_family(self, family) -> int:
+        """Explicit family override, otherwise the unchanged TileConfig zoom."""
+        from ..tiling.grid_registry import GridFamily
+
+        family = GridFamily(family)
+        value = self.ltm_zoom_level if family == GridFamily.LTM else self.polar_zoom_level
+        return self.tile_config.zoom_level if value is None else value
 
 
 @dataclass(frozen=True)
@@ -876,10 +891,13 @@ def chip_config_from_dict(value: Mapping[str, Any]) -> ChipConfig:
                 [str(source_name) for source_name in raw_sources]
             )
         group_values.setdefault("output_dir", intermediate_root / name)
+        family_zooms = {key: group_values.pop(key, None)
+                        for key in ("ltm_zoom_level", "polar_zoom_level")}
         groups.append(
             AcquisitionGroupConfig(
                 name=name,
                 tile_config=tile_config_from_dict(group_values),
+                **family_zooms,
             )
         )
 

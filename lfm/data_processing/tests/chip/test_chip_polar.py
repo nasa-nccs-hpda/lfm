@@ -1,4 +1,4 @@
-"""Initial single-region polar chip contract; seam/pole cases stay gated."""
+"""Polar chip contracts; seam extensions are tested in test_chip_seams."""
 
 import ast
 from dataclasses import replace
@@ -89,10 +89,8 @@ class PolarChipContractTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             default_chip_zoom(aoi, "custom")
 
-    def test_unsupported_seams_and_poles(self):
-        for aoi in (GeographicAOI(82.1, 10, 81.9, 11),
-                    GeographicAOI(-81.9, 10, -82.1, 11),
-                    GeographicAOI(90, 10, 89, 11),
+    def test_unsupported_poles(self):
+        for aoi in (GeographicAOI(90, 10, 89, 11),
                     GeographicAOI(-89, 10, -90, 11)):
             with self.subTest(aoi=aoi), self.assertRaises(UnsupportedCoverageError):
                 geographic_query_parts(aoi)

@@ -1246,6 +1246,45 @@ not close this phase.
 
 ## Phase A6P — Polar chip creation `[In Progress]`
 
+### LTM/polar seam extension (2026-10-06)
+
+Implemented for north/south ±82° crossings, including a simultaneous small
+antimeridian wrap. Pole-touching/containing targets, spans >=180°, and requests
+spanning both polar regions remain rejected. These follow-ups supersede the
+older single-family restrictions below; full A6P acceptance remains open.
+
+- Split the realized query at ±82° and the antimeridian. Each tiler call uses
+  one family. `AcquisitionGroupConfig.ltm_zoom_level` and `polar_zoom_level`
+  optionally override its base `TileConfig.zoom_level`; omitted overrides keep
+  the original explicit scalar zoom. The polar notebook supplies WAC/static
+  5/4 or NAC 11/10 and applies `ZOOM_OVERRIDE` to both families when provided.
+  Product selectors are unchanged; returned records retain actual grid/zoom.
+- Preserve the original dynamic output grid. Static-only keeps the existing
+  center-selected, zero-anchored 100 m reference rule (exact ±82° center goes
+  polar). `chip_grid_family` now returns the sole family or the center family
+  for a seam; inspect `geographic_query_parts` for all acquisition families.
+- Composite on target pixel centers: polar preferred at |latitude| >=82°,
+  LTM below. Fall back per band to valid other-family pixels when preferred
+  data are NoData. Never average the two families or let filename ordering
+  choose precedence. Existing within-family ordering is unchanged.
+- Validate coverage per query part so a later family cannot hide an empty
+  required source. Keep earlier/completed records after failure and do not
+  publish the partial pair. Per-query diagnostics record actual zooms, and
+  configured overrides participate in the dataset configuration identity.
+- Labels are prepared once on the final grid, not rasterized independently
+  per acquisition family. The polar notebook retains its current labeled AOI
+  and includes a commented seam AOI requiring separately appropriate labels.
+
+Validation: local chip discovery ran **278 tests: 153 passed, 125 dependency
+skips**. A NumPy-enabled environment additionally ran the focused seam module:
+**9 tests: 6 passed, 3 GDAL-dependent skips**. Targeted tiling regression ran
+**29 tests: 17 passed, 12 dependency skips**. New GDAL tests cover true LTM/LPS
+warps and pixel-center priority, native grids in both hemispheres with wraps,
+and serial/spawn semantic/GPKG pair publication without duplicate instances.
+These tests and real-data seam overlays still require HPC execution.
+The user could not find a polar NAC raster; real-data NAC polar acceptance
+remains unverified, not implicitly completed.
+
 Polar antimeridian extension (2026-10-06):
 
 - User reports the previous CRS-fix test rerun passed; no count/timing was

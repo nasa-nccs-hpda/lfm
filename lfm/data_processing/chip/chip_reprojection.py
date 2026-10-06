@@ -12,7 +12,8 @@ from .chip_acquisition import ChipAcquisitionResult
 from .chip_config import ChipConfig, OutputModalityConfig
 from .chip_requests import raster_bounds, validate_target_grid_consistency
 from .chip_types import TargetGrid
-from ..tiling.lunar_crs import raster_crs_equivalent
+from ..tiling.lunar_crs import load_lunar_geographic_wkt, raster_crs_equivalent
+from ..tiling.grid_registry import GridFamily, default_grid_registry
 from ..tiling.tiling_config import TileSourceConfig
 from ..tiling.tiling_policy import band_nodata_values
 from ..tiling.tiling_results import TileCubeRecord
@@ -192,13 +193,13 @@ def build_modality_cube_mappings(
             {
                 record.zoom_level
                 for record in records
-                if record.zoom_level != group.tile_config.zoom_level
+                if record.zoom_level != group.zoom_for_family(default_grid_registry()[record.zone].family)
             }
         )
         if invalid_zooms:
             raise ChipReprojectionError(
                 f"Source {source.name!r} returned unexpected zoom levels "
-                f"{invalid_zooms}; expected {group.tile_config.zoom_level}.",
+                f"{invalid_zooms}; expected the configured zoom for each grid family.",
                 acquisition_group=group.name,
                 source_name=source.name,
                 code="unexpected_zoom",
@@ -549,6 +550,28 @@ def _warp_zone_group(
         opened.clear()
 
 
+def _polar_target_pixels(target_grid, np, osr):
+    """Classify pixel centers, including rotated grids, in bounded row blocks."""
+    transform = osr.CoordinateTransformation(
+        _spatial_reference(target_grid.crs_wkt, osr),
+        _spatial_reference(load_lunar_geographic_wkt(), osr),
+    )
+    result = np.empty((target_grid.height, target_grid.width), dtype=bool)
+    x0, a, b, y0, c, d = target_grid.transform
+    # Bound temporary coordinate lists even for wide rasters.
+    for row in range(target_grid.height):
+        for start in range(0, target_grid.width, 4096):
+            cols = np.arange(start, min(start + 4096, target_grid.width)) + .5
+            ys = row + .5
+            points = transform.TransformPoints(list(zip(x0 + a * cols + b * ys,
+                                                        y0 + c * cols + d * ys)))
+            latitudes = np.asarray(points)[:, 1]
+            if not np.all(np.isfinite(latitudes) & (np.abs(latitudes) <= 90)):
+                raise ValueError("Invalid target pixel-center latitude at LTM/polar seam.")
+            result[row, start:start + len(cols)] = np.abs(latitudes) >= 82.0
+    return result
+
+
 def reproject_modality(
     mapping: ModalityCubeMapping,
     target_grid: TargetGrid,
@@ -585,9 +608,13 @@ def reproject_modality(
             zone_groups=(),
         )
 
-    np, _, _ = _libraries()
+    np, _, osr = _libraries()
+    families = {default_grid_registry()[group.zone].family for group in mapping.zone_groups}
+    seam = GridFamily.LTM in families and len(families) > 1
+    polar_pixels = _polar_target_pixels(target_grid, np, osr) if seam else None
     output = None
     output_mask = None
+    preferred_mask = None
     band_names: tuple[str, ...] | None = None
     for zone_group in mapping.zone_groups:
         try:
@@ -612,13 +639,23 @@ def reproject_modality(
                 dtype=np.float64,
             )
             output_mask = np.zeros(zone_mask.shape, dtype=bool)
+            preferred_mask = np.zeros(zone_mask.shape, dtype=bool) if seam else None
         elif zone_names != band_names:
             raise _error(
                 mapping,
                 "Lunar grid groups do not share one band contract.",
                 code="inconsistent_zone_bands",
             )
-        np.copyto(output, zone_pixels, where=zone_mask)
+        if seam:
+            is_polar = default_grid_registry()[zone_group.zone].family != GridFamily.LTM
+            preferred = polar_pixels if is_polar else ~polar_pixels
+            # Preserve valid preferred-family data; other-family data is a
+            # fallback only. Same-family ordering retains existing semantics.
+            np.copyto(output, zone_pixels,
+                      where=zone_mask & (preferred | ~preferred_mask))
+            preferred_mask |= zone_mask & preferred
+        else:
+            np.copyto(output, zone_pixels, where=zone_mask)
         output_mask |= zone_mask
 
     if output is None or output_mask is None or band_names is None:

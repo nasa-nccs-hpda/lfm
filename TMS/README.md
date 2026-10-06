@@ -377,8 +377,12 @@ source lattice; static-only polar chips use a zero-anchored 100 m LPS grid.
 Polar antimeridian chips use two non-wrapping acquisition queries and one
 continuous projected output grid. Structured records are deduplicated before
 mosaicking; the tiler also deduplicates addresses within each AOI call.
-Cross-82 seams and pole-containing chips remain rejected. Antimeridian chip
-HPC validation remains pending.
+Cross-82 chips now split acquisition into single-family queries, with optional
+LTM/polar zoom overrides. Compositing prefers polar at |latitude| >=82° and
+LTM below, falling back per band when the preferred data are NoData. The
+dynamic source lattice is preserved; static-only selects its 100 m grid from
+the AOI center. Pole-containing chips remain rejected. Seam GDAL/HPC and
+real-data validation remain pending in the AOI chip plan.
 It can group matching cube addresses, merge adjacent tiles, reproject them onto
 a label or reference-image grid, clip them to the desired area, and select or
 combine bands for a particular machine-learning dataset.

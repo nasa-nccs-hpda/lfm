@@ -39,6 +39,16 @@ coordinator setup before any chip workers start.
 
 ## Stable tiling contract that chip creation may rely on
 
+2026-10-06 chip seam extension: downstream acquisition now splits ±82° seam
+queries (and antimeridian parts) into single-family calls to the unchanged
+strict tiler. Optional acquisition-group `ltm_zoom_level`/`polar_zoom_level`
+override the base scalar zoom; the polar notebook uses WAC/static 5/4 or NAC
+11/10. Final-grid compositing prefers the geographic owner family, falling
+back to valid other-family data per band. Dynamic native grids remain intact;
+static-only uses the AOI-center grid at 100 m. Pole-containing chips remain
+unsupported. This supersedes older blanket polar/seam rejections below.
+Seam GDAL/HPC and real-data validation are pending in the AOI plan.
+
 2026-10-05 coverage extension (user-reported HPC tests passed): tiling now
 retains all-NoData warped channels. Missing named channels in a spatial query
 are filled only if a read-only, product-filtered inventory of indexed raster

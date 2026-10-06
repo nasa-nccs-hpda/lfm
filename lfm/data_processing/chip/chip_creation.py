@@ -386,7 +386,8 @@ def _acquisition_diagnostics(
                         ),
                         severity="warning",
                         acquisition_group=group_result.acquisition_group,
-                        zoom_level=group_result.zoom_level,
+                        zoom_level=(group_result.query_zoom_levels[index]
+                                    if group_result.query_zoom_levels else group_result.zoom_level),
                     )
                 )
             if group_result.failed_query_part is not None:
@@ -405,12 +406,15 @@ def _acquisition_diagnostics(
                         message=(
                             "The tiler stopped at the recorded failing tile; "
                             "later tiles in that query part were not attempted."
+                            if failed is not None and failed.tile_x is not None else
+                            "Acquisition failed for this query part; tile-level "
+                            "completion is unavailable. See the acquisition diagnostic."
                         ),
                         severity="warning",
                         acquisition_group=group_result.acquisition_group,
                         source_name=None if failed is None else failed.source_name,
                         zone=None if failed is None else failed.zone,
-                        zoom_level=group_result.zoom_level,
+                        zoom_level=group_result.zoom_level if failed is None else failed.zoom_level,
                         tile_x=None if failed is None else failed.tile_x,
                         tile_y=None if failed is None else failed.tile_y,
                     )
@@ -595,6 +599,8 @@ def _diagnostic_document(
                 "query_parts": [
                     {
                         "aoi": _aoi_document(part),
+                        "zoom_level": (item.query_zoom_levels[index]
+                                       if item.query_zoom_levels else item.zoom_level),
                         "state": (
                             "failed"
                             if item.failed_query_part == part
@@ -603,7 +609,7 @@ def _diagnostic_document(
                             else "unattempted"
                         ),
                     }
-                    for part in item.query_parts
+                    for index, part in enumerate(item.query_parts)
                 ],
                 "selectors": [
                     {

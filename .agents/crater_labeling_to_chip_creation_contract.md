@@ -14,6 +14,15 @@ Tracked in
 
 ## Inputs and output grid
 
+Polar/seam update (2026-10-06): initial north/south and antimeridian support
+now extends to ±82° seam queries. Dynamic output still inherits the source
+lattice. Static-only uses the existing 100 m center-selected grid, including
+hemisphere LPS when the center is polar. Labels are converted once on that
+final grid, independently of the number of acquisition families; seam crossing
+must not split or duplicate instance IDs. Pole-containing targets remain
+unsupported. See A6P in the AOI plan for pending HPC/real-data acceptance;
+older polar exclusions below describe the original scope.
+
 The notebook takes one geographic IAU:30100 AOI; batch creation iterates over
 multiple AOIs. Each request explicitly supplies its label path and output
 sample ID. Assume supplied GeoPackages represent finished full-raster labels.

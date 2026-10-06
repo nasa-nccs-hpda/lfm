@@ -356,6 +356,13 @@ index artifact. T6.5 and Phase T6 are complete.
 
 ## Stable tiling contract for chip creation
 
+Chip seam update (2026-10-06): the chip consumer now partitions ±82° queries
+into single-family calls with optional per-family zooms. This reuses the strict
+tiler without changing tiling runtime. Target-grid compositing uses geographic
+family precedence with per-band valid-data fallback. Pole-containing chips
+remain rejected; seam HPC/real-data acceptance is pending in A6P. This
+supersedes the earlier cross-82 rejection in the historical update below.
+
 Polar chip update (2026-10-06): the chip backend now accepts initial
 single-region north/south polar requests, using the existing tiler unchanged.
 The preview notebook uses family defaults (WAC/static 4, NAC 10); explicit

@@ -9,7 +9,7 @@ from typing import Literal
 
 from .chip_config import AcquisitionGroupConfig, ChipConfig
 from .chip_preflight import PreparedChipRequest
-from .chip_requests import geographic_query_parts, product_id_from_sample_id
+from .chip_requests import chip_grid_family, geographic_query_parts, product_id_from_sample_id
 from .chip_types import ChipRequest, GeographicAOI, SourceSelector
 from ..tiling.tiling import create_tiles_for_aoi
 from ..tiling.tiling_results import (
@@ -93,6 +93,7 @@ class AcquisitionGroupResult:
     diagnostics: tuple[AcquisitionDiagnostic, ...] = ()
     attempted_query_parts: tuple[GeographicAOI, ...] = ()
     failed_query_part: GeographicAOI | None = None
+    query_zoom_levels: tuple[int, ...] = ()
 
     @property
     def selector_mapping(self) -> dict[str, str]:
@@ -368,6 +369,7 @@ def _acquire_group(
     """Acquire one isolated group through ``create_tiles_for_aoi``."""
     output_dir = config.intermediate_root / request.sample_id / group.name
     query_parts = geographic_query_parts(request.geographic_aoi)
+    query_zooms = tuple(group.zoom_for_family(chip_grid_family(part)) for part in query_parts)
     group_selectors = selectors_for_group(selectors, group.name)
     selector_mapping = _selector_mapping(group_selectors)
     tile_config = replace(group.tile_config, output_dir=output_dir)
@@ -376,7 +378,9 @@ def _acquire_group(
     attempted_query_parts: list[GeographicAOI] = []
     failed_query_part: GeographicAOI | None = None
 
-    for part in query_parts:
+    part_diagnostics: list[AcquisitionDiagnostic] = []
+    for part, zoom in zip(query_parts, query_zooms):
+        tile_config = replace(tile_config, zoom_level=zoom)
         attempted_query_parts.append(part)
         try:
             part_records = create_tiles_for_aoi(
@@ -391,6 +395,13 @@ def _acquire_group(
                 group.name,
                 (*records, *part_records),
             )
+            # Check each part independently: a later successful part cannot hide
+            # a required source absent from this family/query.
+            missing = _successful_coverage_diagnostics(request, group, part_records)
+            if any(item.severity == "error" for item in missing):
+                part_diagnostics.extend(replace(item, zoom_level=zoom) for item in missing)
+                failed_query_part = part
+                break
         except Exception as exc:
             failure = exc
             failed_query_part = part
@@ -404,10 +415,10 @@ def _acquire_group(
                 pass
             break
 
-    diagnostics: list[AcquisitionDiagnostic] = []
+    diagnostics: list[AcquisitionDiagnostic] = list(part_diagnostics)
     if failure is not None:
-        diagnostics.append(_failure_diagnostic(failure, group=group))
-    else:
+        diagnostics.append(_failure_diagnostic(failure, group=replace(group, tile_config=tile_config)))
+    elif not part_diagnostics:
         diagnostics.extend(
             _successful_coverage_diagnostics(request, group, records)
         )
@@ -432,6 +443,7 @@ def _acquire_group(
         diagnostics=tuple(diagnostics),
         attempted_query_parts=tuple(attempted_query_parts),
         failed_query_part=failed_query_part,
+        query_zoom_levels=query_zooms,
     )
 
 

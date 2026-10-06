@@ -582,6 +582,10 @@ def _configuration_document(config: ChipConfig) -> dict[str, Any]:
             {
                 "name": group.name,
                 "zoom_level": group.tile_config.zoom_level,
+                **({"ltm_zoom_level": group.ltm_zoom_level}
+                   if group.ltm_zoom_level is not None else {}),
+                **({"polar_zoom_level": group.polar_zoom_level}
+                   if group.polar_zoom_level is not None else {}),
                 "debug": group.tile_config.debug,
                 "sources": sources,
             }
