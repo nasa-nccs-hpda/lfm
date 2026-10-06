@@ -100,6 +100,17 @@ and fixture phase; backend implementation starts at A1.
 Phases and sub-steps are sequential. A phase is complete only when all required
 sub-steps and validation gates in that phase are complete.
 
+### Scope extension (2026-10-06)
+
+The user requested explicit TIFF-label support for both semantic and instance
+segmentation and downstream polar-chip support. Add **A6T** (TIFF labels), then
+**A6P** (polar chips), before A7 regression and A8 closure. Existing phase IDs
+and recorded evidence remain unchanged. These additions are planned, not claims
+of runtime support: semantic GeoTIFF conversion already exists, instance TIFF
+conversion does not, and polar chip requests remain rejected until enabled and
+validated by A6P. Proposed format/grid decisions below need confirmation before
+implementation; they do not silently amend the frozen GeoPackage contract.
+
 ## Starting behavior and remaining gap
 
 The backend already supports `chip_request_from_aoi()`, but the active path in
@@ -1141,6 +1152,117 @@ Notebook-helper discovery: eight passed, one plotting dependency skip. Notebook
 syntax, commented batch syntax, cleared outputs and unique cell IDs were checked.
 These checks do not establish real-data NAC correctness.
 
+## Phase A6T — TIFF labels for both segmentation tasks `[Not Started]`
+
+- `[Not Started]` **A6T.1 — Freeze task and encoding contracts.** Add an explicit
+  semantic/instance task selection for TIFF labels through the existing typed
+  label interface and notebook. Keep auto-detected TIFFs semantic for backward
+  compatibility; never infer instance semantics from the number of distinct
+  values. Both formats require one integer band with embedded CRS/affine,
+  supported value range, and coverage of the entire realized chip footprint.
+  Unknown label pixels/NoData within that footprint remain errors, independent
+  of the permissive imagery coverage policy. Define/confirm instance encoding:
+  proposed zero background, positive IDs, negative/fractional values rejected,
+  disconnected components with the same ID kept as one instance. Semantic class
+  IDs are preserved, not compacted. RGB masks and multiband encodings stay out
+  of scope unless separately specified.
+- `[Not Started]` **A6T.2 — Define raster-instance boxes and provenance.** A TIFF
+  contains visible IDs but cannot recover the original outline or boxes of an
+  occluded instance. Proposed default: compact surviving positive source IDs in
+  ascending order; derive `(x, y, width, height)` boxes from their final-grid
+  pixel support; one box per retained ID; `num_craters` equals the retained ID
+  count. Preserve the source-to-output ID map. Warn when an intersecting source
+  instance vanishes under clipping/resampling; valid empty masks produce zero
+  instances and an empty box array. Confirm these semantics before coding.
+  Do not fabricate fully occluded objects absent from the TIFF. Existing NPZ
+  and GeoPackage original-outline/occlusion rules remain unchanged; supporting
+  equivalent information for TIFF would require explicit auxiliary annotations.
+- `[Not Started]` **A6T.3 — Extend read-only planning and worker conversion.**
+  Audit/reuse the current semantic TIFF path rather than rewriting it. Allow an
+  explicitly selected raster-instance TIFF through format/kind validation,
+  window/coverage planning and hashing. Materialize exact/aligned windows or
+  nearest-neighbor warps on the authoritative target grid without interpolation
+  of categorical values. Preserve integer IDs without float precision loss;
+  reject unsupported ranges explicitly. Use windowed/block processing for large
+  source TIFFs and keep arrays out of parent-process request metadata.
+- `[Not Started]` **A6T.4 — Publish and expose both tasks.** Semantic TIFF inputs
+  publish canonical `.npy`; instance TIFF inputs publish canonical `.npz` with
+  `mask`, `bboxes`, and `num_craters`. Record task, source checksum/grid, method,
+  box derivation, ID map and omissions in versioned provenance as needed.
+  Preserve atomic pair publication, source immutability, rollback and sample
+  failure isolation. Add concise notebook examples and task-appropriate plots;
+  do not apply instance palette/numbering logic to semantic class IDs. Explicit
+  TIFF paths bypass GeoPackage-only latest-export discovery.
+- `[Not Started]` **A6T.5 — Test and validate on HPC.** Cover exact and larger
+  labels, differing CRS, rotated affines, edge clipping, gaps in source IDs,
+  disconnected objects, empty masks, subpixel omissions, large integer IDs,
+  invalid dtype/band counts, NoData/coverage rejection, and task ambiguity.
+  Check semantic class preservation and instance mask/box/count agreement,
+  loader compatibility, serial/spawn equivalence and unchanged legacy NPZ/GPKG
+  results. Run small real semantic and instance TIFF examples on Grace and
+  inspect overlays; record inputs, job IDs, runtime/memory and results.
+
+Exit gate: both tasks accept explicitly configured georeferenced TIFF labels,
+produce validated canonical training artifacts, and pass supported-container
+tests and focused real-data visual review. Existing semantic support alone does
+not close this phase.
+
+## Phase A6P — Polar chip creation `[Not Started]`
+
+- `[Not Started]` **A6P.1 — Freeze supported AOIs and target grids.** Start with
+  small rectangular geographic AOIs wholly within one polar region, north and
+  south. Keep IAU:30100 input and original dynamic raster CRS/affine/resolution
+  as the output contract; polar tile CRS does not replace the source grid.
+  Confirm the static-only counterpart: proposed 100 m, zero-anchored grid in
+  the repository's hemisphere-specific `LPS_N`/`LPS_S` CRS. Define requested vs
+  realized footprint semantics, longitude normalization and exact ±82° routing.
+  Explicitly decide pole-containing/full-longitude AOI representation; longitude
+  at the pole cannot be handled by simply removing the existing latitude guard.
+- `[Not Started]` **A6P.2 — Make request/preflight validation grid-family aware.**
+  Replace numbered-LTM-only checks only for supported, tested cases. Reuse the
+  repository grid registry/router and IAU definition; do not duplicate polar
+  WKT. Validate transformed footprints with appropriate boundary densification
+  and singularity checks. Audit label coverage/round-trip tolerances near poles,
+  preserving fail-before-acquisition semantics for genuinely unknown labels.
+  Keep explicit rejection for pole-containing or seam cases until their own
+  A6P.5 gates pass.
+- `[Not Started]` **A6P.3 — Route acquisition with correct zooms.** Reuse existing
+  polar tiling, product selectors, source-index preparation and structured
+  records. Choose acquisition defaults by grid family: WAC LTM 5 / polar 4,
+  NAC LTM 11 / polar 10; enabled static follows its acquisition group. Preserve
+  manual overrides. One `TileConfig` has one zoom, so mixed-family requests need
+  family-specific acquisition calls/groups with collision-free paths and
+  deterministic recombination, not one hard-coded zoom. Verify actual polar
+  source availability; unindexed sources remain distinct from NoData coverage.
+- `[Not Started]` **A6P.4 — Verify end-to-end single-region chips.** Audit record
+  grouping, CRS consistency checks, mosaicking, reprojection, diagnostics and
+  publication for `LPS_N`/`LPS_S`, removing assumptions that every grid name is
+  numbered LTM. Warp all imagery and labels to the one authoritative target
+  grid; preserve categorical nearest sampling and existing vector rasterization
+  rules. Add synthetic north/south tests for WAC, NAC and static-only layouts,
+  TIFF/GPKG labels, NoData bands and serial/parallel equality. Validate one small
+  real north and south example before exposing single-region polar notebook use.
+- `[Not Started]` **A6P.5 — Close seam and pole edge cases.** Test AOIs crossing
+  ±82°, polar antimeridian AOIs, both hemispheres, and pole-containing footprints
+  under the representation approved in A6P.1. Ensure acquisition-part overlap
+  neither duplicates bands/instances nor leaves coverage gaps; define stable
+  compositing precedence. Handle geographic singularities without narrowing a
+  footprint to an incorrect longitude envelope. Add separate regression gates;
+  leave any unvalidated case explicitly rejected and documented, not silently
+  accepted as generic polar support.
+- `[Not Started]` **A6P.6 — Notebook, documentation and real-data acceptance.**
+  Add concise north/south examples, derived grid-family/zoom summaries and output
+  size checks. Run clean-kernel examples on Grace with `lfm-container-ipyleaflet`,
+  inspect image/label overlays, compare serial/multiworker outputs, and record
+  raster/index immutability, timings, memory, output grids and band counts.
+  Re-run numbered-LTM regressions. Update the tiling handoff and chip contracts
+  with the exact supported polar cases and any remaining explicit limitations.
+
+Exit gate: agreed polar cases pass request, label, acquisition, reprojection,
+publication and notebook tests plus real-data review. Report limited
+single-region support separately if seam/pole-containing validation is still
+open; do not mark the full phase complete in that state.
+
 ## Phase A7 — Regression and real-data validation `[Not Started]`
 
 - `[Not Started]` **A7.1** Run the focused request, label, preflight,
@@ -1163,6 +1285,10 @@ These checks do not establish real-data NAC correctness.
 - `[Not Started]` **A7.7** Execute `notebooks/chip_example.ipynb` top-to-bottom
   on Grace with `lfm-container-ipyleaflet`, inspect the saved plot, and record
   the Slurm job, elapsed time, report paths, and any accepted exceptions.
+- `[Not Started]` **A7.8** Include the A6T semantic/instance TIFF matrix and all
+  A6P accepted polar cases in the final regression run. Require unchanged
+  numbered-LTM and existing label-format behavior except explicitly approved,
+  versioned contract changes.
 
 Exit gate: focused tests and real-data runs pass, outputs are visually reviewed,
 and no validation claim exceeds the recorded evidence.
@@ -1192,6 +1318,9 @@ modernization plan describe the same implemented behavior.
 | Explicit AOI + larger aligned `.npy` label | Integer window, target-sized `.npy` |
 | Explicit AOI + larger projected semantic label | Nearest warp, exact target grid |
 | Explicit AOI + semantic label GeoTIFF | Embedded grid, canonical `.npy` output |
+| Explicit instance task + label GeoTIFF (A6T) | Integer IDs, embedded grid, clipped compact mask and agreed raster-derived boxes in `.npz` |
+| TIFF without explicit task | Preserve existing semantic interpretation; never guess instance encoding |
+| TIFF label NoData inside target | Fail label preflight; imagery NoData policy does not authorize unknown labels |
 | Explicit AOI + larger instance `.npz` | Clipped mask/boxes, compact IDs, valid count |
 | Two AOIs sharing one parent label | Two unique pairs with shared source provenance |
 | AOI outside or partly outside a raster label grid | Per-sample failure before tiling; no pair |
@@ -1207,7 +1336,11 @@ modernization plan describe the same implemented behavior.
 | Larger array with no source grid | Typed failure; never infer location from shape |
 | Arbitrary nonrectangular geometry | Explicit rejection; no silent envelope |
 | Antimeridian AOI | Existing split-query acquisition; one logical target request |
-| Polar AOI | Existing `unsupported_polar_coverage` preflight failure |
+| Polar AOI, current runtime | Existing `unsupported_polar_coverage` preflight failure until A6P validation enables the case |
+| Single-region north/south polar AOI (A6P) | Native dynamic target grid; family-specific acquisition; aligned labels |
+| Polar static-only (A6P) | Confirmed polar 100 m grid contract, canonical bands and NoData policy |
+| LTM/polar seam or polar antimeridian (A6P) | One output grid, deterministic partition/recombination, no duplicated instances |
+| Pole-containing/full-longitude AOI (A6P) | Explicitly approved representation and validated singularity handling, otherwise clear rejection |
 | Exact legacy reference request | Unchanged chip and byte-identical label behavior |
 | Publication failure after clipping | Both derived label and chip rolled back |
 | Serial versus multiprocessing | Same ordered results, outputs, IDs, and diagnostics |
@@ -1223,6 +1356,9 @@ Primary files likely to change:
 - `model/chip_creation.py`
 - `model/chip_publication.py`
 - `model/chip_notebook_utils.py`
+- `model/chip_label_planning.py` and `model/chip_label_materialization.py`
+- `model/chip_instance_labels.py`
+- `model/chip_acquisition.py` and `model/chip_reprojection.py`
 - `model/tests/test_chip_types.py`
 - `model/tests/test_chip_requests.py`
 - `model/tests/test_chip_labels.py`
@@ -1251,7 +1387,11 @@ editing them.
 | Full `.npz` masks create high worker memory | Keep plans small, materialize in workers, window formats that support it, measure `.npz` peak memory, and document limits |
 | Derived labels weaken publication atomicity | Hash validated artifacts and retain the existing staged pair/rollback protocol |
 | Batch workers rebuild indexes | Preserve coordinator-only index preparation from the handoff |
-| New AOI notebook silently enables polar chips | Retain and display the existing typed polar rejection |
+| New AOI notebook silently enables unvalidated polar chips | Retain typed rejection per case until the A6P acceptance gate passes |
+| Instance TIFF is mistaken for class labels, or vice versa | Explicit task selection; backward-compatible semantic auto interpretation |
+| TIFF cannot recover occluded original outlines | Confirm raster-support box semantics; do not invent absent instances or change the GPKG contract |
+| Polar geographic singularities shrink the output footprint | Explicit pole/full-longitude representation, densified transforms and separate edge-case gates |
+| LTM/polar acquisition uses the wrong resolution | Family-specific zooms/calls with one authoritative native target grid |
 
 ## Completion definition
 
