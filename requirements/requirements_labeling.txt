@@ -9,3 +9,5 @@ pillow>=10
 jupyterlab>=4.0
 ipykernel>=6.0
 scipy>=1.11
+ipyfilechooser>=0.6,<0.7
+pyproj>=3.6

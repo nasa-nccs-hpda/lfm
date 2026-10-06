@@ -1,0 +1,10 @@
+{
+  "title": "Robbins lunar crater database, 2018 release (published 2019)",
+  "source_page": "https://astrogeology.usgs.gov/search/map/moon_crater_database_v1_robbins",
+  "doi": "10.1029/2018JE005592",
+  "retrieved": "2026-10-05",
+  "coordinates": "Planetocentric latitude, east-positive longitude 0\u2013360 degrees; diameter in km.",
+  "subset": "Two original rows whose circular rims intersect NAC_DTM_NEWCRATER6_M1219245090_80CM.TIF. All original columns and values retained.",
+  "limitation": "Global catalog is intended for craters >=1\u20132 km; small NAC craters may be absent.",
+  "sha256": "a4b1ae06e341e705a785e68fca167de29c40d82cc97e18651f7927fce30e15ef"
+}

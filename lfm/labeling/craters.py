@@ -14,7 +14,7 @@ import rasterio
 from affine import Affine
 from rasterio.features import shapes
 from rasterio.windows import Window
-from shapely.affinity import affine_transform
+from shapely.affinity import affine_transform, scale
 from shapely.geometry import Polygon, mapping, shape
 
 
@@ -149,7 +149,8 @@ def export_gpkg(path, records, crs, transform, source, overwrite=False):
     path.parent.mkdir(parents=True, exist_ok=True)
     schema = {'geometry':'Polygon', 'properties':{
         'crater_id':'int', 'method':'str', 'source':'str', 'band':'int',
-        'seed_col':'float', 'seed_row':'float', 'area_native':'float'}}
+        'seed_col':'float', 'seed_row':'float', 'area_native':'float',
+        'catalog_id':'str', 'catalog_source':'str'}}
     fd, tmp = tempfile.mkstemp(suffix='.gpkg', dir=path.parent)
     os.close(fd)
     os.unlink(tmp)
@@ -162,7 +163,8 @@ def export_gpkg(path, records, crs, transform, source, overwrite=False):
                 geo = affine_transform(poly, [transform.a,transform.b,transform.d,transform.e,transform.c,transform.f])
                 dst.write({'geometry':mapping(geo), 'properties':{
                     'crater_id':i, 'method':rec['method'], 'source':str(source), 'band':rec['band'],
-                    'seed_col':rec['seed'][0], 'seed_row':rec['seed'][1], 'area_native':geo.area}})
+                    'seed_col':rec['seed'][0], 'seed_row':rec['seed'][1], 'area_native':geo.area,
+                    'catalog_id':rec.get('catalog_id',''), 'catalog_source':rec.get('catalog_source','')}})
         if overwrite:
             os.replace(tmp, path)
         else:
@@ -197,7 +199,8 @@ def load_labels(path, src):
                 raise ValueError('Existing labels contain an invalid polygon.')
             poly=affine_transform(native,[inverse.a,inverse.b,inverse.d,inverse.e,inverse.c,inverse.f])
             records.append(dict(geometry=poly,seed=(props['seed_col'],props['seed_row']),
-                                method=props['method'],band=props['band']))
+                                method=props['method'],band=props['band'],
+                                catalog_id=props.get('catalog_id') or '',catalog_source=props.get('catalog_source') or ''))
     return records
 
 
@@ -261,12 +264,16 @@ def raster_preview(src, bounds=None, band=1, stretch=None, max_size=1400):
 
 class CraterLabeler:
     """ipyleaflet map in the raster's native projected coordinate plane."""
-    def __init__(self, data_dir, output_dir, default_raster=None):
+    def __init__(self, data_dir, output_dir, default_raster=None, default_catalog=None):
         import ipywidgets as w
         import ipyleaflet as L
         self.L=L
         self.src=None
         self.records=[]
+        self._active_index=None
+        self._draft_dirty=False
+        self._history=[]
+        self._sync_selection=False
         self.seed=self.draft=None
         self.draft_method=''
         self.handles=[]
@@ -275,18 +282,30 @@ class CraterLabeler:
         self.stretch=None
         self.output_dir=Path(output_dir).expanduser().resolve()
         self.default_raster=Path(default_raster).expanduser().resolve() if default_raster else None
-        self.folder=w.Text(value=str(Path(data_dir).expanduser()),description='Raster folder:',layout=w.Layout(width='95%'))
-        self.files=w.Dropdown(options=[],description='GeoTIFF:',layout=w.Layout(width='95%'))
-        self.path=w.Text(value='',description='Raster:',layout=w.Layout(width='95%'))
-        self.files.observe(lambda c:setattr(self.path,'value',c['new'] or ''),names='value')
-        self.refresh_rasters()
-        self.browser_entries=w.Select(options=[],rows=12,description='Files:',layout=w.Layout(width='95%'))
-        self.browser_filter=w.Text(value='',description='Filter name:',placeholder='Type part of a filename',layout=w.Layout(width='95%'))
-        self.browser_message=w.HTML()
-        self.browser_filter.observe(lambda c:self._guard(self._list_browser),names='value')
+        from ipyfilechooser import FileChooser
+        initial=self.default_raster or next(iter(sorted(Path(data_dir).glob('*.tif'))),Path(data_dir)/'')
+        self.path=w.Text(value=str(initial))  # internal selected path; chooser is the visible control
+        browse_dir=initial.parent if initial.suffix else initial
+        while not browse_dir.is_dir() and browse_dir!=browse_dir.parent:
+            browse_dir=browse_dir.parent
+        self.raster_chooser=FileChooser(str(browse_dir),filename=initial.name if initial.suffix else '',
+            title='<b>Raster image — GeoTIFF (.tif / .tiff)</b>',
+            select_default=initial.is_file(),filter_pattern=['*.tif','*.tiff'],
+            select_desc='Browse raster…',change_desc='Browse raster…',layout=w.Layout(width='95%'))
+        self.raster_chooser.register_callback(self._raster_chosen)
+        catalog=Path(default_catalog).expanduser() if default_catalog else Path(data_dir)
+        catalog_dir=catalog.parent if catalog.suffix else catalog
+        while not catalog_dir.is_dir() and catalog_dir!=catalog_dir.parent:
+            catalog_dir=catalog_dir.parent
+        self.catalog_chooser=FileChooser(str(catalog_dir),filename=catalog.name if catalog.suffix else '',
+            title='<b>Existing crater vectors / catalog — GPKG, SHP, GeoJSON or CSV</b>',
+            select_default=catalog.is_file(),filter_pattern=['*.csv','*.gpkg','*.shp','*.geojson'],
+            select_desc='Browse catalog…',change_desc='Browse catalog…',layout=w.Layout(width='95%'))
         self.band=w.BoundedIntText(value=1,min=1,max=1,description='Band:')
-        self.mode=w.ToggleButtons(options=['Navigate','Circle','Ellipse','Edge circle','Region grow','Edit vertices'],value='Edge circle',description='Mode:')
+        self.mode=w.ToggleButtons(options=['Navigate','Circle','Ellipse','Edge circle','Region grow','Edit vertices','Select/delete'],value='Edge circle',description='Mode:')
         self.radius=w.BoundedFloatText(value=30,min=.001,max=1e12,step=1,description='Radius:')
+        self.radius_slider=w.FloatSlider(value=30,min=.001,max=512,step=1,description='Size:',continuous_update=False,readout=False)
+        self.radius_slider.observe(lambda c:setattr(self.radius,'value',c['new']),names='value')
         self._setting_radius=False
         self.edge_min=w.BoundedFloatText(value=5,min=.001,max=1e12,description='Min radius:')
         self.edge_max=w.BoundedFloatText(value=200,min=.001,max=1e12,description='Max radius:')
@@ -297,8 +316,10 @@ class CraterLabeler:
         self.growth=w.IntSlider(value=100,min=1,max=512,description='Limit px:',continuous_update=False)
         self.output=w.Text(value=str(self.output_dir / (Path(self.path.value).stem+'_label_craters.gpkg')),description='Labels:',disabled=True,layout=w.Layout(width='95%'))
         self.last_saved_path=None
-        self.saved_status=w.HTML(value='Autosave is on: each accepted crater updates the same raster-specific GeoPackage.')
-        self.status=w.HTML(value='Choose a GeoTIFF and click Load raster.')
+        self.saved_status=w.HTML(value='Autosave is on: clicks and size/vertex edits update the same GeoPackage automatically.')
+        self.status=w.HTML(value='Browse to a GeoTIFF to load it. The chooser browses the notebook server filesystem.')
+        self.selection=w.Dropdown(options=[],description='Crater:',layout=w.Layout(width='95%'))
+        self.selection.observe(self._selection_changed,names='value')
         self.coordinates=w.HTML()
         self.count=w.HTML(value='0 accepted craters')
         self.map=L.Map(crs=L.projections.Simple,layers=(),center=(0,0),zoom=0,
@@ -313,6 +334,7 @@ class CraterLabeler:
             self.map.add(layer)
         self.map.add(L.LayersControl(position='topright'))
         self.map.add(L.FullScreenControl())
+        self.map.add_class('crater-raster-map')
         self.map.on_interaction(self._interaction)
         self.map.observe(self._schedule_refresh,names='bounds')
         def button(label,callback):
@@ -322,20 +344,22 @@ class CraterLabeler:
         def row(children):
             return w.HBox(children,layout=w.Layout(flex_flow="row wrap"))
         self.radius.style.description_width="initial"
-        self.browser_panel=w.VBox([
-            w.HTML('<b>Browse the notebook server filesystem</b> — select a folder and click Open selected to enter it; select a GeoTIFF to use it.'),
-            self.folder,row([button('Go to folder',self._list_browser),button('Up one folder',self._browser_up),button('Explore default',self._browser_default)]),
-            self.browser_filter,self.browser_entries,
-            row([button('Open selected',self._browser_open),button('Cancel',self._browser_cancel)]),self.browser_message],
-            layout=w.Layout(display='none',border='1px solid #888',padding='10px'))
-        self.widget=w.VBox([button('Browse files…',self._browse_files),self.path,self.browser_panel,
-            row([button('Load raster',self.load),self.band,button('Refresh view',self.refresh),button('Full extent',self.full_extent)]),
-            self.mode,w.HTML('Edge circle fits the rim from your clicked center. Adjust the radius numerically to refine it.'),
-            row([self.radius,self.ratio,self.angle]),
+        self.catalog_panel=w.Accordion(children=[w.VBox([
+            w.HTML('Optional: load existing crater outlines after choosing the raster. Select a file, then import it.'),
+            self.catalog_chooser,button('Import clipped catalog',self.import_catalog)])],selected_index=None)
+        self.catalog_panel.set_title(0,'2. Existing crater vectors / catalog (optional)')
+        # Smooth enlargement of photographic imagery; forcing pixelated rendering
+        # magnifies block boundaries without recovering any additional detail.
+        self.widget=w.VBox([w.HTML('<style>.crater-raster-map .leaflet-image-layer {image-rendering: auto;}</style>'),w.HTML('<b>1. Raster to label</b> — choose the background image. It loads when selected.'),self.raster_chooser,
+            row([button('Load raster',self._load_raster_selection),self.band,button('Refresh view',self.refresh),button('Full extent',self.full_extent)]),
+            self.catalog_panel,
+            self.mode,w.HTML('Click a center to fit a crater; double-click to refit its circular edge. '
+                'Click an existing crater to resize or delete it. Vertex editing is only enabled with Edit vertices.'),
+            row([self.radius_slider,self.radius,self.ratio,self.angle]),
             row([self.edge_min,self.edge_max,button('Fit circle to edges',self.fit_edges)]),
             row([self.tolerance,self.growth,button('Regrow / reset',self.regenerate)]),
             self.map,self.coordinates,
-            row([button('Accept crater',self.accept),button('Discard draft',self.discard),button('Undo last crater',self.undo)]),
+            self.selection,row([button('Delete selected',self.delete_selected),button('Undo change',self.undo)]),
             self.count,self.output,button('Export GeoPackage',self.save),self.saved_status,self.status])
         self.radius.observe(lambda c:self._guard(self._radius_changed),names='value')
         for control in (self.ratio,self.angle):
@@ -343,75 +367,25 @@ class CraterLabeler:
         self.mode.observe(lambda c:self._guard(self._mode_changed),names='value')
         self.band.observe(lambda c:self._guard(self._band_changed),names='value')
 
-    def _browse_files(self):
-        # Start at the selected raster's directory (the configured Explore path
-        # on first use), even when it is unavailable on the current machine.
-        if self.path.value:
-            self.folder.value=str(Path(self.path.value).expanduser().parent)
-        self.browser_panel.layout.display=''
-        self._list_browser()
+    def _load_raster_selection(self):
+        # ipyfilechooser 0.6 exposes the pending form only through these internals.
+        # Commit the highlighted filename, so Load does not reopen the previous file.
+        chooser=self.raster_chooser
+        if chooser._gb.layout.display!='none':
+            candidate=Path(chooser._pathlist.value)/chooser._filename.value
+            if not candidate.is_file() or candidate.suffix.lower() not in ('.tif','.tiff'):
+                raise ValueError('Choose a GeoTIFF file in the raster browser, then click Load raster.')
+            chooser._apply_selection()
+        self._raster_chosen(chooser)
 
-    def _list_browser(self):
-        from html import escape
-        folder=Path(self.folder.value).expanduser()
-        self.browser_entries.options=[]
-        try:
-            children=list(folder.iterdir())
-            query=self.browser_filter.value.casefold()
-            directories=sorted((p for p in children if p.is_dir()),key=lambda p:p.name.casefold())
-            files=sorted((p for p in children if p.is_file() and p.suffix.lower() in ('.tif','.tiff')
-                          and query in p.name.casefold()),key=lambda p:p.name.casefold())
-            self.browser_entries.options=[('📁 '+p.name,str(p)) for p in directories]+[(p.name,str(p)) for p in files]
-            self.browser_entries.value=None
-            self.browser_message.value=f'{len(directories)} folders · {len(files)} GeoTIFFs. Browsing {escape(str(folder))}'
-        except OSError as exc:
-            self.browser_message.value=f'<b>Cannot open this folder:</b> {escape(str(exc))}. Enter an accessible folder above or use Up one folder.'
-
-    def _browser_up(self):
-        self.folder.value=str(Path(self.folder.value).expanduser().parent)
-        self._list_browser()
-
-    def _browser_default(self):
-        if self.default_raster:
-            self.folder.value=str(self.default_raster.parent)
-        self.browser_filter.value=''
-        self._list_browser()
-
-    def _browser_open(self):
-        selected=self.browser_entries.value
-        if not selected:
-            self.browser_message.value='Select a folder or GeoTIFF first.'
-            return
-        path=Path(selected)
-        if path.is_dir():
-            self.folder.value=str(path)
-            self._list_browser()
-        elif path.is_file() and path.suffix.lower() in ('.tif','.tiff'):
-            self.path.value=str(path.resolve())
-            self.browser_panel.layout.display='none'
-            self.status.value='Raster selected. Click Load raster to process it.'
-        else:
-            self.browser_message.value='That file is no longer available. Refresh with Go to folder.'
-
-    def _browser_cancel(self):
-        self.browser_panel.layout.display='none'
-
-    def refresh_rasters(self):
-        folder=Path(self.folder.value).expanduser()
-        try:
-            paths=sorted(p.resolve() for p in folder.iterdir() if p.is_file() and p.suffix.lower() in ('.tif','.tiff'))
-        except OSError:
-            paths=[]
-        if self.default_raster and self.default_raster not in paths:
-            paths.insert(0,self.default_raster)
-        previous=self.files.value
-        self.files.options=[(str(p.relative_to(folder.resolve())) if p.is_relative_to(folder.resolve()) else p.name,str(p)) for p in paths]
-        preferred=previous or (str(self.default_raster) if self.default_raster else None)
-        if preferred in [str(p) for p in paths]:
-            self.files.value=preferred
-        elif paths:
-            self.files.value=str(paths[0])
-        self.path.value=self.files.value or ''
+    def _raster_chosen(self,chooser):
+        def choose():
+            path=Path(chooser.selected or '')
+            if not path.is_file():
+                raise ValueError('Select an existing GeoTIFF.')
+            self.path.value=str(path)
+            self.load()
+        self._guard(choose)
 
     def _guard(self,fn):
         from html import escape
@@ -421,8 +395,8 @@ class CraterLabeler:
             self.status.value=f'<b>Error:</b> {escape(str(exc))}'
 
     def load(self):
-        if self.draft is not None:
-            raise ValueError('Accept or discard the draft before switching rasters.')
+        if self._draft_dirty:
+            self._persist_draft()
         candidate=rasterio.open(Path(self.path.value).expanduser())
         if candidate.crs is None or not candidate.crs.is_projected:
             candidate.close()
@@ -435,11 +409,13 @@ class CraterLabeler:
             raise
         if self.src:
             self.src.close()
+        self.discard()
         self.src=candidate
         self.records=records
+        self._history=[]
         self.output.value=str(output_path)
         self.last_saved_path=output_path if output_path.exists() else None
-        self.saved_status.value=f'Resumed {len(records)} saved craters.' if output_path.exists() else 'Autosave will create the raster-specific label file on acceptance.'
+        self.saved_status.value=f'Resumed {len(records)} saved craters.' if output_path.exists() else 'Autosave will create the raster-specific label file on your first valid crater click.'
         self.band.max=candidate.count
         self.band.value=1
         unit=candidate.crs.linear_units
@@ -448,6 +424,10 @@ class CraterLabeler:
         self.radius.max=1e12
         self.radius.value=30*res
         self.radius.step=res
+        self.radius_slider.min=self.radius.min
+        self.radius_slider.max=max(512*res,self.radius.value)
+        self.radius_slider.step=res
+        self.radius_slider.description=f"Radius ({unit}):"
         self.edge_min.value=5*res
         self.edge_max.value=200*res
         self.radius.description=f'Radius ({unit}):'
@@ -484,26 +464,41 @@ class CraterLabeler:
     def refresh(self):
         if not self.src or self._closed:
             return
-        preview=raster_preview(self.src,bounds=self.map.bounds or None,band=self.band.value,stretch=self.stretch)
+        preview=raster_preview(self.src,bounds=self.map.bounds or None,band=self.band.value,stretch=self.stretch,max_size=2800)
         if preview:
             self.detail.url,self.detail.bounds,_=preview
         else:
             self.detail.url=''
 
     def _band_changed(self):
+        if self._draft_dirty:
+            self._persist_draft()
         self.discard()
         if self.src:
             self._set_overview()
             self.refresh()
 
     def _interaction(self,**event):
-        if not self.src or event.get('type')!='click':
+        if not self.src or event.get('type') not in ('click','dblclick'):
             return
         location=event.get('coordinates')
         if location is None:
             return
         y,x=location
         self.coordinates.value=f'Easting: {x:,.3f} · Northing: {y:,.3f} ({self.src.crs.linear_units})'
+        hits=self._hits_at(location)
+        if hits and self.mode.value!='Navigate':
+            def edit():
+                index=min(hits,key=lambda i:self.records[i]['geometry'].area)
+                if index!=self._active_index:
+                    self.select_record(index,preserve_mode=True)
+                if event['type']=='dblclick' and self.mode.value in ('Circle','Ellipse','Edge circle','Region grow'):
+                    self._guard(self.fit_edges)
+            self._guard(edit)
+            return
+        if self.mode.value=='Select/delete':
+            self._guard(lambda:self._select_at(location))
+            return
         if self.mode.value not in ('Circle','Ellipse','Edge circle','Region grow'):
             return
         def make():
@@ -513,6 +508,9 @@ class CraterLabeler:
             sample=self.src.read(self.band.value,window=Window(int(col),int(row),1,1),masked=True)
             if np.ma.is_masked(sample[0,0]) or not np.isfinite(sample[0,0]):
                 raise ValueError('Seed falls on nodata.')
+            if self._draft_dirty:
+                self._persist_draft()
+            self.discard()
             self.seed=(col,row)
             self.regenerate()
         self._guard(make)
@@ -532,7 +530,7 @@ class CraterLabeler:
                 marker.observe(lambda c,index=i:self._guard(lambda:self._vertex_changed(index,c['new'])),names='location')
                 self.handles.append(marker)
             self.edit_layer.layers=tuple(self.handles)
-            self.status.value='Drag the white vertex handles onto the crater rim, then Accept crater.'
+            self.status.value='Drag the white vertex handles onto the crater rim. Valid edits save automatically.'
         elif self.mode.value in ('Circle','Ellipse','Edge circle','Region grow') and self.seed:
             self.regenerate()
 
@@ -540,7 +538,7 @@ class CraterLabeler:
         self.vertices[index]=map_to_pixel(self.src.transform,location)
         self.draft=Polygon(self.vertices)
         self.draft_method=self.draft_method.split('+')[0]+'+edited'
-        self._draw()
+        self._persist_draft()
 
     def regenerate(self):
         if not self.src or self.seed is None:
@@ -558,7 +556,7 @@ class CraterLabeler:
             t=~self.src.transform
             self.draft=affine_transform(native,[t.a,t.b,t.d,t.e,t.c,t.f])
             self.draft_method='ellipse' if self.mode.value=='Ellipse' else 'circle'
-            message='Type a radius and press Enter to resize from the same center. Accept crater when the outline fits.'
+            message='Type a radius and press Enter to resize from the same center. Changes save automatically; click the next crater center when ready.'
         else:
             self.draft,limited=grow_region(self.src,self.seed,self.tolerance.value,self.growth.value,self.band.value)
             self.draft_method='region_grow'
@@ -566,9 +564,11 @@ class CraterLabeler:
             if limited:
                 message='Growth reached its distance/window boundary. '+message
         self.status.value=message
-        self._draw()
+        self._persist_draft()
 
     def _radius_changed(self):
+        self.radius_slider.max=max(self.radius_slider.max,self.radius.value)
+        self.radius_slider.value=self.radius.value
         if self._setting_radius or not self.seed:
             return
         if self.mode.value in ('Circle','Ellipse'):
@@ -579,8 +579,17 @@ class CraterLabeler:
             t=~self.src.transform
             self.draft=affine_transform(native,[t.a,t.b,t.d,t.e,t.c,t.f])
             self.draft_method='edge_circle+adjusted'
-            self._draw()
+            self._persist_draft()
             self.status.value='Edge proposal resized manually. Click Fit circle to edges to refit.'
+        elif self.mode.value in ('Select/delete','Edit vertices') and self.draft is not None:
+            # Scale the selected geometry instead of creating a new circle or losing an edited rim.
+            old_radius=math.sqrt(self.draft.area*abs(self.src.transform.determinant)/math.pi)
+            factor=self.radius.value/old_radius
+            self.draft=scale(self.draft,xfact=factor,yfact=factor,origin=self.seed)
+            self.draft_method=self.draft_method.split('+')[0]+'+adjusted'
+            self._persist_draft()
+            if self.mode.value=='Edit vertices':
+                self._mode_changed()
 
     def fit_edges(self):
         if not self.src or self.seed is None:
@@ -601,6 +610,7 @@ class CraterLabeler:
             f'{info["support"]:.0%} of angular sectors have contrast (not a confidence score). '
             'Review the rim; type a radius to refine or click Fit circle to edges again.'+
             (' Best fit is at a search limit; widen the radius range.' if info['at_limit'] else ''))
+        self._persist_draft()
 
     def _remove_handles(self):
         self.edit_layer.layers=()
@@ -613,47 +623,150 @@ class CraterLabeler:
             return [pixel_to_map(self.src.transform,p) for p in poly.exterior.coords]
         old=self.accepted.layers
         self.accepted.layers=tuple(self.L.Polygon(locations=locations(rec['geometry']),color='lime',
-            weight=2,fill_opacity=.05) for rec in self.records)
+            weight=2,fill_opacity=.08) for i,rec in enumerate(self.records) if i!=self._active_index)
         for layer in old:
             layer.close()
         self.draft_layer.locations=locations(self.draft) if self.draft is not None else []
-        self.count.value=f'{len(self.records)} accepted craters (green); draft is cyan.'
+        self.count.value=f'{len(self.records)} saved craters. Cyan is selected; green is saved. Click a crater to resize; double-click to fit the circular edge.'
+        self._sync_selection=True
+        try:
+            self.selection.options=[('Select a saved crater',None)]+[
+                (f"{i+1}: {rec.get('catalog_id') or rec['method']}",i) for i,rec in enumerate(self.records)]
+            self.selection.value=self._active_index
+        finally:
+            self._sync_selection=False
+
+    def _persist_draft(self):
+        self._draft_dirty=True
+        if self.draft is None or not self.draft.is_valid or self.draft.area<=0:
+            raise ValueError('Outline is invalid; last saved version is unchanged. Fix the outline or undo.')
+        xmin,ymin,xmax,ymax=self.draft.bounds
+        if xmin < -1e-6 or ymin < -1e-6 or xmax>self.src.width+1e-6 or ymax>self.src.height+1e-6:
+            raise ValueError('Outline extends outside the raster; resize it to save.')
+        previous=self.records[self._active_index] if self._active_index is not None else {}
+        record={**previous,'geometry':self.draft,'seed':self.seed,'method':self.draft_method,'band':self.band.value}
+        records=list(self.records)
+        index=self._active_index
+        if index is None:
+            index=len(records)
+            records.append(record)
+        else:
+            records[index]=record
+        try:
+            self._commit(records)
+        except Exception as exc:
+            raise RuntimeError(f'Autosave failed; last saved labels are unchanged and the current outline is retained. {exc}') from exc
+        self._active_index=index
+        self._draft_dirty=False
+        self._draw()
+
+    def _commit(self,records):
+        self._save_labels(records)
+        self._history.append(list(self.records))
+        self._history=self._history[-30:]
+        self.records=records
 
     def accept(self):
-        if self.draft is None or not self.draft.is_valid or self.draft.area<=0:
-            raise ValueError('Create a valid, non-self-intersecting draft first.')
-        xmin,ymin,xmax,ymax=self.draft.bounds
-        if xmin<0 or ymin<0 or xmax>self.src.width or ymax>self.src.height:
-            raise ValueError('Outline extends outside the raster. Resize or edit it before accepting.')
-        record={'geometry':self.draft,'seed':self.seed,'method':self.draft_method,'band':self.band.value}
-        # Save first: a failed write leaves the draft available to retry and does
-        # not silently accept an unsaved crater or duplicate it on the next click.
-        try:
-            self._save_labels([*self.records,record])
-        except Exception as exc:
-            raise RuntimeError(f'Autosave failed; crater was not accepted and the draft is retained. {exc}') from exc
-        self.records.append(record)
+        """Compatibility helper; the interface saves without this button."""
+        if self._draft_dirty:
+            self._persist_draft()
         self.discard()
-        self.status.value='Crater accepted and autosaved. Click the next center in your chosen drawing mode.'
 
     def discard(self):
         self._remove_handles()
         self.seed=self.draft=None
+        self._active_index=None
+        self._draft_dirty=False
         self._draw()
+
+    def _selection_changed(self,change):
+        if not self._sync_selection and change['new'] is not None:
+            self._guard(lambda:self.select_record(change['new']))
+
+    def select_record(self,index,preserve_mode=True):
+        if self._draft_dirty:
+            self._persist_draft()
+        if not 0<=index<len(self.records):
+            raise ValueError('Select an existing crater.')
+        self.discard()
+        record=self.records[index]
+        self._active_index=index
+        self.seed=record['seed']
+        self.draft=record['geometry']
+        self.draft_method=record['method']
+        self._setting_radius=True
+        try:
+            self.radius.value=math.sqrt(self.draft.area*abs(self.src.transform.determinant)/math.pi)
+            if not preserve_mode:
+                self.mode.value='Select/delete'
+        finally:
+            self._setting_radius=False
+        self._draw()
+        self.status.value='Crater selected. Resize with the slider or radius box; double-click in a drawing mode to refit the circular edge. Choose Edit vertices explicitly for handles. Edits update this same saved crater. Choose a drawing mode to add another.'
+
+    def _hits_at(self,location):
+        from shapely.geometry import Point
+        point=Point(map_to_pixel(self.src.transform,location))
+        return [i for i,r in enumerate(self.records) if r['geometry'].covers(point)]
+
+    def _select_at(self,location):
+        hits=self._hits_at(location)
+        if not hits:
+            raise ValueError('Click inside a saved crater, or choose one from the Crater list.')
+        self.select_record(min(hits,key=lambda i:self.records[i]['geometry'].area))
+
+    def delete_selected(self):
+        if self._active_index is None:
+            if self.draft is not None:
+                self.discard()
+                return
+            raise ValueError('Choose a crater from the list or click it in Select/delete mode.')
+        records=[r for i,r in enumerate(self.records) if i!=self._active_index]
+        self._commit(records)
+        self.discard()
+        self.status.value='Crater deleted and saved. Undo change restores it.'
 
     def undo(self):
-        if self.records:
-            self._save_labels(self.records[:-1])
-            self.records.pop()
-        self._draw()
+        if self._draft_dirty:
+            index=self._active_index
+            self.discard()
+            if index is not None:
+                self.select_record(index)
+            return
+        if self._history:
+            records=self._history[-1]
+            self._save_labels(records)
+            self._history.pop()
+            self.records=records
+            self.discard()
+
+    def import_catalog(self):
+        from .catalogs import import_catalog
+        if not self.src:
+            raise ValueError('Choose a raster before importing a catalog.')
+        if self._draft_dirty:
+            self._persist_draft()
+        path=self.catalog_chooser.selected
+        if not path or not Path(path).is_file():
+            raise ValueError('Choose an existing catalog first.')
+        imported,stats=import_catalog(path,self.src,self.band.value)
+        existing={(r.get('catalog_source'),r.get('catalog_id')) for r in self.records if r.get('catalog_id')}
+        additions=[r for r in imported if (r['catalog_source'],r['catalog_id']) not in existing]
+        if additions:
+            self._commit([*self.records,*additions])
+        self.discard()
+        self.status.value=(f"Imported and saved {len(additions)} clipped crater polygons; "
+            f"{stats['intersecting']} catalog craters intersect this scene; {stats['skipped']} invalid entries skipped. "
+            'Select/delete mode lets you remove existing craters before redrawing them.')
 
     def save(self):
-        if self.draft is not None:
-            raise ValueError('Accept or discard the draft before exporting.')
         if not self.src:
             raise ValueError('Load a raster first.')
-        self._save_labels(self.records)
-        self.status.value='Export complete. Updated the same raster-specific GeoPackage.'
+        if self._draft_dirty:
+            self._persist_draft()
+        else:
+            self._save_labels(self.records)
+        self.status.value='Saved to the raster-specific GeoPackage.'
 
     def _save_labels(self,records):
         from html import escape

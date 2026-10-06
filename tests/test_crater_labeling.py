@@ -145,62 +145,61 @@ def test_edge_circle_and_blank_rejection(tmp_path, blank):
         app.close()
 
 
-def test_persistent_autosave_and_failed_accept(tmp_path, monkeypatch):
+def test_autosave_slider_delete_failure_and_resume(tmp_path, monkeypatch):
     import lfm.labeling.craters as module
     from lfm.labeling.craters import CraterLabeler, pixel_to_map
     transform=Affine(1,0,1000,0,-1,2000)
-    with rasterio.open(tmp_path/'raster.tif','w',driver='GTiff',width=200,height=200,
+    raster=tmp_path/'raster.tif'
+    with rasterio.open(raster,'w',driver='GTiff',width=200,height=200,
                        count=1,dtype='float32',crs='EPSG:3857',transform=transform) as ds:
         ds.write(np.ones((200,200),dtype='float32'),1)
     app=CraterLabeler(tmp_path,tmp_path/'labels')
     try:
         app.load()
         app.mode.value='Circle'
-        base=app.output.value
         app._interaction(type='click',coordinates=pixel_to_map(transform,(60,60)))
-        app.accept()
         first=app.last_saved_path
-        assert first.exists() and first.name=='raster_label_craters.gpkg'
-        assert app.output.value==base
+        assert first.exists()
+        assert len(app.records)==1  # no Accept/Add button required
+        app.radius_slider.value=35
+        assert app.radius.value==35
+        app.radius.value=40
+        assert app.radius_slider.value==40
         with fiona.open(first) as ds:
             assert len(ds)==1
+            assert shape(next(iter(ds)).geometry).area==pytest.approx(ellipse((0,0),40).area)
         app._interaction(type='click',coordinates=pixel_to_map(transform,(130,130)))
-        app.accept()
-        second=app.last_saved_path
-        assert second==first
-        with fiona.open(second) as ds:
-            assert len(ds)==2
-        with fiona.open(first) as ds:
-            assert len(ds)==2
-        app.save()
-        assert app.last_saved_path==first
-        assert app.output.value==base
-        app._interaction(type='click',coordinates=pixel_to_map(transform,(100,100)))
-        draft=app.draft
-        last_saved=app.last_saved_path
+        assert len(app.records)==2
+        before=first.read_bytes()
         def fail(*args,**kwargs):
             raise OSError('disk full')
         with monkeypatch.context() as patch:
-            patch.setattr(module,'export_gpkg',fail)
-            with pytest.raises(RuntimeError,match='draft is retained'):
-                app.accept()
+            patch.setattr(module.os,'replace',fail)
+            app.radius.value=42
+            assert 'Autosave failed' in app.status.value
+            assert app._draft_dirty
+            assert first.read_bytes()==before
+        app.save()
         assert len(app.records)==2
-        assert app.draft is draft
-        assert app.last_saved_path==last_saved
-        with fiona.open(last_saved) as ds:
-            assert len(ds)==2
-        app.accept()
-        assert len(app.records)==3
-        with fiona.open(app.last_saved_path) as ds:
-            assert len(ds)==3
+        assert not app._draft_dirty
+        app.mode.value='Select/delete'
+        app._interaction(type='click',coordinates=pixel_to_map(transform,(60,60)))
+        assert app._active_index==0
+        app.delete_selected()
+        with fiona.open(first) as ds:
+            assert len(ds)==1
+        app.undo()
+        assert len(app.records)==2
         resumed=CraterLabeler(tmp_path,tmp_path/'labels')
         try:
             resumed.load()
-            assert len(resumed.records)==3
-            assert resumed.output.value==base
-            resumed.undo()
-            with fiona.open(resumed.last_saved_path) as ds:
-                assert len(ds)==2
+            assert len(resumed.records)==2
+            resumed.select_record(0)
+            resumed.delete_selected()
+            resumed.select_record(0)
+            resumed.delete_selected()
+            with fiona.open(first) as ds:
+                assert len(ds)==0
         finally:
             resumed.close()
         assert len(list((tmp_path/'labels').glob('*.gpkg')))==1
@@ -208,58 +207,92 @@ def test_persistent_autosave_and_failed_accept(tmp_path, monkeypatch):
         app.close()
 
 
-def test_raster_dropdown_and_default_path(tmp_path):
+def test_filechooser_default_and_select_callback(tmp_path):
+    from ipyfilechooser import FileChooser
+    from types import SimpleNamespace
     from lfm.labeling.craters import CraterLabeler
     default=tmp_path/'default.TIF'
-    default.touch()
-    (tmp_path/'other.tiff').touch()
+    other=tmp_path/'other.tiff'
+    for p in (default,other):
+        with rasterio.open(p,'w',driver='GTiff',width=10,height=10,count=1,
+                           dtype='uint8',crs='EPSG:3857',transform=Affine(1,0,100,0,-1,100)) as ds:
+            ds.write(np.ones((10,10),dtype='uint8'),1)
     app=CraterLabeler(tmp_path,tmp_path/'labels',default_raster=default)
     try:
         assert app.mode.value=='Edge circle'
-        assert app.files.value==str(default)
-        assert len(app.files.options)==2
-        app.files.value=str(tmp_path/'other.tiff')
-        assert app.path.value==str(tmp_path/'other.tiff')
-        app.refresh_rasters()
-        assert app.files.value==str(tmp_path/'other.tiff')
+        assert isinstance(app.raster_chooser,FileChooser)
+        assert 'Raster image' in app.raster_chooser.title
+        assert 'crater vectors' in app.catalog_chooser.title
+        assert app.catalog_panel.selected_index is None
+        assert app.raster_chooser.selected==str(default)
+        app.raster_chooser._show_dialog()
+        app.raster_chooser._set_form_values(str(tmp_path),other.name)
+        app._load_raster_selection()
+        assert app.src.name==str(other)
+        assert app.output.value.endswith('other_label_craters.gpkg')
     finally:
         app.close()
 
 
-def test_file_browser_navigation_selection_and_cancel(tmp_path):
-    from lfm.labeling.craters import CraterLabeler
-    default=tmp_path/'default.TIF'
-    default.touch()
-    nested=tmp_path/'another_folder'
-    nested.mkdir()
-    target=nested/'crater.TIFF'
-    target.touch()
-    (nested/'notes.txt').touch()
-    app=CraterLabeler(tmp_path,tmp_path/'labels',default_raster=default)
+def test_click_existing_crater_edits_in_place(tmp_path, monkeypatch):
+    from lfm.labeling.craters import CraterLabeler, pixel_to_map
+    transform=Affine(1,0,1000,0,-1,2000)
+    raster=tmp_path/'raster.tif'
+    with rasterio.open(raster,'w',driver='GTiff',width=200,height=200,count=1,
+                       dtype='uint8',crs='EPSG:3857',transform=transform) as ds:
+        ds.write(np.ones((200,200),dtype='uint8'),1)
+    app=CraterLabeler(tmp_path,tmp_path/'labels',default_raster=raster)
     try:
-        app.widget.children[0].click()  # Browse files button
-        assert app.browser_panel.layout.display==''
-        assert app.folder.value==str(tmp_path)
-        app.browser_entries.value=str(nested)
-        app._browser_open()
-        assert app.folder.value==str(nested)
-        assert [v for _,v in app.browser_entries.options]==[str(target)]
-        app.browser_filter.value='missing'
-        assert len(app.browser_entries.options)==0
-        app.browser_filter.value='CRATER'
-        app.browser_entries.value=str(target)
-        app._browser_open()
-        assert app.path.value==str(target)
-        assert app.browser_panel.layout.display=='none'
-        app._browse_files()
-        app._browser_up()
-        assert app.folder.value==str(tmp_path)
-        app._browser_cancel()
-        assert app.path.value==str(target)
-        app.folder.value=str(tmp_path/'unavailable')
-        app._list_browser()
-        assert 'Cannot open this folder' in app.browser_message.value
-        app._browser_default()
-        assert app.folder.value==str(tmp_path)
+        app.load()
+        app.mode.value='Circle'
+        first=pixel_to_map(transform,(60,60))
+        app._interaction(type='click',coordinates=first)
+        original=app.records[0]['geometry']
+        app._interaction(type='click',coordinates=pixel_to_map(transform,(130,130)))
+        app._interaction(type='click',coordinates=first)
+        assert len(app.records)==2
+        assert app._active_index==0
+        assert app.records[0]['geometry'].equals(original)
+        app.radius_slider.value=35
+        assert len(app.records)==2
+        assert app.records[0]['geometry'].area==pytest.approx(ellipse((0,0),35).area)
+        import lfm.labeling.craters as module
+        monkeypatch.setattr(module,'edge_circle',lambda *args: (
+            ellipse((60,60),34),34,{'support':1,'at_limit':False}))
+        # Real double-click sequences include two click events before dblclick.
+        for event in ('click','click','dblclick'):
+            app._interaction(type=event,coordinates=first)
+        assert len(app.records)==2
+        assert app.mode.value=='Edge circle'
+        assert not app.handles
+        assert app.draft_method=='edge_circle'
+        app.mode.value='Edit vertices'
+        assert app.handles
+        app._vertex_changed(0,pixel_to_map(transform,(94,60)))
+        with fiona.open(app.last_saved_path) as ds:
+            assert len(ds)==2
+        app.mode.value='Navigate'
+        app._interaction(type='click',coordinates=first)
+        assert len(app.records)==2
     finally:
         app.close()
+
+
+def test_zoom_preview_reads_source_detail(tmp_path):
+    import base64
+    import io
+    from PIL import Image
+    from lfm.labeling.craters import raster_preview
+    raster=tmp_path/'detail.tif'
+    pixels=(np.indices((1600,1600)).sum(axis=0)%2*255).astype('uint8')
+    with rasterio.open(raster,'w',driver='GTiff',width=1600,height=1600,count=1,
+                       dtype='uint8',crs='EPSG:3857',transform=Affine(1,0,0,0,-1,1600)) as ds:
+        ds.write(pixels,1)
+    with rasterio.open(raster) as src:
+        overview,_,_=raster_preview(src,stretch=(0,255))
+        detail,bounds,_=raster_preview(src,bounds=((1400,100),(1500,200)),stretch=(0,255),max_size=2800)
+    def decode(url):
+        return np.array(Image.open(io.BytesIO(base64.b64decode(url.split(',',1)[1]))))
+    assert decode(overview).shape[:2]==(1400,1400)
+    assert bounds==((1400,100),(1500,200))
+    np.testing.assert_array_equal(decode(detail)[:,:,0],pixels[100:200,100:200])
