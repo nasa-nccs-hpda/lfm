@@ -6,8 +6,10 @@ data coverage. NAC identity is a path/name heuristic, not instrument metadata.
 """
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor
 import json
 import math
+import multiprocessing
 import os
 from pathlib import Path
 import re
@@ -16,6 +18,58 @@ import sys
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_ROOT = Path("/explore/nobackup/projects/lfm")
 NAC_PATTERN = r"nac|(?:^|[/_])M\d+[LR][EC](?:[._/]|$)"
+
+
+def longitude_span(longitudes):
+    """Shortest circular span, so crossing 180 degrees does not inflate width."""
+    values = sorted(lon % 360 for lon in longitudes)
+    gaps = [b - a for a, b in zip(values, values[1:])]
+    return 360 - max(gaps + [values[0] + 360 - values[-1]])
+
+
+def worker_count(override=None):
+    value = int(os.environ.get("SLURM_CPUS_PER_TASK", "1") if override is None else override)
+    if value < 1:
+        raise ValueError("workers must be positive")
+    return value
+
+
+def inspect_batch(paths):
+    """Workers only read metadata; the parent owns reporting and output files."""
+    results, errors = [], []
+    for path in paths:
+        try:
+            results.append(inspect_raster(path))
+        except Exception as exc:
+            errors.append(dict(path=str(path), error=str(exc)))
+    return results, errors
+
+
+def inspection_waves(paths, workers, batch_size):
+    """Bound pending work to one batch per worker; finish a wave before yielding."""
+    if workers < 1 or batch_size < 1:
+        raise ValueError("workers and batch size must be positive")
+    if workers == 1:
+        for start in range(0, len(paths), batch_size):
+            yield inspect_batch(paths[start:start + batch_size])
+        return
+    with ProcessPoolExecutor(max_workers=workers,
+                             mp_context=multiprocessing.get_context("spawn")) as pool:
+        for start in range(0, len(paths), workers * batch_size):
+            futures = [pool.submit(inspect_batch, paths[i:i + batch_size])
+                       for i in range(start, min(start + workers * batch_size, len(paths)), batch_size)]
+            results, errors = [], []
+            for future in futures:
+                batch_results, batch_errors = future.result()
+                results.extend(batch_results)
+                errors.extend(batch_errors)
+            yield results, errors
+
+
+def matches_filters(item, hemisphere, min_longitude_span):
+    return (bool(item["hemispheres"])
+            and (hemisphere == "both" or hemisphere in item["hemispheres"])
+            and item["longitude_span"] >= min_longitude_span)
 
 
 def candidates(roots, max_depth, pattern, errors):
@@ -52,6 +106,7 @@ def candidates(roots, max_depth, pattern, errors):
 def inspect_raster(path, edge_samples=65):
     from osgeo import gdal, osr
 
+    gdal.UseExceptions()
     ds = gdal.OpenEx(str(path), gdal.OF_RASTER | gdal.OF_READONLY)
     if ds is None:
         raise ValueError("GDAL could not open raster")
@@ -91,17 +146,20 @@ def inspect_raster(path, edge_samples=65):
         if inverse is None:
             raise ValueError("Noninvertible raster affine")
         poles = []
+        interior_pole = False
         for pole in (-90, 90):
             try:
                 x, y, *_ = reverse.TransformPoint(0, pole)
                 col, row = gdal.ApplyGeoTransform(inverse, x, y)
                 if math.isfinite(col) and math.isfinite(row) and 0 <= col <= width and 0 <= row <= height:
                     poles.append(pole)
+                    interior_pole |= 0 < col < width and 0 < row < height
             except RuntimeError:
                 pass  # An opposite pole may be outside the projection domain.
         latitudes = [lat for _, lat in coordinates] + poles
         north, south = max(latitudes), min(latitudes)
         return dict(path=str(path), latitude_min=south, latitude_max=north,
+                    longitude_span=360.0 if interior_pole else longitude_span([lon for lon, _ in coordinates]),
                     hemispheres=[name for name, matches in (("north", north >= 82), ("south", south <= -82)) if matches],
                     width=width, height=height, bands=ds.RasterCount,
                     crs_name=source.GetName(), crs_wkt=source.ExportToWkt(),
@@ -121,37 +179,52 @@ def main():
     parser.add_argument("--all-tifs", action="store_true", help="Disable name filter; results are NOT necessarily NAC")
     parser.add_argument("--limit", type=int, default=20, help="Stop after this many matches; 0 scans all candidates")
     parser.add_argument("--report", type=Path, help="Optional NEW JSON report (refuses overwrite)")
+    parser.add_argument("--workers", type=int, help="Default: SLURM_CPUS_PER_TASK, or 1")
+    parser.add_argument("--batch-size", type=int, default=32, help="TIFFs per worker batch (default 32)")
+    parser.add_argument("--min-longitude-span", type=float, default=10,
+                        help="Minimum whole-footprint longitude span in degrees (default 10)")
     args = parser.parse_args()
     if args.max_depth < 1 or args.limit < 0:
         parser.error("max-depth must be positive and limit nonnegative")
+    if args.batch_size < 1 or not 0 <= args.min_longitude_span <= 360:
+        parser.error("batch-size must be positive; min-longitude-span must be between 0 and 360")
+    try:
+        workers = worker_count(args.workers)
+    except ValueError as exc:
+        parser.error(str(exc))
     try:
         pattern = None if args.all_tifs else re.compile(args.name_regex, re.I)
     except re.error as exc:
         parser.error(str(exc))
     if args.report and args.report.exists():
         parser.error(f"Report already exists: {args.report}")
-    from osgeo import gdal
-    gdal.UseExceptions()
     errors, matches, inspected, stopped = [], [], 0, False
     print(f"Roots: {', '.join(map(str, args.roots))}\nMax depth: {args.max_depth}\n"
           f"Name filter: {pattern.pattern if pattern else 'ALL TIFFS'}", flush=True)
-    for path in candidates(args.roots, args.max_depth, pattern, errors):
-        inspected += 1
-        try:
-            item = inspect_raster(path)
-        except Exception as exc:
-            errors.append(dict(path=str(path), error=str(exc)))
-            print(f"SKIP {path}: {exc}", file=sys.stderr, flush=True)
-            continue
-        if item["hemispheres"] and (args.hemisphere == "both" or args.hemisphere in item["hemispheres"]):
-            matches.append(item)
-            print(f"MATCH {path}\n  latitude {item['latitude_min']:.6f} .. {item['latitude_max']:.6f}; "
-                  f"{item['width']} x {item['height']}; {item['bands']} band(s); {item['crs_name']}", flush=True)
+    paths = sorted(candidates(args.roots, args.max_depth, pattern, errors))
+    print(f"Discovered {len(paths)} TIFFs; workers={workers}; batch-size={args.batch_size}; "
+          f"minimum longitude span={args.min_longitude_span} degrees", flush=True)
+    waves = inspection_waves(paths, workers, args.batch_size)
+    try:
+        for results, failures in waves:
+            inspected += len(results) + len(failures)
+            errors.extend(failures)
+            for failure in failures:
+                print(f"SKIP {failure['path']}: {failure['error']}", file=sys.stderr, flush=True)
+            for item in results:
+                if matches_filters(item, args.hemisphere, args.min_longitude_span):
+                    if args.limit and len(matches) >= args.limit:
+                        continue
+                    matches.append(item)
+                    print(f"MATCH {item['path']}\n  latitude {item['latitude_min']:.6f} .. "
+                          f"{item['latitude_max']:.6f}; longitude span {item['longitude_span']:.6f}; "
+                          f"{item['width']} x {item['height']}; {item['bands']} band(s); {item['crs_name']}", flush=True)
+            print(f"Inspected {inspected} candidate TIFFs; {len(matches)} matches", flush=True)
             if args.limit and len(matches) >= args.limit:
                 stopped = True
                 break
-        if inspected % 100 == 0:
-            print(f"Inspected {inspected} candidate TIFFs; {len(matches)} matches", flush=True)
+    finally:
+        waves.close()
     print(f"Done: {inspected} candidates inspected; {len(matches)} matches; {len(errors)} errors; limit reached={stopped}")
     print("Footprints are sampled metadata coverage, not proof of valid imagery. NAC identity is inferred from names.")
     if args.report:
@@ -160,6 +233,8 @@ def main():
             json.dump(dict(roots=list(map(str, args.roots)), max_depth=args.max_depth,
                            name_regex=None if pattern is None else pattern.pattern,
                            hemisphere=args.hemisphere, stopped_at_limit=stopped,
+                           workers=workers, batch_size=args.batch_size, discovered=len(paths),
+                           min_longitude_span=args.min_longitude_span,
                            inspected=inspected, matches=matches, errors=errors), stream, indent=2, allow_nan=False)
         print(f"Report: {args.report}")
 
