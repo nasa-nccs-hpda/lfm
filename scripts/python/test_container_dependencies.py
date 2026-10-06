@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Dependency smoke test; no model weights or datasets required.
 
-Run inside the container: python test_container_dependencies.py
+Run from the repo root inside the container:
+    python scripts/python/test_container_dependencies.py
 Use --skip-gpu for a CPU-only check. The sbatch wrapper requires a GPU by default.
 """
 
@@ -113,7 +114,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--skip-gpu', action='store_true', help='Run only CPU checks')
     args = parser.parse_args()
-    repo = Path(__file__).resolve().parent
+    repo = Path(__file__).resolve().parents[2]
     sys.path[:0] = [str(repo), str(repo / 'graha-lunar-fm')]
     os.environ.setdefault('MPLBACKEND', 'Agg')
     os.environ.setdefault('HF_HUB_OFFLINE', '1')

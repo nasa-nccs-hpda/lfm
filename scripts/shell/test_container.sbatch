@@ -8,14 +8,14 @@
 #SBATCH --output=container_dependencies_%j.log
 
 # Submit from the repo root:
-#   sbatch test_container.sbatch /absolute/path/to/sandbox-or-image.sif
+#   sbatch scripts/shell/test_container.sbatch /absolute/path/to/sandbox-or-image.sif
 # Override partition/account/resources with sbatch flags as needed for ARM64.
 set -euo pipefail
 
-CONTAINER_PATH="${1:?Usage: sbatch test_container.sbatch /path/to/container}"
+CONTAINER_PATH="${1:?Usage: sbatch scripts/shell/test_container.sbatch /path/to/container}"
 shift
 REPO_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
-test -f "${REPO_DIR}/test_container_dependencies.py"
+test -f "${REPO_DIR}/scripts/python/test_container_dependencies.py"
 test -e "${CONTAINER_PATH}"
 CONTAINER_PATH="$(realpath "${CONTAINER_PATH}")"
 
@@ -33,4 +33,4 @@ fi
     --env PYTHONNOUSERSITE=1 --env PYTHONDONTWRITEBYTECODE=1 \
     --env MPLBACKEND=Agg --env HF_HUB_OFFLINE=1 \
     "${gpu_env[@]}" "${CONTAINER_PATH}" \
-    python -u /lfm-repo/test_container_dependencies.py "$@"
+    python -u /lfm-repo/scripts/python/test_container_dependencies.py "$@"
