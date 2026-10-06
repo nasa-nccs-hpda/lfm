@@ -14,7 +14,6 @@ Container build and publication instructions: [docs/container_build.md](docs/con
 - `docs/`: contains some documentation on various repo aspects, including creating a finetuning dataset, wac/static bands, examples of chip creation, etc.
 - `graha-lunar-fm/`: IBM model backend code.
 - `lfm/`: DSG-owned LFM dataset and model code. Contains the majority of the backend code for this repo.
-- `lfm/data_processing/`: backend packages for `chip/`, `tiling/`, `labeling/`, and `clustering/`.
 - `notebooks/`: **main user "entrypoint", contains interactive Jupyter notebooks to run various LFM tasks**
 - `scripts/`: developer scripts used to perform tasks asynchronously
 
