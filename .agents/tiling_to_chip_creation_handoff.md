@@ -14,9 +14,9 @@ history. Use these canonical references when more detail is needed:
 - [`docs/tiling_modernization_plan.md`](../docs/tiling_modernization_plan.md)
 - [`TMS/README.md`](../TMS/README.md)
 - [`notebooks/tiling_example.ipynb`](../notebooks/tiling_example.ipynb)
-- [`model/tiling_workflow.py`](../model/tiling_workflow.py)
-- [`model/vector_index_builder.py`](../model/vector_index_builder.py)
-- [`model/chip_acquisition.py`](../model/chip_acquisition.py)
+- [`lfm/data_processing/tiling/tiling_workflow.py`](../lfm/data_processing/tiling/tiling_workflow.py)
+- [`lfm/data_processing/tiling/vector_index_builder.py`](../lfm/data_processing/tiling/vector_index_builder.py)
+- [`lfm/data_processing/chip/chip_acquisition.py`](../lfm/data_processing/chip/chip_acquisition.py)
 
 ## Current migration status
 
@@ -65,7 +65,7 @@ on HPC; NAC-plus-static real-data notebook validation remains pending.
 - All raster warps performed by tiling use bilinear resampling.
 
 The current chip request/preflight layer intentionally accepts only numbered
-LTM coverage. `model/chip_requests.py` raises the typed
+LTM coverage. `lfm/data_processing/chip/chip_requests.py` raises the typed
 `UnsupportedCoverageError` with status `unsupported_polar_coverage` for polar
 targets. Keep this rejection until polar chip reprojection, assembly, and
 validation receive their own migration. Upstream polar support is not
@@ -76,7 +76,7 @@ permission to silently enable polar chips.
 The easy tiling API is exported from `model`:
 
 ```python
-from model import (
+from lfm.data_processing.tiling import (
     TileAOIQuery,
     TilePointQuery,
     create_tiles_for_query,
@@ -259,7 +259,7 @@ zoom. WAC plus static normally share zoom 5; NAC plus static normally share
 zoom 11. If a dataset needs both resolutions, use separate acquisition groups
 and qualify every `OutputModalityConfig` by acquisition group and source.
 
-`model/chip_acquisition.py` currently:
+`lfm/data_processing/chip/chip_acquisition.py` currently:
 
 - isolates intermediate cubes under
   `<intermediate_root>/<sample_id>/<acquisition_group>`;

@@ -72,7 +72,7 @@ Static-only has no dependency on intersecting WAC data.
 
 This plan owns label conversion; no coworker handoff or real notebook run is
 required to design it. Input formatting can be inferred from
-`lfm/labeling/craters.py`, which exports `<raster-stem>_label_craters.gpkg`
+`lfm/data_processing/labeling/craters.py`, which exports `<raster-stem>_label_craters.gpkg`
 with a native-CRS `craters` polygon layer
 with `crater_id`, `method`, `source`, `band`, `seed_col`, `seed_row`, and
 `area_native`. Treat annotation provenance as descriptive, not a matching gate.

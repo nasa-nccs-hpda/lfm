@@ -18,11 +18,11 @@ from typing import Any, Iterable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(REPO_ROOT.parent) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT.parent))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from lfm.model.lunar_crs import LUNAR_GEOGRAPHIC_WKT_PATH  # noqa: E402
-from lfm.model.vector_index_builder import (  # noqa: E402
+from lfm.data_processing.tiling.lunar_crs import LUNAR_GEOGRAPHIC_WKT_PATH  # noqa: E402
+from lfm.data_processing.tiling.vector_index_builder import (  # noqa: E402
     FOOTPRINT_EDGE_SAMPLES,
     _raster_footprint,
 )

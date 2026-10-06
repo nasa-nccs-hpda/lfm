@@ -17,8 +17,8 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(REPO_ROOT.parent) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT.parent))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 DEFAULT_WAC_DATA_DIR = Path(
     "/explore/nobackup/projects/lfm/processed_data/Lunar/LRO_WAC_Pho_Sites"
@@ -76,14 +76,13 @@ def _sha256(path: Path) -> str:
 
 
 def _build_config(output_root: Path, args: argparse.Namespace) -> Any:
-    from lfm.model import (
+    from lfm.data_processing.chip import (
         AcquisitionGroupConfig,
         ChipConfig,
         NoSplitConfig,
         OutputModalityConfig,
-        TileConfig,
-        TileSourceConfig,
     )
+    from lfm.data_processing.tiling import TileConfig, TileSourceConfig
 
     source = TileSourceConfig(
         name="wac",
@@ -154,7 +153,7 @@ def _read_raster(path: Path, request: Any) -> tuple[Any, dict[str, Any]]:
     import numpy as np
     from osgeo import gdal, gdalconst
 
-    from lfm.model import WAC_BAND_NAMES
+    from lfm.data_processing.tiling import WAC_BAND_NAMES
 
     dataset = gdal.Open(str(path), gdalconst.GA_ReadOnly)
     if dataset is None:
@@ -465,7 +464,7 @@ def main() -> None:
 
     import numpy as np
 
-    from lfm.model import (
+    from lfm.data_processing.chip import (
         chip_request_from_aoi,
         create_chips,
         create_chips_from_reference_directory,

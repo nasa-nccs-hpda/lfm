@@ -37,13 +37,13 @@ query + TileConfig + per-source selectors
 Reference-TIFF alignment, final target-grid reprojection, labels, chip layout,
 and training are downstream concerns. New code must use:
 
-- `model/tiling_config.py`: `TileConfig`, `TileSourceConfig`, and
+- `lfm/data_processing/tiling/tiling_config.py`: `TileConfig`, `TileSourceConfig`, and
   `BandNoDataOverride`;
-- `model/tiling.py`: `create_tiles_for_aoi`, `create_tiles_for_point`, and
+- `lfm/data_processing/tiling/tiling.py`: `create_tiles_for_aoi`, `create_tiles_for_point`, and
   `create_tiles_for_index`; and
-- `model/tiling_results.py`: `TileCubeRecord` and structured source errors.
+- `lfm/data_processing/tiling/tiling_results.py`: `TileCubeRecord` and structured source errors.
 
-Do not build new behavior on `model/Pipeline.py`. It is a deprecated regression
+Do not build new behavior on `lfm/data_processing/tiling/Pipeline.py`. It is a deprecated regression
 and temporary compatibility adapter. Do not parse filenames when the returned
 record already provides source, product, zone, zoom, tile, bands, CRS, and
 NoData metadata.
@@ -114,7 +114,7 @@ NoData metadata.
 - Build the canonical static source with `make_static_source()` unless the task
   explicitly changes that contract.
 - A successful canonical static cube contains the 63 names in
-  `model/static_band_contract.py`, in exact order, and every output band uses
+  `lfm/data_processing/tiling/static_band_contract.py`, in exact order, and every output band uses
   `-32768` NoData.
 - The two Mini-RF bands declare the exact source-only sentinel
   `-3.4028230607370965e38`; mask it before bilinear interpolation and convert it
@@ -154,7 +154,7 @@ NoData metadata.
 
 ## Validate proportionally
 
-- Add or update focused tests under `model/tests/` for contract changes. Check
+- Add or update focused tests under `lfm/data_processing/tests/` for contract changes. Check
   configuration validation, selection behavior, record metadata, filenames,
   band order, NoData, error behavior, deterministic ordering, and index
   immutability as applicable.

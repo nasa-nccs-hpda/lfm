@@ -11,3 +11,4 @@ planning.txt
 **/.ruff_cache
 test_outputs/
 **.zip
+.pytest_cache/

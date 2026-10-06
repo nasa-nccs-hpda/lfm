@@ -1,5 +1,12 @@
 # AOI-First Chip Creation and Label Clipping Plan
 
+Package migration (2026-10-06): backend imports now use
+`lfm.data_processing.chip`, `lfm.data_processing.tiling`, and
+`lfm.data_processing.labeling`, with the checkout root on `sys.path`.
+Historical phase records retain their original paths. See
+[repo_restructure.md](repo_restructure.md) for the file mapping and new test
+commands.
+
 This document is the sequential implementation plan for changing the modern
 chip-creation workflow so the public notebook creates chips from an explicit
 user AOI instead of requiring a reference chip. It also adds safe support for a

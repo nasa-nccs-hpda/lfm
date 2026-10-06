@@ -22,7 +22,6 @@ else
   exit 1
 fi
 
-REPO_PARENT="$(dirname "${REPO_DIR}")"
 CONTAINER_PATH="${CONTAINER_PATH:-/explore/nobackup/projects/lfm/containers/lfm-container-ipyleaflet}"
 APPTAINER_BIN="${APPTAINER_BIN:-apptainer}"
 APPTAINER_BIND_PATHS="${APPTAINER_BIND_PATHS:-/panfs/ccds02/nobackup:/explore/nobackup}"
@@ -41,7 +40,7 @@ echo
 "${APPTAINER_BIN}" exec \
   --bind "${APPTAINER_BIND_PATHS}" \
   --bind "${REPO_DIR}" \
-  --pwd "${REPO_PARENT}" \
+  --pwd "${REPO_DIR}" \
   "${CONTAINER_PATH}" \
   python lfm/scripts/python/all_tasks/compare_vector_index_builders.py \
     --report "${REPORT_PATH}"

@@ -72,7 +72,7 @@ def smoke_aoi_bounds(envelope):
 def derive_smoke_aois(path, layer_name):
     """Read-only selection; IDs remain data, never hard-coded fixture contracts."""
     from osgeo import ogr, osr
-    from model.lunar_crs import load_lunar_geographic_wkt
+    from lfm.data_processing.tiling.lunar_crs import load_lunar_geographic_wkt
 
     ds = ogr.Open(str(path), 0)
     require(ds is not None, "Could not open label GeoPackage.")
@@ -111,7 +111,7 @@ def inspect(result, expected_band_names, plot_path):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.patches import Rectangle
-    from model.chip_labels import _crs_is_same
+    from lfm.data_processing.chip.chip_labels import _crs_is_same
 
     target = result.request.target_grid
     ds = gdal.Open(str(result.chip_path))
@@ -172,12 +172,28 @@ def inspect(result, expected_band_names, plot_path):
 def run(args, report):
     from osgeo import gdal
     import numpy as np
-    from model import (AcquisitionGroupConfig, ChipConfig, GeographicAOI, LabelInput,
-                       NoSplitConfig, OutputModalityConfig, SourceSelector, TargetGrid,
-                       TileConfig, TileSourceConfig, TileSourcePreparation, WAC_BAND_NAMES,
-                       STATIC_BAND_NAMES, chip_request_from_aoi, create_chips,
-                       ensure_vector_index, resolve_notebook_source_index)
-    from model.chip_requests import raster_bounds
+    from lfm.data_processing.chip import (
+        AcquisitionGroupConfig,
+        ChipConfig,
+        GeographicAOI,
+        LabelInput,
+        NoSplitConfig,
+        OutputModalityConfig,
+        SourceSelector,
+        TargetGrid,
+        chip_request_from_aoi,
+        create_chips,
+    )
+    from lfm.data_processing.tiling import (
+        TileConfig,
+        TileSourceConfig,
+        TileSourcePreparation,
+        WAC_BAND_NAMES,
+        STATIC_BAND_NAMES,
+        ensure_vector_index,
+        resolve_notebook_source_index,
+    )
+    from lfm.data_processing.chip.chip_requests import raster_bounds
     from lfm.all_models.all_tasks.tiling_utils import make_static_source
 
     gdal.UseExceptions()

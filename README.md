@@ -14,7 +14,6 @@ Container build and publication instructions: [docs/container_build.md](docs/con
 - `docs/`: contains some documentation on various repo aspects, including creating a finetuning dataset, wac/static bands, examples of chip creation, etc.
 - `graha-lunar-fm/`: IBM model backend code.
 - `lfm/`: DSG-owned LFM dataset and model code. Contains the majority of the backend code for this repo.
-- `model/`: tiling and chip creation code.
 - `notebooks/`: **main user "entrypoint", contains interactive Jupyter notebooks to run various LFM tasks**
 - `scripts/`: developer scripts used to perform tasks asynchronously
 
@@ -30,6 +29,15 @@ Container build and publication instructions: [docs/container_build.md](docs/con
 - `tiling_example.ipynb`: tiling workflow, using a variety of queries in the Armstrong tiling scheme (see `TMS/README.md` for more info). Contains Mercator and Polar workflows, as well as lat/lon AOI, lat/lon point, and tile index queries. Works for WAC, NAC, and Static data. **Inspect notebook for more details.**
 
 ### Repo-level files
+
+-`.dockerignore`: files for Dockerhub to ignore when creating container.
+-`.gitattributes`: git/github metadata.
+-`.gitignore`: files for git to ignore when pushing to the repo.
+-`Dockerfile`: file used to create Dockerhub container in the github workflow.
+-`ibm_huggingface.md`: IBM HuggingFace info for the model.
+-`lfm_container_latest.def`: Apptainer/Singularity build file used to create the latest LFM container.
+-`README.md`: this file
+-`requirements_container.txt`: python requirements used to build the Apptainer container.
 
 ## Quickstart
 

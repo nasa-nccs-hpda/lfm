@@ -22,8 +22,8 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(REPO_ROOT.parent) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT.parent))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 DEFAULT_WAC_DATA_DIR = Path(
     "/explore/nobackup/projects/lfm/processed_data/Lunar/LRO_WAC_Pho_Sites"
@@ -117,19 +117,21 @@ def _result_document(result: Any, manifest_sample: dict[str, Any]) -> dict[str, 
 
 
 def _build_config(args: argparse.Namespace) -> Any:
-    from lfm.model import (
+    from lfm.data_processing.chip import (
         AcquisitionGroupConfig,
-        BandNoDataOverride,
         ChipConfig,
-        MINIRF_SOURCE_NODATA,
-        MINIRF_SOURCE_NODATA_BANDS,
         NoSplitConfig,
         OutputModalityConfig,
+        default_split_config,
+    )
+    from lfm.data_processing.tiling import (
+        BandNoDataOverride,
+        MINIRF_SOURCE_NODATA,
+        MINIRF_SOURCE_NODATA_BANDS,
         STATIC_BAND_NAMES,
         STATIC_OUTPUT_NODATA,
         TileConfig,
         TileSourceConfig,
-        default_split_config,
     )
 
     wac_data_dir = _require_directory(args.wac_data_dir, "WAC data directory")
@@ -208,7 +210,7 @@ def _build_config(args: argparse.Namespace) -> Any:
 
 
 def _run_profile(args: argparse.Namespace) -> int:
-    from lfm.model import chip_requests_from_reference_directory, create_chips
+    from lfm.data_processing.chip import chip_requests_from_reference_directory, create_chips
 
     args.reference_dir = _require_directory(
         args.reference_dir,

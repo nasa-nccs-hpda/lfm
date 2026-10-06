@@ -12,10 +12,10 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(REPO_ROOT.parent) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT.parent))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from lfm.model import LUNAR_GEOGRAPHIC_WKT_PATH, load_lunar_geographic_wkt  # noqa: E402
+from lfm.data_processing.tiling import LUNAR_GEOGRAPHIC_WKT_PATH, load_lunar_geographic_wkt
 
 
 def parse_args() -> argparse.Namespace:

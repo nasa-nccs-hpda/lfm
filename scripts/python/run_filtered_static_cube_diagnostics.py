@@ -45,12 +45,12 @@ import numpy as np
 from osgeo import gdal, gdal_array, gdalconst, osr
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT.parent) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT.parent))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from lfm.model.Pipeline import Pipeline
-from lfm.model.TmsIntersector import TmsIntersector
-from lfm.model.TmsTileDef import TmsTileDef
+from lfm.data_processing.tiling.Pipeline import Pipeline
+from lfm.data_processing.tiling.TmsIntersector import TmsIntersector
+from lfm.data_processing.tiling.TmsTileDef import TmsTileDef
 
 gdal.UseExceptions()
 

@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from model import (
+from lfm.data_processing.tiling import (
     BandNoDataOverride,
     MINIRF_SOURCE_NODATA,
     MINIRF_SOURCE_NODATA_BANDS,

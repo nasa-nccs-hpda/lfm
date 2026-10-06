@@ -142,7 +142,15 @@ def main():
         tiler timm tokenizers torch torchgeo torchmetrics torchvision tqdm xarray
         yaml pyarrow h5netcdf pycocotools.mask'''.split()
     modules += [
-        'model', 'model.chip_notebook_utils', 'lfm.labeling.craters',
+        'lfm.data_processing.chip',
+        'lfm.data_processing.tiling',
+        'lfm.data_processing.chip.chip_notebook_utils',
+        'lfm.data_processing.labeling.craters',
+        'lfm.data_processing.clustering.ClusterPreprocessConfig',
+        'lfm.data_processing.clustering.Clusterer',
+        'lfm.data_processing.clustering.ImageHelperSingleBand',
+        'lfm.data_processing.clustering.clustering_backend_utils',
+        'lfm.data_processing.clustering.clustering_display_utils',
         'lfm.all_models.all_tasks.graha_inference',
         'lfm.all_models.inst_seg.data_cube_inference',
         'lfm.all_models.sem_seg.data_cube_inference',
