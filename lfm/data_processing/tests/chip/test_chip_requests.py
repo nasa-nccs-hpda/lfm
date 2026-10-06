@@ -273,15 +273,30 @@ class ChipRequestTestCase(unittest.TestCase):
         )
 
         self.assertEqual(len(geographic_query_parts(antimeridian.geographic_aoi)), 2)
-        with self.assertRaises(UnsupportedCoverageError):
-            chip_request_from_aoi(
-                sample_id="M2_r0_c0",
-                crs_wkt=load_lunar_geographic_wkt(),
-                bounds=(10.0, 81.9, 10.2, 82.1),
-                width=20,
-                height=20,
-                split_group_key="site-b",
-            )
+        for south, north, boundary in ((81.9, 82.1, 82.0), (-82.1, -81.9, -82.0)):
+            with self.subTest(boundary=boundary):
+                request = chip_request_from_aoi(
+                    sample_id="M2_r0_c0",
+                    crs_wkt=load_lunar_geographic_wkt(),
+                    bounds=(10.0, south, 10.2, north),
+                    width=20,
+                    height=20,
+                    split_group_key="site-b",
+                )
+                parts = geographic_query_parts(request.geographic_aoi)
+                self.assertEqual(len(parts), 2)
+                self.assertAlmostEqual(parts[0].upper_left_latitude, north)
+                self.assertEqual(parts[0].lower_right_latitude, boundary)
+                self.assertEqual(parts[1].upper_left_latitude, boundary)
+                self.assertAlmostEqual(parts[1].lower_right_latitude, south)
+                for part in parts:
+                    self.assertAlmostEqual(part.upper_left_longitude, 10.0)
+                    self.assertAlmostEqual(part.lower_right_longitude, 10.2)
+                self.assertEqual(request.target_grid.width, 20)
+                self.assertEqual(request.target_grid.height, 20)
+                self.assertEqual(request.target_grid.crs_wkt, load_lunar_geographic_wkt())
+                for actual, expected in zip(request.target_grid.bounds, (10.0, south, 10.2, north)):
+                    self.assertAlmostEqual(actual, expected)
 
 
 if __name__ == "__main__":
