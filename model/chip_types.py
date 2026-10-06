@@ -271,6 +271,9 @@ class LabelInput(_DictionaryRecord):
 
     ``auto`` infers known file kinds; legacy unsupported suffixes are left for
     preflight to reject, preserving per-sample rather than constructor failure.
+    TIFF defaults to semantic; select ``raster_instance`` explicitly for IDs.
+    Instance TIFF boxes describe final-grid visible support, unlike original
+    annotation boxes preserved by the NPZ/GeoPackage paths.
     No file is opened by this record.
     """
 
@@ -718,12 +721,21 @@ def _contract_from_dict(cls, document: Mapping):
 def label_preparation_provenance(request: ChipRequest, preflight: ChipPreflight,
                                  result: ChipResult) -> dict:
     """Additive provenance shared by sample diagnostics and dataset manifests."""
-    return {
+    provenance = {
         "requested_aoi": None if request.requested_aoi is None else request.requested_aoi.to_dict(),
         "label_input": None if request.label_input is None else request.label_input.to_dict(),
         "label_preparation_plan": None if preflight.label_plan is None else preflight.label_plan.to_dict(),
         "prepared_label": None if result.prepared_label is None else result.prepared_label.to_dict(),
     }
+    plan = preflight.label_plan
+    if (plan is not None and plan.source.kind == "raster_instance"
+            and plan.source.path.suffix.lower() in (".tif", ".tiff")):
+        provenance["raster_instance_contract"] = {
+            "version": 1, "background": 0,
+            "id_order": "ascending_surviving_source_ids",
+            "box_derivation": "final_grid_visible_pixel_support",
+        }
+    return provenance
 
 
 class LabelMismatchError(ValueError):

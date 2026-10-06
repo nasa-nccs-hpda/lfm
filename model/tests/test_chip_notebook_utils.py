@@ -164,7 +164,30 @@ class NotebookHelperTestCase(unittest.TestCase):
         self.assertNotIn("REFERENCE_CHIP", active)
         self.assertNotIn("reference_sample_from_tiff", active)
         self.assertIn('relation="clip_to_target"', active)
-        self.assertEqual(active.count("    LABEL_PATH = None"), 2)
+        self.assertIn("if LABEL_PATH is None:", active)
+        self.assertIn('LABEL_KIND = "auto"', active)
+        self.assertIn("kind=LABEL_KIND", active)
+        self.assertIn('LABEL_PATH.suffix.lower() == ".gpkg" else None', active)
+
+    @unittest.skipUnless(all(importlib.util.find_spec(name) for name in ("numpy", "matplotlib")),
+                         "NumPy/Matplotlib unavailable")
+    def test_semantic_plot_keeps_zero_class_and_reports_classes(self):
+        import numpy as np
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        req = type_fixtures.ChipTypesTestCase().request(reference_path=None)
+        result = ChipResult(req, "success", ChipPreflight("passed"),
+                            chip_path=Path("chip.tif"), label_path=Path("label.npy"))
+        label = np.array([[0, 12, 90, 0]] * 3)
+        with patch.object(helpers, "read_display_band", return_value=(np.ones((3, 4)), "vis")), \
+             patch.object(helpers, "read_label", return_value=(label, None)):
+            figure, axes = helpers.plot_chip_result(result, show=False)
+        self.assertEqual(axes[0, 1].get_title(), "semantic classes: [0, 12, 90]")
+        self.assertFalse(np.ma.getmaskarray(axes[0, 1].images[0].get_array()).any())
+        np.testing.assert_array_equal(label, [[0, 12, 90, 0]] * 3)
+        plt.close(figure)
 
     @unittest.skipUnless(all(importlib.util.find_spec(name) for name in ("numpy", "matplotlib")),
                          "NumPy/Matplotlib unavailable")

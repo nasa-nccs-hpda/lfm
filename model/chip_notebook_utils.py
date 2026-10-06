@@ -190,7 +190,13 @@ def plot_chip_result(
             f"Chip display band shape {generated.shape} does not match label "
             f"shape {label.shape}."
         )
-    instances = np.ma.masked_where(label == 0, (label - 1) % 20)
+    if instance_count is None:
+        classes, inverse = np.unique(label, return_inverse=True)
+        instances = inverse.reshape(label.shape)
+        color_options = dict(cmap="tab20", vmin=-0.5, vmax=max(0.5, len(classes) - 0.5))
+    else:
+        instances = np.ma.masked_where(label == 0, (label - 1) % 20)
+        color_options = dict(cmap="tab20", vmin=-0.5, vmax=19.5)
     absent_ids = absent_instance_ids(label, instance_count)
     vmin, vmax = _display_limits(generated)
 
@@ -215,16 +221,15 @@ def plot_chip_result(
             vmax=reference_max,
         )
         axes[0, 1].set_title(f"reference | {reference_name}")
-    label_axis.imshow(instances, cmap="tab20", vmin=-0.5, vmax=19.5)
+    label_axis.imshow(instances, **color_options)
     label_axis.set_title(
-        f"label | IDs absent from mask: {list(absent_ids) or 'none'}"
+        f"label | IDs absent from mask: {list(absent_ids) or 'none'}" if instance_count is not None
+        else f"semantic classes: {classes.tolist()}"
     )
     overlay_axis.imshow(generated, cmap="gray", vmin=vmin, vmax=vmax)
     overlay_axis.imshow(
         instances,
-        cmap="tab20",
-        vmin=-0.5,
-        vmax=19.5,
+        **color_options,
         alpha=0.45,
     )
     overlay_axis.set_title("diagnostic overlay")

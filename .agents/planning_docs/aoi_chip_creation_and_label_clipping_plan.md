@@ -106,10 +106,11 @@ The user requested explicit TIFF-label support for both semantic and instance
 segmentation and downstream polar-chip support. Add **A6T** (TIFF labels), then
 **A6P** (polar chips), before A7 regression and A8 closure. Existing phase IDs
 and recorded evidence remain unchanged. These additions are planned, not claims
-of runtime support: semantic GeoTIFF conversion already exists, instance TIFF
-conversion does not, and polar chip requests remain rejected until enabled and
-validated by A6P. Proposed format/grid decisions below need confirmation before
-implementation; they do not silently amend the frozen GeoPackage contract.
+of fully validated runtime support: A6T TIFF conversion is implemented pending
+HPC acceptance; polar chip requests remain rejected until enabled and validated
+by A6P. The user confirmed the A6T encoding/box rules on 2026-10-06. Proposed
+polar grid decisions still need confirmation; neither extension silently amends
+the frozen GeoPackage contract.
 
 ## Starting behavior and remaining gap
 
@@ -140,9 +141,10 @@ spatial extent of a source TIFF. The label may be:
 3. a scientist-supplied crater `.gpkg` assumed to label the full source raster,
    rasterized directly onto the target grid under the linked contract.
 
-A standalone instance GeoTIFF is not sufficient because it does not contain the
-required COCO boxes and annotation count. Raster instance input remains `.npz`;
-vector GeoPackage input derives its mask, boxes, and count together.
+The original A0 scope deferred standalone instance GeoTIFFs because they lack
+annotation boxes/counts. A6T now adds explicit `raster_instance` TIFF input:
+boxes/counts derive from surviving visible pixels, not original outlines.
+NPZ and GeoPackage retain their existing annotation/occlusion semantics.
 
 ## Required invariants
 
@@ -1152,32 +1154,32 @@ Notebook-helper discovery: eight passed, one plotting dependency skip. Notebook
 syntax, commented batch syntax, cleared outputs and unique cell IDs were checked.
 These checks do not establish real-data NAC correctness.
 
-## Phase A6T — TIFF labels for both segmentation tasks `[Not Started]`
+## Phase A6T — TIFF labels for both segmentation tasks `[In Progress]`
 
-- `[Not Started]` **A6T.1 — Freeze task and encoding contracts.** Add an explicit
+- `[Complete]` **A6T.1 — Freeze task and encoding contracts.** Add an explicit
   semantic/instance task selection for TIFF labels through the existing typed
   label interface and notebook. Keep auto-detected TIFFs semantic for backward
   compatibility; never infer instance semantics from the number of distinct
   values. Both formats require one integer band with embedded CRS/affine,
   supported value range, and coverage of the entire realized chip footprint.
   Unknown label pixels/NoData within that footprint remain errors, independent
-  of the permissive imagery coverage policy. Define/confirm instance encoding:
-  proposed zero background, positive IDs, negative/fractional values rejected,
+  of the permissive imagery coverage policy. Confirmed instance encoding:
+  zero background, positive IDs, negative/fractional values rejected,
   disconnected components with the same ID kept as one instance. Semantic class
   IDs are preserved, not compacted. RGB masks and multiband encodings stay out
   of scope unless separately specified.
-- `[Not Started]` **A6T.2 — Define raster-instance boxes and provenance.** A TIFF
+- `[Complete]` **A6T.2 — Define raster-instance boxes and provenance.** A TIFF
   contains visible IDs but cannot recover the original outline or boxes of an
-  occluded instance. Proposed default: compact surviving positive source IDs in
+  occluded instance. Confirmed default: compact surviving positive source IDs in
   ascending order; derive `(x, y, width, height)` boxes from their final-grid
   pixel support; one box per retained ID; `num_craters` equals the retained ID
   count. Preserve the source-to-output ID map. Warn when an intersecting source
   instance vanishes under clipping/resampling; valid empty masks produce zero
-  instances and an empty box array. Confirm these semantics before coding.
+  instances and an empty box array. User confirmed these semantics before coding.
   Do not fabricate fully occluded objects absent from the TIFF. Existing NPZ
   and GeoPackage original-outline/occlusion rules remain unchanged; supporting
   equivalent information for TIFF would require explicit auxiliary annotations.
-- `[Not Started]` **A6T.3 — Extend read-only planning and worker conversion.**
+- `[Implemented; HPC validation pending]` **A6T.3 — Extend read-only planning and worker conversion.**
   Audit/reuse the current semantic TIFF path rather than rewriting it. Allow an
   explicitly selected raster-instance TIFF through format/kind validation,
   window/coverage planning and hashing. Materialize exact/aligned windows or
@@ -1185,7 +1187,7 @@ These checks do not establish real-data NAC correctness.
   of categorical values. Preserve integer IDs without float precision loss;
   reject unsupported ranges explicitly. Use windowed/block processing for large
   source TIFFs and keep arrays out of parent-process request metadata.
-- `[Not Started]` **A6T.4 — Publish and expose both tasks.** Semantic TIFF inputs
+- `[Implemented; HPC validation pending]` **A6T.4 — Publish and expose both tasks.** Semantic TIFF inputs
   publish canonical `.npy`; instance TIFF inputs publish canonical `.npz` with
   `mask`, `bboxes`, and `num_craters`. Record task, source checksum/grid, method,
   box derivation, ID map and omissions in versioned provenance as needed.
@@ -1193,7 +1195,7 @@ These checks do not establish real-data NAC correctness.
   failure isolation. Add concise notebook examples and task-appropriate plots;
   do not apply instance palette/numbering logic to semantic class IDs. Explicit
   TIFF paths bypass GeoPackage-only latest-export discovery.
-- `[Not Started]` **A6T.5 — Test and validate on HPC.** Cover exact and larger
+- `[In Progress]` **A6T.5 — Test and validate on HPC.** Cover exact and larger
   labels, differing CRS, rotated affines, edge clipping, gaps in source IDs,
   disconnected objects, empty masks, subpixel omissions, large integer IDs,
   invalid dtype/band counts, NoData/coverage rejection, and task ambiguity.
@@ -1201,6 +1203,33 @@ These checks do not establish real-data NAC correctness.
   loader compatibility, serial/spawn equivalence and unchanged legacy NPZ/GPKG
   results. Run small real semantic and instance TIFF examples on Grace and
   inspect overlays; record inputs, job IDs, runtime/memory and results.
+
+Implementation evidence (2026-10-06):
+
+- Existing `LabelInput.kind` selects `semantic` or `raster_instance`; auto TIFF
+  remains semantic. Notebook `LABEL_KIND` exposes this, and only GPKG inputs
+  receive `LABEL_LAYER`. Existing explicit example label paths are preserved.
+- TIFF instance reads use bounded source blocks and native integer values
+  (including UInt64). Target arrays remain worker-local. Final visible IDs are
+  compacted, disconnected support shares one box, and omitted intersecting IDs
+  emit warnings. Label NoData inside the realized footprint still fails.
+- Canonical NPY/NPZ publication reuses existing atomic pair/rollback machinery.
+  Version-1 `raster_instance_contract` provenance identifies visible-pixel box
+  derivation; artifact metadata retains source checksum/grid, method, ID map,
+  and omission diagnostics. GPKG/NPZ converters are unchanged.
+- `test_chip_tiff_labels` adds synthetic TIFF contracts/conversion coverage;
+  A5 integration adds both TIFF tasks through publication and serial/spawn
+  comparison. Notebook helpers distinguish semantic class plots from instances.
+- Local chip-suite discovery: 255 tests, 139 passed and 116 dependency skips
+  (NumPy/GDAL/plotting dependencies unavailable), no failures. Python compilation,
+  notebook code-cell parsing, and `git diff --check` passed. Skipped raster tests
+  are not evidence of raster correctness; run the same suite in the HPC container.
+- Broader model discovery: 465 tests, 301 passed, 160 skipped, four import
+  errors from legacy Pipeline/TmsIntersector/TmsTileDef/TmsZoneDef modules that
+  require unavailable GDAL. The full model suite therefore is not locally green.
+- HPC unit tests, training-loader compatibility confirmation, and focused real
+  semantic/instance TIFF visual review remain acceptance gates. No real-data
+  TIFF validation or polar runtime support is claimed by this implementation.
 
 Exit gate: both tasks accept explicitly configured georeferenced TIFF labels,
 produce validated canonical training artifacts, and pass supported-container

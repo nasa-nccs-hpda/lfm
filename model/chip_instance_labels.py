@@ -14,7 +14,9 @@ import zipfile
 from .chip_label_materialization import (
     _MaskReader, _nearest_indices, _staging_path, _verify_source, _windows,
 )
-from .chip_label_planning import _hash_file, _lunar_srs, _pixel_mapper, plan_label_preparation
+from .chip_label_planning import (
+    _hash_file, _lunar_srs, _pixel_mapper, plan_label_preparation, raster_instance_ids,
+)
 from .chip_labels import _crs_is_same, _label_error, _numpy, _validate_instance_archive
 from .chip_requests import _create_transformation, _projected_to_pixel, _transform_point, pixel_to_projected
 from .chip_types import (
@@ -266,6 +268,41 @@ def _convert_archive(request, plan):
     return _finish(request, lookup[sampled], boxes, ids, diagnostics)
 
 
+def _convert_tiff(request, plan):
+    """Derive boxes from visible final-grid support, never inferred outlines."""
+    np = _numpy()
+    target, source = request.target_grid, plan.source.source_grid
+    with _MaskReader(request, plan.source) as reader:
+        candidates = raster_instance_ids(request, source, reader.band)
+        sampled = np.zeros((target.height, target.width), dtype=reader.dtype)
+        mapper = _pixel_mapper(request, source)[0] if plan.method == "nearest_warp" else None
+        for window in _windows(target.width, target.height):
+            col, row, width, height = window
+            if mapper is not None:
+                rows, cols = _nearest_indices(request, source, window, mapper)
+                values = reader.gather(rows, cols)
+            else:
+                x, y = (0, 0) if plan.source_window is None else plan.source_window[:2]
+                values = reader.read(x + col, y + row, width, height)
+            sampled[row:row + height, col:col + width] = values
+    ids = [int(value) for value in np.unique(sampled) if value > 0]
+    mask = np.zeros(sampled.shape, dtype=np.int64)
+    boxes = []
+    for output_id, source_id in enumerate(ids, 1):
+        rows, cols = np.nonzero(sampled == source_id)
+        left, top = int(cols.min()), int(rows.min())
+        boxes.append((left, top, int(cols.max()) + 1 - left, int(rows.max()) + 1 - top))
+        mask[rows, cols] = output_id
+    diagnostics = [LabelValidationDiagnostic(
+        "raster_instance_boxes_from_pixels",
+        "TIFF instance contract v1: boxes enclose final-grid visible pixel support; "
+        "ascending source IDs compacted; occluded outlines cannot be recovered.", "info")]
+    diagnostics.extend(_diagnostic("subpixel_instance", value,
+                                   "intersects chip but has no final-grid pixel support; omitted.", "warning")
+                       for value in sorted(candidates - set(ids)))
+    return _finish(request, mask, boxes, ids, diagnostics)
+
+
 def convert_crater_labels(path, *, target_grid, layer="craters") -> InstanceLabelConversion:
     """Read a finished GeoPackage and return target-sized arrays, without writes."""
     # Label planning uses only target_grid; this internal geographic placeholder
@@ -334,6 +371,7 @@ def materialize_instance_label(request, plan, *, staging_root=None) -> PreparedL
             return PreparedLabelArtifact(plan.source.path, plan, plan.source_sha256, diagnostics=plan.diagnostics)
         destination = _staging_path(request, plan, staging_root)
         result = (_convert_vector(request, plan) if plan.source.kind == "vector_instance"
+                  else _convert_tiff(request, plan) if plan.source.path.suffix.lower() in (".tif", ".tiff")
                   else _convert_archive(request, plan))
         destination.parent.mkdir(parents=True, exist_ok=True)
         fd, name = tempfile.mkstemp(prefix=f".{request.sample_id}-", suffix=".npz", dir=destination.parent)

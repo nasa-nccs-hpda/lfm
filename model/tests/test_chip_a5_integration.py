@@ -162,6 +162,40 @@ class LabelPipelineTestCase(unittest.TestCase):
         self.assertEqual([r.chip_path.read_bytes() for r in parallel.results], first_chips)
         self.assertEqual([r.request.sample_id for r in parallel.results], ["a", "b"])
 
+    def test_tiff_tasks_publish_canonical_pairs_in_serial_and_spawn(self):
+        from osgeo import gdal
+
+        path = self.root / "instance_or_class.tif"
+        ds = gdal.GetDriverByName("GTiff").Create(str(path), 3, 3, 1, gdal.GDT_UInt16)
+        ds.SetGeoTransform(self.source_grid.transform)
+        ds.SetProjection(self.source_grid.crs_wkt)
+        ds.GetRasterBand(1).WriteArray(self.np.array([[0, 0, 0], [0, 12, 90], [0, 12, 0]], dtype=self.np.uint16))
+        ds = None
+        before = path.read_bytes()
+        requests = tuple(replace(self.request(kind), label_path=path, label_grid=None, label_input=LabelInput(
+            path, kind=kind, relation="clip_to_target")) for kind in ("semantic", "raster_instance"))
+        serial = self.run_batch(requests)
+        self.assertEqual([r.status for r in serial.results], ["success", "success"])
+        first_labels = [r.label_path.read_bytes() for r in serial.results]
+        first_manifest = serial.manifest_path.read_bytes()
+        for result in serial.results:
+            if result.request.label_input.kind == "semantic":
+                self.assertEqual(result.label_path.suffix, ".npy")
+                self.np.testing.assert_array_equal(self.np.load(result.label_path), [[12, 90], [12, 0]])
+            else:
+                self.assertEqual(result.label_path.suffix, ".npz")
+                with self.np.load(result.label_path) as archive:
+                    self.np.testing.assert_array_equal(archive["mask"], [[1, 2], [1, 0]])
+                    self.assertEqual(int(archive["num_craters"]), 2)
+                document = json.loads(result.diagnostic_path.read_text())
+                self.assertEqual(document["raster_instance_contract"]["box_derivation"],
+                                 "final_grid_visible_pixel_support")
+        parallel = self.run_batch(requests, workers=2, overwrite=True)
+        self.assertEqual([r.status for r in parallel.results], ["success", "success"])
+        self.assertEqual([r.label_path.read_bytes() for r in parallel.results], first_labels)
+        self.assertEqual(parallel.manifest_path.read_bytes(), first_manifest)
+        self.assertEqual(path.read_bytes(), before)
+
     def test_materialization_failure_starts_no_tiling_and_later_sample_succeeds(self):
         from lfm.model.chip_label_materialization import materialize_semantic_label
         from lfm.model.chip_labels import _label_error

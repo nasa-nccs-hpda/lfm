@@ -256,6 +256,60 @@ def _validate_raster_coverage_mask(request, grid, mask_band):
                                        message="Source label contains unknown/NoData pixels inside the target footprint.")
 
 
+def raster_instance_ids(request, grid, band):
+    """Read IDs touching the target footprint in bounded source blocks.
+
+    Keep native integer precision, including UInt64. Boundary cells must have
+    positive intersection area; mere edge contact is not an instance omission.
+    """
+    from osgeo import ogr
+
+    np = _numpy()
+    _, _, boundary = _covered_footprint(request, grid)
+    ring = ogr.Geometry(ogr.wkbLinearRing)
+    for x, y in boundary:
+        ring.AddPoint_2D(x, y)
+    ring.CloseRings()
+    footprint = ogr.Geometry(ogr.wkbPolygon)
+    footprint.AddGeometry(ring)
+    if not footprint.IsValid():
+        raise ValueError("Invalid transformed label footprint.")
+
+    def rectangle(x, y, width, height):
+        ring = ogr.Geometry(ogr.wkbLinearRing)
+        for px, py in ((x, y), (x + width, y), (x + width, y + height),
+                       (x, y + height), (x, y)):
+            ring.AddPoint_2D(px, py)
+        result = ogr.Geometry(ogr.wkbPolygon)
+        result.AddGeometry(ring)
+        return result
+
+    left, right, top, bottom = footprint.GetEnvelope()
+    left, right = max(0, math.floor(left)), min(grid.width, math.ceil(right))
+    top, bottom = max(0, math.floor(top)), min(grid.height, math.ceil(bottom))
+    ids = set()
+    for row in range(top, bottom, 256):
+        for col in range(left, right, 256):
+            width, height = min(256, right - col), min(256, bottom - row)
+            block = rectangle(col, row, width, height)
+            if not footprint.Intersects(block):
+                continue
+            values = band.ReadAsArray(col, row, width, height)
+            if values is None:
+                raise ValueError("Could not read instance label pixels.")
+            if block.Within(footprint):
+                ids.update(int(value) for value in np.unique(values))
+            else:
+                for y, x in np.argwhere(values != 0):
+                    cell = rectangle(col + int(x), row + int(y), 1, 1)
+                    if footprint.Intersection(cell).GetArea() > 1e-12:
+                        ids.add(int(values[y, x]))
+    if any(value < 0 for value in ids):
+        raise _label_error(request, code="invalid_instance_ids",
+                           message="Instance TIFF labels require zero background and positive integer IDs.")
+    return ids - {0}
+
+
 def _validate_raster(request: ChipRequest, source: LabelInput):
     from osgeo import gdal
 
@@ -266,12 +320,12 @@ def _validate_raster(request: ChipRequest, source: LabelInput):
         if dataset.GetDriver().ShortName != "GTiff":
             raise _label_error(request, code="unsupported_label_type", message="Raster label input must be a GeoTIFF.")
         if dataset.RasterCount != 1:
-            raise _label_error(request, code="malformed_label", message="Semantic GeoTIFF labels must have exactly one band.")
+            raise _label_error(request, code="malformed_label", message="GeoTIFF labels must have exactly one band.")
         band = dataset.GetRasterBand(1)
         if gdal.GetDataTypeName(band.DataType) not in (
             "Byte", "Int8", "UInt16", "Int16", "UInt32", "Int32", "UInt64", "Int64",
         ):
-            raise _label_error(request, code="invalid_label_dtype", message="Semantic GeoTIFF labels must contain integers.")
+            raise _label_error(request, code="invalid_label_dtype", message="GeoTIFF labels must contain integers.")
         affine = dataset.GetGeoTransform(can_return_null=True)
         wkt = dataset.GetProjection()
         if affine is None or not wkt:
@@ -282,6 +336,8 @@ def _validate_raster(request: ChipRequest, source: LabelInput):
         method, window = classify_label_grid(request, grid)
         if band.GetMaskFlags() != gdal.GMF_ALL_VALID:
             _validate_raster_coverage_mask(request, grid, band.GetMaskBand())
+        if source.kind == "raster_instance":
+            raster_instance_ids(request, grid, band)
         return source, method, window, ()
     finally:
         dataset = None
@@ -370,7 +426,8 @@ def plan_label_preparation(request: ChipRequest, path: str | Path) -> LabelPrepa
         suffix = path.suffix.lower()
         expected_kind = {".npy": "semantic", ".npz": "raster_instance",
                          ".tif": "semantic", ".tiff": "semantic", ".gpkg": "vector_instance"}.get(suffix)
-        if expected_kind is None or expected_kind != source.kind:
+        instance_tiff = suffix in (".tif", ".tiff") and source.kind == "raster_instance"
+        if not instance_tiff and (expected_kind is None or expected_kind != source.kind):
             raise _label_error(request, code="unsupported_label_type", message="Label kind and file format are incompatible.")
         before = _hash_file(path)
         if suffix == ".gpkg":
