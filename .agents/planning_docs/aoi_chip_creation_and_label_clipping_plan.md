@@ -1179,7 +1179,7 @@ These checks do not establish real-data NAC correctness.
   Do not fabricate fully occluded objects absent from the TIFF. Existing NPZ
   and GeoPackage original-outline/occlusion rules remain unchanged; supporting
   equivalent information for TIFF would require explicit auxiliary annotations.
-- `[Implemented; HPC validation pending]` **A6T.3 — Extend read-only planning and worker conversion.**
+- `[Implemented; HPC unit tests passed]` **A6T.3 — Extend read-only planning and worker conversion.**
   Audit/reuse the current semantic TIFF path rather than rewriting it. Allow an
   explicitly selected raster-instance TIFF through format/kind validation,
   window/coverage planning and hashing. Materialize exact/aligned windows or
@@ -1187,7 +1187,7 @@ These checks do not establish real-data NAC correctness.
   of categorical values. Preserve integer IDs without float precision loss;
   reject unsupported ranges explicitly. Use windowed/block processing for large
   source TIFFs and keep arrays out of parent-process request metadata.
-- `[Implemented; HPC validation pending]` **A6T.4 — Publish and expose both tasks.** Semantic TIFF inputs
+- `[Implemented; HPC unit tests passed]` **A6T.4 — Publish and expose both tasks.** Semantic TIFF inputs
   publish canonical `.npy`; instance TIFF inputs publish canonical `.npz` with
   `mask`, `bboxes`, and `num_craters`. Record task, source checksum/grid, method,
   box derivation, ID map and omissions in versioned provenance as needed.
@@ -1227,9 +1227,10 @@ Implementation evidence (2026-10-06):
 - Broader model discovery: 465 tests, 301 passed, 160 skipped, four import
   errors from legacy Pipeline/TmsIntersector/TmsTileDef/TmsZoneDef modules that
   require unavailable GDAL. The full model suite therefore is not locally green.
-- HPC unit tests, training-loader compatibility confirmation, and focused real
-  semantic/instance TIFF visual review remain acceptance gates. No real-data
-  TIFF validation or polar runtime support is claimed by this implementation.
+- User-reported HPC chip-suite discovery: **255 tests in 28.153 s, OK**, with
+  no skips reported. This closes the supported-container unit-test gate.
+  Focused real semantic/instance TIFF runs and visual review remain outstanding;
+  no real-data TIFF validation or polar runtime support is claimed by this result.
 
 Exit gate: both tasks accept explicitly configured georeferenced TIFF labels,
 produce validated canonical training artifacts, and pass supported-container

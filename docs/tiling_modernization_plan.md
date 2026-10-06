@@ -465,7 +465,7 @@ compatibility adapter. Its hard-coded static path, WAC-oriented constructor,
 - `[Complete]` **T7.1** Create `notebooks/tiling_example.ipynb` while retaining the
   legacy notebook until migration is complete.
 - `[Complete]` **T7.2** Use the repository-root convention from
-  `notebooks/instance_ibm_train.ipynb` and derive repository-owned paths from
+  `notebooks/instance_finetune.ipynb` and derive repository-owned paths from
   `repo_root`.
 - `[Complete]` **T7.3** Separate user-editable data paths, product IDs, and AOIs
   from derived index/default/output values and path-resolution checks. Explain
