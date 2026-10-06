@@ -39,6 +39,33 @@ def polar_worker(task):
 
 
 class PolarChipContractTestCase(unittest.TestCase):
+    def test_publication_accepts_axis_metadata_loss_not_projection_changes(self):
+        from lfm.data_processing.chip.chip_assembly import _same_crs
+
+        class Srs:
+            def __init__(self, signature):
+                self.signature = signature
+
+            def IsSame(self, other):
+                return False
+
+            def IsProjected(self):
+                return True
+
+            def ExportToProj4(self):
+                return self.signature
+
+        expected = "+proj=stere +lat_0=-90 +lon_0=0 +k=0.994 +x_0=500000 +y_0=500000 +R=1737400 +units=m"
+        for actual, equivalent in ((expected + " +axis=nnu", True),
+                                   (expected.replace("0.994", "0.995"), False),
+                                   (expected.replace("-90", "90"), False),
+                                   (expected.replace("1737400", "6378137"), False)):
+            with self.subTest(actual=actual), patch(
+                "lfm.data_processing.chip.chip_assembly._spatial_reference",
+                side_effect=[Srs(expected), Srs(actual)],
+            ):
+                self.assertEqual(_same_crs("expected", "actual", None), equivalent)
+
     def test_hemisphere_static_grid_and_zoom_defaults(self):
         for aoi, family in ((GeographicAOI(86.1, -.1, 85.9, .1), GridFamily.LPS_N),
                             (GeographicAOI(-85.9, -.1, -86.1, .1), GridFamily.LPS_S)):
@@ -103,6 +130,27 @@ class PolarChipContractTestCase(unittest.TestCase):
 
 @unittest.skipUnless(importlib.util.find_spec("osgeo"), "GDAL unavailable")
 class PolarChipGridTestCase(unittest.TestCase):
+    def test_geotiff_round_trip_crs_matches_both_polar_targets(self):
+        from osgeo import gdal, osr
+        from lfm.data_processing.chip.chip_assembly import _same_crs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("LPS_N", "LPS_S"):
+                expected = default_grid_registry()[name].crs_wkt
+                path = Path(tmp) / f"{name}.tif"
+                ds = gdal.GetDriverByName("GTiff").Create(str(path), 2, 2, 1, gdal.GDT_Byte)
+                ds.SetProjection(expected)
+                ds.SetGeoTransform((500000, 100, 0, 600000, 0, -100))
+                ds = None
+                ds = gdal.Open(str(path))
+                actual = ds.GetProjectionRef()
+                ds = None
+                self.assertTrue(_same_crs(actual, expected, osr), name)
+                changed = osr.SpatialReference()
+                changed.ImportFromWkt(expected)
+                changed.SetProjParm("false_easting", 500100)
+                self.assertFalse(_same_crs(actual, changed.ExportToWkt(), osr), name)
+
     def test_north_south_native_and_static_requests(self):
         for aoi in (GeographicAOI(86.01, -.02, 86, .02),
                     GeographicAOI(-86, -.02, -86.01, .02)):

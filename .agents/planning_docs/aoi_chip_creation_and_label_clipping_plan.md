@@ -1246,6 +1246,17 @@ not close this phase.
 
 ## Phase A6P — Polar chip creation `[In Progress]`
 
+HPC follow-up: the north/south TIFF serial/spawn integration test failed all
+four samples at reopened-chip validation (`written_crs_mismatch`). Publication
+still used strict OSR `IsSame`, unlike label validation and polar tiling tests,
+which use the shared `raster_crs_equivalent` helper for GeoTIFF axis metadata
+loss. Publication now reuses that helper without altering the target CRS,
+transform, dimensions or pixel values. Added both real north/south GeoTIFF
+round-trip checks and dependency-free checks rejecting changed scale,
+hemisphere and sphere radius. Local focused run: 26 tests, 13 passed and 13
+dependency skips; `git diff --check` passed. HPC rerun is still required to
+confirm this resolves the reported failure.
+
 Initial single-region implementation (2026-10-06):
 
 - User approved 100 m, zero-anchored static-only grids in the repository's

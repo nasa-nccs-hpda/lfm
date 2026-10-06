@@ -545,11 +545,12 @@ def _spatial_reference(wkt: str, osr):
 
 
 def _same_crs(first: str, second: str, osr) -> bool:
+    from ..tiling.lunar_crs import raster_crs_equivalent
+
     try:
-        return bool(
-            _spatial_reference(first, osr).IsSame(
-                _spatial_reference(second, osr)
-            )
+        return raster_crs_equivalent(
+            _spatial_reference(first, osr),
+            _spatial_reference(second, osr),
         )
     except (RuntimeError, ValueError):
         return False
