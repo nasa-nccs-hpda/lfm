@@ -75,7 +75,11 @@ required to design it. Input formatting can be inferred from
 `lfm/data_processing/labeling/craters.py`, which exports `<raster-stem>_label_craters.gpkg`
 with a native-CRS `craters` polygon layer
 with `crater_id`, `method`, `source`, `band`, `seed_col`, `seed_row`, and
-`area_native`. Treat annotation provenance as descriptive, not a matching gate.
+`area_native`, plus optional `catalog_id` and `catalog_source` provenance.
+The labeler reads older exports without catalog fields. Accepted clicks, edits,
+catalog imports, and deletions save to the same file under
+`notebooks/outputs/labels/`; this remains the chip notebook discovery location.
+Treat annotation provenance as descriptive, not a matching gate.
 
 Implemented standalone interface (A4 complete):
 

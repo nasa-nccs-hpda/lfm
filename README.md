@@ -28,6 +28,25 @@ Container build and publication instructions: [docs/container_build.md](docs/con
 - `instance_finetune.ipynb`, `semantic_finetune.ipynb`: finetuning notebooks; these load the pretrained IBM/'graha' model and perform finetuning on a ML-ready dataset of chips and labels, separated into training/validation/testing ("train/val/test") splits. See `docs/dataset_contribution.md` if you would like to create your own dataset.
 - `tiling_example.ipynb`: tiling workflow, using a variety of queries in the Armstrong tiling scheme (see `TMS/README.md` for more info). Contains Mercator and Polar workflows, as well as lat/lon AOI, lat/lon point, and tile index queries. Works for WAC, NAC, and Static data. **Inspect notebook for more details.**
 
+### Crater labeling integration checks
+
+The labeling notebook uses `lfm.data_processing.labeling` and continues to save
+GeoPackages under `notebooks/outputs/labels/` for the chip notebook. Catalog
+imports are optional and explicit; selecting a catalog alone does not add labels.
+
+Run the labeling tests in the supported container from the repository root:
+
+```bash
+python -m pytest lfm/data_processing/tests/labeling -q
+```
+
+These function-based tests require pytest; unittest discovery does not run them.
+They cover catalog clipping/provenance, autosave/edit/delete/undo, older label
+files, notebook paths, and label-to-chip compatibility. The real-NAC test skips
+when its optional local raster is absent. On Explore, also verify the file
+chooser and interactive map in `notebooks/crater_labeling.ipynb` using the
+`lfm_kernel_ipyleaflet` kernel.
+
 ### Repo-level files
 
 -`.dockerignore`: files for Dockerhub to ignore when creating container.

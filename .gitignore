@@ -12,3 +12,4 @@ planning.txt
 test_outputs/
 **.zip
 .pytest_cache/
+/data/

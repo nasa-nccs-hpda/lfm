@@ -146,6 +146,7 @@ def main():
         'lfm.data_processing.tiling',
         'lfm.data_processing.chip.chip_notebook_utils',
         'lfm.data_processing.labeling.craters',
+        'lfm.data_processing.labeling.catalogs',
         'lfm.data_processing.clustering.ClusterPreprocessConfig',
         'lfm.data_processing.clustering.Clusterer',
         'lfm.data_processing.clustering.ImageHelperSingleBand',
