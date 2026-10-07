@@ -273,6 +273,7 @@ class CraterLabeler:
         self._active_index=None
         self._draft_dirty=False
         self._history=[]
+        self._delete_all_context=None
         self._sync_selection=False
         self.seed=self.draft=None
         self.draft_method=''
@@ -343,6 +344,18 @@ class CraterLabeler:
             return b
         def row(children):
             return w.HBox(children,layout=w.Layout(flex_flow="row wrap"))
+        self.delete_all_button=button('Delete all craters',self.request_delete_all)
+        self.delete_all_button.button_style='danger'
+        self.delete_all_button.disabled=True
+        self.delete_all_message=w.HTML()
+        self.confirm_delete_all_button=button('Delete all',self.confirm_delete_all)
+        self.confirm_delete_all_button.button_style='danger'
+        self.cancel_delete_all_button=button('Cancel',self.cancel_delete_all)
+        confirmation=w.VBox([w.HTML('<h3>Delete all craters?</h3>'),self.delete_all_message,
+            row([self.cancel_delete_all_button,self.confirm_delete_all_button])])
+        confirmation.add_class('crater-delete-panel')
+        self.delete_all_dialog=w.VBox([confirmation],layout=w.Layout(display='none'))
+        self.delete_all_dialog.add_class('crater-delete-dialog')
         self.radius.style.description_width="initial"
         self.catalog_panel=w.Accordion(children=[w.VBox([
             w.HTML('Optional: load existing crater outlines after choosing the raster. Select a file, then import it.'),
@@ -359,7 +372,13 @@ class CraterLabeler:
             row([self.edge_min,self.edge_max,button('Fit circle to edges',self.fit_edges)]),
             row([self.tolerance,self.growth,button('Regrow / reset',self.regenerate)]),
             self.map,self.coordinates,
-            self.selection,row([button('Delete selected',self.delete_selected),button('Undo change',self.undo)]),
+            self.selection,row([button('Delete selected',self.delete_selected),button('Undo change',self.undo),self.delete_all_button]),
+            w.HTML('<style>.crater-delete-dialog {position:fixed; inset:0; z-index:10000; '
+                'background:rgba(0,0,0,.45); align-items:center; justify-content:center;} '
+                '.crater-delete-panel {background:var(--jp-layout-color0,white); '
+                'color:var(--jp-ui-font-color1,#111); padding:24px; border-radius:8px; '
+                'width:480px; max-width:90vw; box-shadow:0 4px 24px #333;}</style>'),
+            self.delete_all_dialog,
             self.count,self.output,button('Export GeoPackage',self.save),self.saved_status,self.status])
         self.radius.observe(lambda c:self._guard(self._radius_changed),names='value')
         for control in (self.ratio,self.angle):
@@ -395,6 +414,7 @@ class CraterLabeler:
             self.status.value=f'<b>Error:</b> {escape(str(exc))}'
 
     def load(self):
+        self.cancel_delete_all()
         if self._draft_dirty:
             self._persist_draft()
         candidate=rasterio.open(Path(self.path.value).expanduser())
@@ -619,6 +639,8 @@ class CraterLabeler:
         self.handles=[]
 
     def _draw(self):
+        self.cancel_delete_all()
+        self.delete_all_button.disabled=self.src is None or (not self.records and self.draft is None)
         def locations(poly):
             return [pixel_to_map(self.src.transform,p) for p in poly.exterior.coords]
         old=self.accepted.layers
@@ -726,6 +748,37 @@ class CraterLabeler:
         self.discard()
         self.status.value='Crater deleted and saved. Undo change restores it.'
 
+    def request_delete_all(self):
+        """Ask before clearing the current raster's saved labels and draft."""
+        from html import escape
+        if self.src is None or (not self.records and self.draft is None):
+            return
+        self._delete_all_context=(self.src,self.records,self.draft,self._draft_dirty,self.output.value)
+        self.delete_all_message.value=(
+            f'Delete all {len(self.records)} saved craters for <b>{escape(Path(self.src.name).name)}</b>? '
+            f'This updates <code>{escape(self.output.value)}</code> with an empty crater layer. '
+            'Any unsaved edit will also be discarded. Undo change can restore the previously saved craters.')
+        self.delete_all_dialog.layout.display='flex'
+
+    def cancel_delete_all(self):
+        self._delete_all_context=None
+        self.delete_all_dialog.layout.display='none'
+
+    def confirm_delete_all(self):
+        context=self._delete_all_context
+        if context is None:
+            return
+        src,records,draft,dirty,path=context
+        self.cancel_delete_all()
+        if (self.src is not src or self.records is not records or self.draft is not draft
+                or self._draft_dirty!=dirty or self.output.value!=path):
+            self.status.value='Labels changed. Click Delete all craters again to review the current collection.'
+            return
+        # Save first: a failed write must retain the collection, draft and undo history.
+        self._commit([])
+        self.discard()
+        self.status.value='All craters deleted and saved. Undo change restores the previous collection.'
+
     def undo(self):
         if self._draft_dirty:
             index=self._active_index
@@ -778,6 +831,7 @@ class CraterLabeler:
         return path
 
     def close(self):
+        self.cancel_delete_all()
         self._closed=True
         if self._refresh_handle:
             self._refresh_handle.cancel()

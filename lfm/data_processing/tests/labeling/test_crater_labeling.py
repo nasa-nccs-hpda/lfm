@@ -207,6 +207,79 @@ def test_autosave_slider_delete_failure_and_resume(tmp_path, monkeypatch):
         app.close()
 
 
+def test_delete_all_confirmation_undo_and_failure(tmp_path, monkeypatch):
+    import lfm.data_processing.labeling.craters as module
+    transform=Affine(1,0,1000,0,-1,2000)
+    raster=tmp_path/'raster.tif'
+    with rasterio.open(raster,'w',driver='GTiff',width=200,height=200,
+                       count=1,dtype='float32',crs='EPSG:3857',transform=transform) as ds:
+        ds.write(np.ones((200,200),dtype='float32'),1)
+    app=module.CraterLabeler(tmp_path,tmp_path/'labels')
+    try:
+        assert app.delete_all_button.disabled
+        assert app.delete_all_button.button_style=='danger'
+        app.load()
+        assert app.delete_all_button.disabled
+        app.mode.value='Circle'
+        for center in [(60,60),(130,130)]:
+            app._interaction(type='click',coordinates=module.pixel_to_map(transform,center))
+        path=app.last_saved_path
+        before=path.read_bytes()
+        history=list(app._history)
+        app.delete_all_button.click()
+        assert app.delete_all_dialog.layout.display=='flex'
+        assert '2 saved craters' in app.delete_all_message.value
+        app.cancel_delete_all_button.click()
+        app.confirm_delete_all_button.click()  # a cancelled confirmation is inert
+        assert path.read_bytes()==before
+        assert len(app.records)==2 and app._history==history
+
+        def fail(*args,**kwargs):
+            raise OSError('disk full')
+        with monkeypatch.context() as patch:
+            patch.setattr(module.os,'replace',fail)
+            app.radius.value=42  # retain an unsaved edit on write failure
+            draft=app.draft
+            assert app._draft_dirty
+            app.delete_all_button.click()
+            app.confirm_delete_all_button.click()
+            assert 'disk full' in app.status.value
+            assert app.draft is draft and app._draft_dirty
+            assert len(app.records)==2 and app._history==history
+            assert path.read_bytes()==before
+
+        app.delete_all_button.click()
+        app.confirm_delete_all_button.click()
+        assert not app.records and app.draft is None and not app._draft_dirty
+        assert not app.accepted.layers and not app.handles
+        assert app.selection.value is None and app.delete_all_button.disabled
+        with fiona.open(path) as ds:
+            assert len(ds)==0
+        resumed=module.CraterLabeler(tmp_path,tmp_path/'labels')
+        try:
+            resumed.load()
+            assert not resumed.records
+        finally:
+            resumed.close()
+        app.undo()
+        assert len(app.records)==2 and not app.delete_all_button.disabled
+        with fiona.open(path) as ds:
+            assert len(ds)==2
+
+        app.delete_all_button.click()
+        app.load()  # reopening/changing rasters invalidates pending confirmation
+        app.confirm_delete_all_button.click()
+        assert len(app.records)==2
+        app.delete_all_button.click()
+        app.select_record(0)
+        app.radius.value=35  # editing also invalidates confirmation
+        app.confirm_delete_all_button.click()
+        assert len(app.records)==2
+        assert app.delete_all_dialog.layout.display=='none'
+    finally:
+        app.close()
+
+
 def test_filechooser_default_and_select_callback(tmp_path):
     from ipyfilechooser import FileChooser
     from types import SimpleNamespace
