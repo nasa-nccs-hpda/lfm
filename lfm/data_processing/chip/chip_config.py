@@ -350,7 +350,7 @@ def _validate_fixed_priority(
 
 @dataclass(frozen=True)
 class SimpleSplitConfig:
-    """Assign all unassigned groups using deterministic percentage thresholds."""
+    """Percentage splitting using stable hash thresholds or count-aware groups."""
 
     percentages: SplitPercentages = field(
         default_factory=lambda: SplitPercentages(0.8, 0.1, 0.1)
@@ -359,10 +359,13 @@ class SimpleSplitConfig:
     group_key_policy: str = "request"
     hash_version: str = SPLIT_HASH_VERSION
     prior_manifest_path: Path | None = None
+    assignment_method: Literal["hash", "count_aware"] = "hash"
 
     def __post_init__(self) -> None:
         if not isinstance(self.percentages, SplitPercentages):
             raise TypeError("percentages must be a SplitPercentages object.")
+        if self.assignment_method not in ("hash", "count_aware"):
+            raise ValueError("assignment_method must be 'hash' or 'count_aware'.")
         _validate_split_common(self)
 
 
@@ -720,12 +723,13 @@ def split_config_from_dict(value: Mapping[str, Any]) -> SplitConfigType:
     if config_type == "simple":
         _reject_unknown_keys(
             values,
-            allowed=common_keys | {"percentages"},
+            allowed=common_keys | {"percentages", "assignment_method"},
             field_name="simple split config",
         )
         if "percentages" not in values:
             raise KeyError("Simple split config must include 'percentages'.")
         return SimpleSplitConfig(
+            assignment_method=values.get("assignment_method", "hash"),
             percentages=_percentages_from_dict(
                 values["percentages"],
                 field_name="split percentages",

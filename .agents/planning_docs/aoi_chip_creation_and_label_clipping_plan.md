@@ -82,6 +82,17 @@ does not claim exhaustive testing of every modality/geometry/label combination.
 
 ## Full-dataset notebook supplement (2026-10-07)
 
+Count-aware update: `SimpleSplitConfig(assignment_method="count_aware")` is
+now the full-workflow default. Existing spatial blocks are unchanged (no
+clustering/merging). Seeded largest-first placement and bounded block moves
+balance chip counts toward percentages, reserving groups for empty positive
+splits when feasible. Explicit/prior assignments remain locked; too few
+unlocked groups warn. Legacy `hash` remains the config default for backwards
+compatibility. Both dataset and preview manifests record the new method.
+The reported 371-chip/28-block layout changes from 331/40/0 to 296/39/36
+train/val/test with seed 42. Growing the inventory can change unlocked
+membership; use a prior manifest when preservation is needed.
+
 `notebooks/chip_full_workflow.ipynb` processes one configured WAC/NAC raster
 and one finished full-scene label GPKG. It replaces the proposed separate
 training-AOI GPKG with an internally generated native-pixel grid. The

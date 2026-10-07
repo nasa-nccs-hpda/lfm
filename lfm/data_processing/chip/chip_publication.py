@@ -495,6 +495,8 @@ def _split_policy_document(config: SplitConfigType, plan: SplitPlan) -> dict[str
         raise TypeError("config must be a supported split configuration.")
     return {
         "type": _split_type(config),
+        **({"assignment_method": config.assignment_method}
+           if isinstance(config, SimpleSplitConfig) and config.assignment_method != "hash" else {}),
         "percentages": _percentages_document(percentages),
         "fixed_targets": (
             None
@@ -644,6 +646,8 @@ def _split_configuration_document(config: SplitConfigType) -> dict[str, Any]:
     }
     if isinstance(config, SimpleSplitConfig):
         document["percentages"] = _percentages_document(config.percentages)
+        if config.assignment_method != "hash":
+            document["assignment_method"] = config.assignment_method
     elif isinstance(config, MixedPercentageNumberSplitConfig):
         document.update(
             {

@@ -297,6 +297,62 @@ def _assign_percentages(
         group.source = "automatic_percentage"
 
 
+def _assign_count_aware(groups: Sequence[_RequestGroup], config: SimpleSplitConfig) -> list[SplitWarning]:
+    """Balance whole groups by chip count, preserving explicit/prior locks.
+
+    Largest-first greedy placement minimizes squared count error. Reserve
+    remaining groups for empty positive splits when necessary. A bounded
+    single-group refinement reduces error without emptying any filled split.
+    This is deterministic best effort, not an exact partition optimizer.
+    """
+    active = tuple(s for s in SPLIT_NAMES if getattr(config.percentages, s) > 0)
+    total = sum(g.size for g in groups)
+    targets = {s: total * getattr(config.percentages, s) for s in SPLIT_NAMES}
+    counts = {s: sum(g.size for g in groups if g.assigned_split == s) for s in SPLIT_NAMES}
+    members = Counter(g.assigned_split for g in groups if g.source is not None)
+    pending = sorted((g for g in groups if g.source is None), key=lambda g: (
+        -g.size, _digest_value(config=config, namespace="count_aware:v1", group_key=g.normalized_key),
+        g.normalized_key))
+
+    for index, group in enumerate(pending):
+        empty = tuple(s for s in active if not members[s])
+        # With too few groups prefer the largest requested splits, not arbitrary
+        # alphabetical order. Feasible plans always give every active split a group.
+        choices = empty if len(pending) - index <= len(empty) else active
+        chosen = min(choices, key=lambda s: (
+            2 * group.size * (counts[s] - targets[s]) + group.size**2,
+            SPLIT_NAMES.index(s)))
+        group.assigned_split, group.source = chosen, "automatic_percentage"
+        counts[chosen] += group.size
+        members[chosen] += 1
+
+    for _ in range(10):
+        changed = False
+        for group in pending:
+            source = group.assigned_split
+            if members[source] <= 1:
+                continue
+            options = [(2 * group.size * ((counts[s] - targets[s]) - (counts[source] - targets[source]))
+                        + 2 * group.size**2, SPLIT_NAMES.index(s), s) for s in active if s != source]
+            if not options:
+                continue
+            delta, _, destination = min(options)
+            if delta < -1e-9:
+                counts[source] -= group.size
+                members[source] -= 1
+                counts[destination] += group.size
+                members[destination] += 1
+                group.assigned_split = destination
+                changed = True
+        if not changed:
+            break
+    return [SplitWarning(
+        code="empty_percentage_split",
+        message=f"Count-aware split {s!r} is empty: insufficient unlocked groups to populate all positive splits.",
+        split=s, requested_count=1, realized_count=0, reason="insufficient_unlocked_groups",
+    ) for s in active if total and not members[s]]
+
+
 def _assigned_count(groups: Sequence[_RequestGroup], split: SplitName) -> int:
     return sum(group.size for group in groups if group.assigned_split == split)
 
@@ -421,12 +477,15 @@ def plan_splits(
     )
     warnings: list[SplitWarning] = []
     if isinstance(config, SimpleSplitConfig):
-        _assign_percentages(
-            groups,
-            percentages=config.percentages,
-            config=config,
-            namespace="percentage",
-        )
+        if config.assignment_method == "count_aware":
+            warnings.extend(_assign_count_aware(groups, config))
+        else:
+            _assign_percentages(
+                groups,
+                percentages=config.percentages,
+                config=config,
+                namespace="percentage",
+            )
     elif isinstance(config, MixedPercentageNumberSplitConfig):
         warnings.extend(
             _assign_fixed_counts(
