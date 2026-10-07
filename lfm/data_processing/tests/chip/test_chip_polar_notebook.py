@@ -1,6 +1,7 @@
 """Executable notebook validation controls, without HPC imagery or GDAL."""
 
 import json
+import ast
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,6 +20,24 @@ def notebook_cell(name):
 
 
 class PolarNotebookValidationTestCase(unittest.TestCase):
+    def test_main_example_layout_and_execution_defaults(self):
+        notebook = json.loads((REPO_ROOT / "notebooks/chip_polar_example.ipynb").read_text())
+        ids = [cell["id"] for cell in notebook["cells"]]
+        expected = ["polar_config", "polar_grid", "polar_sources", "polar_request_summary",
+                    "polar_run", "polar_inspect", "polar_outputs", "polar_validation_matrix"]
+        self.assertEqual([ids.index(name) for name in expected], sorted(ids.index(name) for name in expected))
+        names = {node.id for node in ast.walk(ast.parse(notebook_cell("polar_config")))
+                 if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)}
+        self.assertFalse(names & {"MAX_WORKERS", "INDEX_WORKER_COUNT", "SPLIT_CONFIG", "OVERWRITE"})
+        from unittest.mock import MagicMock
+        create = MagicMock(return_value=SimpleNamespace(results=[], elapsed_seconds=0, manifest_path="manifest"))
+        exec(notebook_cell("polar_run"), dict(create_chips=create, requests=[], chip_config=object(),
+                                             print=lambda *a: None))
+        self.assertEqual(create.call_args.kwargs, dict(max_workers=1, overwrite=True, progress=True, progress_mode="bar"))
+        self.assertNotIn("plot_chip_result", notebook_cell("polar_run"))
+        self.assertIn("figure_path=figure_path", notebook_cell("polar_inspect"))
+        self.assertIn("worker_count=notebook_index_workers()", notebook_cell("polar_sources"))
+
     def test_real_presets_both_hemispheres_and_rerun_are_stable(self):
         for hemisphere in ("north", "south"):
             built = []

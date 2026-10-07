@@ -75,6 +75,12 @@ class RasterDatasetTestCase(unittest.TestCase):
                                     if not line.startswith("%")))
         cells = {c["id"]: "".join(c["source"]) for c in nb["cells"]}
         self.assertNotIn("RUN_CREATION", "".join(cells.values()))
+        self.assertNotIn("CHIP_SIZE", "".join(cells.values()))
+        calls = [node for node in ast.walk(ast.parse(cells["dataset_plan"]))
+                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                 and node.func.id == "plan_raster_chips"]
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("chip_size", {kw.arg for kw in calls[0].keywords})
         create = MagicMock(return_value=SimpleNamespace(results=[], manifest_path="manifest.json"))
         namespace = dict(create_chips=create, requests=[object(), object()], chip_config=object(),
                          notebook_index_workers=lambda: 16, OVERWRITE=True, Counter=Counter,
