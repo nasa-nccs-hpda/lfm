@@ -67,7 +67,7 @@ ChipProgressStage = Literal[
     "cleanup",
 ]
 ChipProgressState = Literal["started", "completed", "failed", "skipped"]
-ProgressMode = Literal["auto", "live", "log"]
+ProgressMode = Literal["auto", "live", "log", "bar"]
 _PROGRESS_STAGES = frozenset(
     {
         "preflight",
@@ -142,7 +142,7 @@ class _ChipProgressReporter:
         mode: ProgressMode,
     ) -> None:
         self.enabled = enabled
-        self.mode: Literal["live", "log"] = (
+        self.mode: Literal["live", "log", "bar"] = (
             "live"
             if mode == "auto" and _supports_live_progress()
             else "log"
@@ -160,10 +160,10 @@ class _ChipProgressReporter:
             self._tqdm = _load_tqdm()
             self._overall = self._tqdm(
                 total=total,
-                desc="Chips",
+                desc=f"Chips ({worker_count} workers)" if mode == "bar" else "Chips",
                 unit="chip",
                 file=sys.stdout,
-                dynamic_ncols=self.mode == "live",
+                dynamic_ncols=self.mode != "log",
                 mininterval=0.5,
                 position=0,
                 leave=True,
@@ -185,7 +185,7 @@ class _ChipProgressReporter:
         return bar
 
     def stage(self, event: ChipProgressEvent) -> None:
-        if not self.enabled or event.sample_id in self._completed_samples:
+        if not self.enabled or self.mode == "bar" or event.sample_id in self._completed_samples:
             return
         self._sample_workers[event.sample_id] = event.worker_pid
         message = (
@@ -222,7 +222,7 @@ class _ChipProgressReporter:
                 terminal = f"{terminal} ({result.message})"
         if self.mode == "log":
             self._tqdm.write(terminal, file=sys.stdout)
-        else:
+        elif self.mode == "live":
             bar = self._worker_bars.get(worker_pid)
             if bar is not None:
                 bar.set_description_str(terminal, refresh=True)
@@ -1164,8 +1164,8 @@ def _validate_progress_options(progress: bool, progress_mode: ProgressMode) -> N
         raise TypeError("progress must be a boolean.")
     if not isinstance(progress_mode, str):
         raise TypeError("progress_mode must be a string.")
-    if progress_mode not in {"auto", "live", "log"}:
-        raise ValueError("progress_mode must be 'auto', 'live', or 'log'.")
+    if progress_mode not in {"auto", "live", "log", "bar"}:
+        raise ValueError("progress_mode must be 'auto', 'live', 'log', or 'bar'.")
 
 
 def _drain_progress_events(
@@ -1241,7 +1241,11 @@ def create_chips(
     progress: bool = False,
     progress_mode: ProgressMode = "auto",
 ) -> ChipBatchResult:
-    """Create a deterministic dataset with opt-in process parallelism."""
+    """Create a deterministic dataset with opt-in process parallelism.
+
+    ``progress_mode="bar"`` displays aggregate completion/status counts and
+    the worker count, without worker-stage or terminal log messages.
+    """
     if not isinstance(config, ChipConfig):
         raise TypeError("config must be a ChipConfig.")
     if not isinstance(overwrite, bool):

@@ -107,8 +107,11 @@ Accepted splits are seeded 80/10/10 percentages assigned atomically to spatial
 blocks. The notebook exposes block size, initially 4×4 chips, and documents
 approximate proportions, empty splits and remaining cross-block leakage (no
 buffer). Workers use the Slurm allocation or available CPUs outside Slurm,
-capped by work; index preparation precedes chip workers. Preview-only is the
-default. Alternative split types are documented in
+capped by work; index preparation precedes chip workers. Creation now runs
+directly without an exposed RUN_CREATION toggle; Run All creates the dataset.
+The worker-aware aggregate bar uses progress_mode="bar" without worker stage
+or terminal messages; sample warnings/errors remain visible and persisted.
+Alternative split types are documented in
 `docs/dataset_contribution.md`. Rerun for each label file; multi-label support
 is not implemented. GDAL/HPC full-raster execution remains pending.
 

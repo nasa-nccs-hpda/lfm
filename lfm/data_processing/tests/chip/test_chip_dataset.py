@@ -5,7 +5,9 @@ import importlib.util
 import json
 from pathlib import Path
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
+from types import SimpleNamespace
+from collections import Counter
 
 from lfm.data_processing._paths import REPO_ROOT
 from lfm.data_processing.chip import GeographicAOI, LabelInput, SimpleSplitConfig, SourceSelector, TargetGrid
@@ -64,7 +66,7 @@ class RasterDatasetTestCase(unittest.TestCase):
         self.assertEqual({a.assigned_split for a in first.assignments}, {"train", "val", "test"})
         self.assertNotEqual(first, plan_splits(requests, SimpleSplitConfig(seed=43)))
 
-    def test_full_notebook_syntax_and_preview_only_execution(self):
+    def test_full_notebook_syntax_and_direct_creation_with_bar(self):
         nb = json.loads((REPO_ROOT / "notebooks/chip_full_workflow.ipynb").read_text())
         self.assertEqual(len(nb["cells"]), len({c["id"] for c in nb["cells"]}))
         for cell in nb["cells"]:
@@ -72,10 +74,34 @@ class RasterDatasetTestCase(unittest.TestCase):
                 ast.parse("\n".join(line for line in "".join(cell["source"]).splitlines()
                                     if not line.startswith("%")))
         cells = {c["id"]: "".join(c["source"]) for c in nb["cells"]}
-        namespace = dict(RUN_CREATION=False, print=lambda *a: None)
-        exec(cells["dataset_index"], namespace)
+        self.assertNotIn("RUN_CREATION", "".join(cells.values()))
+        create = MagicMock(return_value=SimpleNamespace(results=[], manifest_path="manifest.json"))
+        namespace = dict(create_chips=create, requests=[object(), object()], chip_config=object(),
+                         notebook_index_workers=lambda: 16, OVERWRITE=True, Counter=Counter,
+                         print=lambda *a: None)
         exec(cells["dataset_run"], namespace)
-        self.assertIsNone(namespace["batch"])
+        self.assertEqual(create.call_args.kwargs["max_workers"], 2)
+        self.assertEqual(create.call_args.kwargs["progress_mode"], "bar")
+        self.assertTrue(create.call_args.kwargs["progress"])
+
+    def test_bar_progress_counts_workers_without_stage_messages(self):
+        from lfm.data_processing.chip.chip_creation import _ChipProgressReporter, ChipProgressEvent
+        tqdm = MagicMock()
+        with patch("lfm.data_processing.chip.chip_creation._load_tqdm", return_value=tqdm):
+            reporter = _ChipProgressReporter(2, 2, enabled=True, mode="bar")
+            reporter.stage(ChipProgressEvent("a", "publish", "started", 123))
+            for name, status in (("a", "success"), ("b", "failed")):
+                result = SimpleNamespace(request=SimpleNamespace(sample_id=name), status=status,
+                                         diagnostics=[], message="test error")
+                reporter.complete(result)
+                reporter.complete(result)  # No duplicate increments.
+            reporter.close()
+        tqdm.assert_called_once()
+        self.assertIn("2 workers", tqdm.call_args.kwargs["desc"])
+        tqdm.write.assert_not_called()
+        self.assertEqual(tqdm.return_value.update.call_count, 2)
+        tqdm.return_value.set_postfix.assert_called_with({"failed": 1, "success": 1}, refresh=False)
+        tqdm.return_value.close.assert_called_once()
 
     @unittest.skipUnless(importlib.util.find_spec("osgeo"), "GDAL unavailable")
     def test_real_geographic_query_does_not_expand_target_window(self):
