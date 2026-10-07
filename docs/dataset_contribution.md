@@ -19,6 +19,60 @@ dataset_root/
     labels/
 ```
 
+## Chip creation split configuration
+
+Use [the full-raster workflow](../notebooks/chip_full_workflow.ipynb) for one
+finished crater GeoPackage and one WAC/NAC product. It creates non-overlapping
+256×256 native-pixel chips across the **entire raster**, not just the crater
+extent. Incomplete right/bottom windows are dropped and counted. Windows with
+no rasterizable craters warn but are retained as background samples. This
+assumes the entire raster was annotated; missing annotations are not reliable
+negative labels. Run the notebook separately for each label file.
+
+The notebook defaults to **80% training, 10% validation, 10% test**, seed 42.
+Assignments apply to whole spatial blocks (default 4×4 chips) anchored at
+source pixel (0, 0). Every chip in a block stays in the same split. Percentages
+are deterministic hash thresholds, not exact quotas: small datasets or uneven
+edge blocks can yield different proportions or empty splits. Review the
+preview and published counts. Failed samples can further change proportions.
+
+Block grouping reduces local leakage but is not a buffer: neighboring chips
+and craters across block boundaries can still belong to different splits.
+Select block size based on scientific independence and crater sizes. Changing
+product identity, seed, chip size or block size changes assignments. Source
+IDs use `<product>_r<row>_c<column>` with zero-based native-pixel offsets.
+
+Available configuration classes from `lfm.data_processing.chip`:
+
+| Configuration | Behavior |
+|---|---|
+| `SimpleSplitConfig` | Seeded percentage assignment of entire groups. Full-workflow default. |
+| `MixedPercentageNumberSplitConfig` | Fill fixed sample-count targets in priority order, then apply percentages to remaining groups. |
+| `NumberSplitConfig` | Fixed sample-count targets in priority order; configure whether remaining samples are unassigned or sent to a remainder split. |
+| `NoSplitConfig` | No partitioning; write directly to dataset-root `chips/` and `labels/`. Quick-example default. |
+
+```python
+from lfm.data_processing.chip import SimpleSplitConfig, SplitPercentages
+
+split_config = SimpleSplitConfig(
+    percentages=SplitPercentages(train=0.8, val=0.1, test=0.1),
+    seed=42,
+    group_key_policy="request",
+)
+```
+
+Each request's `split_group_key` must identify its spatial block. The policy
+string does not construct blocks automatically. The full-workflow planner
+creates these keys; using one product-only key would place the entire raster
+in one split. Other workflows can deliberately use product-level grouping.
+
+For mixed/count configurations, counts are **samples**, but groups remain
+indivisible. Unattainable targets issue warnings rather than splitting groups
+or failing the entire pipeline. The legacy mixed default tries to reserve
+100 test samples, then uses 90% train / 10% validation for the remainder; it
+is **not** the full-raster notebook default. Existing dataset membership can
+be retained using `prior_manifest_path`; preserve compatible split settings.
+
 ## File Naming
 
 Prefer identical sample stems for chips and labels:

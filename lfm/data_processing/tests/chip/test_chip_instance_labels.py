@@ -264,6 +264,8 @@ class InstanceConversionTestCase(unittest.TestCase):
         paths = [self.archive(self.np.zeros((3, 4)), []), self.gpkg(target, [])]
         for i, path in enumerate(paths):
             artifact = self.materialize(path, source if i == 0 else None, target, stage=str(i))
+            self.assertTrue(any(d.code == "no_crater_labels" and d.severity == "warning"
+                                for d in artifact.diagnostics))
             with self.np.load(artifact.path) as output:
                 self.assertEqual(output["bboxes"].shape, (0, 4))
                 self.assertEqual(output["num_craters"].shape, ())

@@ -163,6 +163,10 @@ def _box_window(box, target):
 
 def _finish(request, mask, boxes, ids, diagnostics):
     np = _numpy()
+    if not ids:
+        diagnostics = [*diagnostics, LabelValidationDiagnostic(
+            "no_crater_labels", f"Sample {request.sample_id}: no rasterizable crater labels "
+            "found inside the chip window; retaining an all-background label.", severity="warning")]
     result = InstanceLabelConversion(mask, np.asarray(boxes, dtype=np.float64).reshape(-1, 4),
                                      len(ids), tuple((old, new) for new, old in enumerate(ids, 1)),
                                      tuple(diagnostics))

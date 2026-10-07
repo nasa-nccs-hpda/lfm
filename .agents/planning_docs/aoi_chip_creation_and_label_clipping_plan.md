@@ -80,6 +80,27 @@ Existing pole and seam toggles remain. New presets need scientist-confirmed
 imagery/label coverage; they are not prevalidated annotated AOIs. The notebook
 does not claim exhaustive testing of every modality/geometry/label combination.
 
+## Full-dataset notebook supplement (2026-10-07)
+
+`notebooks/chip_full_workflow.ipynb` processes one configured WAC/NAC raster
+and one finished full-scene label GPKG. It replaces the proposed separate
+training-AOI GPKG with an internally generated native-pixel grid. The
+`chip_dataset.plan_raster_chips` helper retains exact non-overlapping 256×256
+targets, rejects sheared/nonrectangular pixel lattices, drops incomplete
+right/bottom windows with counts, and uses product plus pixel row/column IDs.
+Geographic envelopes are only acquisition queries, never a route back into
+enlarged target windows. Empty converted instance labels emit the warning
+`no_crater_labels` and remain publishable. Users must ensure full annotation.
+
+Accepted splits are seeded 80/10/10 percentages assigned atomically to spatial
+blocks. The notebook exposes block size, initially 4×4 chips, and documents
+approximate proportions, empty splits and remaining cross-block leakage (no
+buffer). Workers use the Slurm allocation or available CPUs outside Slurm,
+capped by work; index preparation precedes chip workers. Preview-only is the
+default. Alternative split types are documented in
+`docs/dataset_contribution.md`. Rerun for each label file; multi-label support
+is not implemented. GDAL/HPC full-raster execution remains pending.
+
 ## Accepted A0 decisions
 
 1. Public AOIs use repository IAU:30100. The notebook demonstrates one AOI;
