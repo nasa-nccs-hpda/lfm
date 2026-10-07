@@ -25,6 +25,13 @@ Use [the full-raster workflow](../notebooks/chip_full_workflow.ipynb) for one
 finished crater label GPKG and one WAC/NAC source raster. It creates non-overlapping
 256×256 native-pixel chips across the **entire raster**, not just the crater
 extent. Incomplete right/bottom windows are dropped and counted. Windows with
+any masked, NoData or non-finite pixel in any selected source-raster band are
+rejected before splitting; WAC uses the VIS source raster for this check.
+The planner reads one window at a time and accepts an additional native-grid
+Boolean `valid_mask` (True = valid). This does not change single-AOI creation's
+NoData-fill policy. Inspection requires all dynamic output bands to be valid,
+including WAC UV, but allows static gaps; imagery displays band 0 in grayscale.
+Windows with
 no rasterizable craters warn but are retained as background samples. This
 assumes the entire raster was annotated; missing annotations are not reliable
 negative labels. Run the notebook separately for each label file.

@@ -108,11 +108,13 @@ def read_display_band(
     path: str | Path,
     *,
     keyword: str = "vis",
+    band_index: int | None = None,
 ) -> tuple[Any, str]:
     """Read the first raster band whose description contains ``keyword``.
 
     Matching is case-insensitive. If no description matches, the first band is
     returned so rasters without band descriptions remain inspectable.
+    An explicit zero-based ``band_index`` overrides description matching.
     """
     raster_path = Path(path)
     normalized_keyword = str(keyword).strip().casefold()
@@ -133,6 +135,10 @@ def read_display_band(
             ),
             0,
         )
+        if band_index is not None:
+            if isinstance(band_index, bool) or not isinstance(band_index, int) or not 0 <= band_index < dataset.count:
+                raise ValueError("band_index must be a valid zero-based band index.")
+            index = band_index
         band = dataset.read(index + 1, masked=True)
     return band, names[index]
 
@@ -192,6 +198,7 @@ def plot_chip_result(
     result: ChipResult,
     *,
     display_band_keyword: str = "vis",
+    display_band_index: int | None = None,
     figure_path: str | Path | None = None,
     dpi: int = 150,
     show: bool = True,
@@ -200,6 +207,7 @@ def plot_chip_result(
 
     The returned figure and axes remain available for notebook-specific edits.
     When ``figure_path`` is supplied, the figure is also saved to that path.
+    ``display_band_index`` selects an exact zero-based band instead of a keyword.
     """
     if not isinstance(result, ChipResult):
         raise TypeError("result must be a ChipResult.")
@@ -225,6 +233,7 @@ def plot_chip_result(
     generated, generated_name = read_display_band(
         result.chip_path,
         keyword=display_band_keyword,
+        band_index=display_band_index,
     )
     label, instance_count = read_label(result.label_path)
     if label.shape != generated.shape:
@@ -254,6 +263,7 @@ def plot_chip_result(
         reference, reference_name = read_display_band(
             request.reference_path,
             keyword=display_band_keyword,
+            band_index=display_band_index,
         )
         reference_min, reference_max = _display_limits(reference)
         axes[0, 1].imshow(

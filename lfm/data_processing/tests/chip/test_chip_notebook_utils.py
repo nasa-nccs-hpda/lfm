@@ -19,6 +19,20 @@ from lfm.data_processing.tests.chip import test_chip_types as type_fixtures
 
 
 class NotebookHelperTestCase(unittest.TestCase):
+    def test_explicit_zero_based_display_band_overrides_keyword(self):
+        ds = MagicMock()
+        ds.descriptions = ("nac-0", "vis-1")
+        ds.count = 2
+        rasterio = MagicMock()
+        rasterio.open.return_value.__enter__.return_value = ds
+        with patch.object(helpers, "_rasterio", return_value=rasterio):
+            _, name = helpers.read_display_band("chip.tif", band_index=0)
+            self.assertEqual(name, "nac-0")
+            ds.read.assert_called_once_with(1, masked=True)
+            for index in (-1, 2, True, 0.5):
+                with self.assertRaises(ValueError):
+                    helpers.read_display_band("chip.tif", band_index=index)
+
     def test_notebook_index_workers_respects_allocation_and_affinity(self):
         with patch.dict(os.environ, {"SLURM_CPUS_PER_TASK": "6"}):
             self.assertEqual(helpers.notebook_index_workers(), 6)
