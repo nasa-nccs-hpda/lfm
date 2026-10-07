@@ -16,6 +16,8 @@ from lfm.data_processing.tiling import (
     TileSourceConfig,
     resolve_notebook_source_index,
 )
+# Compatibility re-export; new callers should import from data_processing.tiling.
+from lfm.data_processing.tiling.static_source import make_static_source
 
 
 # Shared notebook-workflow defaults. Raster band numbers are 1-based.
@@ -68,40 +70,6 @@ def validate_path_pairs(
         details = "\n".join(f"- {message}" for message in errors)
         raise FileNotFoundError(f"Invalid configured {path_type} paths:\n{details}")
     return normalized
-
-
-def make_static_source(
-    *,
-    data_dir: str | Path,
-    index_path: str | Path,
-    index_layer: str | None = None,
-    location_field: str = "location",
-    required: bool = True,
-) -> TileSourceConfig:
-    """Create the canonical 63-band static lunar tiling source config.
-
-    Tiling retains uncovered channels as -32768 after verifying indexed band
-    metadata; required still rejects genuinely missing or unreadable inputs.
-    """
-    return TileSourceConfig(
-        name="static",
-        data_dir=Path(data_dir),
-        index_path=Path(index_path),
-        index_layer=index_layer,
-        location_field=location_field,
-        selection_mode="all_intersecting",
-        band_names=STATIC_BAND_NAMES,
-        resampling="bilinear",
-        output_nodata=STATIC_OUTPUT_NODATA,
-        band_nodata_overrides=tuple(
-            BandNoDataOverride(
-                band_name=name,
-                source_value=MINIRF_SOURCE_NODATA,
-            )
-            for name in MINIRF_SOURCE_NODATA_BANDS
-        ),
-        required=required,
-    )
 
 
 __all__ = [

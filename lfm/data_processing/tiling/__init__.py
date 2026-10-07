@@ -17,6 +17,7 @@ from .product_tiling import (
     discover_products_for_aoi,
 )
 from .source_modes import compose_tile_sources
+from .static_source import make_static_source
 from .tiling_workflow import (
     AutomaticTilingError,
     ModalityPreset,
@@ -175,6 +176,7 @@ __all__ = [
     "lunar_product_id_from_raster_path",
     "make_nac_tile_source",
     "make_static_tile_source",
+    "make_static_source",
     "make_wac_tile_source",
     "normalize_lunar_longitude",
     "prepare_tile_config",

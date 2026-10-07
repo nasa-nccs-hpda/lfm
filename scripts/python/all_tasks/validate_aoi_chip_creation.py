@@ -194,7 +194,7 @@ def run(args, report):
         resolve_notebook_source_index,
     )
     from lfm.data_processing.chip.chip_requests import raster_bounds
-    from lfm.all_models.all_tasks.tiling_utils import make_static_source
+    from lfm.data_processing.tiling import make_static_source
 
     gdal.UseExceptions()
     label_before = sha256(args.label_gpkg)
