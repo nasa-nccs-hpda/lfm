@@ -440,16 +440,21 @@ class CraterLabeler:
         self.band.value=1
         unit=candidate.crs.linear_units
         res=math.sqrt(abs(candidate.transform.determinant))
+        # Keep resolution-scaled defaults (5/30/200 pixels), rounded to whole
+        # native units. Very fine rasters still need positive, distinct bounds.
+        min_radius=max(1,round(5*res))
+        radius=max(min_radius,round(30*res))
+        max_radius=max(radius+1,round(200*res))
         self.radius.min=min(.001,res)
         self.radius.max=1e12
-        self.radius.value=30*res
+        self.radius.value=radius
         self.radius.step=res
         self.radius_slider.min=self.radius.min
         self.radius_slider.max=max(512*res,self.radius.value)
         self.radius_slider.step=res
         self.radius_slider.description=f"Radius ({unit}):"
-        self.edge_min.value=5*res
-        self.edge_max.value=200*res
+        self.edge_min.value=min_radius
+        self.edge_max.value=max_radius
         self.radius.description=f'Radius ({unit}):'
         self._set_overview()
         self.full_extent()
