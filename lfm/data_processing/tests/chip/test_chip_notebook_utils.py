@@ -19,14 +19,45 @@ from lfm.data_processing.tests.chip import test_chip_types as type_fixtures
 
 
 class NotebookHelperTestCase(unittest.TestCase):
+    def test_notebook_index_workers_respects_allocation_and_affinity(self):
+        with patch.dict(os.environ, {"SLURM_CPUS_PER_TASK": "6"}):
+            self.assertEqual(helpers.notebook_index_workers(), 6)
+        with patch.dict(os.environ, {"SLURM_CPUS_PER_TASK": ""}), patch.object(
+            helpers.os, "sched_getaffinity", return_value={0, 1, 2}, create=True
+        ):
+            self.assertEqual(helpers.notebook_index_workers(), 3)
+        with patch.dict(os.environ, {"SLURM_CPUS_PER_TASK": ""}), patch.object(
+            helpers.os, "sched_getaffinity", side_effect=OSError, create=True
+        ), patch.object(helpers.os, "cpu_count", return_value=4):
+            self.assertEqual(helpers.notebook_index_workers(), 4)
+        with patch.dict(os.environ, {"SLURM_CPUS_PER_TASK": "invalid"}):
+            with self.assertRaises(ValueError):
+                helpers.notebook_index_workers()
+
+    def test_quick_example_execution_defaults(self):
+        notebook = json.loads((REPO_ROOT / "notebooks/chip_example.ipynb").read_text())
+        cells = {cell["id"]: "".join(cell["source"]) for cell in notebook["cells"]}
+        config_tree = ast.parse(cells["d58d002a"])
+        assigned = {node.id for node in ast.walk(config_tree)
+                    if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)}
+        self.assertFalse(assigned & {"SPLIT_CONFIG", "MAX_WORKERS", "INDEX_WORKER_COUNT", "OVERWRITE"})
+        create = MagicMock(return_value=SimpleNamespace(results=[SimpleNamespace(status="success", diagnostics=[])],
+                                                       elapsed_seconds=0, manifest_path="manifest.json"))
+        exec(cells["94a010f2"], dict(create_chips=create, request=object(), chip_config=object(),
+                                   print=lambda *args: None))
+        self.assertEqual(create.call_args.kwargs["max_workers"], 1)
+        self.assertTrue(create.call_args.kwargs["overwrite"])
+        self.assertNotIn("82828596", cells)
+
     def test_notebook_wac_nac_with_and_without_static(self):
         from lfm.data_processing import chip, tiling
         from lfm.data_processing.tiling.product_ids import lunar_product_id_from_raster_path
 
         notebook = json.loads((REPO_ROOT /
                                "notebooks/chip_example.ipynb").read_text())
-        setup = "".join(notebook["cells"][7]["source"])
-        config = "".join(notebook["cells"][8]["source"])
+        cells = {cell["id"]: "".join(cell["source"]) for cell in notebook["cells"]}
+        setup = cells["92e30058"]
+        config = cells["58269cbd"]
         for modality in ("wac", "nac"):
             for static in (False, True):
                 with self.subTest(modality=modality, static=static), tempfile.TemporaryDirectory() as tmp:
@@ -49,7 +80,7 @@ class NotebookHelperTestCase(unittest.TestCase):
                                      SOURCE_RASTER=source, LABEL_PATH=label if static else None,
                                      STATIC_DATA_DIR=static_dir, latest_crater_label_path=latest,
                                      AOI_NWSE=(1.3, 149.7, 1., 150.), OUTPUT_BASE_DIR=root / "out",
-                                     INDEX_WORKER_COUNT=1, SPLIT_CONFIG=chip.NoSplitConfig(),
+                                     notebook_index_workers=lambda: 3,
                                      datetime=datetime, sys=SimpleNamespace(stdout=io.StringIO()),
                                      print=lambda *a, **kw: None, read_source_grid=reader,
                                      lunar_product_id_from_raster_path=lunar_product_id_from_raster_path,
@@ -57,6 +88,8 @@ class NotebookHelperTestCase(unittest.TestCase):
                     exec(compile(setup, "notebook_setup", "exec"), namespace)
                     exec(compile(config, "notebook_config", "exec"), namespace)
                     result = namespace["chip_config"]
+                    self.assertIsInstance(result.split_config, chip.NoSplitConfig)
+                    self.assertTrue(all(call.args[0].worker_count == 3 for call in prepare.call_args_list))
                     self.assertEqual(namespace["LABEL_PATH"], label)
                     self.assertEqual(latest.call_count, 0 if static else 1)
                     group = result.acquisition_groups[0]

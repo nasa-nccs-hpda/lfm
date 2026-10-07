@@ -3,10 +3,23 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 from typing import Any
 
 from .._paths import REPO_ROOT
 from .chip_types import ChipResult, TargetGrid
+
+
+def notebook_index_workers() -> int:
+    """Use allocated Slurm CPUs, otherwise the process's available CPUs."""
+    from ..tiling.vector_index_builder import resolve_index_worker_count
+
+    if os.environ.get("SLURM_CPUS_PER_TASK", "").strip():
+        return resolve_index_worker_count()
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return os.cpu_count() or 1
 
 
 def chip_batch_fingerprints(batch) -> dict[str, tuple[str, str, str | None]]:
