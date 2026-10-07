@@ -5,6 +5,7 @@ import importlib.util
 import json
 from pathlib import Path
 import unittest
+import tempfile
 from unittest.mock import patch, MagicMock
 from types import SimpleNamespace
 from collections import Counter
@@ -17,6 +18,27 @@ from lfm.data_processing.chip.chip_splits import plan_splits
 
 
 class RasterDatasetTestCase(unittest.TestCase):
+    def test_notebook_counts_any_band_nodata_and_plots_only_fully_valid(self):
+        nb = json.loads((REPO_ROOT / "notebooks/chip_full_workflow.ipynb").read_text())
+        code = "".join(next(c["source"] for c in nb["cells"] if c["id"] == "dataset_inspect"))
+        valid = SimpleNamespace(status="success", imagery_nodata={"union_invalid_count": 0})
+        static_gap = SimpleNamespace(status="success", imagery_nodata={"union_invalid_count": 1})
+        unknown = SimpleNamespace(status="success", imagery_nodata=None)
+        failed = SimpleNamespace(status="failed", imagery_nodata={"union_invalid_count": 0})
+        for results, expected in (([static_gap, unknown, valid, failed], (3, 1, 1, 1)),
+                                  ([static_gap], (1, 1, 0, 0)), ([], (0, 0, 0, 0))):
+            with tempfile.TemporaryDirectory() as tmp:
+                plot = MagicMock()
+                namespace = dict(batch=SimpleNamespace(results=results), INSPECTION_SAMPLES=1,
+                    OUTPUT_ROOT=Path(tmp), json=json, DISPLAY_BAND_KEYWORD="vis", plot_chip_result=plot,
+                    print=lambda *a: None)
+                exec(code, namespace)
+                summary = json.loads((Path(tmp) / "nodata_summary.json").read_text())
+                self.assertEqual(tuple(summary.values()), expected)
+                self.assertEqual(plot.call_count, expected[2])
+                if expected[2]:
+                    plot.assert_called_once_with(valid, display_band_keyword="vis")
+
     def grid(self, width=1024, height=1024, transform=(100, 100, 0, 200000, 0, -100)):
         return TargetGrid("test_crs", transform, raster_bounds(transform, width, height), width, height)
 
