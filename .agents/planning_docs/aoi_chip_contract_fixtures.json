@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "scope": "Declarative A0 oracles; geometry coordinates below are target pixel coordinates, not geographic degrees. Future integration tests materialize these on lunar grids.",
+  "grid_windows": [
+    {"name": "partial_edges", "source_affine_gdal": [1000, 100, 0, 2000, 0, -100], "pixel_bounds": [1.2, 2.1, 3.8, 4.01], "window": [1, 2, 3, 3], "output_affine_gdal": [1100, 100, 0, 1800, 0, -100]},
+    {"name": "integer_noise", "source_affine_gdal": [1000, 100, 0, 2000, 0, -100], "pixel_bounds": [0.999999999, 2, 4.000000001, 5], "window": [1, 2, 3, 3], "output_affine_gdal": [1100, 100, 0, 1800, 0, -100]},
+    {"name": "rotated_and_negative", "source_affine_gdal": [1000, 80, 60, 2000, 60, -80], "pixel_bounds": [-0.2, 1.1, 2.3, 3.6], "window": [-1, 1, 4, 3], "output_affine_gdal": [980, 80, 60, 1860, 60, -80]}
+  ],
+  "static_grids": [
+    {"name": "southern_sample", "aoi_wsen": [-9, -10, -7, -8], "zone": "22S"},
+    {"name": "equator_and_zone_edge", "aoi_wsen": [-13, -1, -11, 1], "zone": "22N"},
+    {"name": "wrapped_midpoint", "aoi_wsen": [179, 1, -179, 3], "zone": "1N"}
+  ],
+  "static_rounding": {
+    "projected_bounds_xyxy": [154020, 2219480, 183960, 2249450],
+    "output_bounds_xyxy": [154000, 2219400, 184000, 2249500],
+    "shape_hw": [301, 300],
+    "affine_gdal": [154000, 100, 0, 2249500, 0, -100]
+  },
+  "vector_cases": [
+    {
+      "name": "overlap_and_compaction", "shape_hw": [3, 4],
+      "rectangles": [{"id": 38, "bounds": [1, 0, 4, 3]}, {"id": 12, "bounds": [0, 0, 3, 2]}],
+      "ids": [12, 38], "mask": [[1, 2, 2, 2], [1, 2, 2, 2], [0, 2, 2, 2]],
+      "bboxes": [[0, 0, 3, 2], [1, 0, 3, 3]], "occluded": [], "subpixel": []
+    },
+    {
+      "name": "other_ids_reverse_priority", "shape_hw": [3, 4],
+      "rectangles": [{"id": 900, "bounds": [0, 0, 3, 2]}, {"id": 7, "bounds": [1, 0, 4, 3]}],
+      "ids": [7, 900], "mask": [[2, 2, 2, 1], [2, 2, 2, 1], [0, 1, 1, 1]],
+      "bboxes": [[1, 0, 3, 3], [0, 0, 3, 2]], "occluded": [], "subpixel": []
+    },
+    {
+      "name": "full_occlusion", "shape_hw": [2, 2],
+      "rectangles": [{"id": 20, "bounds": [0, 0, 2, 2]}, {"id": 2, "bounds": [0, 0, 2, 2]}],
+      "ids": [2, 20], "mask": [[2, 2], [2, 2]],
+      "bboxes": [[0, 0, 2, 2], [0, 0, 2, 2]], "occluded": [2], "subpixel": []
+    },
+    {
+      "name": "clipping_subpixel_and_touch_only", "shape_hw": [2, 3],
+      "rectangles": [{"id": 99, "bounds": [2.1, 0.1, 2.2, 0.2]}, {"id": 42, "bounds": [-1, -1, 1.25, 3]}, {"id": 100, "bounds": [3, 0, 4, 1]}],
+      "ids": [42], "mask": [[1, 0, 0], [1, 0, 0]],
+      "bboxes": [[0, 0, 1.25, 2]], "occluded": [], "subpixel": [99]
+    },
+    {
+      "name": "center_on_boundary", "shape_hw": [2, 2],
+      "rectangles": [{"id": 81, "bounds": [0.5, 0.5, 1.5, 1.5]}],
+      "ids": [81], "mask": [[1, 1], [1, 1]],
+      "bboxes": [[0.5, 0.5, 1, 1]], "occluded": [], "subpixel": []
+    },
+    {
+      "name": "empty", "shape_hw": [2, 3], "rectangles": [],
+      "ids": [], "mask": [[0, 0, 0], [0, 0, 0]], "bboxes": [], "occluded": [], "subpixel": []
+    }
+  ],
+  "raster_cases": [
+    {"name": "exact", "source": [[0, 3], [9, 0]], "window_xywh": [0, 0, 2, 2], "expected": [[0, 3], [9, 0]]},
+    {"name": "larger_aligned", "source": [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11]], "window_xywh": [1, 1, 2, 2], "expected": [[5, 6], [9, 10]]},
+    {"name": "different_projected_crs_nearest", "source": [[4, 8], [12, 16]], "source_crs_fixture": "same lunar TM as target, but false easting +100 m", "source_affine_gdal": [100, 100, 0, 200, 0, -100], "target_affine_gdal": [0, 50, 0, 200, 0, -50], "mapped_source_centers": [[[0.25, 0.25], [0.75, 0.25], [1.25, 0.25], [1.75, 0.25]], [[0.25, 0.75], [0.75, 0.75], [1.25, 0.75], [1.75, 0.75]], [[0.25, 1.25], [0.75, 1.25], [1.25, 1.25], [1.75, 1.25]], [[0.25, 1.75], [0.75, 1.75], [1.25, 1.75], [1.75, 1.75]]], "expected": [[4, 4, 8, 8], [4, 4, 8, 8], [12, 12, 16, 16], [12, 12, 16, 16]]}
+  ],
+  "nodata": {
+    "valid_masks": [[[true, false], [true, true]], [[false, false], [true, true]]],
+    "invalid_per_band": [1, 2], "percent_per_band": [25, 50],
+    "invalid_union": 2, "percent_union": 50, "expected": "warning_and_continue"
+  },
+  "negative_cases": [
+    {"case": "no_imagery_records", "stage": "acquisition", "code": "no_imagery", "publish": false},
+    {"case": "required_band_all_nodata", "stage": "assembly", "code": "no_valid_required_imagery", "publish": false},
+    {"case": "raster_label_partial_coverage", "stage": "label", "code": "incomplete_label_coverage", "publish": false},
+    {"case": "source_array_missing_grid", "stage": "label", "code": "missing_label_grid", "publish": false},
+    {"case": "duplicate_crater_id", "stage": "label", "code": "invalid_instance_ids", "publish": false},
+    {"case": "invalid_polygon", "stage": "label", "code": "invalid_label_geometry", "publish": false}
+  ]
+}

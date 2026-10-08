@@ -2,6 +2,64 @@
 
 Working repo for LFM project. Current workflows are found in the notebooks, listed in the quickstart section below.
 
+Container build and publication instructions: [docs/container_build.md](docs/container_build.md).
+
+## Repo layout and contents
+
+### Directories
+
+- `.agents/`: contains agentic code development resources used.
+- `.github/workflows/`: contains github workflows for the repo. Currently builds a Dockerhub container each time new code is pushed.
+- `TMS/`: contains a README explaining the Armstrong tiling scheme and the tiling scheme .json files. Also contains the IAU:30100 .wkt file describing the geographic Lunar CRS used in the repo.
+- `docs/`: contains some documentation on various repo aspects, including creating a finetuning dataset, wac/static bands, examples of chip creation, etc.
+- `graha-lunar-fm/`: IBM model backend code.
+- `lfm/`: DSG-owned LFM dataset and model code. Contains the majority of the backend code for this repo.
+- `notebooks/`: **main user "entrypoint", contains interactive Jupyter notebooks to run various LFM tasks**
+- `scripts/`: developer scripts used to perform tasks asynchronously
+
+### Notebooks
+
+**These are the main repo component users will interact with. These run various functionalities of the LFM workflow, including label creation, tiling/chip creation, finetuning, and inference.**
+
+- `toy_model/`: archived toy model workflows.
+- `chip_example.ipynb`: example chip creation notebook. By default it loads example .gpkg label outputs from the LFM project space, but can also be used after running the crater labeling notebook to create labels from the label .gkpg file. **Inspect notebook for more details.** Relies on the tiling workflow on the backend.
+- `chip_full_workflow.ipynb`: full workflow example for chip creation; loads an example .gkpg crater label from the LFM project space, and creates a grid of 256x256 chip "windows" based on the label extent. This full workflow currently only uses a single label and single source raster; **ensure that the .gpkg label file was created with the matching source raster**.
+- `chip_polar_example.ipynb`: example polar chip creation notebook. Performs similar functions to the other example notebook.
+- `crater_labeling.ipynb`: contains the full-raster labeling workflow, allowing users to interactively create labels by clicking on craters. Creates an automatically-saving .gpkg label file, which can be used in chip creation. **Inspect notebook for more details.**
+- `inference_iseg.ipynb`, `inference_sseg.ipynb`: inference notebooks; both use a finetuned checkpoint for their specific ML task (instance/semantic segmentation). **Thus, each notebook needs the corresponding finetuning notebook to have been run previously. By default, the inference notebooks pick the latest saved finetuning checkpoint for their respective task.**
+- `instance_finetune.ipynb`, `semantic_finetune.ipynb`: finetuning notebooks; these load the pretrained IBM/'graha' model and perform finetuning on a ML-ready dataset of chips and labels, separated into training/validation/testing ("train/val/test") splits. See `docs/dataset_contribution.md` if you would like to create your own dataset.
+- `tiling_example.ipynb`: tiling workflow, using a variety of queries in the Armstrong tiling scheme (see `TMS/README.md` for more info). Contains Mercator and Polar workflows, as well as lat/lon AOI, lat/lon point, and tile index queries. Works for WAC, NAC, and Static data. **Inspect notebook for more details.**
+
+### Crater labeling integration checks
+
+The labeling notebook uses `lfm.data_processing.labeling` and continues to save
+GeoPackages under `notebooks/outputs/labels/` for the chip notebook. Catalog
+imports are optional and explicit; selecting a catalog alone does not add labels.
+
+Run the labeling tests in the supported container from the repository root:
+
+```bash
+python -m pytest lfm/data_processing/tests/labeling -q
+```
+
+These function-based tests require pytest; unittest discovery does not run them.
+They cover catalog clipping/provenance, autosave/edit/delete/undo, older label
+files, notebook paths, and label-to-chip compatibility. The real-NAC test skips
+when its optional local raster is absent. On Explore, also verify the file
+chooser and interactive map in `notebooks/crater_labeling.ipynb` using the
+`lfm_kernel_ipyleaflet` kernel.
+
+### Repo-level files
+
+-`.dockerignore`: files for Dockerhub to ignore when creating container.
+-`.gitattributes`: git/github metadata.
+-`.gitignore`: files for git to ignore when pushing to the repo.
+-`Dockerfile`: file used to create Dockerhub container in the github workflow.
+-`ibm_huggingface.md`: IBM HuggingFace info for the model.
+-`lfm_container_latest.def`: Apptainer/Singularity build file used to create the latest LFM container.
+-`README.md`: this file
+-`requirements_container.txt`: python requirements used to build the Apptainer container.
+
 ## Quickstart
 
 To run one of the notebooks:
@@ -43,34 +101,25 @@ Feel free to create a new directory to run these workflows as well. To create a 
    c. With the terminal still open, run the following command to set up your environment:
 
       ```bash
-      cd lfm && bash scripts/shell/copy_kernel_graha_h100.sh
+      cd lfm && bash scripts/shell/copy_kernel.sh
       ```
 
 7. Reload the web page (by clicking the "⟳" button in your browser, or by pressing the F5 key) to finalize environment setup.
 
 8. Close the terminal tab by clicking "x" on the top tab.
 
-9. Using the file explorer interface again, navigate to the folder at `<your_folder>/lfm/notebooks/`, where `<your_folder>` is the same one you created in step 6. Following the example from earlier, the full path would look like `/explore/nobackup/people/my_username/lunar_fm/lfm/notebooks`. The `notebooks/` folder contains the Jupyter notebooks used to interact with the model. 
+9. Using the file explorer interface again, navigate to the folder at `<your_folder>/lfm/notebooks/`, where `<your_folder>` is the same one you created in step 6. Following the example from earlier, the full path would look like `/explore/nobackup/people/my_username/lunar_fm/lfm/notebooks`. The `notebooks/` folder contains the Jupyter notebooks used to interact with the model.
 
 **Note: the structure of the folders is such that we have 2 lfm/ folders; the outermost lfm/ folder contains the notebooks/ directory.**
-
-- `instance_ibm_train.ipynb` and `semantic_ibm_train.ipynb` run training for instance/semantic segmentation of craters.
-- `inference_iseg.ipynb` and `inference_sseg.ipynb`: performs inference on the "data cubes" created from the LTM tiling scheme after the corresponding finetuning notebook has been run on **WAC data**. **This notebook allows you to manually set the checkpoint path to a previously created finetuning checkpoint. You need to both run the finetuning notebook before using this notebook, and if you would like to use a specific finetuning run, you must change the finetuning checkpoint variable to the filepath of your desired checkpoint.**
-- `tiling_example.ipynb` demonstrates automatic Armstrong tiling (for polar and mercator zones) for WAC and NAC imagery with optional 63-band static context. For grid geometry, routing, zoom levels, and tile addressing, see [`TMS/README.md`](TMS/README.md). It runs an AOI-bound Mercator workflow by default, but there are examples for point and tile index queries, as well as a Polar AOI workflow.
-- `chip_example.ipynb` demonstrates using a WAC 300x300 chip and its matching label information to create a full WAC + static chip, using the Armstrong tiling scheme and some reprojection operations. This notebook also contains examples on how to create a full dataset from a previous dataset, splittng chips into train/val/test. This notebook currently doesn't support creating fully new datasets; it requires a previous chip/label pair, but it is planned to showcase an AOI + label workflow in the future. For now it remains an example.
-- `crater_labeling.ipynb` allows for hand-label creation directly from the source geotiffs, using an interactive notebook interface.
 
 **Note 2: toy model notebooks are still found under <your_folder>/lfm/notebooks/toy_model. These are no longer supported in this release.**
 
 10. After navigating to the <your_folder>/lfm/notebooks/ folder, open your notebook of choice by double-clicking it.
 
-    - If this is your first time opening the notebook, a box will appear asking you to select a kernel:
-
-        - For crater_labeling.ipynb, select lfm_kernel_ipyleaflet.
-        - For all other notebooks, select lfm_kernel.
+    - If this is your first time opening the notebook, a box will appear asking you to select a kernel: select `lfm_kernel` from the dropdown menu, it should appear at the very top.
     - If this box does not appear automatically, click the kernel name in the top-right corner of the notebook (it may display "Python 3" or similar), then choose the correct kernel from the dropdown menu as described above.
 
-**Verify that the kernel you chose from the dropdown now appears in the top-right corner.**
+**Verify that the kernel you chose from the dropdown (lfm_kernel) now appears in the top-right corner.**
 
 11. Run the notebook, by clicking on the restart button (looks like the fast-forward icon [>>]). You may see another dialog box pop up; if you do, click the red "restart" button to run the notebook. You should now see all cells of the notebook running in order, shown by the symbol [*] to the left of each notebook cell. **Note: only a singular notebook should be run at once, since the models take significant compute to run.**
 

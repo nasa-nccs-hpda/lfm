@@ -268,6 +268,10 @@ class ObjectDetectionInstanceSegmentationDataset(LunarInstanceMaskDataset):
             sample["mask"],
             box_format=self.target_box_format,
         )
+        if self.nodata_policy.ignore_in_loss:
+            sample["valid_mask"] = (
+                sample["mask"] != int(self.nodata_policy.ignore_index)
+            )
         sample.pop("original_size", None)
         sample["boxes"] = boxes
         sample["labels"] = labels

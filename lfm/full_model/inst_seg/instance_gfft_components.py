@@ -265,6 +265,7 @@ def create_task(config: Any, task_cls, sample_batch: dict[str, Any]):
         anchor_sizes=config.anchor_sizes,
         anchor_aspect_ratios=config.anchor_aspect_ratios,
         score_threshold=config.score_threshold,
+        ignore_nodata_in_loss=config.ignore_nodata_in_loss,
     )
 
 

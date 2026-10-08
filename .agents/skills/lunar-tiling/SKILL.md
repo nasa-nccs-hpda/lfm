@@ -37,13 +37,13 @@ query + TileConfig + per-source selectors
 Reference-TIFF alignment, final target-grid reprojection, labels, chip layout,
 and training are downstream concerns. New code must use:
 
-- `model/tiling_config.py`: `TileConfig`, `TileSourceConfig`, and
+- `lfm/data_processing/tiling/tiling_config.py`: `TileConfig`, `TileSourceConfig`, and
   `BandNoDataOverride`;
-- `model/tiling.py`: `create_tiles_for_aoi`, `create_tiles_for_point`, and
+- `lfm/data_processing/tiling/tiling.py`: `create_tiles_for_aoi`, `create_tiles_for_point`, and
   `create_tiles_for_index`; and
-- `model/tiling_results.py`: `TileCubeRecord` and structured source errors.
+- `lfm/data_processing/tiling/tiling_results.py`: `TileCubeRecord` and structured source errors.
 
-Do not build new behavior on `model/Pipeline.py`. It is a deprecated regression
+Do not build new behavior on `lfm/data_processing/tiling/Pipeline.py`. It is a deprecated regression
 and temporary compatibility adapter. Do not parse filenames when the returned
 record already provides source, product, zone, zoom, tile, bands, CRS, and
 NoData metadata.
@@ -69,6 +69,9 @@ NoData metadata.
   when missing; low-level tile generation queries prepared indexes read-only.
   Automatic replacement must be explicitly enabled and is allowed only for an
   application-owned GeoPackage cache. Never replace a shared or legacy index.
+- Missing-index footprint inspection defaults to `SLURM_CPUS_PER_TASK`
+  process workers. Use `index_worker_count=1` to force serial preparation.
+  Keep GeoPackage writes in the parent process and preserve source-path order.
 - Write one tiled, LZW-compressed BigTIFF per source and lunar-grid tile, with
   the routed grid CRS, exact tile transform, band names, output NoData
   metadata, and group-writable permissions.
@@ -96,17 +99,22 @@ NoData metadata.
 - Static context uses `all_intersecting` and is never product-filtered.
 - Static-only operation takes no product ID. Dynamic-only operation is valid on
   numbered LTM and polar grids.
-- A missing required source raises `MissingRequiredSourceError`. An optional
-  sparse source may be skipped. Preserve and report `completed_records` when a
-  later source fails; do not silently treat a partial result as a complete
-  sample.
+- In the high-level automatic workflow, a geographically valid AOI with no
+  intersecting product for a product-scoped dynamic source emits
+  `ProductAOIWarning` and omits that source. Other runnable dynamic sources may
+  continue. If none is runnable, return an empty record list and skip contextual
+  static cube creation for that mixed query.
+- Low-level per-tile acquisition still raises `MissingRequiredSourceError` for
+  a missing required source. An optional sparse source may be skipped. Preserve
+  and report `completed_records` when a later source fails; do not silently
+  treat a partial or empty result as a complete downstream sample.
 
 ## Preserve NoData and band contracts
 
 - Build the canonical static source with `make_static_source()` unless the task
   explicitly changes that contract.
 - A successful canonical static cube contains the 63 names in
-  `model/static_band_contract.py`, in exact order, and every output band uses
+  `lfm/data_processing/tiling/static_band_contract.py`, in exact order, and every output band uses
   `-32768` NoData.
 - The two Mini-RF bands declare the exact source-only sentinel
   `-3.4028230607370965e38`; mask it before bilinear interpolation and convert it
@@ -127,12 +135,13 @@ NoData metadata.
 - Preserve repository discovery from the top-level `notebooks/` directory,
   including `/panfs/ccds02/nobackup` to `/explore/nobackup` normalization and
   insertion of `repo_root` into `sys.path`.
-- Keep shared WAC/NAC raster directories read-only. Cache their modern
-  GeoPackage indexes persistently under `outputs/tiling/indexes/` in each
-  user's clone; do not adopt or overwrite legacy indexes in shared data paths.
-  The notebook may automatically rebuild only those per-clone caches when
-  validation fails. Continue using the declared canonical static index.
-- Write each run beneath `outputs/tiling/<RUN_ID>/` without reusing a directory.
+- Keep shared raster directories and indexes read-only. The canonical WAC,
+  NAC, and static directories use their existing `output_index.gpkg` files.
+  A user-overridden data directory receives a persistent GeoPackage beneath
+  `notebooks/outputs/tiling/indexes/` in that user's clone. The notebook may
+  automatically rebuild only those per-clone caches when validation fails.
+- Write each run beneath `notebooks/outputs/tiling/<RUN_ID>/` without reusing a
+  directory.
 - Plot with sentinel pixels converted to `float64` NaN and display no more than
   four tile pairs per AOI unless the user changes that display-only limit.
 - Keep expensive or illustrative alternate queries behind
@@ -145,7 +154,7 @@ NoData metadata.
 
 ## Validate proportionally
 
-- Add or update focused tests under `model/tests/` for contract changes. Check
+- Add or update focused tests under `lfm/data_processing/tests/` for contract changes. Check
   configuration validation, selection behavior, record metadata, filenames,
   band order, NoData, error behavior, deterministic ordering, and index
   immutability as applicable.

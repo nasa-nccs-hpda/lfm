@@ -19,6 +19,75 @@ dataset_root/
     labels/
 ```
 
+## Chip creation split configuration
+
+Use [the full-raster workflow](../notebooks/chip_full_workflow.ipynb) for one
+finished crater label GPKG and one WAC/NAC source raster. It creates non-overlapping
+256×256 native-pixel chips across the **entire raster**, not just the crater
+extent. Incomplete right/bottom windows are dropped and counted. Windows with
+any masked, NoData or non-finite pixel in any selected source-raster band are
+rejected before splitting; WAC uses the VIS source raster for this check.
+The planner reads one window at a time and accepts an additional native-grid
+Boolean `valid_mask` (True = valid). This does not change single-AOI creation's
+NoData-fill policy. Inspection requires all dynamic output bands to be valid,
+including WAC UV, but allows static gaps; imagery displays band 0 in grayscale.
+Windows with
+no rasterizable craters warn but are retained as background samples. This
+assumes the entire raster was annotated; missing annotations are not reliable
+negative labels. Run the notebook separately for each label file.
+
+The notebook defaults to **80% training, 10% validation, 10% test**, seed 42.
+Assignments apply to whole spatial blocks (default 4×4 chips) anchored at
+source pixel (0, 0). Every chip in a block stays in the same split. Percentages
+use `assignment_method="count_aware"`: balance chip totals toward the requested
+ratios without splitting blocks. Every positive split receives a block when
+enough unlocked blocks exist; otherwise a warning explains the empty split.
+Largest-first placement and bounded whole-block moves minimize count error,
+but do not guarantee an optimal partition or exact quotas. Review the preview
+and published counts. Failed samples can further change proportions.
+
+Block grouping reduces local leakage but is not a buffer: neighboring chips
+and craters across block boundaries can still belong to different splits.
+Select block size based on scientific independence and crater sizes. Changing
+product identity, seed, chip size, block size or window inventory can change assignments. Source
+IDs use `<product>_r<row>_c<column>` with zero-based native-pixel offsets.
+
+Available configuration classes from `lfm.data_processing.chip`:
+
+| Configuration | Behavior |
+|---|---|
+| `SimpleSplitConfig` | Seeded percentage assignment of entire groups. `count_aware` balances sample totals; legacy/default `hash` independently assigns groups and can leave splits empty. |
+| `MixedPercentageNumberSplitConfig` | Fill fixed sample-count targets in priority order, then apply percentages to remaining groups. |
+| `NumberSplitConfig` | Fixed sample-count targets in priority order; configure whether remaining samples are unassigned or sent to a remainder split. |
+| `NoSplitConfig` | No partitioning; write directly to dataset-root `chips/` and `labels/`. Quick-example default. |
+
+```python
+from lfm.data_processing.chip import SimpleSplitConfig, SplitPercentages
+
+split_config = SimpleSplitConfig(
+    percentages=SplitPercentages(train=0.8, val=0.1, test=0.1),
+    seed=42,
+    group_key_policy="request",
+    assignment_method="count_aware",
+)
+```
+
+Each request's `split_group_key` must identify its spatial block. The policy
+string does not construct blocks automatically. The full-workflow planner
+creates these keys; using one product-only key would place the entire raster
+in one split. Other workflows can deliberately use product-level grouping.
+
+For mixed/count configurations, counts are **samples**, but groups remain
+indivisible. Unattainable targets issue warnings rather than splitting groups
+or failing the entire pipeline. The legacy mixed default tries to reserve
+100 test samples, then uses 90% train / 10% validation for the remainder; it
+is **not** the full-raster notebook default. Existing dataset membership can
+be retained using `prior_manifest_path`; preserve compatible split settings.
+Explicit assignments and prior-manifest locks always take precedence over
+balancing, even if they make targets or nonempty splits impossible. The legacy
+`hash` mode remains stable when unrelated groups are added; `count_aware`
+needs a saved manifest to preserve assignments as the inventory changes.
+
 ## File Naming
 
 Prefer identical sample stems for chips and labels:

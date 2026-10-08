@@ -33,10 +33,10 @@ from osgeo import gdal, gdalconst
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(REPO_ROOT.parent) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT.parent))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from lfm.model import (  # noqa: E402
+from lfm.data_processing.tiling import (
     BandNoDataOverride,
     MINIRF_SOURCE_NODATA,
     MINIRF_SOURCE_NODATA_BANDS,
@@ -46,9 +46,9 @@ from lfm.model import (  # noqa: E402
     TileSourceConfig,
     create_tiles_for_aoi,
 )
-from lfm.model.raster_cube import _band_name  # noqa: E402
-from lfm.model.tiling_policy import band_nodata_values  # noqa: E402
-from lfm.model.vector_index import (  # noqa: E402
+from lfm.data_processing.tiling.raster_cube import _band_name  # noqa: E402
+from lfm.data_processing.tiling.tiling_policy import band_nodata_values  # noqa: E402
+from lfm.data_processing.tiling.vector_index import (  # noqa: E402
     open_vector_layer,
     resolve_indexed_raster_path,
 )

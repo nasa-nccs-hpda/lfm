@@ -1,6 +1,6 @@
 """Create WAC + static chips for the split instance-segmentation dataset.
 
-This is a thin task-specific wrapper around ``model.chip_making.chip_utils``.
+This is a thin task-specific wrapper around ``lfm.data_processing.chip.chip_making.chip_utils``.
 It keeps Pipeline/tiling code untouched, creates refreshed chips per split, and
 copies matching existing instance labels into the output dataset layout:
 
@@ -20,11 +20,10 @@ from pathlib import Path
 
 
 REPO_DIR = Path(__file__).resolve().parents[3]
-REPO_PARENT = REPO_DIR.parent
-if str(REPO_PARENT) not in sys.path:
-    sys.path.insert(0, str(REPO_PARENT))
+if str(REPO_DIR) not in sys.path:
+    sys.path.insert(0, str(REPO_DIR))
 
-from lfm.model.chip_making.chip_utils import (  # noqa: E402
+from lfm.data_processing.chip.chip_making.chip_utils import (  # noqa: E402
     NODATA_POLICIES,
     RESAMPLING_METHODS,
     create_chips,

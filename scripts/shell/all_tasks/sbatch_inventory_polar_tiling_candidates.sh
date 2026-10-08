@@ -24,7 +24,6 @@ else
   exit 1
 fi
 
-REPO_PARENT="$(dirname "${REPO_DIR}")"
 DEFAULT_CONTAINER="/explore/nobackup/projects/lfm/containers/lfm-container-ipyleaflet"
 CONTAINER_PATH="${CONTAINER_PATH:-${DEFAULT_CONTAINER}}"
 APPTAINER_BIN="${APPTAINER_BIN:-apptainer}"
@@ -76,7 +75,7 @@ echo
 "${APPTAINER_BIN}" exec \
   --bind "${APPTAINER_BIND_PATHS}" \
   --bind "${REPO_DIR}" \
-  --pwd "${REPO_PARENT}" \
+  --pwd "${REPO_DIR}" \
   "${CONTAINER_PATH}" \
   python -u lfm/${SCRIPT_REL} \
     "${ROOT_ARGS[@]}" \

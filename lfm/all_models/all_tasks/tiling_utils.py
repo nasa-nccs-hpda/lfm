@@ -7,14 +7,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from model import (
+from lfm.data_processing.tiling import (
     BandNoDataOverride,
     MINIRF_SOURCE_NODATA,
     MINIRF_SOURCE_NODATA_BANDS,
     STATIC_BAND_NAMES,
     STATIC_OUTPUT_NODATA,
     TileSourceConfig,
+    resolve_notebook_source_index,
 )
+# Compatibility re-export; new callers should import from data_processing.tiling.
+from lfm.data_processing.tiling.static_source import make_static_source
 
 
 # Shared notebook-workflow defaults. Raster band numbers are 1-based.
@@ -69,36 +72,6 @@ def validate_path_pairs(
     return normalized
 
 
-def make_static_source(
-    *,
-    data_dir: str | Path,
-    index_path: str | Path,
-    index_layer: str | None = None,
-    location_field: str = "location",
-    required: bool = True,
-) -> TileSourceConfig:
-    """Create the canonical 63-band static lunar tiling source config."""
-    return TileSourceConfig(
-        name="static",
-        data_dir=Path(data_dir),
-        index_path=Path(index_path),
-        index_layer=index_layer,
-        location_field=location_field,
-        selection_mode="all_intersecting",
-        band_names=STATIC_BAND_NAMES,
-        resampling="bilinear",
-        output_nodata=STATIC_OUTPUT_NODATA,
-        band_nodata_overrides=tuple(
-            BandNoDataOverride(
-                band_name=name,
-                source_value=MINIRF_SOURCE_NODATA,
-            )
-            for name in MINIRF_SOURCE_NODATA_BANDS
-        ),
-        required=required,
-    )
-
-
 __all__ = [
     "DEFAULT_NAC_BAND_NUMBER",
     "DEFAULT_WAC_BAND_NUMBER",
@@ -106,5 +79,6 @@ __all__ = [
     "RUN_ID",
     "create_tiling_run_id",
     "make_static_source",
+    "resolve_notebook_source_index",
     "validate_path_pairs",
 ]

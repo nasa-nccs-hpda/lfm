@@ -19,6 +19,8 @@ Canonical references:
 - Tiling resampling: bilinear
 - Canonical static cube: 63 bands with `-32768` output NoData
 - Automatic raster-index preparation backend: **Complete**
+- Default index policy: protected shared `output_index.gpkg` for canonical
+  WAC/NAC/static directories; automatic per-clone caches for overrides
 - Default indexed raster formats: `.tif`, `.tiff`, `.nc`, and `.vrt`
 - Optional AOI product discovery: **Complete**
 - Grid-neutral metadata registry and geographic router: **Complete**
@@ -36,6 +38,101 @@ Known boundaries and follow-ups:
   execution remains the open P7.8 gate.
 
 ## Daily entries
+
+### 2026-10-02
+
+Goal:
+
+- Accelerate automatic raster-index creation for large shared WAC, NAC, and
+  static collections without weakening deterministic publication.
+- Adopt the completed shared WAC/NAC/static GeoPackages in both example
+  notebooks while retaining automatic index creation for user-supplied data.
+
+Completed:
+
+- Changed high-level product discovery so a geographically valid AOI with no
+  intersecting requested/discovered dynamic product emits
+  `ProductAOIWarning` instead of failing discovery. Other runnable dynamic
+  sources continue; if none is runnable, the query returns no records and does
+  not create contextual static cubes. The chip handoff now requires explicit
+  structured-record coverage checks before treating such a result as usable.
+
+- Added `model.resolve_notebook_source_index()` to distinguish canonical
+  Explore WAC/NAC/static directories from user overrides. Defaults now use
+  their protected shared `output_index.gpkg`; overrides use persistent,
+  replaceable per-clone caches.
+- The resolver requires the shared GeoPackage to exist for a canonical
+  directory and returns explicit `uses_shared_default` and
+  `rebuild_invalid_index` policy. It normalizes paths so equivalent Explore
+  paths are compared consistently.
+- The tiling notebook keeps WAC, NAC, and static directories in user
+  configuration, resolves index paths in its derived-values section, and
+  passes the ownership-specific rebuild policy into every source definition.
+  Default runs no longer create or contend over per-clone WAC/NAC indexes.
+- Both tiling notebooks now place timestamped runs and custom index caches
+  beneath `notebooks/outputs/tiling/` instead of the repository-level
+  `outputs/` directory.
+- Updated both tiling and chip example notebooks. The chip notebook prepares
+  or validates indexes once before chip workers start, preventing abandoned
+  default per-clone locks and nested index creation inside sample workers.
+- User-overridden WAC, NAC, or static directories still trigger automatic
+  `.tif`, `.tiff`, `.nc`, and `.vrt` discovery. Their indexes live under the
+  notebook's persistent `outputs/.../indexes/` cache rather than modifying the
+  supplied raster directory; invalid custom caches may be rebuilt atomically.
+- Updated the TMS guide, tiling and chip modernization plans, lunar-tiling
+  skill, and tiling-to-chip handoff to describe the new ownership boundary.
+- Added optional process-worker footprint inspection to the vector-index
+  builder. The default resolves from `SLURM_CPUS_PER_TASK`; an explicit worker
+  count of one retains serial behavior.
+- Kept all OGR index writes in the parent process and preserved deterministic
+  source-path feature order. Worker GDAL/OSR state is process-local, results
+  cross the process boundary as WKB, and task submission is bounded.
+- Propagated `index_worker_count` through public WAC, NAC, static, and custom
+  source preparation.
+- Added a temporary Grace wrapper that requests eight CPUs and creates
+  validated `output_index.gpkg` files in the three default shared data
+  directories. `WORKER_COUNT=1` provides an operational serial override.
+- Added valid full-longitude index geometry for global geographic static
+  rasters. A global raster may conservatively clamp at most one nominal seam
+  pixel of overlap, while wider malformed footprints remain rejected with
+  measured-span diagnostics.
+
+Validation:
+
+- The expanded tiling workflow, preparation, vector-index, tiling-utility, and
+  legacy product-tiling suites pass 86 tests with 16 GDAL-dependent skips. The
+  new cases cover an unmatched sole product plus contextual static and an
+  unmatched explicit WAC PID alongside a runnable NAC product.
+- The focused dependency-light suite now passes 72 tests with 16
+  GDAL-dependent skips, including four new resolver tests covering all three
+  canonical modalities, custom-cache selection, missing shared indexes, and
+  invalid source names.
+- Both notebooks remain valid JSON,
+  have unique cell IDs, contain syntax-valid ordinary Python cells, and retain
+  null execution counts with empty outputs.
+- Explore job 37938224 created, validated, and reused an index for the exact
+  global `LDRM_32_N_FLOAT.iau.tif` source with a plain-text progress bar.
+- The new resolver/notebook integration has not yet been executed
+  top-to-bottom in `lfm-container-ipyleaflet`. The two-process GDAL regression
+  and final shared-index validation report review also remain pending.
+
+Decisions:
+
+- Parallelize independent raster reads and footprint transforms, not writes to
+  a shared OGR dataset.
+- Preserve automatic worker selection while keeping serial operation an
+  explicit supported option.
+- Reuse canonical shared indexes read-only. Create or rebuild only caches whose
+  path resolution identifies them as application-owned user overrides.
+- Prepare chip-workflow indexes once in the coordinator before starting chip
+  workers; never create an index independently inside each sample worker.
+
+Next:
+
+- Run both updated notebooks against the actual shared WAC/NAC/static
+  GeoPackages in `lfm-container-ipyleaflet` on Grace.
+- Run the focused GDAL container suite and inspect the final shared-index
+  validation report before closing the remaining execution gate.
 
 ### 2026-10-01
 
@@ -426,7 +523,8 @@ P1 work started:
   legacy `LRO_WAC_Pho_Sites/output_index.shp`. Preserved strict validation and
   the shared index instead of deleting, overwriting, or weakening checks.
 - Updated the public notebook to cache canonical WAC and NAC GeoPackage
-  indexes under each clone's persistent `outputs/tiling/indexes/` directory.
+  indexes under each clone's persistent
+  `notebooks/outputs/tiling/indexes/` directory.
   Shared rasters remain read-only, separate user clones cannot interfere, and
   later notebook runs validate and reuse the per-clone caches. The canonical
   static workflow continues to use the shared `db2.shp` index.

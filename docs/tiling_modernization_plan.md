@@ -1,5 +1,11 @@
 # Tiling Modernization Plan
 
+Package migration (2026-10-06): current tiling imports use
+`lfm.data_processing.tiling`, with the checkout root on `sys.path`.
+Earlier phase/evidence entries retain historical paths; use
+[the restructuring plan](../.agents/planning_docs/repo_restructure.md) for their
+current destinations.
+
 ## Objective
 
 Replace the WAC-specific, partially hard-coded tiling interface with a
@@ -350,12 +356,61 @@ index artifact. T6.5 and Phase T6 are complete.
 
 ## Stable tiling contract for chip creation
 
+Chip seam update (2026-10-06): the chip consumer now partitions ±82° queries
+into single-family calls with optional per-family zooms. This reuses the strict
+tiler without changing tiling runtime. Target-grid compositing uses geographic
+family precedence with per-band valid-data fallback. User reports seam tests
+and visual validation passed. Pole chips now accept canonical full-longitude
+caps on pole-centered stereographic grids: output is an unmasked rectangle,
+and acquisition uses the existing full-cap tiler to cover its corners with
+0.001° latitude padding. Padded envelopes must stay within one polar region.
+Pole HPC/real-data acceptance is pending in A6P. This supersedes the earlier
+cross-82 and pole rejections in historical updates below.
+
+Polar chip update (2026-10-06): the chip backend now accepts initial
+single-region north/south polar requests, using the existing tiler unchanged.
+The preview notebook uses family defaults (WAC/static 4, NAC 10); explicit
+TileConfig zooms remain authoritative. Dynamic output keeps its source lattice;
+static-only output uses a zero-anchored 100 m hemisphere LPS grid. Polar
+antimeridian chip queries now split and deduplicate on that same grid; new
+north/south regressions cover the existing tiler's wrapped routing and address
+deduplication without changing its runtime. Cross-82 seam and pole-containing
+cases remain rejected. Antimeridian HPC and real-data
+acceptance are still pending in A6P; older blanket polar-rejection statements
+below describe the previous handoff, not this limited extension.
+
+Coverage extension (2026-10-05): all-NoData warped bands are retained rather
+than dropped. For explicitly named channels absent from a tile's spatial index
+query, the tiler lazily reads a source-wide, product-filtered index inventory
+and opens its rasters for band metadata. Only bands verified in that inventory
+receive NoData placeholders; unknown/unindexed names and unreadable sources
+remain errors. Metadata is cached within the tiler run; indexes stay read-only.
+This also permits a complete empty named-band cube when no source footprint
+intersects the tile. Undeclared missing-source schemas still follow the existing
+required/optional behavior. Canonical static cubes preserve all 63 channels in
+order with -32768 fill and warning messages, and subsequent tiles continue.
+Other sources retain configured/native NoData, falling back to -32768 when no
+sentinel exists for an empty band. Bilinear resampling and selectors are unchanged.
+Tests: `model/tests/test_tiling_coverage.py`; user-reported HPC test pass.
+Local model discovery: 448 tests, 300 passed and 148 dependency skips. The six
+new coverage tests are among those skipped, so no raster/HPC acceptance is
+claimed. They cover all-NoData intersecting rasters, off-tile indexed bands,
+all-off-tile named cubes, multi-tile continuation/cache reuse/index immutability,
+unknown names, unreadable off-tile inputs, and duplicate-name selection.
+
+HPC follow-up: the user reports all targeted tests passed after updating the
+checkout (`test_tiling_coverage`, `test_raster_cube`, `test_configured_tiler`).
+The exact run count, duration and skip breakdown were not supplied. This closes
+the targeted supported-container test gate; the NAC-plus-static real-data
+notebook rerun and visual review remain pending.
+
 The following is the backend handoff contract. Chip modernization may rely on
 these behaviors without waiting for the tiling notebook or legacy cleanup:
 
-- Public objects and functions are exported from `model/__init__.py`. Scripts
-  that add the repository parent to `sys.path` import the equivalent package as
-  `lfm.model`.
+- Public tiling objects and functions are exported from
+  `lfm/data_processing/tiling/__init__.py`. All callers put the repository root
+  on `sys.path` and import `lfm.data_processing.tiling`; chip APIs live in
+  `lfm.data_processing.chip`. Historical evidence below retains its old paths.
 - `TileSourceConfig` describes one modality. It owns the modality name, raster
   directory, existing `.shp` or `.gpkg` index, optional index layer,
   `location_field`, selection mode, requested bands, NoData policy, bilinear
@@ -381,21 +436,33 @@ these behaviors without waiting for the tiling notebook or legacy cleanup:
   `data_dir`. The high-level preparation workflow may create a missing index.
   Automatic replacement is opt-in and limited to application-owned
   GeoPackage caches; shared and legacy indexes remain protected.
+- Missing-index preparation defaults its raster-footprint worker count to
+  `SLURM_CPUS_PER_TASK`, with an explicit `index_worker_count=1` serial
+  override. Workers inspect and transform separate rasters; the parent process
+  writes index features in deterministic source-path order.
+- `resolve_notebook_source_index()` distinguishes the canonical Explore WAC,
+  NAC, and static directories from user overrides. Canonical directories use
+  their protected shared `output_index.gpkg`; overridden directories receive
+  application-owned caches beneath the clone and may opt into atomic rebuild.
 - The strict `create_tiles_for_*` path requires a selector keyed by source name
   for every `product_id` source, and `all_intersecting` sources reject
   selectors. The high-level `create_tiles_for_aoi_by_product` path accepts an
   exact PID or `None` per product-scoped source. `None` discovers intersecting
   IDs with the source's declared resolver, groups companion files, and writes
   one dynamic cube per PID/tile while writing contextual sources once per
-  tile. A missing required product raises `MissingRequiredProductError`; an
-  optional source may yield no record while contextual records are still
-  written. Callers must not assume one record per configured source.
+  tile. A geographically valid query with no match for a product-scoped source
+  logs and emits `ProductAOIWarning`, omits that source, and may continue other
+  runnable dynamic sources. If no configured dynamic source is runnable, the
+  workflow returns an empty record list and skips contextual static for that
+  mixed query. Low-level per-tile required-source failures remain structured
+  exceptions. Callers must inspect records rather than equating “no exception”
+  with complete required coverage or assuming one record per configured source.
 - Every output is a 512×512, tiled, LZW-compressed GeoTIFF on the exact routed
   grid/zoom/tile grid. Existing numbered-LTM grid behavior remains unchanged,
   and tiling resampling is always bilinear.
 - WAC and NAC examples preserve their native source NoData. The canonical
   63-band static source uses the exact order in
-  `model/static_band_contract.py`, masks the two Mini-RF source sentinel bands
+  `lfm/data_processing/tiling/static_band_contract.py`, masks the two Mini-RF source sentinel bands
   explicitly, and writes `-32768` for every static output band. This uniform
   static value is required because GeoTIFF persists only one dataset-wide
   `TIFFTAG_GDAL_NODATA` value.
@@ -418,7 +485,7 @@ these behaviors without waiting for the tiling notebook or legacy cleanup:
   static sources are contextual `all_intersecting` inputs and static-only runs
   do not accept product IDs.
 
-The deprecated `model/Pipeline.py` remains only as a regression and temporary
+The deprecated `lfm/data_processing/tiling/Pipeline.py` remains only as a regression and temporary
 compatibility adapter. Its hard-coded static path, WAC-oriented constructor,
 `list[Path]` results, and filename-parsing expectations must not be copied into
 `ChipConfig` or the new chip orchestration.
@@ -428,7 +495,7 @@ compatibility adapter. Its hard-coded static path, WAC-oriented constructor,
 - `[Complete]` **T7.1** Create `notebooks/tiling_example.ipynb` while retaining the
   legacy notebook until migration is complete.
 - `[Complete]` **T7.2** Use the repository-root convention from
-  `notebooks/instance_ibm_train.ipynb` and derive repository-owned paths from
+  `notebooks/instance_finetune.ipynb` and derive repository-owned paths from
   `repo_root`.
 - `[Complete]` **T7.3** Separate user-editable data paths, product IDs, and AOIs
   from derived index/default/output values and path-resolution checks. Explain
@@ -453,8 +520,16 @@ validation, and static-source creation are derived below. Each variable is
 documented in a configuration glossary and annotated at its assignment, with
 special attention to AOI corner order, 1-based display bands, zoom resolution,
 and controls that affect visualization but not cube creation. Timestamped
-results are written beneath `repo_root/outputs/tiling/<RUN_ID>/`, and the
+results are written beneath `repo_root/notebooks/outputs/tiling/<RUN_ID>/`, and the
 notebook prints that location before processing.
+
+The notebook now resolves indexes through
+`model.resolve_notebook_source_index()`. The default WAC, NAC, and static
+directories use their existing shared `output_index.gpkg` files read-only.
+Changing a data directory instead selects a persistent per-clone cache, whose
+missing or invalid index the high-level workflow may safely create or rebuild.
+This prevents separate users from leaving or contending over abandoned
+per-clone default-index locks while preserving custom-data support.
 
 The WAC example uses product `M1107459759CE` and the first regression AOI at
 zoom 5. The NAC example uses product `M1117899885LE` and a small AOI centered

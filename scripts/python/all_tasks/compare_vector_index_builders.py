@@ -9,14 +9,20 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import traceback
 from typing import Any
 
 from osgeo import gdal, ogr, osr
 
-from lfm.model.lunar_crs import load_lunar_geographic_wkt
-from lfm.model.vector_index_builder import (
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from lfm.data_processing.tiling.lunar_crs import load_lunar_geographic_wkt
+from lfm.data_processing.tiling.vector_index_builder import (
     VectorIndexBuildConfig,
     _raster_footprint,
     create_vector_index,

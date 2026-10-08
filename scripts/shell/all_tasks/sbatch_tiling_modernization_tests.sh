@@ -25,7 +25,6 @@ else
   exit 1
 fi
 
-REPO_PARENT="$(dirname "${REPO_DIR}")"
 CONTAINER_PATH="${CONTAINER_PATH:-/explore/nobackup/projects/lfm/containers/lfm-container-ipyleaflet}"
 APPTAINER_BIN="${APPTAINER_BIN:-apptainer}"
 APPTAINER_BIND_PATHS="${APPTAINER_BIND_PATHS:-/panfs/ccds02/nobackup:/explore/nobackup}"
@@ -45,7 +44,7 @@ APPTAINER_ARGS=(
   exec
   --bind "${APPTAINER_BIND_PATHS}"
   --bind "${REPO_DIR}"
-  --pwd "${REPO_PARENT}"
+  --pwd "${REPO_DIR}"
   "${CONTAINER_PATH}"
 )
 
@@ -53,7 +52,7 @@ echo "Checking GDAL and the repository lunar WKT..."
 "${APPTAINER_BIN}" "${APPTAINER_ARGS[@]}" python - <<'PY'
 from osgeo import gdal, osr
 
-from lfm.model.lunar_crs import (
+from lfm.data_processing.tiling.lunar_crs import (
     LUNAR_GEOGRAPHIC_WKT_PATH,
     load_lunar_geographic_wkt,
 )
@@ -73,44 +72,44 @@ PY
 echo
 echo "Running the modern tiling contract tests..."
 "${APPTAINER_BIN}" "${APPTAINER_ARGS[@]}" python -m unittest \
-  lfm.model.tests.test_tiling_config \
-  lfm.model.tests.test_static_band_contract \
-  lfm.model.tests.test_lunar_crs \
-  lfm.model.tests.test_grid_registry \
-  lfm.model.tests.test_grid_router \
-  lfm.model.tests.test_tile_matrix \
-  lfm.model.tests.test_grid_tile_def \
-  lfm.model.tests.test_vector_index \
-  lfm.model.tests.test_vector_index_builder \
-  lfm.model.tests.test_tiling_preparation \
-  lfm.model.tests.test_tiling_policy \
-  lfm.model.tests.test_raster_cube \
-  lfm.model.tests.test_product_tiling \
-  lfm.model.tests.test_tiling_viz \
-  lfm.model.tests.test_tiling_results \
-  lfm.model.tests.test_tiling_api \
-  lfm.model.tests.test_tiling_workflow \
-  lfm.model.tests.test_configured_tiler
+  lfm.data_processing.tests.tiling.test_tiling_config \
+  lfm.data_processing.tests.tiling.test_static_band_contract \
+  lfm.data_processing.tests.tiling.test_lunar_crs \
+  lfm.data_processing.tests.tiling.test_grid_registry \
+  lfm.data_processing.tests.tiling.test_grid_router \
+  lfm.data_processing.tests.tiling.test_tile_matrix \
+  lfm.data_processing.tests.tiling.test_grid_tile_def \
+  lfm.data_processing.tests.tiling.test_vector_index \
+  lfm.data_processing.tests.tiling.test_vector_index_builder \
+  lfm.data_processing.tests.tiling.test_tiling_preparation \
+  lfm.data_processing.tests.tiling.test_tiling_policy \
+  lfm.data_processing.tests.tiling.test_raster_cube \
+  lfm.data_processing.tests.tiling.test_product_tiling \
+  lfm.data_processing.tests.tiling.test_tiling_viz \
+  lfm.data_processing.tests.tiling.test_tiling_results \
+  lfm.data_processing.tests.tiling.test_tiling_api \
+  lfm.data_processing.tests.tiling.test_tiling_workflow \
+  lfm.data_processing.tests.tiling.test_configured_tiler
 
 echo
 echo "Running the safe legacy regression subset..."
 "${APPTAINER_BIN}" "${APPTAINER_ARGS[@]}" python -m unittest \
-  lfm.model.tests.test_TmsTileDef \
-  lfm.model.tests.test_TmsZoneDef \
-  lfm.model.tests.test_TmsIntersector \
-  lfm.model.tests.test_Pipeline.PipelineTestCase.testInit \
-  lfm.model.tests.test_Pipeline.PipelineTestCase.testClip \
-  lfm.model.tests.test_Pipeline.PipelineTestCase.testQuery \
-  lfm.model.tests.test_Pipeline.PipelineTestCase.testCornerAlignment \
-  lfm.model.tests.test_Pipeline.PipelineTestCase.testInitWithTargetProductID \
-  lfm.model.tests.test_Pipeline.PipelineTestCase.testInitWithoutTargetProductID \
-  lfm.model.tests.test_Pipeline.PipelineTestCase.testProductIDExtractionFromFilename \
-  lfm.model.tests.test_Pipeline.PipelineTestCase.testNonMatchingProductIDSkipsFiles
+  lfm.data_processing.tests.tiling.test_TmsTileDef \
+  lfm.data_processing.tests.tiling.test_TmsZoneDef \
+  lfm.data_processing.tests.tiling.test_TmsIntersector \
+  lfm.data_processing.tests.tiling.test_Pipeline.PipelineTestCase.testInit \
+  lfm.data_processing.tests.tiling.test_Pipeline.PipelineTestCase.testClip \
+  lfm.data_processing.tests.tiling.test_Pipeline.PipelineTestCase.testQuery \
+  lfm.data_processing.tests.tiling.test_Pipeline.PipelineTestCase.testCornerAlignment \
+  lfm.data_processing.tests.tiling.test_Pipeline.PipelineTestCase.testInitWithTargetProductID \
+  lfm.data_processing.tests.tiling.test_Pipeline.PipelineTestCase.testInitWithoutTargetProductID \
+  lfm.data_processing.tests.tiling.test_Pipeline.PipelineTestCase.testProductIDExtractionFromFilename \
+  lfm.data_processing.tests.tiling.test_Pipeline.PipelineTestCase.testNonMatchingProductIDSkipsFiles
 
 echo
 echo "Running the filtered one-tile legacy integration test..."
 "${APPTAINER_BIN}" "${APPTAINER_ARGS[@]}" python -m unittest \
-  lfm.model.tests.test_Pipeline.PipelineTestCase.testRunTileIndexWithTargetProductID
+  lfm.data_processing.tests.tiling.test_Pipeline.PipelineTestCase.testRunTileIndexWithTargetProductID
 
 END_TIME="$(date +%s)"
 END_READABLE="$(date)"

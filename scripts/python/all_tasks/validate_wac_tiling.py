@@ -11,11 +11,15 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(REPO_ROOT.parent) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT.parent))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from lfm.model import TileConfig, TileCubeRecord, TileSourceConfig
-from lfm.model import create_tiles_for_aoi
+from lfm.data_processing.tiling import (
+    TileConfig,
+    TileCubeRecord,
+    TileSourceConfig,
+)
+from lfm.data_processing.tiling import create_tiles_for_aoi
 
 
 DEFAULT_WAC_DATA_DIR = Path(
@@ -93,7 +97,7 @@ def inspect_record(
     """Validate one written cube against its structured result metadata."""
     from osgeo import gdal, gdalconst, osr
 
-    from lfm.model.TmsTileDef import TmsTileDef
+    from lfm.data_processing.tiling.TmsTileDef import TmsTileDef
 
     gdal.UseExceptions()
 

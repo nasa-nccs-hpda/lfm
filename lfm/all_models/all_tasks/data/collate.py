@@ -43,6 +43,8 @@ def collate_object_detection_instance_segmentation(batch: list[dict]) -> dict:
     }
     if "mask" in batch[0]:
         result["mask"] = torch.stack([item["mask"] for item in batch])
+    if "valid_mask" in batch[0]:
+        result["valid_mask"] = torch.stack([item["valid_mask"] for item in batch])
     if "crater_boxes" in batch[0]:
         result["crater_boxes"] = [item["crater_boxes"] for item in batch]
     if "num_craters" in batch[0]:

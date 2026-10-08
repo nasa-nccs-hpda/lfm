@@ -187,20 +187,28 @@ application-owned GeoPackage cache as replaceable when invalid or stale;
 shared and legacy indexes remain protected. Low-level tile queries consume the
 prepared index read-only.
 
-The example notebook treats shared raster collections as read-only. Its WAC
-and NAC indexes are persistent GeoPackage caches under each user's clone at
-`outputs/tiling/indexes/`, so separate clones do not compete for or overwrite
-an index in the shared data directory. The canonical static collection
-continues to use its shared `db2.shp` index. Invalid or stale WAC/NAC caches are
-rebuilt atomically after a replacement validates, while the shared source
-indexes are never automatically replaced.
+Missing-index creation parallelizes raster footprint inspection with isolated
+worker processes while retaining deterministic, serial GeoPackage writes. The
+worker count defaults to `SLURM_CPUS_PER_TASK` and falls back to one outside a
+Slurm allocation. Expert callers can set `index_worker_count=1` on a source
+definition to force the earlier serial behavior.
+
+The example notebooks treat shared raster collections and indexes as
+read-only. The canonical WAC, NAC, and static directories use their existing
+`output_index.gpkg` files. If a user changes one of those data directories,
+the notebook resolves a persistent GeoPackage cache beneath its own output
+tree instead. Invalid or stale user-owned caches are rebuilt atomically only
+after a replacement validates; shared source indexes are never automatically
+replaced.
 
 ## How LFM implements the scheme
 
-The modern entry points are exported from [`model`](../model/__init__.py). The
-strict functions live in [`model/tiling.py`](../model/tiling.py), and optional
-AOI product discovery lives in
-[`model/product_tiling.py`](../model/product_tiling.py):
+The modern entry points are exported from [`lfm.data_processing.tiling`](../lfm/data_processing/tiling/__init__.py). The
+strict functions live in [`lfm/data_processing/tiling/tiling.py`](../lfm/data_processing/tiling/tiling.py), optional AOI
+product discovery lives in
+[`lfm/data_processing/tiling/product_tiling.py`](../lfm/data_processing/tiling/product_tiling.py), and the easiest
+automatic entry point lives in
+[`lfm/data_processing/tiling/tiling_workflow.py`](../lfm/data_processing/tiling/tiling_workflow.py):
 
 - `create_tiles_for_aoi(...)` routes geographic bounds and is the strict
   low-level path: every `product_id` source requires an explicit selector and
@@ -211,15 +219,20 @@ AOI product discovery lives in
 - `create_tiles_for_aoi_by_product(...)` is the high-level optional-product
   path. A configured PID selects one observation; `None` or an omitted mapping
   entry discovers every intersecting PID for that product-scoped source.
+- `create_tiles_for_query(...)` prepares enabled indexes, routes AOI or point
+  queries, applies family-specific zooms, and accepts exact or omitted product
+  IDs. A product source that does not intersect the query emits a
+  `ProductAOIWarning` and is skipped. If no dynamic product source remains,
+  the call returns an empty list without generating contextual static tiles.
 
-[`model/grid_registry.py`](../model/grid_registry.py) validates the 90 numbered
+[`lfm/data_processing/tiling/grid_registry.py`](../lfm/data_processing/tiling/grid_registry.py) validates the 90 numbered
 LTM definitions plus `LPS_N` and `LPS_S` and exposes their CRS, geographic
 coverage, and tile matrices without inferring every grid from an LTM filename.
-[`model/grid_router.py`](../model/grid_router.py) validates and normalizes
+[`lfm/data_processing/tiling/grid_router.py`](../lfm/data_processing/tiling/grid_router.py) validates and normalizes
 geographic requests, routes points at `>= +82` to `LPS_N` and at `<= -82` to
 `LPS_S`, and partitions AOIs at the polar thresholds, equator, longitude-zone
-edges, and antimeridian. The grid-neutral tile-definition factory consumes
-these routing results; the easy orchestration workflow remains a later phase.
+edges, and antimeridian. The grid-neutral tile-definition factory and automatic
+workflow consume these routing results.
 
 The implementation follows this sequence:
 
@@ -227,26 +240,33 @@ The implementation follows this sequence:
    sources. Each `TileSourceConfig` declares its data directory, vector index,
    location field, raster selection rule, bands, NoData policy, and whether the
    source is required.
-2. [`model/grid_router.py`](../model/grid_router.py) partitions the AOI into
+2. [`lfm/data_processing/tiling/grid_router.py`](../lfm/data_processing/tiling/grid_router.py) partitions the AOI into
    canonical numbered LTM, `LPS_N`, and `LPS_S` query parts.
-3. [`model/grid_tile_def.py`](../model/grid_tile_def.py) retains
-   [`TmsTileDef`](../model/TmsTileDef.py) for proven LTM geometry and uses a
+3. [`lfm/data_processing/tiling/grid_tile_def.py`](../lfm/data_processing/tiling/grid_tile_def.py) retains
+   [`TmsTileDef`](../lfm/data_processing/tiling/TmsTileDef.py) for proven LTM geometry and uses a
    dedicated polar definition for densified stereographic intersection. Both
    paths require at least 10 meters of overlap in both projected dimensions,
    avoiding tiles touched only by insignificant boundary effects.
 4. For each tile, its projected perimeter is transformed back to lunar
    longitude and latitude. Polar perimeters are densified and expressed as one
-   or more non-wrapping envelopes. [`model/vector_index.py`](../model/vector_index.py)
+   or more non-wrapping envelopes. [`lfm/data_processing/tiling/vector_index.py`](../lfm/data_processing/tiling/vector_index.py)
    applies those envelopes as read-only OGR spatial filters and deduplicates
-   returned raster paths. The tiler never creates, refreshes, or modifies these
-   source indexes.
+   returned raster paths. The low-level tiler treats source indexes as
+   read-only. The automatic workflow may create or atomically rebuild a
+   user-owned index during preparation, but protected shared indexes are only
+   validated and reused.
 5. The strict API makes `product_id` sources select the requested observation.
    The high-level AOI API can instead resolve product IDs through each source's
    configured resolver, group companion rasters such as WAC UV/VIS files, and
    run the strict path separately for every PID. Unrelated observations are
    never stacked. `all_intersecting` contextual sources run only once per tile,
-   even when several dynamic products are discovered.
-6. [`model/raster_cube.py`](../model/raster_cube.py) uses GDAL to warp every
+   even when several dynamic products are discovered. If a geographically
+   valid query has no intersecting product for one dynamic source, the
+   high-level workflow emits `ProductAOIWarning` and may continue another
+   runnable dynamic source. If none is runnable, it returns no records and
+   skips contextual static for that mixed query; callers must not interpret the
+   absence of an exception as complete downstream coverage.
+6. [`lfm/data_processing/tiling/raster_cube.py`](../lfm/data_processing/tiling/raster_cube.py) uses GDAL to warp every
    selected raster onto the exact 512×512 routed tile grid. Tiling uses bilinear
    resampling, preserves or normalizes NoData according to each source's
    configuration, and maintains deterministic band ordering.
@@ -288,7 +308,7 @@ contracts remain explicit.
 ```python
 from pathlib import Path
 
-from model import (
+from lfm.data_processing.tiling import (
     TileConfig,
     TileSourceConfig,
     compose_tile_sources,
@@ -342,9 +362,30 @@ value; dynamic sources can preserve their own source NoData value.
 
 ## Relationship to model-ready chips
 
+Tile cubes retain bands that warp entirely to NoData. Named bands excluded by
+spatial coverage are filled only after the tiler verifies their existence in
+readable indexed raster metadata. This preserves the canonical 63-band static
+layout (all empty channels use -32768), warns about coverage and lets later
+tiles continue. Unknown band names and unreadable/missing indexed rasters still
+fail. The lazy metadata inventory is read-only and cached within a tiler run.
+
 Lunar-grid cubes are intermediate, spatially standardized products. They are
-not necessarily the final training samples. The current chip-creation workflow
-accepts numbered-LTM coverage; its separate polar migration remains pending.
+not necessarily the final training samples. The chip workflow accepts numbered
+LTM and now has initial single-region polar support, pending HPC acceptance.
+See `notebooks/chip_polar_example.ipynb`: dynamic chips retain the original
+source lattice; static-only polar chips use a zero-anchored 100 m LPS grid.
+Polar antimeridian chips use two non-wrapping acquisition queries and one
+continuous projected output grid. Structured records are deduplicated before
+mosaicking; the tiler also deduplicates addresses within each AOI call.
+Cross-82 chips now split acquisition into single-family queries, with optional
+LTM/polar zoom overrides. Compositing prefers polar at |latitude| >=82° and
+LTM below, falling back per band when the preferred data are NoData. The
+dynamic source lattice is preserved; static-only selects its 100 m grid from
+the AOI center. Pole-containing chips now accept explicit full-longitude caps
+on pole-centered stereographic grids, retaining the enclosing rectangle's
+corners without masking. Acquisition uses a padded full cap covering those
+corners. The entire padded rectangle envelope must remain within polar
+coverage. Pole HPC and real-data validation remain pending in the AOI chip plan.
 It can group matching cube addresses, merge adjacent tiles, reproject them onto
 a label or reference-image grid, clip them to the desired area, and select or
 combine bands for a particular machine-learning dataset.
