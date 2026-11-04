@@ -26,9 +26,11 @@ repository root. Public imports are `lfm.data_processing.chip`; historical
   `lfm/data_processing/tiling/tiling_results.py`. When changing tiling itself,
   also use the available `lunar-tiling` skill.
 - Notebook work: `notebooks/chip_example.ipynb`,
+  `notebooks/chip_full_workflow.ipynb`,
   `notebooks/chip_polar_example.ipynb`, and
   `lfm/data_processing/chip/chip_notebook_utils.py`. Follow
   `notebooks/tiling_example.ipynb` for import/configuration style.
+- Recent evidence and open issues: `.agents/progress_docs/chip_creation.md`.
 
 Older handoffs saying all polar chips are unsupported are historical. Check
 current code, tests and accepted user decisions before applying old statements;
@@ -143,12 +145,39 @@ do not independently replan splits per worker. Prepare labels before tiling.
 
 ## Notebook and validation practice
 
-Keep concise per-variable explanations and inline comments, a single-AOI
-example, and commented batch/split configuration. Reusable helpers belong in
+Keep the single-AOI example concise; batch/split controls belong in the separate
+full-workflow notebook. Group polar configuration into study setup, imagery,
+labels, AOIs, and execution/output; markdown and code must follow the same
+variable order. Preserve defaults when reorganizing presentation.
+Reusable helpers belong in
 `chip_notebook_utils.py`. Preserve repository-path normalization, user-edited
 paths and saved outputs. Run outputs belong under `notebooks/outputs/` in
 distinct directories. Latest-GPKG discovery is not spatial matching: inspect
 real label extents before proposing an AOI.
+
+- Full-workflow planning uses exact nonoverlapping 256-pixel native windows,
+  drops incomplete edges, and filters before splitting. With `source_raster`,
+  reject a window if any source band has masked, NoData or nonfinite pixels;
+  read windows incrementally, not an entire NAC scene. Optional native-grid
+  Boolean `valid_mask` further restricts coverage (True = valid). Preserve row/
+  column IDs and spatial-block anchors; record `rejected_mask_windows`.
+  WAC planning checks the VIS reference, not UV or static coverage. This is a
+  dataset-planning policy, not a change to single-AOI NoData publication.
+- Full-workflow inspection requires all dynamic output bands valid (seven for
+  nonpolar WAC, one for NAC), allows static gaps, and displays band 0 in
+  grayscale. Keep all-band NoData counts too. Do not apply seven-band logic to
+  monochrome polar WAC. Unknown statistics are not proof of validity.
+- Diagnose empty outputs by comparing exact source pixel windows, intrinsic
+  masks/sentinels, and manifest statistics. A TIFF rectangle may contain large
+  NoData margins. Matching GPKG provenance does not imply annotations throughout
+  the raster; verify outline intersections and pixel-center support. Inspection
+  chooses eligible imagery, not necessarily crater-containing samples.
+- Import `make_static_source` from `lfm.data_processing.tiling` (implementation:
+  `static_source.py`), never through `lfm.all_models` in processing notebooks.
+  Parent-package initialization can load Lightning/PyTorch unexpectedly. Keep
+  a fresh-process regression that blocks training imports. Restart a failed
+  notebook kernel after deploying an import fix; do not assume reloading heals
+  partially initialized modules.
 
 Validate notebook JSON, unique cell IDs and code syntax, accounting for magics.
 For backend changes, add focused tests under `lfm/data_processing/tests/chip/`.

@@ -17,7 +17,7 @@ are routing aids, not substitutes for the implementation.
   for chip creation**, when changing the public contract or handing output to
   chip creation.
 - Read `notebooks/tiling_example.ipynb` and
-  `lfm/all_models/all_tasks/tiling_utils.py` for the supported user workflow and
+  `lfm/data_processing/tiling/static_source.py` for the supported user workflow and
   canonical static-source helper.
 - Read `docs/chip_creation_modernization_plan.md` only when the task crosses the
   boundary into downstream chip acquisition.
@@ -55,8 +55,8 @@ NoData metadata.
 - Geographic AOIs use IAU:30100 bounds in this order: `ul_lat`, `ul_lon`,
   `lr_lat`, `lr_lon`.
 - Numbered LTM and low-level `LPS_N`/`LPS_S` production are regression-closed.
-  The easy source-mode/default-zoom workflow remains unfinished; check the
-  polar integration plan before presenting polar operation as notebook-ready.
+  The automatic source-mode/default-zoom backend is regression-closed; check
+  the progress log and polar integration plan for notebook/real-data gates.
 - A tile is 512 x 512 pixels. Its complete address is
   `(zone, zoom_level, tile_x, tile_y)`.
 - One `TileConfig` has one zoom shared by all its sources. Use separate configs
@@ -113,6 +113,11 @@ NoData metadata.
 
 - Build the canonical static source with `make_static_source()` unless the task
   explicitly changes that contract.
+- Import it from `lfm.data_processing.tiling`; its implementation is in
+  `static_source.py`. The old model-package helper is only a compatibility
+  re-export and still initializes its parent package. Processing notebooks must
+  not import training packages for source configuration. Verify this in a fresh
+  process with model/PyTorch/Lightning imports blocked, not just a warm kernel.
 - A successful canonical static cube contains the 63 names in
   `lfm/data_processing/tiling/static_band_contract.py`, in exact order, and every output band uses
   `-32768` NoData.

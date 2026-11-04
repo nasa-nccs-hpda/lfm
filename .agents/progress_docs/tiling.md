@@ -39,6 +39,32 @@ Known boundaries and follow-ups:
 
 ## Daily entries
 
+### 2026-10-07
+
+Completed:
+
+- Moved the canonical `make_static_source` implementation to
+  `lfm/data_processing/tiling/static_source.py`, exported through the public
+  tiling package. All three chip notebooks and the AOI validation script now
+  import it without entering `lfm.all_models`. The old model helper retains a
+  compatibility re-export; static band order, sentinels and flags are unchanged.
+- A coworker's polar import exposed the old dependency chain: model package
+  initialization -> inference utilities -> Lightning -> PyTorch Dynamo, ending
+  in duplicate `precompile` artifact registration before any chip work.
+  Duplicate registration was observed; its exact trigger (reload, earlier
+  failed import, or environment) was not established. The processing helper
+  should not initialize training modules regardless of that trigger.
+
+Validation:
+
+- Static-source and notebook-helper tests: 15 ran, 13 passed, 2 skipped locally.
+  A fresh subprocess blocks model, PyTorch and Lightning imports and verifies
+  construction of the canonical 63-band source. All three notebooks passed
+  syntax checks. Coworker HPC rerun after a full kernel restart is pending.
+- Source-NoData findings, mask-filtered dataset planning, and two unresolved
+  cube/zone band-contract failures are recorded in [the chip log](chip_creation.md).
+  No new tiling geometry or broad HPC acceptance is claimed by this helper move.
+
 ### 2026-10-02
 
 Goal:

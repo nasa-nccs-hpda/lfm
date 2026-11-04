@@ -290,7 +290,7 @@ class NotebookPlotTestCase(unittest.TestCase):
                     np.testing.assert_array_equal(rgba[0, 1], rgba[0, 3])
                 plt.close(figure)
 
-    def test_tiling_plot_reads_retained_cubes_masks_nodata_and_projects_footprint(self):
+    def test_tiling_plot_reads_retained_cubes_masks_nodata_without_outlines(self):
         from dataclasses import replace
         import numpy as np
         import rasterio
@@ -335,7 +335,7 @@ class NotebookPlotTestCase(unittest.TestCase):
                 self.assertEqual(np.ma.getmaskarray(image.get_array()).sum(), 2)
                 self.assertTrue(np.isfinite(image.get_clim()).all())
                 np.testing.assert_allclose(axis.get_xlim(), [-.5, 3.5])
-                np.testing.assert_allclose(axis.lines[0].get_xdata()[[0, -1]], [-.5, -.5], atol=1e-7)
+                self.assertEqual(len(axis.lines), 0)
             self.assertIn("static | elv", axes[0, 1].get_title())
             self.assertEqual(axes[0, 1].images[0].get_array()[1, 0], 16)
             self.assertEqual(before, {r.path: r.path.read_bytes() for r in records[:2]})

@@ -207,8 +207,7 @@ def plot_chip_tiling(
     """Plot retained tile cubes before chip reprojection and clipping.
 
     Show one band per source cube for up to ``max_tiles`` structured tile
-    addresses, including static context when present. Cyan outlines mark the
-    final chip footprint in each cube's own pixel coordinates. Missing cubes
+    addresses, including static context when present. Missing cubes
     require recreating the chip with ``intermediate_retention="always"``.
     Display limits apply only to plotting, not acquisition or saved cubes.
     """
@@ -239,16 +238,9 @@ def plot_chip_tiling(
         import matplotlib.pyplot as plt
     except ImportError as exc:
         raise RuntimeError("Matplotlib is required to plot tiling cubes.") from exc
-    from rasterio.warp import transform
-    from .chip_requests import perimeter_pixels, pixel_to_projected
     import textwrap
 
     np = _numpy()
-    grid = result.request.target_grid
-    perimeter = [pixel_to_projected(grid.transform, col, row)
-                 for col, row in perimeter_pixels(grid.width, grid.height, samples_per_edge=65)]
-    perimeter.append(perimeter[0])
-    chip_x, chip_y = zip(*perimeter)
     columns = min(4, len(records))
     rows = (len(records) + columns - 1) // columns
     figure, axes = plt.subplots(rows, columns, figsize=(5 * columns, 4.5 * rows), squeeze=False)
@@ -265,12 +257,9 @@ def plot_chip_tiling(
             if nodata is not None:
                 image = np.ma.masked_where(image == nodata, image)
             image = np.ma.masked_invalid(image)
-            outline_x, outline_y = transform(grid.crs_wkt, dataset.crs, chip_x, chip_y)
-            pixel_x, pixel_y = (~dataset.transform) * (np.asarray(outline_x), np.asarray(outline_y))
         vmin, vmax = _display_limits(image)
         cmap = plt.get_cmap("terrain" if is_static else "gray").with_extremes(bad="black")
         rendered = axis.imshow(image, cmap=cmap, vmin=vmin, vmax=vmax, interpolation="nearest")
-        axis.plot(pixel_x - .5, pixel_y - .5, color="cyan", linewidth=1.5)
         axis.set_xlim(-.5, image.shape[1] - .5)
         axis.set_ylim(image.shape[0] - .5, -.5)
         title = (f"{record.source_name} | {record.band_names[index]}\n"
@@ -282,7 +271,7 @@ def plot_chip_tiling(
         figure.colorbar(rendered, ax=axis, fraction=.046, pad=.04)
     for axis in list(axes.flat)[len(records):]:
         axis.set_visible(False)
-    figure.suptitle(f"{result.request.sample_id}: tiling cubes | cyan = final chip footprint\n"
+    figure.suptitle(f"{result.request.sample_id}: tiling cubes\n"
                    f"Showing {len(selected)} of {len(addresses)} tile addresses")
     figure.tight_layout()
     if figure_path is not None:

@@ -113,7 +113,24 @@ The worker-aware aggregate bar uses progress_mode="bar" without worker stage
 or terminal messages; sample warnings/errors remain visible and persisted.
 Alternative split types are documented in
 `docs/dataset_contribution.md`. Rerun for each label file; multi-label support
-is not implemented. GDAL/HPC full-raster execution remains pending.
+is not implemented. The user has now run the WAC full workflow on HPC and
+reported improved behavior after the coverage/visualization changes below.
+This is not acceptance of every modality or polar case.
+
+Coverage/inspection follow-up (2026-10-07): full-workflow planning now passes
+the source raster to the planner and rejects windows containing any invalid
+source-band pixel before splitting. WAC uses the VIS reference; static and UV
+coverage do not gate planning. An optional native-grid Boolean mask further
+restricts coverage. Complete retained windows keep their original IDs/block
+anchors; rejection counts are recorded. The uploaded WAC scene retained
+113/371 windows locally. Final inspection requires all dynamic bands valid,
+allows static gaps, and shows band 0 in grayscale while retaining all-band
+NoData statistics. These policies do not change single-AOI NoData publication.
+
+See [chip progress](../progress_docs/chip_creation.md) for source-vs-output
+NoData evidence, updated label intersection counts, validation boundaries,
+the training-import fix, and unresolved band-metadata failures. The historical
+371-chip split counts above describe the inventory before source-mask filtering.
 
 ## Accepted A0 decisions
 
