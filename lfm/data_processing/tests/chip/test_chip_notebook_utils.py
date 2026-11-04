@@ -103,6 +103,7 @@ class NotebookHelperTestCase(unittest.TestCase):
                     exec(compile(config, "notebook_config", "exec"), namespace)
                     result = namespace["chip_config"]
                     self.assertIsInstance(result.split_config, chip.NoSplitConfig)
+                    self.assertEqual(result.intermediate_retention, "always")
                     self.assertTrue(all(call.args[0].worker_count == 3 for call in prepare.call_args_list))
                     self.assertEqual(namespace["LABEL_PATH"], label)
                     self.assertEqual(latest.call_count, 0 if static else 1)
@@ -234,6 +235,9 @@ class NotebookHelperTestCase(unittest.TestCase):
             figure, axes = helpers.plot_chip_result(result, show=False)
         self.assertEqual(axes[0, 1].get_title(), "semantic classes: [0, 12, 90]")
         self.assertFalse(np.ma.getmaskarray(axes[0, 1].images[0].get_array()).any())
+        rendered = axes[0, 1].images[0]
+        np.testing.assert_array_equal(rendered.to_rgba(rendered.get_array())[0, 0], [0, 0, 0, 1])
+        self.assertTrue(np.ma.getmaskarray(axes[0, 2].images[1].get_array())[0, 0])
         np.testing.assert_array_equal(label, [[0, 12, 90, 0]] * 3)
         plt.close(figure)
 
@@ -256,6 +260,103 @@ class NotebookHelperTestCase(unittest.TestCase):
                 self.assertEqual(axes.shape, (1, 3) if reference is None else (2, 2))
                 self.assertEqual(read.call_count, 1 if reference is None else 2)
                 plt.close(figure)
+
+
+@unittest.skipUnless(all(importlib.util.find_spec(name) for name in ("numpy", "matplotlib", "rasterio")),
+                     "NumPy/Matplotlib/Rasterio unavailable")
+class NotebookPlotTestCase(unittest.TestCase):
+    def test_instance_background_is_black_and_overlay_background_is_transparent(self):
+        import numpy as np
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        for label in (np.zeros((3, 4), dtype=np.uint16),
+                      np.array([[0, 1, 20, 21]] * 3, dtype=np.uint16)):
+            with self.subTest(label=label.tolist()):
+                result = ChipResult(type_fixtures.ChipTypesTestCase().request(), "success", ChipPreflight("passed"),
+                                    chip_path="chip.tif", label_path="label.npz")
+                with patch.object(helpers, "read_display_band", return_value=(np.ones((3, 4)), "vis")), \
+                     patch.object(helpers, "read_label", return_value=(label, int(label.max()))):
+                    figure, axes = helpers.plot_chip_result(result, show=False)
+                rendered = axes[0, 1].images[0]
+                rgba = rendered.to_rgba(rendered.get_array())
+                np.testing.assert_array_equal(rgba[label == 0], np.tile([0, 0, 0, 1], ((label == 0).sum(), 1)))
+                overlay = axes[0, 2].images[1]
+                np.testing.assert_array_equal(np.ma.getmaskarray(overlay.get_array()), label == 0)
+                self.assertEqual(overlay.cmap.get_bad()[-1], 0)
+                if label.max():
+                    self.assertFalse(np.array_equal(rgba[0, 1], rgba[0, 2]))
+                    np.testing.assert_array_equal(rgba[0, 1], rgba[0, 3])
+                plt.close(figure)
+
+    def test_tiling_plot_reads_retained_cubes_masks_nodata_and_projects_footprint(self):
+        from dataclasses import replace
+        import numpy as np
+        import rasterio
+        from rasterio.transform import Affine
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from lfm.data_processing.tiling.tiling_results import TileCubeRecord
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wkt = (REPO_ROOT / "TMS/IAU_30100_2015.wkt").read_text()
+            grid = type_fixtures.ChipTypesTestCase().grid(crs_wkt=wkt, width=4, height=3,
+                                                        bounds=(149.7, 1.297, 149.704, 1.3))
+            records = []
+            for source in ("wac", "static"):
+                path = root / f"{source}.tif"
+                data = np.arange(24, dtype="float32").reshape(2, 3, 4)
+                data[:, 0, 0] = -32768
+                data[:, 0, 1] = np.inf
+                with rasterio.open(path, "w", driver="GTiff", width=4, height=3, count=2, dtype="float32",
+                                   crs=wkt, transform=Affine.from_gdal(*grid.transform)) as ds:
+                    ds.write(data)
+                records.append(TileCubeRecord(source, "42S", 5, 1, 2, "M123" if source == "wac" else None,
+                                              path, ("vis", "uv") if source == "wac" else ("other", "elv"),
+                                              wkt, (-32768, -32768)))
+            # A later tile can be absent when the display limit excludes it.
+            records.append(replace(records[0], tile_x=2, path=root / "unselected.tif"))
+            result = ChipResult(type_fixtures.ChipTypesTestCase().request(target_grid=grid), "success",
+                                ChipPreflight("passed"), cube_records=tuple(records))
+            before = {r.path: r.path.read_bytes() for r in records[:2]}
+            saved = root / "figures/tiling.png"
+            with patch.object(plt, "show") as show:
+                figure, axes = helpers.plot_chip_tiling(result, max_tiles=1, figure_path=saved, show=False)
+            show.assert_not_called()
+            self.assertTrue(saved.is_file())
+            self.assertEqual(axes.shape, (1, 2))
+            self.assertIn("Showing 1 of 2 tile addresses", figure._suptitle.get_text())
+            for axis in axes.flat:
+                image = axis.images[0]
+                self.assertEqual(image.get_array().dtype, np.float64)
+                self.assertEqual(np.ma.getmaskarray(image.get_array()).sum(), 2)
+                self.assertTrue(np.isfinite(image.get_clim()).all())
+                np.testing.assert_allclose(axis.get_xlim(), [-.5, 3.5])
+                np.testing.assert_allclose(axis.lines[0].get_xdata()[[0, -1]], [-.5, -.5], atol=1e-7)
+            self.assertIn("static | elv", axes[0, 1].get_title())
+            self.assertEqual(axes[0, 1].images[0].get_array()[1, 0], 16)
+            self.assertEqual(before, {r.path: r.path.read_bytes() for r in records[:2]})
+            plt.close(figure)
+            with self.assertRaisesRegex(FileNotFoundError, 'intermediate_retention="always"'):
+                helpers.plot_chip_tiling(result, max_tiles=2, show=False)
+
+    def test_step_five_plots_both_chip_and_tiling(self):
+        notebook = json.loads((REPO_ROOT / "notebooks/chip_example.ipynb").read_text())
+        code = next("".join(c["source"]) for c in notebook["cells"]
+                    if c["cell_type"] == "code" and "figure, axes = plot_chip_result(" in "".join(c["source"]))
+        plot_chip = MagicMock(return_value=(object(), object()))
+        plot_tiles = MagicMock(return_value=(object(), object()))
+        result = SimpleNamespace(prepared_label=None, status="success", cube_records=(object(),))
+        with tempfile.TemporaryDirectory() as tmp:
+            exec(code, dict(result=result, OUTPUT_ROOT=Path(tmp), DISPLAY_BAND_KEYWORD="vis",
+                            plot_chip_result=plot_chip, plot_chip_tiling=plot_tiles, print=lambda *a: None))
+        plot_chip.assert_called_once()
+        plot_tiles.assert_called_once()
+        self.assertIs(plot_tiles.call_args.args[0], result)
+        self.assertEqual(plot_tiles.call_args.kwargs["max_tiles"], 4)
 
 
 if __name__ == "__main__":

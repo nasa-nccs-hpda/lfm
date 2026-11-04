@@ -139,7 +139,7 @@ def read_display_band(
             if isinstance(band_index, bool) or not isinstance(band_index, int) or not 0 <= band_index < dataset.count:
                 raise ValueError("band_index must be a valid zero-based band index.")
             index = band_index
-        band = dataset.read(index + 1, masked=True)
+        band = _numpy().ma.masked_invalid(dataset.read(index + 1, masked=True).astype("float64"))
     return band, names[index]
 
 
@@ -184,7 +184,7 @@ def absent_instance_ids(
 
 def _display_limits(image: Any) -> tuple[float, float]:
     np = _numpy()
-    values = np.ma.asarray(image).compressed()
+    values = np.ma.masked_invalid(np.ma.asarray(image, dtype="float64")).compressed()
     if values.size == 0:
         return 0.0, 1.0
     lower, upper = np.percentile(values, (2, 98))
@@ -192,6 +192,106 @@ def _display_limits(image: Any) -> tuple[float, float]:
         padding = max(abs(float(lower)) * 0.01, 1.0)
         return float(lower - padding), float(upper + padding)
     return float(lower), float(upper)
+
+
+def plot_chip_tiling(
+    result: ChipResult,
+    *,
+    display_band_keyword: str = "vis",
+    static_band_keyword: str = "elv",
+    max_tiles: int = 4,
+    figure_path: str | Path | None = None,
+    dpi: int = 150,
+    show: bool = True,
+) -> tuple[Any, Any]:
+    """Plot retained tile cubes before chip reprojection and clipping.
+
+    Show one band per source cube for up to ``max_tiles`` structured tile
+    addresses, including static context when present. Cyan outlines mark the
+    final chip footprint in each cube's own pixel coordinates. Missing cubes
+    require recreating the chip with ``intermediate_retention="always"``.
+    Display limits apply only to plotting, not acquisition or saved cubes.
+    """
+    if not isinstance(result, ChipResult):
+        raise TypeError("result must be a ChipResult.")
+    if isinstance(max_tiles, bool) or not isinstance(max_tiles, int) or max_tiles < 1:
+        raise ValueError("max_tiles must be a positive integer.")
+    if isinstance(dpi, bool) or not isinstance(dpi, int) or dpi < 1:
+        raise ValueError("dpi must be a positive integer.")
+    if not str(display_band_keyword).strip() or not str(static_band_keyword).strip():
+        raise ValueError("Display band keywords must contain non-whitespace text.")
+    if not result.cube_records:
+        raise ValueError("No tiling cube records are available for this result.")
+
+    addresses = list(dict.fromkeys((r.zone, r.zoom_level, r.tile_x, r.tile_y)
+                                   for r in result.cube_records))
+    selected = set(addresses[:max_tiles])
+    records = list({r.path: r for r in result.cube_records
+                    if (r.zone, r.zoom_level, r.tile_x, r.tile_y) in selected}.values())
+    for record in records:
+        if not record.path.is_file():
+            raise FileNotFoundError(
+                f"Tiling cube is unavailable: {record.path}. Set "
+                'intermediate_retention="always" and rerun chip creation before plotting.'
+            )
+
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError as exc:
+        raise RuntimeError("Matplotlib is required to plot tiling cubes.") from exc
+    from rasterio.warp import transform
+    from .chip_requests import perimeter_pixels, pixel_to_projected
+    import textwrap
+
+    np = _numpy()
+    grid = result.request.target_grid
+    perimeter = [pixel_to_projected(grid.transform, col, row)
+                 for col, row in perimeter_pixels(grid.width, grid.height, samples_per_edge=65)]
+    perimeter.append(perimeter[0])
+    chip_x, chip_y = zip(*perimeter)
+    columns = min(4, len(records))
+    rows = (len(records) + columns - 1) // columns
+    figure, axes = plt.subplots(rows, columns, figsize=(5 * columns, 4.5 * rows), squeeze=False)
+    for axis, record in zip(axes.flat, records):
+        is_static = record.source_name.casefold() == "static"
+        keyword = static_band_keyword if is_static else display_band_keyword
+        index = next((i for i, name in enumerate(record.band_names)
+                      if keyword.casefold() in name.casefold()), 0)
+        with _rasterio().open(record.path) as dataset:
+            if dataset.crs is None:
+                raise ValueError(f"Tiling cube has no CRS: {record.path}")
+            image = dataset.read(index + 1, masked=True).astype("float64")
+            nodata = record.nodata_values[index]
+            if nodata is not None:
+                image = np.ma.masked_where(image == nodata, image)
+            image = np.ma.masked_invalid(image)
+            outline_x, outline_y = transform(grid.crs_wkt, dataset.crs, chip_x, chip_y)
+            pixel_x, pixel_y = (~dataset.transform) * (np.asarray(outline_x), np.asarray(outline_y))
+        vmin, vmax = _display_limits(image)
+        cmap = plt.get_cmap("terrain" if is_static else "gray").with_extremes(bad="black")
+        rendered = axis.imshow(image, cmap=cmap, vmin=vmin, vmax=vmax, interpolation="nearest")
+        axis.plot(pixel_x - .5, pixel_y - .5, color="cyan", linewidth=1.5)
+        axis.set_xlim(-.5, image.shape[1] - .5)
+        axis.set_ylim(image.shape[0] - .5, -.5)
+        title = (f"{record.source_name} | {record.band_names[index]}\n"
+                 f"{record.zone} z{record.zoom_level} tile ({record.tile_x}, {record.tile_y})")
+        if record.product_id:
+            title += f"\n{record.product_id}"
+        axis.set_title("\n".join(textwrap.fill(line, 45) for line in title.splitlines()))
+        axis.axis("off")
+        figure.colorbar(rendered, ax=axis, fraction=.046, pad=.04)
+    for axis in list(axes.flat)[len(records):]:
+        axis.set_visible(False)
+    figure.suptitle(f"{result.request.sample_id}: tiling cubes | cyan = final chip footprint\n"
+                   f"Showing {len(selected)} of {len(addresses)} tile addresses")
+    figure.tight_layout()
+    if figure_path is not None:
+        destination = Path(figure_path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(destination, dpi=dpi, bbox_inches="tight")
+    if show:
+        plt.show()
+    return figure, axes
 
 
 def plot_chip_result(
@@ -208,6 +308,7 @@ def plot_chip_result(
     The returned figure and axes remain available for notebook-specific edits.
     When ``figure_path`` is supplied, the figure is also saved to that path.
     ``display_band_index`` selects an exact zero-based band instead of a keyword.
+    Class zero is black in the label panel and transparent over the imagery.
     """
     if not isinstance(result, ChipResult):
         raise TypeError("result must be a ChipResult.")
@@ -242,12 +343,20 @@ def plot_chip_result(
             f"shape {label.shape}."
         )
     if instance_count is None:
+        from matplotlib.colors import ListedColormap
+
         classes, inverse = np.unique(label, return_inverse=True)
         instances = inverse.reshape(label.shape)
-        color_options = dict(cmap="tab20", vmin=-0.5, vmax=max(0.5, len(classes) - 0.5))
+        palette = plt.get_cmap("tab20")(np.arange(len(classes)) % 20)
+        palette[classes == 0] = (0, 0, 0, 1)
+        label_cmap = ListedColormap(palette)
+        color_options = dict(vmin=-0.5, vmax=max(0.5, len(classes) - 0.5))
     else:
         instances = np.ma.masked_where(label == 0, (label - 1) % 20)
-        color_options = dict(cmap="tab20", vmin=-0.5, vmax=19.5)
+        label_cmap = plt.get_cmap("tab20").with_extremes(bad="black")
+        color_options = dict(vmin=-0.5, vmax=19.5)
+    overlay_cmap = label_cmap.with_extremes(bad=(0, 0, 0, 0))
+    overlay_instances = np.ma.masked_where(label == 0, instances)
     absent_ids = absent_instance_ids(label, instance_count)
     vmin, vmax = _display_limits(generated)
 
@@ -273,16 +382,18 @@ def plot_chip_result(
             vmax=reference_max,
         )
         axes[0, 1].set_title(f"reference | {reference_name}")
-    label_axis.imshow(instances, **color_options)
+    label_axis.imshow(instances, cmap=label_cmap, interpolation="nearest", **color_options)
     label_axis.set_title(
         f"label | IDs absent from mask: {list(absent_ids) or 'none'}" if instance_count is not None
         else f"semantic classes: {classes.tolist()}"
     )
     overlay_axis.imshow(generated, cmap="gray", vmin=vmin, vmax=vmax)
     overlay_axis.imshow(
-        instances,
+        overlay_instances,
+        cmap=overlay_cmap,
         **color_options,
         alpha=0.45,
+        interpolation="nearest",
     )
     overlay_axis.set_title("diagnostic overlay")
 
@@ -304,6 +415,7 @@ __all__ = [
     "absent_instance_ids",
     "latest_crater_label_path",
     "plot_chip_result",
+    "plot_chip_tiling",
     "read_display_band",
     "read_label",
     "read_source_grid",
