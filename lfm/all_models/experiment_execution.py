@@ -1,7 +1,8 @@
-"""Host submission, container launch and allocated execution ownership.
+"""Submission, container launch and allocated execution ownership.
 
-The host import path is standard-library only. Model dependencies load solely
-inside run_allocated, after the container has started.
+The Python controller runs inside a CPU container; its parent host shell runs
+sbatch and Apptainer. Model dependencies load only inside run_allocated in the
+allocated GPU container. Controller imports remain standard-library only.
 """
 
 from __future__ import annotations
@@ -23,7 +24,9 @@ from lfm.all_models.inst_seg.experiment_logging import log_pipeline, run_logged_
 from lfm.artifacts import read_json, write_json
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONTAINER = "/explore/nobackup/projects/lfm/containers/lfm-container-ipyleaflet"
+DEFAULT_CONTAINER = (
+    "/explore/nobackup/projects/lfm/containers/lfm-container-ipyleaflet-37938321"
+)
 Stage = Literal["toy", "graha", "comparison"]
 STAGES = ("toy", "graha", "comparison")
 
@@ -253,6 +256,12 @@ class _Submission:
         return command
 
 
+def _host_command(command: list[str]) -> list[str]:
+    """Reach site executables through the parent shell when containerized."""
+    bridge = os.environ.get("LFM_HOST_COMMAND_BRIDGE")
+    return ["bash", bridge, *command] if bridge else command
+
+
 def _readable(path: Path) -> None:
     if not path.exists() or not os.access(path, os.R_OK):
         raise FileNotFoundError(f"Required path is missing or unreadable: {path}")
@@ -410,7 +419,7 @@ def submit(request: SubmissionRequest) -> SubmissionReceipt:
         state["preparation_command"] = submission.command("prepare")
         submission.save()
         returncode = run_logged_process(
-            state["preparation_command"],
+            _host_command(state["preparation_command"]),
             pipeline_log,
             "prepare",
             env=container_host_environment(),
@@ -459,8 +468,9 @@ def submit(request: SubmissionRequest) -> SubmissionReceipt:
                         REPO_ROOT
                         / "scripts/shell/instance_seg/sbatch_instance_grace_stage.sh"
                     ),
-                    sys.executable,
+                    str(container),
                     str(REPO_ROOT),
+                    request.container.executable,
                     str(manifest),
                     stage,
                 ]
@@ -480,7 +490,7 @@ def submit(request: SubmissionRequest) -> SubmissionReceipt:
                 ),
             )
             response = subprocess.run(
-                command, capture_output=True, text=True, check=False
+                _host_command(command), capture_output=True, text=True, check=False
             )
             job.update(
                 returncode=response.returncode,
@@ -567,7 +577,7 @@ def launch(submission: Path, stage: Stage) -> int:
         state.get("pipeline_log", str(submission.parent / "pipeline.log"))
     )
     returncode = run_logged_process(
-        saved.command(stage),
+        _host_command(saved.command(stage)),
         pipeline_log,
         stage,
         env=container_host_environment(),

@@ -265,8 +265,18 @@ comparison dependency against the replacement job IDs.
 
 ### Implemented Grace submitter
 
-The shell entry point uses `${PYTHON_BIN:-python3}` with only the standard library
-on the host. Apptainer first runs the existing configuration/split preparation
+The host needs Bash, Apptainer, and Slurm; it needs no Python installation.
+The shell entry point starts its Python controller with `apptainer exec
+--cleanenv`, using the sandbox
+`/explore/nobackup/projects/lfm/containers/lfm-container-ipyleaflet-37938321`.
+`--container` selects an explicit alternative; `--apptainer`/`APPTAINER_BIN` and
+`--sbatch`/`SBATCH_BIN` select the host executables. The controller sends only
+sbatch and Apptainer requests to its parent host shell through private temporary
+FIFOs. Argument boundaries, live stdout/stderr, and exit statuses are preserved;
+site executables and authentication stay on the host. No nested Apptainer or
+host Python is required, including in the allocated Slurm wrappers.
+
+Apptainer first runs the existing configuration/split preparation
 entry point on the login node, inside the selected container, without GPU flags.
 This pairs filenames and writes the manifests without reading raster pixels or
 loading pretrained models. It is ordinary preparation, not a scheduler job or
@@ -1234,8 +1244,9 @@ container. Requests group preparation, container, paths, resource, scheduler,
 and inference settings. The preparation settings own the epoch budget. Durable
 submission state and container commands remain internal, and
 `lfm/artifacts.py` owns JSON replacement for both execution and training.
-Host imports remain standard-library-only. Replacement jobs, retries, and
-completion reconciliation remain deferred to ticket 07.
+Controller imports remain standard-library-only and execute inside the selected
+container. Host Bash invokes the scheduler and container runtime. Replacement
+jobs, retries, and completion reconciliation remain deferred to ticket 07.
 
 `PairedPredictionExport` owns the sorted eligible display prefix, independent
 instance-mask encoding, source/geometry/validity checks, prediction indexes,

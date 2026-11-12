@@ -1,4 +1,4 @@
-"""Host allocation entry point; no ML/Conda/GDAL imports on the host."""
+"""Container-side allocation controller; the parent shell launches GPU work."""
 
 import argparse
 import sys

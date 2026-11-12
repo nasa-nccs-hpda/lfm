@@ -81,11 +81,17 @@ for index, arg in enumerate(args):
     if arg == "--env":
         key, value = args[index + 1].split("=", 1)
         env[key] = value
+python = args.index("python")
+if Path(args[python + 2]).name in {
+    "submit_instance_grace_experiment.py", "run_instance_grace_stage.py"
+}:
+    # Controller bootstrap uses container Python; its bridge reaches the host
+    # doubles below without attempting nested container execution.
+    sys.exit(subprocess.run([sys.executable, *args[python + 1:]], env=env).returncode)
 calls = Path(os.environ["CONTAINER_CALLS"])
 history = json.loads(calls.read_text()) if calls.exists() else []
 history.append(args)
 calls.write_text(json.dumps(history))
-python = args.index("python")
 if "prepare_instance_experiment.py" in args[python + 2]:
     assert "--nv" not in args
     sys.exit(subprocess.run([sys.executable, *args[python + 1:]], env=env).returncode)
@@ -131,7 +137,6 @@ def _arguments(cluster):
 def _environment(cluster, **overrides):
     return {
         **os.environ,
-        "PYTHON_BIN": sys.executable,
         "CONTAINER_CALLS": str(cluster.container_calls),
         "MPLBACKEND": "Agg",
         "MPLCONFIGDIR": str(cluster.root.parent / "host-mpl"),
