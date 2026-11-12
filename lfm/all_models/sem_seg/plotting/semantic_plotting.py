@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from matplotlib.colors import ListedColormap
@@ -24,6 +23,8 @@ from lfm.all_models.all_tasks.utils.display import (
 )
 from lfm.all_models.all_tasks.utils.metrics import calculate_f1_score
 from lfm.all_models.all_tasks.utils.prediction_cache import _load_prediction_cache
+from lfm.all_models.plotting import figure_grid
+from lfm.all_models.prediction_artifacts import ChipMetadata
 
 
 def plot_validation_predictions(
@@ -63,47 +64,44 @@ def plot_validation_predictions(
     preds = pred.detach().cpu()[:n_samples]
     batch_size = min(n_samples, images.shape[0])
 
-    fig, axes = plt.subplots(4, batch_size, figsize=(4 * batch_size, 16))
-    if batch_size == 1:
-        axes = axes.reshape(4, 1)
+    with figure_grid(4, batch_size, figsize=(4 * batch_size, 16)) as grid:
+        fig, axes = grid.figure, grid.axes
 
-    cmap_pred = ListedColormap(["black", "yellow"])
-    cmap_label = ListedColormap(["black", "red"])
-    f1_scores = []
-    display_note = None
+        cmap_pred = ListedColormap(["black", "yellow"])
+        cmap_label = ListedColormap(["black", "red"])
+        f1_scores = []
+        display_note = None
 
-    for i in range(batch_size):
-        img = images[i].numpy().transpose(1, 2, 0)
-        label = labels[i].numpy()
-        pred_i = preds[i].numpy()
-        f1 = calculate_f1_score(pred_i, label)
-        f1_scores.append(f1)
+        for i in range(batch_size):
+            img = images[i].numpy().transpose(1, 2, 0)
+            label = labels[i].numpy()
+            pred_i = preds[i].numpy()
+            f1 = calculate_f1_score(pred_i, label)
+            f1_scores.append(f1)
 
-        img_vis, note = prepare_image_for_display(img, method=display_method)
-        display_note = display_note or note
-        cmap_image = "gray" if img_vis.ndim == 2 else None
+            img_vis, note = prepare_image_for_display(img, method=display_method)
+            display_note = display_note or note
+            cmap_image = "gray" if img_vis.ndim == 2 else None
 
-        axes[0, i].imshow(img_vis, cmap=cmap_image)
-        axes[0, i].set_title(f"Image {i}\nF1: {f1:.3f}", fontsize=12)
-        axes[1, i].imshow(pred_i, cmap=cmap_pred, vmin=0, vmax=1)
-        axes[1, i].set_title(f"Prediction {i}", fontsize=12)
-        axes[2, i].imshow(create_overlay_image(img_vis, pred_i))
-        axes[2, i].set_title(f"Overlay {i}", fontsize=12)
-        axes[3, i].imshow(label, cmap=cmap_label, vmin=0, vmax=1)
-        axes[3, i].set_title(f"Ground Truth {i}", fontsize=12)
-        for row in range(4):
-            axes[row, i].axis("off")
+            axes[0, i].imshow(img_vis, cmap=cmap_image)
+            axes[0, i].set_title(f"Image {i}\nF1: {f1:.3f}", fontsize=12)
+            axes[1, i].imshow(pred_i, cmap=cmap_pred, vmin=0, vmax=1)
+            axes[1, i].set_title(f"Prediction {i}", fontsize=12)
+            axes[2, i].imshow(create_overlay_image(img_vis, pred_i))
+            axes[2, i].set_title(f"Overlay {i}", fontsize=12)
+            axes[3, i].imshow(label, cmap=cmap_label, vmin=0, vmax=1)
+            axes[3, i].set_title(f"Ground Truth {i}", fontsize=12)
+            for row in range(4):
+                axes[row, i].axis("off")
 
-    mean_f1 = float(np.mean(f1_scores)) if f1_scores else 0.0
-    fig.suptitle(
-        f"Validation Predictions - Mean F1: {mean_f1:.3f} | {display_note}",
-        fontsize=16,
-        fontweight="bold",
-    )
-    fig.patch.set_facecolor("white")
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
-    plt.close(fig)
+        mean_f1 = float(np.mean(f1_scores)) if f1_scores else 0.0
+        fig.suptitle(
+            f"Validation Predictions - Mean F1: {mean_f1:.3f} | {display_note}",
+            fontsize=16,
+            fontweight="bold",
+        )
+        fig.tight_layout()
+        grid.save(save_path, dpi=dpi, bbox_inches="tight")
     task.train(was_training)
     print(f"Saved validation plot to {save_path}")
     return save_path
@@ -134,60 +132,80 @@ def plot_prediction_cache_comparison(
     model_names = list(loaded)
     n_rows = 2 + (2 * len(model_names))
     n_cols = len(sample_keys)
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 3.5 * n_rows))
-    if n_cols == 1:
-        axes = axes.reshape(n_rows, 1)
+    with figure_grid(n_rows, n_cols, figsize=(4 * n_cols, 3.5 * n_rows)) as grid:
+        fig, axes = grid.figure, grid.axes
 
-    cmap_label = ListedColormap(["black", "red"])
-    for col, sample_key in enumerate(sample_keys):
-        reference = loaded[first_model][sample_key]
-        img = reference["image"].transpose(1, 2, 0)
-        label = reference["label"]
-        img_vis, display_note = prepare_image_for_display(img, method=display_method)
-        cmap_image = "gray" if img_vis.ndim == 2 else None
-
-        axes[0, col].imshow(img_vis, cmap=cmap_image)
-        axes[0, col].set_title(
-            f"{_display_sample_key(sample_key)}\n{display_note}", fontsize=10
-        )
-        axes[1, col].imshow(label, cmap=cmap_label, vmin=0, vmax=1)
-        axes[1, col].set_title("Ground Truth", fontsize=10)
-
-        row = 2
-        for model_name in model_names:
-            sample = loaded[model_name][sample_key]
-            pred = sample["pred"]
-            f1 = calculate_f1_score(pred, label)
-            display_name = _model_display_name(model_name)
-            model_color = _model_color(model_name)
-            cmap_pred = ListedColormap(["black", model_color])
-
-            axes[row, col].imshow(pred, cmap=cmap_pred, vmin=0, vmax=1)
-            axes[row, col].set_title(f"{display_name} Pred\nF1: {f1:.3f}", fontsize=10)
-            row += 1
-
-            axes[row, col].imshow(
-                create_colored_overlay_image(img_vis, pred, color=model_color)
+        cmap_label = ListedColormap(["black", "red"])
+        for col, sample_key in enumerate(sample_keys):
+            reference = loaded[first_model][sample_key]
+            img = reference["image"].transpose(1, 2, 0)
+            label = reference["label"]
+            img_vis, display_note = prepare_image_for_display(
+                img, method=display_method
             )
-            axes[row, col].set_title(f"{display_name} Overlay", fontsize=10)
-            row += 1
+            cmap_image = "gray" if img_vis.ndim == 2 else None
 
-        for row_idx in range(n_rows):
-            axes[row_idx, col].axis("off")
+            axes[0, col].imshow(img_vis, cmap=cmap_image)
+            axes[0, col].set_title(
+                f"{_display_sample_key(sample_key)}\n{display_note}", fontsize=10
+            )
+            axes[1, col].imshow(label, cmap=cmap_label, vmin=0, vmax=1)
+            axes[1, col].set_title("Ground Truth", fontsize=10)
 
-    fig.suptitle(
-        "Side-by-Side Segmentation Predictions",
-        fontsize=16,
-        fontweight="bold",
-        y=0.995,
-    )
-    fig.patch.set_facecolor("white")
-    plt.tight_layout(rect=[0, 0, 1, 0.94])
+            row = 2
+            for model_name in model_names:
+                sample = loaded[model_name][sample_key]
+                ChipMetadata(
+                    sample_key,
+                    reference["image_path"],
+                    reference["label_path"],
+                    label >= 0,
+                    display_note,
+                ).validate_pair(
+                    ChipMetadata(
+                        sample_key,
+                        sample["image_path"],
+                        sample["label_path"],
+                        sample["label"] >= 0,
+                        display_note,
+                    )
+                )
+                if not np.array_equal(label, sample["label"]):
+                    raise ValueError(
+                        f"{sample_key}: semantic ground truth differs across model caches."
+                    )
+                pred = sample["pred"]
+                f1 = calculate_f1_score(pred, label)
+                display_name = _model_display_name(model_name)
+                model_color = _model_color(model_name)
+                cmap_pred = ListedColormap(["black", model_color])
 
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    save_path = output_dir / filename
-    plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
-    plt.close(fig)
+                axes[row, col].imshow(pred, cmap=cmap_pred, vmin=0, vmax=1)
+                axes[row, col].set_title(
+                    f"{display_name} Pred\nF1: {f1:.3f}", fontsize=10
+                )
+                row += 1
+
+                axes[row, col].imshow(
+                    create_colored_overlay_image(img_vis, pred, color=model_color)
+                )
+                axes[row, col].set_title(f"{display_name} Overlay", fontsize=10)
+                row += 1
+
+            for row_idx in range(n_rows):
+                axes[row_idx, col].axis("off")
+
+        fig.suptitle(
+            "Side-by-Side Segmentation Predictions",
+            fontsize=16,
+            fontweight="bold",
+            y=0.995,
+        )
+        fig.tight_layout(rect=[0, 0, 1, 0.94])
+
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        save_path = output_dir / filename
+        grid.save(save_path, dpi=dpi, bbox_inches="tight")
     print(f"Saved side-by-side comparison plot to {save_path}")
     return save_path

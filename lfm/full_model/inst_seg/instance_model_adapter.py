@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lfm.all_models.all_tasks import InstanceModelAdapter
 from lfm.full_model.inst_seg import instance_graha_components as components
+
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningDataModule, LightningModule
+
+    from lfm.all_models.inst_seg.config import InstanceSegmentationExperimentConfig
 
 
 class GrahaInstanceModelAdapter(InstanceModelAdapter):
@@ -88,4 +93,26 @@ class GrahaInstanceModelAdapter(InstanceModelAdapter):
             checkpoint_path,
             *args,
             **kwargs,
+        )
+
+    def create_recorded_task(
+        self,
+        config: InstanceSegmentationExperimentConfig,
+        datamodule: LightningDataModule,
+    ) -> LightningModule:
+        import torch
+
+        effective = self.build_comparison_config(config, config.base_output_dir)
+        self.configure_python_paths(effective)
+        deps = self.import_project_dependencies()
+        task_cls = self.make_task_class(deps["LunarObjectDetectionTask"])
+        # Geometry must not consume the training sampler.
+        return self.create_task(
+            effective,
+            task_cls,
+            {
+                "image": torch.empty(
+                    0, len(config.band_filter), config.target_size, config.target_size
+                )
+            },
         )

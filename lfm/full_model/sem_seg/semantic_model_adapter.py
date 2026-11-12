@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lfm.all_models.all_tasks import SemanticModelAdapter
 from lfm.full_model.sem_seg import semantic_graha_components as components
+
+if TYPE_CHECKING:
+    from lfm.all_models.recorded_training import (
+        PreparedModel,
+        SelectionPolicy,
+        TrainingRun,
+    )
+    from lfm.all_models.sem_seg.config import SemanticSegmentationExperimentConfig
 
 
 class GrahaSemanticModelAdapter(SemanticModelAdapter):
@@ -89,3 +97,42 @@ class GrahaSemanticModelAdapter(SemanticModelAdapter):
             *args,
             **kwargs,
         )
+
+    @property
+    def recorded_selection(self) -> SelectionPolicy:
+        from lfm.all_models.recorded_training import SelectionPolicy
+
+        return SelectionPolicy("val/loss", "min")
+
+    def prepare(
+        self,
+        run: TrainingRun[SemanticSegmentationExperimentConfig],
+        initial_epoch: int,
+        owner: object,
+    ) -> PreparedModel[SemanticSegmentationExperimentConfig]:
+        import torch
+
+        from lfm.all_models.recorded_training import PreparedModel
+
+        config = run.configuration
+        self.configure_environment()
+        effective = self.build_comparison_config(config, run.output_dir)
+        self.configure_python_paths(effective)
+        self.validate_required_paths(effective)
+        deps = self.import_project_dependencies()
+        dm_cls = deps[
+            "LunarSemanticFromInstanceDatamodule"
+            if config.semantic_label_source == "instance"
+            else "LunarSemanticMaskSegmentationDatamodule"
+        ]
+        means, stds = self.get_normalization_stats(effective, dm_cls)
+        dm = self.create_datamodule(effective, dm_cls, means, stds)
+        dm.setup("fit")
+        task_cls = self.make_task_class(deps["LunarShapeSegmentationTask"])
+        # Build from configured geometry without consuming the training loader.
+        task = self.create_task(
+            effective,
+            task_cls,
+            {"image": torch.empty(0, len(config.band_filter), *config.target_size)},
+        )
+        return PreparedModel(run, task, dm, owner)

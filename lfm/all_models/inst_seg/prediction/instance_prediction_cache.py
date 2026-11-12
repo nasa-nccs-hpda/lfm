@@ -32,7 +32,7 @@ def _to_cpu_prediction_list(predictions) -> list[dict[str, torch.Tensor]]:
 def _boxes_from_instance_mask(mask: np.ndarray) -> np.ndarray:
     boxes = []
     for instance_id in np.unique(mask):
-        if int(instance_id) == 0:
+        if int(instance_id) <= 0:
             continue
         ys, xs = np.where(mask == instance_id)
         if xs.size == 0 or ys.size == 0:
@@ -114,8 +114,15 @@ def _save_instance_cache_arrays(
     pred_boxes: np.ndarray,
     pred_scores: np.ndarray,
     image_path: str = "",
+    valid_mask: np.ndarray | None = None,
+    image_valid_mask: np.ndarray | None = None,
+    chip_id: str = "",
 ) -> dict:
     filename = f"{index:04d}_{sample_key}.npz"
+    validity = gt_mask >= 0 if valid_mask is None else valid_mask.astype(bool)
+    extra_arrays = {"valid_mask": validity, "chip_id": chip_id or sample_key}
+    if image_valid_mask is not None:
+        extra_arrays["image_valid_mask"] = image_valid_mask.astype(bool)
     np.savez_compressed(
         cache_dir / filename,
         image=image,
@@ -127,12 +134,14 @@ def _save_instance_cache_arrays(
         sample_key=sample_key,
         model_name=model_name,
         image_path=image_path,
+        **extra_arrays,
     )
     return {
         "index": index,
         "sample_key": sample_key,
         "file": filename,
         "image_path": image_path,
+        "chip_id": chip_id or sample_key,
     }
 
 
@@ -262,7 +271,16 @@ def save_graha_instance_prediction_cache(
                     filenames[i] if i < len(filenames) else None, saved
                 )
                 gt_masks = batch["masks"][i].detach().cpu()
-                gt_mask = _prediction_masks_to_instance_map(gt_masks, threshold=0.5)
+                gt_mask = (
+                    batch["mask"][i].detach().cpu().numpy().astype(np.int32)
+                    if "mask" in batch
+                    else _prediction_masks_to_instance_map(gt_masks, threshold=0.5)
+                )
+                valid_mask = (
+                    batch["valid_mask"][i].detach().cpu().numpy().astype(bool)
+                    if "valid_mask" in batch else gt_mask >= 0
+                )
+                gt_mask[~valid_mask] = -1
                 gt_boxes = batch["boxes"][i].detach().cpu().numpy().astype(np.float32)
                 scores = pred.get("scores", torch.zeros((0,), dtype=torch.float32))
                 keep = scores >= score_threshold
@@ -277,6 +295,7 @@ def save_graha_instance_prediction_cache(
                 pred_mask = _prediction_masks_to_instance_map(
                     pred_masks_t, threshold=0.5
                 )
+                pred_mask[~valid_mask] = 0
                 manifest.append(
                     _save_instance_cache_arrays(
                         cache_dir,
@@ -293,6 +312,12 @@ def save_graha_instance_prediction_cache(
                         .astype(np.float32),
                         pred_scores=pred_scores,
                         image_path=str(filenames[i]) if i < len(filenames) else "",
+                        valid_mask=valid_mask,
+                        image_valid_mask=(
+                            batch["image_valid_mask"][i].detach().cpu().numpy()
+                            if "image_valid_mask" in batch else None
+                        ),
+                        chip_id=batch.get("chip_id", [sample_key] * x.shape[0])[i],
                     )
                 )
                 saved += 1
@@ -328,5 +353,10 @@ def _load_instance_prediction_cache(cache_dir: str | Path) -> dict[str, dict]:
             "pred_boxes": data["pred_boxes"],
             "pred_scores": data["pred_scores"],
             "image_path": str(data["image_path"]),
+            "valid_mask": data["valid_mask"] if "valid_mask" in data else data["gt_mask"] >= 0,
+            "chip_id": str(data["chip_id"]) if "chip_id" in data else sample_key,
         }
+        if "image_valid_mask" in data:
+            samples[sample_key]["image_valid_mask"] = data["image_valid_mask"]
+        data.close()
     return samples

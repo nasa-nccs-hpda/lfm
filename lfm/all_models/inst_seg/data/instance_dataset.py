@@ -14,6 +14,7 @@ from lfm.all_models.all_tasks.data import (
 )
 from lfm.all_models.all_tasks.data.image_crop_resize import center_crop
 from lfm.all_models.all_tasks.data.image_io import (
+    PairRecord,
     read_image_file_with_nodata_mask,
     read_label_file_with_metadata,
 )
@@ -26,6 +27,7 @@ from lfm.all_models.all_tasks.data.tensor_utils import (
     mask_to_hw_long,
     shift_mask,
 )
+from lfm.all_models.inst_seg.data.eligibility import SkippedInstanceChip
 from lfm.all_models.inst_seg.data.instance_data_utils import (
     boxes_to_tensor,
     instance_mask_to_object_detection_targets,
@@ -57,14 +59,13 @@ def minmax_scale_per_band(
         band_min = valid_band.min()
         band_max = valid_band.max()
         if band_max > band_min:
-            scaled[band_idx] = (band - band_min) / torch.clamp(
+            scaled[band_idx][valid] = (band[valid] - band_min) / torch.clamp(
                 band_max - band_min,
                 min=1e-8,
             )
         else:
-            scaled[band_idx] = band
-        if nodata_mask is not None and torch.any(nodata_mask):
-            scaled[band_idx][band_nodata_mask] = 0.0
+            # Preserve the existing constant-valid-band behavior, excluding NoData.
+            scaled[band_idx][valid] = band[valid]
     return scaled
 
 
@@ -96,6 +97,9 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
         nodata_policy: NoDataPolicy | None = None,
         max_samples: int | None = None,
         split_name: str | None = None,
+        records: list[PairRecord] | None = None,
+        include_raw_image: bool = False,
+        skip_invalid_chips: bool = False,
     ) -> None:
         target_shape = (
             (int(target_size), int(target_size))
@@ -135,7 +139,14 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
             scale_inputs=scale_inputs,
             normalization=normalization_strategy,
             nodata_policy=nodata_strategy,
+            records=records,
         )
+        self.include_raw_image = include_raw_image
+        self.skip_invalid_chips = skip_invalid_chips
+        if skip_invalid_chips and not nodata_strategy.ignore_in_loss:
+            raise ValueError(
+                "Skipping invalid chips requires ignore_nodata_in_loss=True."
+            )
         self.normalize_inputs = normalize_inputs
         self.means = means
         self.stds = stds
@@ -152,12 +163,12 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
     def _load_instance_sample(
         self,
         index: int,
-    ) -> tuple[dict[str, Any], torch.Tensor | None, int | None]:
+    ) -> tuple[dict[str, Any], torch.Tensor | None, int | None] | SkippedInstanceChip:
         record = self.records[index]
         image_array, nodata_mask_array = read_image_file_with_nodata_mask(
             record.image_path,
             excluded_values=self.nodata_policy.excluded_values,
-            per_band=self.nodata_policy.needs_per_band_image_mask,
+            per_band=True,
         )
         image = image_to_chw_float(image_array)
         nodata_mask = torch.as_tensor(nodata_mask_array, dtype=torch.bool)
@@ -172,6 +183,10 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
         label = read_label_file_with_metadata(record.label_path)
         label_mask = label["mask"] if isinstance(label, dict) else label
         mask = mask_to_hw_long(label_mask)
+        if tuple(image.shape[-2:]) != tuple(mask.shape):
+            raise ValueError(
+                f"Image/label geometry differs for {record.image_path.name}."
+            )
         crater_boxes = None
         num_craters = None
         if isinstance(label, dict):
@@ -180,7 +195,7 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
             if raw_num_craters is not None:
                 num_craters = int(torch.as_tensor(raw_num_craters).item())
 
-        image = self.nodata_policy.apply_to_image_tensor(image, nodata_mask)
+        raw_image = image.clone() if self.include_raw_image else None
         mask = self.nodata_policy.apply_to_mask_tensor(
             mask,
             label_nodata_mask,
@@ -199,13 +214,46 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
             fill_label=False,
         )
         original_size = tuple(mask.shape[-2:])
+        image_valid_mask, _, _ = center_crop(
+            ~nodata_mask, mask, self.target_size, sample_name=record.image_path.name
+        )
+        _, cropped_mask, _ = center_crop(
+            image, mask, self.target_size, sample_name=record.image_path.name
+        )
+        valid_mask = image_valid_mask.all(dim=0) & (
+            cropped_mask != self.nodata_policy.ignore_index
+        )
+        if self.skip_invalid_chips and not torch.any(valid_mask):
+            return SkippedInstanceChip(
+                chip_id=record.chip_id
+                or f"{self.base_dir.name}/{record.image_path.name}",
+                image_path=str(record.image_path),
+                label_path=str(record.label_path),
+            )
+        if raw_image is not None:
+            # Keep the canonical crop before either model's input transformation.
+            raw_image, _, _ = center_crop(
+                raw_image, mask, self.target_size, sample_name=record.image_path.name
+            )
 
         if self.scale_inputs:
-            scale_nodata_mask = (
-                nodata_mask if self.nodata_policy.ignore_in_loss else None
+            # Compute min/max from raw valid values, before filling missing pixels.
+            image = minmax_scale_per_band(image, nodata_mask)
+        else:
+            fill_mask = (
+                label_nodata_mask
+                if self.nodata_policy.image_nodata_policy == "union"
+                else nodata_mask
             )
-            image = minmax_scale_per_band(image, scale_nodata_mask)
+            image = self.nodata_policy.apply_to_image_tensor(image, fill_mask)
         image = self.normalization.apply_tensor(image)
+        if self.nodata_policy.ignore_in_loss:
+            fill_mask = (
+                label_nodata_mask
+                if self.nodata_policy.image_nodata_policy == "union"
+                else nodata_mask
+            )
+            image = image.masked_fill(fill_mask, 0.0)
 
         image, mask, crater_boxes = center_crop(
             image,
@@ -219,14 +267,27 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
             "mask": mask.long(),
             "filename": record.image_path.name,
             "original_size": original_size,
+            "chip_id": record.chip_id
+            or f"{self.base_dir.name}/{record.image_path.name}",
         }
+        if self.nodata_policy.ignore_in_loss:
+            sample["valid_mask"] = valid_mask
+            sample["image_valid_mask"] = image_valid_mask
+            # Stored boxes/counts can include portions outside the common footprint.
+            crater_boxes, _, _ = instance_mask_to_object_detection_targets(mask)
+            num_craters = int(crater_boxes.shape[0])
+        if raw_image is not None:
+            sample["raw_image"] = raw_image
         if crater_boxes is not None:
             sample["crater_boxes"] = crater_boxes
             num_craters = int(crater_boxes.shape[0])
         return sample, crater_boxes, num_craters
 
-    def __getitem__(self, index: int) -> dict[str, Any]:
-        sample, _, num_craters = self._load_instance_sample(index)
+    def __getitem__(self, index: int) -> dict[str, Any] | SkippedInstanceChip:
+        loaded = self._load_instance_sample(index)
+        if isinstance(loaded, SkippedInstanceChip):
+            return loaded
+        sample, _, num_craters = loaded
         if num_craters is not None:
             sample["num_craters"] = torch.tensor(num_craters, dtype=torch.long)
         return sample
@@ -235,17 +296,27 @@ class LunarInstanceMaskDataset(LunarSegmentationDataset):
 class InstanceSegmentationDataset(LunarInstanceMaskDataset):
     """Dataset for split lunar instance labels in Mask2Former format."""
 
-    def __getitem__(self, index: int) -> dict[str, Any]:
-        sample, _, _ = self._load_instance_sample(index)
+    def __getitem__(self, index: int) -> dict[str, Any] | SkippedInstanceChip:
+        loaded = self._load_instance_sample(index)
+        if isinstance(loaded, SkippedInstanceChip):
+            return loaded
+        sample, _, _ = loaded
         mask_labels, class_labels = mask_to_binary_instance_targets(sample["mask"])
-        return {
+        item = {
             "pixel_values": sample["image"].float(),
             "mask_labels": mask_labels,
             "class_labels": class_labels,
             "instance_mask": sample["mask"].long(),
             "filename": sample["filename"],
             "original_size": sample["original_size"],
+            "chip_id": sample["chip_id"],
         }
+        if "raw_image" in sample:
+            item["raw_image"] = sample["raw_image"]
+        for name in ("valid_mask", "image_valid_mask"):
+            if name in sample:
+                item[name] = sample[name]
+        return item
 
 
 class ObjectDetectionInstanceSegmentationDataset(LunarInstanceMaskDataset):
@@ -262,15 +333,18 @@ class ObjectDetectionInstanceSegmentationDataset(LunarInstanceMaskDataset):
             raise ValueError(f"Unsupported target_box_format: {target_box_format}")
         self.target_box_format = target_box_format
 
-    def __getitem__(self, index: int) -> dict[str, Any]:
-        sample, _, _ = self._load_instance_sample(index)
+    def __getitem__(self, index: int) -> dict[str, Any] | SkippedInstanceChip:
+        loaded = self._load_instance_sample(index)
+        if isinstance(loaded, SkippedInstanceChip):
+            return loaded
+        sample, _, _ = loaded
         boxes, labels, masks = instance_mask_to_object_detection_targets(
             sample["mask"],
             box_format=self.target_box_format,
         )
         if self.nodata_policy.ignore_in_loss:
-            sample["valid_mask"] = (
-                sample["mask"] != int(self.nodata_policy.ignore_index)
+            sample["valid_mask"] = sample["mask"] != int(
+                self.nodata_policy.ignore_index
             )
         sample.pop("original_size", None)
         sample["boxes"] = boxes

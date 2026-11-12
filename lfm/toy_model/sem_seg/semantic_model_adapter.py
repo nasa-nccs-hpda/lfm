@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lfm.all_models.all_tasks import SemanticModelAdapter
 from lfm.toy_model.sem_seg import semantic_toy_components as components
+
+if TYPE_CHECKING:
+    from lfm.all_models.recorded_training import (
+        PreparedModel,
+        SelectionPolicy,
+        TrainingRun,
+    )
+    from lfm.all_models.sem_seg.config import SemanticSegmentationExperimentConfig
 
 
 class ToySemanticModelAdapter(SemanticModelAdapter):
@@ -59,3 +67,28 @@ class ToySemanticModelAdapter(SemanticModelAdapter):
             *args,
             **kwargs,
         )
+
+    @property
+    def recorded_selection(self) -> SelectionPolicy:
+        from lfm.all_models.recorded_training import SelectionPolicy
+
+        return SelectionPolicy("val_loss", "min")
+
+    def prepare(
+        self,
+        run: TrainingRun[SemanticSegmentationExperimentConfig],
+        initial_epoch: int,
+        owner: object,
+    ) -> PreparedModel[SemanticSegmentationExperimentConfig]:
+        from lfm.all_models.recorded_training import PreparedModel
+
+        config = run.configuration
+        info = (
+            config.graha_pretrain_dir / "modality_info.yaml"
+            if config.graha_pretrain_dir
+            else None
+        )
+        dm = self.create_datamodule(
+            config, run.output_dir, normalization_modality_info=info
+        )
+        return PreparedModel(run, self.create_model_or_task(config, dm), dm, owner)

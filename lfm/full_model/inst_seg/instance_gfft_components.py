@@ -96,7 +96,7 @@ def import_project_dependencies() -> dict[str, Any]:
 
 def make_downstream_object_detection_task_class(lunar_object_detection_task_cls):
     return graha.make_downstream_object_detection_task_class(
-        lunar_object_detection_task_cls
+        lunar_object_detection_task_cls, shared_validation_ap=False
     )
 
 

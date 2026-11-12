@@ -70,6 +70,7 @@ class LunarSegmentationDataset(Dataset):
         scale_inputs: bool = True,
         normalization: NormalizationStrategy | None = None,
         nodata_policy: NoDataPolicy | None = None,
+        records: list[PairRecord] | None = None,
     ) -> None:
         self.base_dir = Path(base_dir)
         self.image_dir = self.base_dir / "chips"
@@ -89,15 +90,21 @@ class LunarSegmentationDataset(Dataset):
         self.normalization = normalization or NoNormalization()
         self.nodata_policy = nodata_policy or NoDataPolicy()
 
-        records = find_pair_records(
-            self.image_dir,
-            self.label_dir,
-            image_glob=image_glob,
-            label_glob=label_glob,
-            image_suffix=image_suffix,
-            label_suffix=label_suffix,
-            require_all_labels=require_all_labels,
+        records = (
+            list(records)
+            if records is not None
+            else find_pair_records(
+                self.image_dir,
+                self.label_dir,
+                image_glob=image_glob,
+                label_glob=label_glob,
+                image_suffix=image_suffix,
+                label_suffix=label_suffix,
+                require_all_labels=require_all_labels,
+            )
         )
+        if not records:
+            raise ValueError(f"No image-label pairs supplied for {self.split_name}.")
         if max_samples is not None and max_samples < len(records):
             records = records[:max_samples]
             print(f"{self.log_prefix}Limited to {max_samples} samples")

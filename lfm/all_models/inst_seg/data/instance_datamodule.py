@@ -9,19 +9,21 @@ from typing import Any
 from lfm.all_models.all_tasks.data.base_datamodule import (
     LunarSegmentationDataModule,
 )
-from lfm.all_models.all_tasks.data.normalization import (
-    NormalizationStrategy,
-    build_normalization_strategy,
-)
-from lfm.all_models.all_tasks.data.nodata import (
-    NoDataPolicy,
-    build_nodata_policy,
-)
 from lfm.all_models.all_tasks.data.collate import (
     collate_instance_segmentation,
     collate_mask2former_instance_segmentation,
     collate_object_detection_instance_segmentation,
 )
+from lfm.all_models.all_tasks.data.image_io import PairRecord
+from lfm.all_models.all_tasks.data.nodata import (
+    NoDataPolicy,
+    build_nodata_policy,
+)
+from lfm.all_models.all_tasks.data.normalization import (
+    NormalizationStrategy,
+    build_normalization_strategy,
+)
+from lfm.all_models.inst_seg.data.eligibility import EligibleInstanceDataLoader
 from lfm.all_models.inst_seg.data.instance_dataset import (
     InstanceSegmentationDataset,
     LunarInstanceMaskDataset,
@@ -74,6 +76,10 @@ class InstanceSegmentationDataModule(LunarSegmentationDataModule):
         nodata_policy: NoDataPolicy | None = None,
         input_metadata_fn: InputMetadataFn | None = None,
         pin_memory: bool = True,
+        split_records: dict[str, list[PairRecord]] | None = None,
+        include_raw_image: bool = False,
+        skip_invalid_chips: bool = False,
+        skip_report_dir: str | Path | None = None,
     ) -> None:
         super().__init__(
             data_root,
@@ -89,6 +95,10 @@ class InstanceSegmentationDataModule(LunarSegmentationDataModule):
             input_metadata_fn=input_metadata_fn,
         )
         self.target_size = target_size
+        self.split_records = split_records
+        self.include_raw_image = include_raw_image
+        self.skip_invalid_chips = skip_invalid_chips
+        self.skip_report_dir = skip_report_dir
         self.image_glob = image_glob
         self.label_glob = label_glob
         self.image_suffix = image_suffix
@@ -162,6 +172,11 @@ class InstanceSegmentationDataModule(LunarSegmentationDataModule):
             nodata_policy=self.nodata_policy,
             max_samples=max_samples,
             split_name=split,
+            records=self.split_records[split]
+            if self.split_records is not None
+            else None,
+            include_raw_image=self.include_raw_image,
+            skip_invalid_chips=self.skip_invalid_chips,
             **self._dataset_kwargs(),
         )
 
@@ -190,6 +205,11 @@ class InstanceSegmentationDataModule(LunarSegmentationDataModule):
             nodata_policy=self.nodata_policy,
             max_samples=self.max_samples_by_split["train"],
             split_name="train-stats",
+            records=self.split_records["train"]
+            if self.split_records is not None
+            else None,
+            include_raw_image=self.include_raw_image,
+            skip_invalid_chips=False,
             **self._dataset_kwargs(),
         )
 
@@ -200,6 +220,36 @@ class InstanceSegmentationDataModule(LunarSegmentationDataModule):
             normalize_inputs=True,
             means=self.means,
             stds=self.stds,
+        )
+
+    def _dataloader(self, dataset, *, shuffle: bool):
+        if not self.skip_invalid_chips:
+            return super()._dataloader(dataset, shuffle=shuffle)
+        sampling = {}
+        if getattr(self, "paired_sampler_seed", None) is not None:
+            import torch
+
+            from lfm.all_models.inst_seg.data.sampling import EpochShuffleSampler
+
+            # Keep worker seed generation separate from model RNG. Crops and
+            # preprocessing in this experiment are deterministic in each worker.
+            sampling["generator"] = torch.Generator().manual_seed(
+                self.paired_sampler_seed
+            )
+            if shuffle:
+                sampling["sampler"] = EpochShuffleSampler(
+                    dataset, self.paired_sampler_seed, self.paired_sampler_epoch
+                )
+                shuffle = False
+        return EligibleInstanceDataLoader(
+            dataset,
+            sample_collate_fn=self.collate_fn,
+            skip_report_dir=self.skip_report_dir,
+            batch_size=self.batch_size,
+            shuffle=shuffle,
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
+            **sampling,
         )
 
 

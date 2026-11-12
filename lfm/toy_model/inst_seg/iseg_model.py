@@ -5,17 +5,21 @@ This module provides a complete DINOv3-Mask2Former model with custom backbone re
 The model uses DINOv3-Large as the backbone and Mask2Former as the segmentation head.
 """
 
-import torch
-import torch.nn as nn
-from typing import List, Dict
-from types import SimpleNamespace
-from transformers import AutoModelForUniversalSegmentation
+from __future__ import annotations
+
 import logging
 import os
-
 import warnings
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Dict, List
+
+import torch
+from torch import nn
 
 from lfm.toy_model.all_tasks.dino_patch_embed import flexible_dino_patch_weights
+
+if TYPE_CHECKING:
+    from transformers import AutoModelForUniversalSegmentation
 
 warnings.filterwarnings("ignore", message=".*HF Hub.*")
 
@@ -205,6 +209,8 @@ def create_mask2former_dinov3_model(
     Returns:
         Complete Mask2Former model with DINOv3 backbone
     """
+    from transformers import AutoModelForUniversalSegmentation
+
     # Fixed Mask2Former base model - using Large version
     mask2former_model_name = "facebook/mask2former-swin-large-coco-instance"
 

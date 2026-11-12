@@ -72,11 +72,11 @@ class NotebookHelperTestCase(unittest.TestCase):
         cells = {cell["id"]: "".join(cell["source"]) for cell in notebook["cells"]}
         setup = cells["92e30058"]
         config = cells["58269cbd"]
-        for modality in ("wac", "nac"):
+        for modality, source_kind in (("wac", "vis"), ("wac", "uv"), ("nac", "nac")):
             for static in (False, True):
-                with self.subTest(modality=modality, static=static), tempfile.TemporaryDirectory() as tmp:
+                with self.subTest(modality=modality, source_kind=source_kind, static=static), tempfile.TemporaryDirectory() as tmp:
                     root = Path(tmp)
-                    source = root / ("M123.prj.vis.mos.tif" if modality == "wac" else
+                    source = root / (f"M123.prj.{source_kind}.mos.tif" if modality == "wac" else
                                      "NAC_DTM_NEWCRATER6_M1219245090_80CM.TIF")
                     source.touch()
                     label = root / "craters.gpkg"
@@ -115,7 +115,7 @@ class NotebookHelperTestCase(unittest.TestCase):
                     self.assertTrue(group.tile_config.sources[0].preserve_source_nodata)
                     self.assertTrue(group.tile_config.sources[0].required)
                     self.assertEqual(namespace["PRODUCT_ID"], source.name.split(".")[0])
-                    reader.assert_called_once_with(source, expected_band_count=5 if modality == "wac" else 1)
+                    reader.assert_called_once_with(source, expected_band_count=(2, 5) if modality == "wac" else 1)
                     output = result.output_modalities[0]
                     if modality == "wac":
                         self.assertEqual(output.band_names, tiling.WAC_BAND_NAMES)
@@ -134,6 +134,52 @@ class NotebookHelperTestCase(unittest.TestCase):
         with patch.object(helpers, "_rasterio", return_value=rasterio):
             with self.assertRaisesRegex(ValueError, "Expected 1 source bands, found 3"):
                 helpers.read_source_grid("nac.tif", expected_band_count=1)
+
+    def test_wac_grid_accepts_uv_and_vis_band_counts(self):
+        dataset = MagicMock()
+        dataset.width, dataset.height = 4, 3
+        dataset.crs.to_wkt.return_value = "PROJCS[Moon]"
+        dataset.transform.to_gdal.return_value = (10., 2., .5, 30., .25, -2.)
+        rasterio = MagicMock()
+        rasterio.open.return_value.__enter__.return_value = dataset
+        with patch.object(helpers, "_rasterio", return_value=rasterio):
+            for count in (2, 5):
+                with self.subTest(count=count):
+                    dataset.count = count
+                    grid = helpers.read_source_grid("wac.tif", expected_band_count=(2, 5))
+                    self.assertEqual(grid.transform, dataset.transform.to_gdal.return_value)
+                    self.assertEqual((grid.width, grid.height), (4, 3))
+            for count in (1, 3, 7):
+                with self.subTest(count=count):
+                    dataset.count = count
+                    with self.assertRaisesRegex(ValueError, f"Expected 2 or 5 source bands, found {count}"):
+                        helpers.read_source_grid("wac.tif", expected_band_count=(2, 5))
+        dataset.read.assert_not_called()
+
+    def test_full_workflow_accepts_uv_and_vis_source_grids(self):
+        notebook = json.loads((REPO_ROOT / "notebooks/chip_full_workflow.ipynb").read_text())
+        setup = "".join(next(cell["source"] for cell in notebook["cells"]
+                             if cell["id"] == "dataset_plan")).split("\nplan = plan_raster_chips(")[0]
+        from lfm.data_processing.tiling.product_ids import lunar_product_id_from_raster_path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            label = root / "craters.gpkg"
+            label.touch()
+            for source_kind in ("uv", "vis"):
+                with self.subTest(source_kind=source_kind):
+                    source = root / f"M123.prj.{source_kind}.mos.tif"
+                    source.touch()
+                    grid = type_fixtures.ChipTypesTestCase().grid()
+                    reader = MagicMock(return_value=grid)
+                    namespace = dict(Path=Path, LABEL_PATH=label, SOURCE_RASTER=source,
+                                     MODALITY="wac", INCLUDE_STATIC=False, OUTPUT_BASE_DIR=root / "out",
+                                     datetime=datetime, read_source_grid=reader,
+                                     lunar_product_id_from_raster_path=lunar_product_id_from_raster_path)
+                    exec(setup, namespace)
+                    reader.assert_called_once_with(source, expected_band_count=(2, 5))
+                    self.assertIs(namespace["source_grid"], grid)
+                    self.assertEqual(namespace["PRODUCT_ID"], "M123")
 
     def test_latest_export_uses_modification_time_and_ignores_other_files(self):
         with tempfile.TemporaryDirectory() as tmp:

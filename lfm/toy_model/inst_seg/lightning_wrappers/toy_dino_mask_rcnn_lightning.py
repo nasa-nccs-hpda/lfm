@@ -10,8 +10,14 @@ from lightning.pytorch import LightningModule
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
+from lfm.all_models.inst_seg.mask_ap import MaskAPValidationMixin, mask_ap_inference
+from lfm.all_models.inst_seg.mask_rcnn_nodata import (
+    encode_nodata_in_instance_masks,
+    use_nodata_aware_maskrcnn_loss,
+)
 
-class ToyDinoMaskRCNNLightningModule(LightningModule):
+
+class ToyDinoMaskRCNNLightningModule(MaskAPValidationMixin, LightningModule):
     """Lightning wrapper around a TorchVision Mask R-CNN model."""
 
     def __init__(
@@ -22,6 +28,7 @@ class ToyDinoMaskRCNNLightningModule(LightningModule):
         weight_decay: float = 1.0e-3,
         max_epochs: int = 100,
         max_grad_norm: float | None = 1.0,
+        ignore_nodata_in_loss: bool = False,
     ) -> None:
         super().__init__()
         self.model = model
@@ -29,19 +36,29 @@ class ToyDinoMaskRCNNLightningModule(LightningModule):
         self.weight_decay = weight_decay
         self.max_epochs_for_scheduler = max_epochs
         self.max_grad_norm = max_grad_norm
+        self.ignore_nodata_in_loss = ignore_nodata_in_loss
         self.save_hyperparameters(ignore=["model"])
 
     def _images_and_targets(self, batch: dict[str, Any]):
         images = [image.to(self.device) for image in batch["image"]]
         targets = []
-        for boxes, labels, masks in zip(
-            batch["boxes"], batch["labels"], batch["masks"]
+        if self.ignore_nodata_in_loss and "valid_mask" not in batch:
+            raise KeyError(
+                "ignore_nodata_in_loss=True requires 'valid_mask' in the batch."
+            )
+        for index, (boxes, labels, masks) in enumerate(
+            zip(batch["boxes"], batch["labels"], batch["masks"])
         ):
+            masks = masks.to(self.device, dtype=torch.uint8)
+            if self.ignore_nodata_in_loss:
+                masks = encode_nodata_in_instance_masks(
+                    masks, batch["valid_mask"][index]
+                )
             targets.append(
                 {
                     "boxes": boxes.to(self.device, dtype=torch.float32),
                     "labels": labels.to(self.device, dtype=torch.int64),
-                    "masks": masks.to(self.device, dtype=torch.uint8),
+                    "masks": masks,
                 }
             )
         return images, targets
@@ -49,16 +66,20 @@ class ToyDinoMaskRCNNLightningModule(LightningModule):
     def forward(self, images, targets=None):
         if isinstance(images, torch.Tensor):
             images = [image for image in images]
-        return self.model(images, targets)
+        with use_nodata_aware_maskrcnn_loss(
+            self.ignore_nodata_in_loss and self.model.training and targets is not None
+        ):
+            return self.model(images, targets)
 
     def _loss_step(self, batch: dict[str, Any], stage: str) -> torch.Tensor:
         images, targets = self._images_and_targets(batch)
         batch_size = len(images)
         was_training = self.model.training
         self.model.train()
-        losses = self.model(images, targets)
-        if not was_training:
-            self.model.eval()
+        try:
+            losses = self(images, targets)
+        finally:
+            self.model.train(was_training)
         loss = sum(value for value in losses.values())
         self.log(
             f"{stage}/loss",
@@ -83,7 +104,11 @@ class ToyDinoMaskRCNNLightningModule(LightningModule):
         return self._loss_step(batch, "train")
 
     def validation_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
-        return self._loss_step(batch, "val")
+        loss = self._loss_step(batch, "val")
+        with mask_ap_inference(self.model):
+            predictions = self([image.to(self.device) for image in batch["image"]])
+        self._validation_mask_ap.update(predictions, batch)
+        return loss
 
     def test_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
         return self._loss_step(batch, "test")

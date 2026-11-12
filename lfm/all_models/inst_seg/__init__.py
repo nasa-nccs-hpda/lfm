@@ -1,73 +1,44 @@
-"""Shared instance segmentation helpers across Toy and Graha model families."""
+"""Shared instance segmentation helpers, loaded without optional inference imports."""
 
-from lfm.all_models.inst_seg.config import (
-    InstanceSegmentationExperimentConfig,
-    build_config,
-    build_config_from_args,
-)
-from lfm.all_models.inst_seg.data import (
-    InstanceMaskSegmentationDataModule,
-    InstanceSegmentationDataModule,
-    InstanceSegmentationDataset,
-    LunarInstanceMaskDataset,
-    ObjectDetectionInstanceSegmentationDataModule,
-    ObjectDetectionInstanceSegmentationDataset,
-    boxes_to_tensor,
-    collate_mask2former_instance_segmentation,
-    instance_mask_to_object_detection_targets,
-    mask_to_binary_instance_targets,
-    minmax_scale_per_band,
-)
-from lfm.all_models.inst_seg.notebook_config import (
-    GfftInstanceNotebookConfigs,
-    GrahaInstanceNotebookConfigs,
-    build_gfft_notebook_configs,
-    build_graha_notebook_configs,
-)
-from lfm.all_models.inst_seg.plot_config import (
-    InstanceCheckpointComparisonPlotConfig,
-    ModelPlotSpec,
-    build_checkpoint_comparison_plot_config_from_args,
-)
-from lfm.all_models.inst_seg.sweep_config import (
-    InstanceCheckpointSweepConfig,
-    build_checkpoint_sweep_config_from_args,
-)
-from lfm.all_models.all_tasks.graha_inference import GrahaInstanceModel
-from lfm.all_models.inst_seg.data_cube_inference import (
-    load_and_configure_input_data,
-    plot_instance_inference_results,
-    preprocess_datacubes,
-    sliding_window_instance_inference,
-)
+from importlib import import_module
 
-__all__ = [
-    "GrahaInstanceNotebookConfigs",
-    "GfftInstanceNotebookConfigs",
-    "InstanceCheckpointComparisonPlotConfig",
-    "InstanceCheckpointSweepConfig",
-    "InstanceSegmentationExperimentConfig",
-    "InstanceMaskSegmentationDataModule",
-    "InstanceSegmentationDataset",
-    "InstanceSegmentationDataModule",
-    "LunarInstanceMaskDataset",
-    "ModelPlotSpec",
-    "ObjectDetectionInstanceSegmentationDataModule",
-    "ObjectDetectionInstanceSegmentationDataset",
-    "boxes_to_tensor",
-    "build_config",
-    "build_checkpoint_comparison_plot_config_from_args",
-    "build_checkpoint_sweep_config_from_args",
-    "build_config_from_args",
-    "build_graha_notebook_configs",
-    "build_gfft_notebook_configs",
-    "collate_mask2former_instance_segmentation",
-    "instance_mask_to_object_detection_targets",
-    "mask_to_binary_instance_targets",
-    "minmax_scale_per_band",
-    "GrahaInstanceModel",
-    "load_and_configure_input_data",
-    "plot_instance_inference_results",
-    "preprocess_datacubes",
-    "sliding_window_instance_inference",
-]
+_EXPORT_MODULES = {
+    "GrahaInstanceNotebookConfigs": "lfm.all_models.inst_seg.notebook_config",
+    "GfftInstanceNotebookConfigs": "lfm.all_models.inst_seg.notebook_config",
+    "InstanceCheckpointComparisonPlotConfig": "lfm.all_models.inst_seg.plot_config",
+    "InstanceCheckpointSweepConfig": "lfm.all_models.inst_seg.sweep_config",
+    "InstanceSegmentationExperimentConfig": "lfm.all_models.inst_seg.config",
+    "InstanceMaskSegmentationDataModule": "lfm.all_models.inst_seg.data",
+    "InstanceSegmentationDataset": "lfm.all_models.inst_seg.data",
+    "InstanceSegmentationDataModule": "lfm.all_models.inst_seg.data",
+    "LunarInstanceMaskDataset": "lfm.all_models.inst_seg.data",
+    "ModelPlotSpec": "lfm.all_models.inst_seg.plot_config",
+    "ObjectDetectionInstanceSegmentationDataModule": "lfm.all_models.inst_seg.data",
+    "ObjectDetectionInstanceSegmentationDataset": "lfm.all_models.inst_seg.data",
+    "boxes_to_tensor": "lfm.all_models.inst_seg.data",
+    "build_config": "lfm.all_models.inst_seg.config",
+    "build_checkpoint_comparison_plot_config_from_args": "lfm.all_models.inst_seg.plot_config",
+    "build_checkpoint_sweep_config_from_args": "lfm.all_models.inst_seg.sweep_config",
+    "build_config_from_args": "lfm.all_models.inst_seg.config",
+    "build_graha_notebook_configs": "lfm.all_models.inst_seg.notebook_config",
+    "build_gfft_notebook_configs": "lfm.all_models.inst_seg.notebook_config",
+    "collate_mask2former_instance_segmentation": "lfm.all_models.inst_seg.data",
+    "instance_mask_to_object_detection_targets": "lfm.all_models.inst_seg.data",
+    "mask_to_binary_instance_targets": "lfm.all_models.inst_seg.data",
+    "minmax_scale_per_band": "lfm.all_models.inst_seg.data",
+    "GrahaInstanceModel": "lfm.all_models.all_tasks.graha_inference",
+    "load_and_configure_input_data": "lfm.all_models.inst_seg.data_cube_inference",
+    "plot_instance_inference_results": "lfm.all_models.inst_seg.data_cube_inference",
+    "preprocess_datacubes": "lfm.all_models.inst_seg.data_cube_inference",
+    "sliding_window_instance_inference": "lfm.all_models.inst_seg.data_cube_inference",
+}
+
+__all__ = list(_EXPORT_MODULES)
+
+
+def __getattr__(name: str):
+    if name not in _EXPORT_MODULES:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(import_module(_EXPORT_MODULES[name]), name)
+    globals()[name] = value
+    return value

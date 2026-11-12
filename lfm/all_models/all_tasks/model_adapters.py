@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol, overload
+
+if TYPE_CHECKING:
+    from lfm.full_model.inst_seg.instance_model_adapter import GrahaInstanceModelAdapter
+    from lfm.full_model.sem_seg.semantic_model_adapter import GrahaSemanticModelAdapter
+    from lfm.toy_model.inst_seg.instance_model_adapter import ToyInstanceModelAdapter
+    from lfm.toy_model.sem_seg.semantic_model_adapter import ToySemanticModelAdapter
 
 
 class ModelAdapter(Protocol):
@@ -61,3 +67,60 @@ class InstanceModelAdapter(ModelAdapter, Protocol):
     ) -> Any:
         """Build the instance model or Lightning task."""
         ...
+
+
+@overload
+def resolve_model_adapter(
+    model: str, task: Literal["instance"]
+) -> ToyInstanceModelAdapter | GrahaInstanceModelAdapter: ...
+
+
+@overload
+def resolve_model_adapter(
+    model: str, task: Literal["semantic"]
+) -> ToySemanticModelAdapter | GrahaSemanticModelAdapter: ...
+
+
+@overload
+def resolve_model_adapter(
+    model: str, task: str
+) -> (
+    ToyInstanceModelAdapter
+    | GrahaInstanceModelAdapter
+    | ToySemanticModelAdapter
+    | GrahaSemanticModelAdapter
+): ...
+
+
+def resolve_model_adapter(
+    model: str, task: str
+) -> (
+    ToyInstanceModelAdapter
+    | GrahaInstanceModelAdapter
+    | ToySemanticModelAdapter
+    | GrahaSemanticModelAdapter
+):
+    """Resolve the four existing concrete adapters only when model work starts."""
+    if (model, task) == ("toy", "instance"):
+        from lfm.toy_model.inst_seg.instance_model_adapter import (
+            ToyInstanceModelAdapter,
+        )
+
+        return ToyInstanceModelAdapter()
+    if (model, task) == ("graha", "instance"):
+        from lfm.full_model.inst_seg.instance_model_adapter import (
+            GrahaInstanceModelAdapter,
+        )
+
+        return GrahaInstanceModelAdapter()
+    if (model, task) == ("toy", "semantic"):
+        from lfm.toy_model.sem_seg.semantic_model_adapter import ToySemanticModelAdapter
+
+        return ToySemanticModelAdapter()
+    if (model, task) == ("graha", "semantic"):
+        from lfm.full_model.sem_seg.semantic_model_adapter import (
+            GrahaSemanticModelAdapter,
+        )
+
+        return GrahaSemanticModelAdapter()
+    raise ValueError(f"Unsupported model/task: {model}/{task}")

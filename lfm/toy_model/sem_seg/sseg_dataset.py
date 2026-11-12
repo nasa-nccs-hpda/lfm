@@ -6,7 +6,6 @@ import os
 import warnings
 from glob import glob
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import rasterio
@@ -51,6 +50,10 @@ class LunarCraterDataset(SemanticSegmentationDataset):
         label_suffix: str | None = None,
         label_npz_key: str = "mask",
         binarize_label: bool | LabelBinarizationMode = "auto",
+        no_data_replace: float | None = None,
+        no_label_replace: int | None = None,
+        image_nodata_policy: str = "per_band",
+        nodata_policy: NoDataPolicy | None = None,
         ignore_nodata_in_loss: bool = False,
         nodata_ignore_index: int = -1,
         excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
@@ -85,10 +88,14 @@ class LunarCraterDataset(SemanticSegmentationDataset):
             binarize_label=binarize_label,
             scale_inputs=scale_inputs,
             normalization=normalization,
-            nodata_policy=NoDataPolicy(
+            nodata_policy=nodata_policy
+            or NoDataPolicy(
                 ignore_in_loss=ignore_nodata_in_loss,
                 ignore_index=nodata_ignore_index,
-                image_fill_value=0.0,
+                image_fill_value=0.0 if no_data_replace is None else no_data_replace,
+                label_fill_value=no_label_replace,
+                fill_image_nodata=no_data_replace is not None,
+                image_nodata_policy=image_nodata_policy,
                 excluded_values=self.excluded_nodata_values,
             ),
         )
@@ -108,7 +115,7 @@ class LunarCraterDataset(SemanticSegmentationDataset):
 
 def get_input_metadata(
     base_dir: str,
-    band_filter: Optional[list[int]] = None,
+    band_filter: list[int] | None = None,
 ) -> list[str]:
     """Extract band metadata and return DINO RGB weight assignments per band."""
     image_dir = f"{base_dir}/chips"
@@ -150,9 +157,7 @@ def get_input_metadata(
         if image.ndim == 2:
             num_bands = 1
         elif image.ndim == 3:
-            num_bands = (
-                image.shape[0] if image.shape[0] <= image.shape[-1] else image.shape[-1]
-            )
+            num_bands = min(image.shape[0], image.shape[-1])
         else:
             raise ValueError(f"Expected 2D or 3D image array, got {image.shape}")
         descriptions = [f"Band {i + 1}" for i in range(num_bands)]

@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lfm.all_models.all_tasks import InstanceModelAdapter
 from lfm.toy_model.inst_seg import instance_toy_components as components
+
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningDataModule, LightningModule
+
+    from lfm.all_models.inst_seg.config import InstanceSegmentationExperimentConfig
 
 
 class ToyInstanceModelAdapter(InstanceModelAdapter):
@@ -56,3 +61,10 @@ class ToyInstanceModelAdapter(InstanceModelAdapter):
             *args,
             **kwargs,
         )
+
+    def create_recorded_task(
+        self,
+        config: InstanceSegmentationExperimentConfig,
+        datamodule: LightningDataModule,
+    ) -> LightningModule:
+        return self.create_model_or_task(config, datamodule)

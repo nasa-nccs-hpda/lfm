@@ -23,18 +23,21 @@ warnings.filterwarnings("ignore", message=".*unauthenticated.*")
 def get_input_metadata(
     base_dir: str,
     band_filter: Optional[list[int]] = None,
+    *,
+    image_path: str | Path | None = None,
 ) -> list[str]:
     """Extract band metadata and return DINO RGB weight assignments per band."""
-    image_dir = f"{base_dir}/chips"
-    all_image_paths: list[str] = []
-    for pattern in ("*.tif", "*.tiff", "*.npy", "*.npz", "*.nc"):
-        all_image_paths.extend(glob(os.path.join(image_dir, pattern)))
-    all_image_paths = sorted(all_image_paths)
-    if not all_image_paths:
-        raise FileNotFoundError(
-            f"No image chips found in {image_dir} for .tif/.tiff/.npy/.npz/.nc"
-        )
-    image_path = all_image_paths[0]
+    if image_path is None:
+        image_dir = f"{base_dir}/chips"
+        all_image_paths: list[str] = []
+        for pattern in ("*.tif", "*.tiff", "*.npy", "*.npz", "*.nc"):
+            all_image_paths.extend(glob(os.path.join(image_dir, pattern)))
+        all_image_paths = sorted(all_image_paths)
+        if not all_image_paths:
+            raise FileNotFoundError(
+                f"No image chips found in {image_dir} for .tif/.tiff/.npy/.npz/.nc"
+            )
+        image_path = all_image_paths[0]
 
     wavelengths = {0: 415, 1: 566, 2: 604, 3: 643, 4: 689}
 

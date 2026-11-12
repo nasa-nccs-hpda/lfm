@@ -1,0 +1,26 @@
+{
+  "synthetic": true,
+  "training_run": false,
+  "performance_metrics": null,
+  "figure": "test_chip_comparison_dummy.png",
+  "seed": 42,
+  "input_bands": 70,
+  "display_bands": [
+    3,
+    1,
+    0
+  ],
+  "chip_size": 128,
+  "rows": [
+    "input",
+    "toy_prediction",
+    "full_model_prediction",
+    "ground_truth"
+  ],
+  "columns": [
+    "fake_chip_01",
+    "fake_chip_02",
+    "fake_chip_03"
+  ],
+  "overlay": false
+}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from lfm.all_models.all_tasks.data.image_io import PairRecord
 from lfm.all_models.inst_seg.data.instance_datamodule import (
     InstanceMaskSegmentationDataModule,
     ObjectDetectionInstanceSegmentationDataModule,
@@ -109,6 +110,10 @@ class GrahaObjectDetectionInstanceDataModule(
         excluded_nodata_values: list[float] | tuple[float, ...] | None = None,
         image_nodata_policy: str = "union",
         pin_memory: bool = True,
+        split_records: dict[str, list[PairRecord]] | None = None,
+        include_raw_image: bool = False,
+        skip_invalid_chips: bool = False,
+        skip_report_dir: str | Path | None = None,
     ) -> None:
         super().__init__(
             data_root,
@@ -138,5 +143,9 @@ class GrahaObjectDetectionInstanceDataModule(
             image_nodata_policy=image_nodata_policy,
             target_box_format=target_box_format,
             pin_memory=pin_memory,
+            split_records=split_records,
+            include_raw_image=include_raw_image,
+            skip_invalid_chips=skip_invalid_chips,
+            skip_report_dir=skip_report_dir,
         )
         self.crop_size = crop_size

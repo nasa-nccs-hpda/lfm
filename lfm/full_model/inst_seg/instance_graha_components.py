@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
+import math
 import sys
 import time
 from dataclasses import asdict, dataclass
@@ -20,13 +20,20 @@ from lightning.pytorch import Trainer
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 
 from lfm.all_models.all_tasks import config_defaults as defaults
-from lfm.all_models.all_tasks.utils import (
-    plot_instance_predictions,
-)
 from lfm.all_models.all_tasks.data.normalization import (
     load_terramind_pretraining_stats,
 )
-from lfm.full_model.all_tasks.utils.configure_proj import configure_proj_environment
+from lfm.all_models.all_tasks.utils import (
+    plot_instance_predictions,
+)
+from lfm.all_models.inst_seg.mask_ap import (
+    MASK_AP_KEY,
+    MaskAPValidationMixin,
+    mask_ap_inference,
+)
+from lfm.full_model.all_tasks.utils.configure_proj import (
+    configure_proj_environment,  # noqa: F401 - Public helper used by workflow adapters.
+)
 
 
 class FitProgressLogger(Callback):
@@ -302,7 +309,9 @@ def import_project_dependencies() -> dict[str, Any]:
     }
 
 
-def make_downstream_object_detection_task_class(lunar_object_detection_task_cls):
+def make_downstream_object_detection_task_class(
+    lunar_object_detection_task_cls, *, shared_validation_ap: bool = True
+):
     """Handle zero-instance targets and pixelwise NoData mask loss exclusion."""
 
     class LunarDownstreamObjectDetectionTask(lunar_object_detection_task_cls):
@@ -314,6 +323,33 @@ def make_downstream_object_detection_task_class(lunar_object_detection_task_cls)
         ) -> None:
             super().__init__(*args, **kwargs)
             self.ignore_nodata_in_loss = bool(ignore_nodata_in_loss)
+
+        def configure_optimizers(self):
+            from lfm.all_models.inst_seg.data.eligibility import (
+                EligibleInstanceDataLoader,
+            )
+
+            if self.ignore_nodata_in_loss and self.cosine_t_max is None:
+                trainer = self.trainer
+                # As in the parent implementation, this initializes the normal
+                # training loader if needed; it does not inspect pixel eligibility.
+                estimated_steps = trainer.estimated_stepping_batches
+                loader = trainer.train_dataloader
+                if not math.isfinite(estimated_steps) and isinstance(
+                    loader, EligibleInstanceDataLoader
+                ):
+                    steps_per_epoch = math.ceil(
+                        loader.batch_count_upper_bound / trainer.accumulate_grad_batches
+                    )
+                    self.cosine_t_max = max(
+                        1, steps_per_epoch * trainer.max_epochs - self.warmup_steps
+                    )
+                    self.save_hyperparameters({"cosine_t_max": self.cosine_t_max})
+                    print(
+                        f"[GRAHA] cosine_t_max={self.cosine_t_max} from nominal membership; eligibility is resolved during loading.",
+                        flush=True,
+                    )
+            return super().configure_optimizers()
 
         def forward(self, *args: Any, **kwargs: Any):
             from lfm.all_models.inst_seg.mask_rcnn_nodata import (
@@ -369,7 +405,26 @@ def make_downstream_object_detection_task_class(lunar_object_detection_task_cls)
                 y.append(target)
             return y
 
-    return LunarDownstreamObjectDetectionTask
+    if not shared_validation_ap:
+        return LunarDownstreamObjectDetectionTask
+
+    class SharedMaskAPDownstreamTask(
+        MaskAPValidationMixin, LunarDownstreamObjectDetectionTask
+    ):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.monitor = MASK_AP_KEY
+
+        def validation_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0):
+            # Bypass inherited apply_nms_batch: it filters by task/plotting scores
+            # and adds another NMS pass after the detector's own postprocessing.
+            with mask_ap_inference(self.model):
+                predictions = self(batch["image"])
+            if hasattr(predictions, "output"):
+                predictions = predictions.output
+            self._validation_mask_ap.update(predictions, batch)
+
+    return SharedMaskAPDownstreamTask
 
 
 def common_datamodule_args(config: InstanceFineTuningConfig) -> dict[str, Any]:
@@ -392,6 +447,8 @@ def common_datamodule_args(config: InstanceFineTuningConfig) -> dict[str, Any]:
         "nodata_ignore_index": config.nodata_ignore_index,
         "excluded_nodata_values": config.excluded_nodata_values,
         "image_nodata_policy": config.image_nodata_policy,
+        "skip_invalid_chips": config.ignore_nodata_in_loss,
+        "skip_report_dir": config.base_output_dir / "eligibility",
     }
 
 
@@ -668,9 +725,9 @@ def create_trainer(config: InstanceFineTuningConfig, output_dir: Path) -> Traine
     callbacks: list[Callback] = [
         ModelCheckpoint(
             dirpath=str(output_dir / "checkpoints" / "full_model"),
-            monitor="val_segm_map",
+            monitor=MASK_AP_KEY,
             mode="max",
-            filename="model-epoch-{epoch:02d}-val-segm-map={val_segm_map:.3f}",
+            filename="model-epoch-{epoch:02d}-val-mask-ap={val_mask_ap:.3f}",
             auto_insert_metric_name=False,
             save_top_k=-1,
             save_last=False,
@@ -692,6 +749,7 @@ def create_trainer(config: InstanceFineTuningConfig, output_dir: Path) -> Traine
         devices=1,
         precision="32",
         max_epochs=config.max_epochs,
+        num_sanity_val_steps=0,
         check_val_every_n_epoch=1,
         log_every_n_steps=5,
         logger=False,

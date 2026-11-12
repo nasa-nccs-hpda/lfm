@@ -9,7 +9,6 @@ from typing import Any
 import torch
 from lightning.pytorch import Trainer
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
-from transformers import AutoImageProcessor
 
 from lfm.all_models.all_tasks.data.normalization import (
     load_terramind_pretraining_stats,
@@ -19,6 +18,7 @@ from lfm.all_models.all_tasks.utils import (
     save_graha_instance_prediction_cache,
     save_toy_instance_prediction_cache,
 )
+from lfm.all_models.inst_seg.mask_ap import MASK_AP_KEY
 from lfm.toy_model.inst_seg.dino_mask_rcnn_model import create_dino_mask_rcnn_model
 from lfm.toy_model.inst_seg.iseg_model import (
     create_mask2former_dinov3_model,
@@ -206,6 +206,12 @@ def create_datamodule(
         ignore_nodata_in_loss=getattr(config, "ignore_nodata_in_loss", False),
         nodata_ignore_index=getattr(config, "nodata_ignore_index", -1),
         excluded_nodata_values=getattr(config, "excluded_nodata_values", None),
+        image_nodata_policy=getattr(config, "image_nodata_policy", "per_band"),
+        skip_invalid_chips=(
+            config.toy_architecture == "dino-mask-rcnn"
+            and getattr(config, "ignore_nodata_in_loss", False)
+        ),
+        skip_report_dir=config.base_output_dir / "eligibility",
         max_train_samples=config.max_train_samples,
         max_val_samples=config.max_val_samples,
         max_test_samples=config.max_test_samples,
@@ -277,6 +283,7 @@ def create_task(config: Any, weight_assignments: list[str]):
             weight_decay=config.toy_weight_decay,
             max_epochs=config.max_epochs,
             max_grad_norm=config.toy_gradient_clip_val,
+            ignore_nodata_in_loss=config.ignore_nodata_in_loss,
         )
     model = create_mask2former_dinov3_model(
         encoder=encoder,
@@ -297,6 +304,8 @@ def create_task(config: Any, weight_assignments: list[str]):
 def create_image_processor(config: Any):
     if config.toy_architecture in TOY_OBJECT_DETECTION_ARCHITECTURES:
         return None
+    from transformers import AutoImageProcessor
+
     return AutoImageProcessor.from_pretrained(
         "facebook/mask2former-swin-large-coco-instance",
         do_resize=True,
@@ -327,9 +336,15 @@ def create_trainer(
         ),
         ModelCheckpoint(
             dirpath=str(output_dir / "checkpoints" / "toy_model"),
-            monitor="val_loss",
-            mode="min",
-            filename="model-epoch-{epoch:02d}-val-loss={val_loss:.3f}",
+            monitor=MASK_AP_KEY
+            if config.toy_architecture == "dino-mask-rcnn"
+            else "val_loss",
+            mode="max" if config.toy_architecture == "dino-mask-rcnn" else "min",
+            filename=(
+                "model-epoch-{epoch:02d}-val-mask-ap={val_mask_ap:.3f}"
+                if config.toy_architecture == "dino-mask-rcnn"
+                else "model-epoch-{epoch:02d}-val-loss={val_loss:.3f}"
+            ),
             auto_insert_metric_name=False,
             save_top_k=-1,
             save_last=False,

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections.abc import Mapping
 import os
+import re
 from typing import Any
 
 from .._paths import REPO_ROOT
@@ -71,13 +73,22 @@ def latest_crater_label_path(label_dir: str | Path | None = None) -> Path:
     return min(candidates, key=lambda item: (-item[0], item[1]))[2]
 
 
-def read_source_grid(path: str | Path, *, expected_band_count: int | None = None) -> TargetGrid:
-    """Read original imagery metadata only, without loading its raster pixels."""
+def read_source_grid(
+    path: str | Path, *, expected_band_count: int | tuple[int, ...] | None = None
+) -> TargetGrid:
+    """Read native grid metadata, optionally requiring one of the band counts.
+
+    Pass ``(2, 5)`` for a WAC UV or VIS raster. No raster pixels are loaded.
+    """
     from .chip_requests import raster_bounds, validate_target_grid_consistency
 
     with _rasterio().open(Path(path)) as dataset:
-        if expected_band_count is not None and dataset.count != expected_band_count:
-            raise ValueError(f"Expected {expected_band_count} source bands, found {dataset.count}: {path}")
+        if expected_band_count is not None:
+            allowed = ((expected_band_count,) if isinstance(expected_band_count, int)
+                       else expected_band_count)
+            if dataset.count not in allowed:
+                expected = " or ".join(str(count) for count in allowed)
+                raise ValueError(f"Expected {expected} source bands, found {dataset.count}: {path}")
         if dataset.crs is None:
             raise ValueError(f"Source raster has no CRS: {path}")
         transform = dataset.transform.to_gdal()
@@ -283,6 +294,70 @@ def plot_chip_tiling(
     return figure, axes
 
 
+def save_chip_band_pngs(
+    result: ChipResult,
+    *,
+    output_dir: str | Path,
+    band_patterns: Mapping[str, str],
+) -> tuple[Path, ...]:
+    """Save grayscale band PNGs selected by case-insensitive metadata regexes.
+
+    Keys in ``band_patterns`` label modalities in filenames. Match against
+    Rasterio band descriptions, falling back to per-band ``Name`` tags. Each
+    pattern must match at least one band, and a band must match only one
+    modality. No figures are created or displayed. Images retain native pixel
+    dimensions with a per-band 2–98 percentile stretch; masked/NoData and
+    nonfinite pixels are transparent, including entirely uncovered bands.
+    """
+    if not isinstance(result, ChipResult):
+        raise TypeError("result must be a ChipResult.")
+    if result.status != "success" or result.chip_path is None:
+        raise ValueError("Band PNGs require a successful result with a chip path.")
+    if not band_patterns:
+        raise ValueError("Configure at least one band regex.")
+    patterns = {}
+    for modality, pattern in band_patterns.items():
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", modality):
+            raise ValueError(f"Invalid modality filename component: {modality!r}")
+        if not pattern.strip():
+            raise ValueError(f"Band regex for {modality!r} must not be empty.")
+        patterns[modality] = re.compile(pattern, flags=re.IGNORECASE)
+
+    from matplotlib.image import imsave
+
+    np = _numpy()
+    chip_path = Path(result.chip_path)
+    destination = Path(output_dir)
+    saved = []
+    with _rasterio().open(chip_path) as dataset:
+        selections = []
+        matched = set()
+        for index in dataset.indexes:
+            tags = dataset.tags(index)
+            name = (dataset.descriptions[index - 1] or tags.get("Name")
+                    or tags.get("name") or f"band_{index}")
+            modalities = [key for key, regex in patterns.items() if regex.search(name)]
+            if len(modalities) > 1:
+                raise ValueError(f"Band {name!r} matches multiple modalities: {modalities}")
+            if modalities:
+                modality = modalities[0]
+                selections.append((index, name, modality))
+                matched.add(modality)
+        missing = patterns.keys() - matched
+        if missing:
+            raise ValueError(f"No raster band metadata matches regexes for: {sorted(missing)}")
+
+        destination.mkdir(parents=True, exist_ok=True)
+        for index, name, modality in selections:
+            band = np.ma.masked_invalid(dataset.read(index, masked=True).astype("float64"))
+            vmin, vmax = _display_limits(band)
+            safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._") or f"band_{index}"
+            path = destination / f"{chip_path.stem}_{modality}_band_{index:02d}_{safe_name}.png"
+            imsave(path, band, cmap="gray", vmin=vmin, vmax=vmax, origin="upper")
+            saved.append(path)
+    return tuple(saved)
+
+
 def plot_chip_result(
     result: ChipResult,
     *,
@@ -408,4 +483,5 @@ __all__ = [
     "read_display_band",
     "read_label",
     "read_source_grid",
+    "save_chip_band_pngs",
 ]

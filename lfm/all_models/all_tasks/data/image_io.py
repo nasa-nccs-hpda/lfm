@@ -12,6 +12,7 @@ import numpy as np
 class PairRecord:
     image_path: Path
     label_path: Path
+    chip_id: str | None = None
 
 
 DEFAULT_SAMPLE_ID_SUFFIXES = (
