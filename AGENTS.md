@@ -5,6 +5,14 @@ HPC through Apptainer, including Python entry points, tests, linting, formatting
 and diagnostic snippets. Apply this rule to commands given to the user as well
 as commands executed by an agent.
 
+Login nodes provide Slurm submission tools but **do not provide Apptainer**.
+Use host Bash and `sbatch` there to submit work to compute nodes. Start
+Apptainer and container Python only inside a compute-node Slurm allocation.
+Preparation, controller code, imports, and diagnostics need this allocation too;
+they cannot bootstrap a container on a login node. Resolve compute-node
+executable names such as `apptainer` on the compute node, rather than looking
+them up on the login node.
+
 Use this user-specified **Apptainer sandbox directory**:
 
 ```text
@@ -32,12 +40,14 @@ For allocated GPU work, add `--nv` and explicitly forward
 that variable. Preserve the assigned GPU mask. Bind other required inputs and
 writable outputs explicitly, retaining their expected container paths.
 
-Host shell tools may handle navigation, Git, Slurm submission, and Apptainer
-invocation. A launcher that invokes host `python`, `python3`, or host Conda needs
-its execution path corrected before it is recommended. Containerized Python
-controllers must also arrange access to any host scheduler/container tools they
-invoke; wrapping a host-dependent submitter in `apptainer exec` alone does not
-establish that access.
+Host shell tools may handle navigation, Git, and Slurm submission on login
+nodes. Compute-node host Bash may also invoke Apptainer. A login-node launcher
+must submit a compute-node controller job before executing container code.
+`SLURM_JOB_ID` alone does not prove a shell is running on a compute node (for
+example, an `salloc` shell can still be on the login node). The experiment's
+submission wrapper always queues its controller through `sbatch`. Containerized
+Python controllers must arrange access to the compute-node host's scheduler
+and Apptainer commands. Host Python and host Conda are not execution paths.
 
 If this sandbox is unavailable in the agent's workspace, continue file inspection
 and editing with shell/file tools and report container verification as unavailable.

@@ -265,22 +265,41 @@ comparison dependency against the replacement job IDs.
 
 ### Implemented Grace submitter
 
-The host needs Bash, Apptainer, and Slurm; it needs no Python installation.
-The shell entry point starts its Python controller with `apptainer exec
+Login nodes need Bash and `sbatch`; they provide neither a usable Python runtime
+nor Apptainer. From a login node, the shell entry point submits a CPU controller
+job to the selected partition (default: `grace`) and prints its scheduler ID and
+stdout/stderr log paths. It forwards `--partition`, `--account`, and `--qos` to
+both the controller submission and the later model submissions. The wrapper
+always queues its controller through `sbatch`, including from an `salloc` shell
+that may still be running on the login node.
+
+On the compute node, the controller starts Python with `apptainer exec
 --cleanenv`, using the sandbox
 `/explore/nobackup/projects/lfm/containers/lfm-container-ipyleaflet-37938321`.
 `--container` selects an explicit alternative; `--apptainer`/`APPTAINER_BIN` and
-`--sbatch`/`SBATCH_BIN` select the host executables. The controller sends only
-sbatch and Apptainer requests to its parent host shell through private temporary
-FIFOs. Argument boundaries, live stdout/stderr, and exit statuses are preserved;
-site executables and authentication stay on the host. No nested Apptainer or
-host Python is required, including in the allocated Slurm wrappers.
+`--sbatch`/`SBATCH_BIN` select the node's executables. Apptainer command names are
+resolved on compute nodes, without a login-node lookup. The controller sends
+only sbatch and Apptainer requests to its parent compute-node shell through
+private temporary FIFOs. Argument boundaries, live stdout/stderr, and exit
+statuses are preserved; site executables and authentication stay on that host.
+No nested Apptainer or host Python is required, including in allocated wrappers.
 
-Apptainer first runs the existing configuration/split preparation
-entry point on the login node, inside the selected container, without GPU flags.
+The CPU controller defaults to 1 CPU, 8G memory, and 30 minutes. Override these
+with `LFM_CONTROLLER_CPUS`, `LFM_CONTROLLER_MEMORY`, and `LFM_CONTROLLER_TIME`.
+`LFM_CONTROLLER_LOG_DIR` overrides its log directory, which otherwise is
+`scripts/outputs/instance_grace/controller_logs` under the repository. The
+controller's stdout reports the experiment directory and the central
+`pipeline.log` after allocation starts. A login-node submission therefore queues
+one CPU controller job, which then submits the two training jobs and dependent
+GPU comparison job.
+
+Apptainer first runs the existing configuration/split preparation entry point
+within the controller's compute allocation, inside the selected container,
+without GPU flags.
 This pairs filenames and writes the manifests without reading raster pixels or
-loading pretrained models. It is ordinary preparation, not a scheduler job or
-training gate. All three subsequent GPU allocations use `--cleanenv --nv`, with
+loading pretrained models. This preparation runs within the CPU controller job
+before submitting the three GPU jobs. All three GPU allocations use
+`--cleanenv --nv`, with
 explicit Slurm CUDA visibility. Host Apptainer/Singularity environment injection
 and implicit home/current-directory mounts are disabled. Code, datasets, weights,
 and prepared manifests are bound read-only at their resolved absolute paths;
@@ -1269,9 +1288,9 @@ per-channel min/max over valid pixels. Task colorization and metric meanings
 remain in their task modules. The synthetic preview still imports no model
 runtime.
 
-Architecture validation: **127 focused tests passed** (199 warnings) in the
-local CPU environment, covering execution/logging, checkpoint and resume
-compatibility, paired inputs, NoData and multiprocessing loading, mask AP,
+Architecture validation before the HPC bootstrap changes: **127 focused tests
+passed** (199 warnings) in the local CPU environment, covering execution/logging,
+checkpoint and resume compatibility, paired inputs, NoData and multiprocessing loading, mask AP,
 prediction-artifact replay, real semantic adapters, and shared plotting. The
 multiprocessing check requires normal process/shared-memory permissions. Scoped
 Ruff, formatting, whitespace, shell syntax, and standard-library-only host CLI

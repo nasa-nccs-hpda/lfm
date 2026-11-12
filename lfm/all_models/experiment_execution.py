@@ -1,8 +1,9 @@
 """Submission, container launch and allocated execution ownership.
 
-The Python controller runs inside a CPU container; its parent host shell runs
-sbatch and Apptainer. Model dependencies load only inside run_allocated in the
-allocated GPU container. Controller imports remain standard-library only.
+The Python controller runs inside a CPU container on a compute node; its parent
+compute-node shell runs sbatch and Apptainer. Model dependencies load only inside
+run_allocated in the allocated GPU container. Controller imports remain
+standard-library only.
 """
 
 from __future__ import annotations

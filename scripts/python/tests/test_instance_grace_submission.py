@@ -43,6 +43,12 @@ def cluster(tmp_path):
 import json, os, sys
 from pathlib import Path
 args = sys.argv[1:]
+if any(arg.endswith("sbatch_instance_grace_controller.sh") for arg in args):
+    # Login-node submission queues the controller without starting a container.
+    calls = Path(os.environ["CONTAINER_CALLS"]).with_name("controller_calls.json")
+    calls.write_text(json.dumps(args))
+    print("9000;grace-cluster")
+    sys.exit(0)
 manifest = Path(args[-2])
 state = json.loads(manifest.read_text())
 root = Path(state["run_root"])
@@ -137,6 +143,7 @@ def _arguments(cluster):
 def _environment(cluster, **overrides):
     return {
         **os.environ,
+        "SLURM_JOB_ID": "test-compute-allocation",
         "CONTAINER_CALLS": str(cluster.container_calls),
         "MPLBACKEND": "Agg",
         "MPLCONFIGDIR": str(cluster.root.parent / "host-mpl"),
@@ -144,17 +151,30 @@ def _environment(cluster, **overrides):
     }
 
 
-def _submit(cluster, *arguments, **environment):
-    return subprocess.run(
-        [
+def _submit(cluster, *arguments, login_node=False, **environment):
+    if login_node:
+        command = [
             "bash",
             str(
                 grace.REPO_ROOT
                 / "scripts/shell/instance_seg/submit_instance_grace_experiment.sh"
             ),
-            *_arguments(cluster),
-            *arguments,
-        ],
+        ]
+    else:
+        # Exercise the allocated controller; login-node queuing has its own check.
+        command = [
+            "bash",
+            str(
+                grace.REPO_ROOT
+                / "scripts/shell/instance_seg/sbatch_instance_grace_controller.sh"
+            ),
+            str(cluster.container),
+            str(cluster.apptainer),
+            str(cluster.scheduler),
+            str(grace.REPO_ROOT),
+        ]
+    return subprocess.run(
+        [*command, *_arguments(cluster), *arguments],
         env=_environment(cluster, **environment),
         capture_output=True,
         text=True,
@@ -165,6 +185,37 @@ def _submit(cluster, *arguments, **environment):
 
 def _state(cluster):
     return json.loads((cluster.root / "submission.json").read_text())
+
+
+def test_login_submission_queues_controller_without_apptainer(cluster):
+    logs = cluster.root.parent / "controller logs"
+    result = _submit(
+        cluster,
+        "--apptainer",
+        "compute-node-only-apptainer",
+        "--partition",
+        "grace",
+        "--account",
+        "science",
+        "--qos",
+        "long",
+        login_node=True,
+        SLURM_JOB_ID="",
+        LFM_CONTROLLER_LOG_DIR=str(logs),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "9000;grace-cluster" in result.stdout
+    assert str(logs / "controller_9000.out") in result.stdout
+    assert not cluster.container_calls.exists()
+    assert not (cluster.root / "submission.json").exists()
+    command = json.loads(
+        cluster.container_calls.with_name("controller_calls.json").read_text()
+    )
+    assert "--partition=grace" in command
+    assert "--account=science" in command and "--qos=long" in command
+    assert "--cpus-per-task=1" in command and "--mem=8G" in command
+    assert not any(arg.startswith("--gpus") for arg in command)
+    assert "compute-node-only-apptainer" in command
 
 
 def test_one_epoch_submission_and_all_allocated_container_commands(cluster):

@@ -6,6 +6,7 @@ scratch=$(mktemp -d)
 trap 'rm -rf -- "$scratch"' EXIT
 mkdir -p "$scratch/bin" "$scratch/sandbox" "$scratch/tmp"
 export LFM_FAKE_ROOT="$scratch" TMPDIR="$scratch/tmp"
+export SLURM_JOB_ID=test-compute-allocation
 
 cat > "$scratch/bin/python3" <<'STUB'
 #!/usr/bin/env bash
@@ -17,6 +18,13 @@ cp "$scratch/bin/python3" "$scratch/bin/python"
 
 cat > "$scratch/bin/sbatch" <<'STUB'
 #!/usr/bin/env bash
+for argument in "$@"; do
+    if [[ "$argument" == */sbatch_instance_grace_controller.sh ]]; then
+        printf '%s\0' "$@" > "$LFM_FAKE_ROOT/controller-arguments"
+        printf '9000;grace-cluster\n'
+        exit 0
+    fi
+done
 printf '%s\0' "$@" > "$LFM_FAKE_ROOT/scheduler-arguments"
 printf '1001;grace-cluster\n'
 if [[ "${LFM_FAKE_SCHEDULER_STATUS:-0}" != 0 ]]; then
@@ -65,9 +73,11 @@ STUB
 chmod +x "$scratch/bin/"*
 export PATH="$scratch/bin:$PATH" PYTHON_BIN="$scratch/bin/python3"
 export APPTAINERENV_PYTHONPATH=/host/conda SINGULARITYENV_GDAL_DATA=/host/gdal
-submit="$repo_dir/scripts/shell/instance_seg/submit_instance_grace_experiment.sh"
-arguments=(--container "$scratch/sandbox" --apptainer "$scratch/bin/apptainer"
-           --sbatch "$scratch/bin/sbatch" --max-epochs 1)
+submit="$repo_dir/scripts/shell/instance_seg/sbatch_instance_grace_controller.sh"
+experiment_arguments=(--container "$scratch/sandbox" --apptainer "$scratch/bin/apptainer"
+                      --sbatch "$scratch/bin/sbatch" --max-epochs 1)
+arguments=("$scratch/sandbox" "$scratch/bin/apptainer" "$scratch/bin/sbatch" "$repo_dir"
+           "${experiment_arguments[@]}")
 bash "$submit" "${arguments[@]}" > "$scratch/output" 2> "$scratch/error"
 [[ ! -e "$scratch/host-python-used" ]]
 [[ $(<"$scratch/output") == *'container Python selected'* ]]
@@ -112,6 +122,28 @@ done
 kill -0 "$launcher_pid"
 touch "$scratch/release"
 wait "$launcher_pid"
+
+# A login node queues work even when its Apptainer command does not exist.
+rm -- "$scratch/bootstrap-arguments"
+SLURM_JOB_ID= LFM_CONTROLLER_LOG_DIR="$scratch/controller logs" \
+    bash "$repo_dir/scripts/shell/instance_seg/submit_instance_grace_experiment.sh" \
+    "${experiment_arguments[@]}" --apptainer compute-node-only-apptainer \
+    --account science --qos long > "$scratch/login-output" 2> "$scratch/login-error"
+[[ ! -e "$scratch/bootstrap-arguments" && ! -e "$scratch/host-python-used" ]]
+[[ $(<"$scratch/login-output") == *'9000;grace-cluster'* ]]
+[[ $(<"$scratch/login-output") == *'controller_9000.out'* ]]
+account_seen=0
+qos_seen=0
+controller_seen=0
+while IFS= read -r -d '' argument; do
+    case "$argument" in
+        --account=science) account_seen=1 ;;
+        --qos=long) qos_seen=1 ;;
+        */sbatch_instance_grace_controller.sh) controller_seen=1 ;;
+        --gpus*) printf 'CPU controller requested a GPU\n' >&2; exit 1 ;;
+    esac
+done < "$scratch/controller-arguments"
+[[ "$account_seen" == 1 && "$qos_seen" == 1 && "$controller_seen" == 1 ]]
 if compgen -G "$scratch/tmp/lfm-grace-controller.*" > /dev/null; then
     printf 'Controller transport was not cleaned up\n' >&2
     exit 1

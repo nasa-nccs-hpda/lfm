@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Run the Python controller in Apptainer; execute its sbatch/Apptainer calls here
-# on the host, where site binaries, authentication, and runtime libraries exist.
+# on the compute-node host, where site binaries/authentication/libraries exist.
 set -euo pipefail
+if [[ -z "${SLURM_JOB_ID:-}" ]]; then
+    printf 'Apptainer controllers require a Slurm compute-node allocation.\n' >&2
+    exit 1
+fi
 container="${1:?container sandbox required}"
 apptainer_executable="${2:?Apptainer executable required}"
 scheduler_executable="${3:?sbatch executable required}"
