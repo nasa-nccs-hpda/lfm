@@ -300,6 +300,11 @@ def test_one_epoch_submission_and_all_allocated_container_commands(cluster):
         assert f"[{stage} job=1001] model stage output" in central
     assert "Pipeline complete; results:" in central
     assert len(containers) == 4  # CPU preparation + exactly three GPU launches.
+    for stage, command in zip(("prepare", *execution.STAGES), containers):
+        assert "TMPDIR=/tmp" in command
+        temporary_bind = f"{Path(state['cache_dir']) / 'tmp' / stage}:/tmp:rw"
+        binds = [command[i + 1] for i, arg in enumerate(command) if arg == "--bind"]
+        assert binds[0] == temporary_bind
     for index, command in enumerate(containers[1:]):
         assert "--cleanenv" in command and "--nv" in command
         assert "MPLBACKEND=Agg" in command

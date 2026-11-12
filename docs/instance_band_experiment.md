@@ -306,6 +306,13 @@ and prepared manifests are bound read-only at their resolved absolute paths;
 run outputs and model/plot/temporary caches are writable. No host Conda activation
 is required.
 
+Each preparation/training/comparison container sets `TMPDIR=/tmp`, with its
+stage-specific `cache/tmp/<stage>` backing directory bound to `/tmp`. The short
+container path lets Python's multiprocessing resource-sharing sockets fit within
+the Unix socket address limit even when the experiment lives under a long HPC
+path. Changing the launch code does not alter already-running processes; rerun
+the smoke submission in a fresh run directory after deploying this change.
+
 For example, with paths and allocation settings appropriate to the cluster:
 
 ```bash

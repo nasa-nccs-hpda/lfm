@@ -160,6 +160,11 @@ class _Submission:
         ]
         if stage != "prepare":
             command.append("--nv")
+        # Multiprocessing creates AF_UNIX sockets beneath TMPDIR. A full HPC
+        # run/cache path can already exceed the socket address limit. Keep the
+        # backing directory, but expose it through a short container path.
+        # Mount /tmp before any more-specific input/output mounts beneath it.
+        command.extend(["--bind", f"{cache / 'tmp' / stage}:/tmp:rw"])
         binds = [
             (repo, "ro"),
             *((Path(path), "ro") for path in state["inputs"]),
@@ -181,7 +186,7 @@ class _Submission:
             "PYTHONDONTWRITEBYTECODE": "1",
             "MPLBACKEND": "Agg",
             "MPLCONFIGDIR": str(cache / "matplotlib" / stage),
-            "TMPDIR": str(cache / "tmp" / stage),
+            "TMPDIR": "/tmp",
             "HOME": str(cache / "home" / stage),
             "HF_HOME": str(cache / "huggingface"),
             "TORCH_HOME": str(cache / "torch"),
