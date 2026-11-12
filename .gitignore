@@ -13,3 +13,5 @@ test_outputs/
 **.zip
 .pytest_cache/
 /data/
+.agents/skills
+skills-lock.json
