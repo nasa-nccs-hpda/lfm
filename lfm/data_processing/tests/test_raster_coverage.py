@@ -1,11 +1,15 @@
 """Coverage geometry and Jupyter-compatible spawn worker checks."""
 
 from concurrent.futures import ProcessPoolExecutor
+from contextlib import redirect_stdout
 from functools import partial
+import io
 import multiprocessing
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 from pyproj import CRS, Transformer
@@ -167,6 +171,73 @@ class RasterCoverageTests(unittest.TestCase):
         )
         self.assertEqual(result["positive_pair_count"], 1)
         self.assertAlmostEqual(result["top_pairs"][0]["wac_coverage_percent"], 50, places=4)
+
+    def test_parallel_ranking_matches_serial_matrix_and_global_top_five(self):
+        wac = {f"wac_{index:02}.vis.tif": box(index, 0, index + 2, 2).wkb_hex
+               for index in range(10)}
+        wac.update({"seam.uv.tif": box(179, -1, 181, 1).wkb_hex,
+                    "broken.vis.tif": None})
+        nac = {f"nac_{index:02}.tif": box(index, 0, index + 1, 2).wkb_hex
+               for index in range(12)}
+        nac.update({"seam.nac.tif": box(-180, -1, -179, 1).wkb_hex,
+                    "far.nac.tif": box(40, 30, 41, 31).wkb_hex, "broken.nac.tif": None})
+        serial = rank_raster_pairs(wac, nac, lunar_wkt=self.wkt, max_workers=1)
+        output = io.StringIO()
+        updates = []
+        parent_pid = os.getpid()
+
+        def update_progress(completed, total):
+            self.assertEqual(os.getpid(), parent_pid)
+            updates.append((completed, total))
+
+        with redirect_stdout(output):
+            parallel = rank_raster_pairs(wac, nac, lunar_wkt=self.wkt,
+                                         max_workers=10, progress=True,
+                                         progress_callback=update_progress)
+        for key in ("overlap_percent_by_wac", "top_pairs", "positive_pair_count"):
+            self.assertEqual(parallel[key], serial[key])
+        self.assertEqual(parallel["workers_used"], 10)
+        self.assertEqual(len(parallel["top_pairs"]), 5)
+        self.assertEqual(list(parallel["overlap_percent_by_wac"]), sorted(wac))
+        for row in parallel["overlap_percent_by_wac"].values():
+            self.assertEqual(list(row), sorted(nac))
+        self.assertIn("12/12 WAC complete", output.getvalue())
+        self.assertEqual(updates, [(completed, 12) for completed in range(13)])
+        self.assertTrue(all(value >= 0 for value in parallel["timings"].values()))
+        # Rows made from templates must be independent mutable dictionaries.
+        parallel["overlap_percent_by_wac"]["wac_00.vis.tif"]["far.nac.tif"] = 42
+        self.assertEqual(parallel["overlap_percent_by_wac"]["wac_01.vis.tif"]["far.nac.tif"], 0)
+
+    def test_parallel_ranking_failure_is_not_silently_zero_coverage(self):
+        def local_cache(**kwargs):
+            return tempfile.TemporaryDirectory(dir=self.temp.name, **kwargs)
+
+        with patch("lfm.data_processing.raster_coverage.TemporaryDirectory", side_effect=local_cache), \
+                self.assertRaisesRegex(RuntimeError, "broken.vis.tif"):
+            rank_raster_pairs(
+                {"valid.vis.tif": box(0, 0, 1, 1).wkb_hex, "broken.vis.tif": "not WKB"},
+                {"valid.nac.tif": box(0, 0, 1, 1).wkb_hex},
+                lunar_wkt=self.wkt, max_workers=2,
+            )
+        self.assertEqual(list(Path(self.temp.name).iterdir()), [])
+
+    def test_ranking_without_readable_inputs_retains_full_matrix(self):
+        result = rank_raster_pairs(
+            {"valid.vis.tif": box(0, 0, 1, 1).wkb_hex, "broken.uv.tif": None},
+            {"broken.nac.tif": None}, lunar_wkt=self.wkt, max_workers=10,
+        )
+        self.assertEqual(result["overlap_percent_by_wac"],
+                         {"broken.uv.tif": {"broken.nac.tif": None},
+                          "valid.vis.tif": {"broken.nac.tif": None}})
+        self.assertEqual(result["workers_used"], 0)
+        self.assertEqual(result["top_pairs"], [])
+        self.assertEqual(rank_raster_pairs({}, {}, lunar_wkt=self.wkt, max_workers=10)
+                         ["overlap_percent_by_wac"], {})
+
+    def test_invalid_ranking_worker_counts(self):
+        for workers in (0, -1, True, 1.5):
+            with self.subTest(workers=workers), self.assertRaisesRegex(ValueError, "max_workers"):
+                rank_raster_pairs({}, {}, lunar_wkt=self.wkt, max_workers=workers)
 
 
 if __name__ == "__main__":
